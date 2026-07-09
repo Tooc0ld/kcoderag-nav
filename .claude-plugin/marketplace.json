@@ -8,6 +8,11 @@
       "name": "kcoderag-qa",
       "source": "./kcoderag-qa",
       "description": "KCodeRag navigation plugin — QA environment (auto-registers internal QA MCP server, nudges Claude to prefer MCP over grep)"
+    },
+    {
+      "name": "kcoderag-dev",
+      "source": "./kcoderag-dev",
+      "description": "KCodeRag navigation plugin — Dev environment (auto-registers internal Dev MCP server, nudges Claude to prefer MCP over grep)"
     }
   ]
 }
