@@ -17,11 +17,10 @@ import sys
 
 NUDGE = (
     "Tip: this looks like a symbol or call-relation lookup. Prefer the KCodeRag "
-    "MCP tools — mcp__kcoderag-dev__search_code (find definitions / semantic search), "
-    "mcp__kcoderag-dev__get_call_chain (who calls / is called by), or "
-    "mcp__kcoderag-dev__context (360° symbol view). Reserve Grep/Glob for verifying a "
-    "specific already-located line's uncommitted edit, or for exact-string bulk "
-    "replacement."
+    "MCP tools (prefix mcp__plugin_kcoderag-dev_kcoderag-dev__): search_code (find "
+    "definitions / semantic search), get_call_chain (who calls / is called by), "
+    "context (360° symbol view). Reserve Grep/Glob for verifying a specific "
+    "already-located line's uncommitted edit, or for exact-string bulk replacement."
 )
 
 # --- Heuristic: does this grep pattern look like a symbol/call-relation lookup? ---
@@ -36,16 +35,28 @@ NUDGE = (
 SILENT_RES = [
     re.compile(r"^s/.+/.+/[gimsx]*$"),                          # sed-style replace s/old/new/g
     re.compile(r"[^=!<>]?={1,2}[^=]"),                           # assignment / equality compare
-    re.compile(r"^\s*[\w./\\-]+\.(txt|json|yaml|md|log|csv|exe|dll|cpp|h|hpp|lua)\s*$", re.I),  # bare filename
+    re.compile(
+        r"^\s*[\w./\\-]+\.(txt|json|yaml|yml|md|log|csv|exe|dll|so|"
+        r"cpp|cxx|cc|c|h|hpp|hxx|inl|inc|proto|py|pyx|ts|tsx|js|jsx|"
+        r"cs|go|rs|java|kt|lua|xml|ini|conf|cfg|toml|sql|sh|bat)\s*$",
+        re.I,
+    ),  # bare filename (code + common config exts)
     re.compile(r"TODO|FIXME|XXX|HACK", re.I),                    # comment markers
 ]
-# Wildcard/bulk signal: .* or alternation |
-WILDCARD_RE = re.compile(r"\.\*|\|")
-# Symbol anchor: escaped-dot method call \. , :: qualifier, literal \b word boundary,
-# or call parens (escaped or not). A bare unescaped . is NOT an anchor (it's a wildcard).
-ANCHOR_RE = re.compile(r"\\\.|::|\\\\b|\\?\(|\\?\)")
-# Identifier-like token (may be C++-qualified: KPlayer::GetLevel)
-TOKEN_RE = re.compile(r"[A-Za-z_][\w:]*(?:::[A-Za-z_][\w:]*)?")
+# Wildcard/bulk signal: .* (dot-star). NOTE: alternation | alone is NOT a bulk
+# signal — "GetLevel|GetHP" or "KHomelandMgr|KMiniGameMgr" is a multi-symbol
+# lookup and should nudge. Bare alternations of generic/control-flow words are
+# still silenced via NON_SYMBOL below.
+WILDCARD_RE = re.compile(r"\.\*")
+# Symbol anchor: escaped-dot method call \. , :: qualifier, literal \b word
+# boundary (single backslash + b, as ripgrep writes it), or call parens
+# (escaped or not). A bare unescaped . is NOT an anchor (it's a wildcard).
+ANCHOR_RE = re.compile(r"\\\.|::|\\b|\\?\(|\\?\)")
+# Identifier-like token. First char is a Unicode letter/underscore ([^\W\d]) so
+# CJK / non-ASCII symbol names (甄道士, 获取玩家信息, 家园系统) are recognized —
+# this repo has many Chinese lua script names that are exactly what search_code
+# semantic search is for. May be C++-qualified (KPlayer::GetLevel).
+TOKEN_RE = re.compile(r"[^\W\d][\w:]*")
 # Overly generic words / types / control flow — a lone occurrence isn't a symbol lookup.
 NON_SYMBOL = {
     "txt", "json", "yaml", "md", "log", "csv", "exe", "dll", "cpp", "hpp", "lua", "h",
@@ -54,8 +65,11 @@ NON_SYMBOL = {
     "int", "char", "bool", "float", "double", "long", "short", "unsigned", "auto", "void", "const",
     "size", "count", "len", "length", "name", "type", "value", "key", "data", "file", "path", "id", "idx", "num",
 }
-# Declaration / definition keywords — their presence strongly implies a symbol lookup.
-KEYWORDS = ("def", "function", "class", "func", "fn", "method", "inline", "virtual", "override", "struct", "enum")
+# Declaration / definition keywords — their presence strongly implies a symbol
+# lookup (esp. in .* -wildcard greps like "function.*Login" / "#define.*MAX_*").
+# Matched with word boundaries so "default"/"defend" don't trip "def", etc.
+KEYWORDS = ("def", "function", "class", "func", "fn", "method", "inline", "virtual", "override", "struct", "enum", "define")
+KEYWORD_RES = [re.compile(r"\b" + kw + r"\b") for kw in KEYWORDS]
 
 
 def looks_like_symbol_lookup(pattern: str) -> bool:
@@ -69,7 +83,7 @@ def looks_like_symbol_lookup(pattern: str) -> bool:
         if rx.search(p):
             return False
     low = p.lower()
-    if any(kw in low for kw in KEYWORDS):
+    if any(rx.search(low) for rx in KEYWORD_RES):
         return True
     # Wildcard pattern with no symbol anchor → bulk/exact-string, stay silent.
     if WILDCARD_RE.search(p) and not ANCHOR_RE.search(p):

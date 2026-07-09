@@ -28,23 +28,41 @@ CASES = [
     (r"GetLevel\s*\(", True, "find overloads/calls"),
     (r"\.GetLevel\(", True, "method-call site"),
     (":GetLevel(", True, "Lua call site"),
+    (r"\bGet.*\b", True, "word-boundary + wildcard (anchor must hold)"),
+    (r"Get.*Level\b", True, "trailing word-boundary + wildcard"),
+    ("GetLevel|GetHP", True, "alternation of symbols"),
+    ("KHomelandMgr|KMiniGameMgr", True, "alternation of PascalCase classes"),
     ("void GetLevel", True, "declaration w/ void"),
     ("function GetLevel", True, "Lua function def"),
     ("class KPlayer", True, "class declaration"),
     ("#define.*MAX_LEVEL", True, "macro definition"),
     (r"getLevel\(\)", True, "call with parens"),
     ("std::vector", True, ":: qualified type"),
+    ("def GetLevel", True, "Python def (word-boundary keyword)"),
+    ("甄道士", True, "CJK symbol name"),
+    ("获取玩家信息", True, "CJK semantic symbol"),
+    ("家园系统", True, "CJK symbol"),
     # --- should stay SILENT (bulk / exact-string / non-symbol) ---
     ("foo.bar.*", False, "wildcard bulk"),
     ("s/old/new/g", False, "sed-style replace"),
     ("m_nLevel = 123", False, "assignment"),
     ("TODO.*fixme", False, "TODO comment"),
-    ("player.cpp", False, "bare filename"),
+    ("player.cpp", False, "bare filename .cpp"),
+    ("main.c", False, "bare filename .c"),
+    ("config.py", False, "bare filename .py"),
+    ("app.ts", False, "bare filename .ts"),
     ("if.*return", False, "control flow"),
     ("int.*count", False, "type + generic var"),
     ("Foo.*Bar", False, "two wildcards no anchor"),
     ("OnLogin.*OnDie", False, "two symbols + wildcard no anchor"),
+    ("if|else", False, "alternation of control-flow words"),
+    ("default", False, "keyword substring no longer trips (was NUDGE via 'def')"),
 ]
+
+# The nudge text must reference the real plugin-namespaced tool prefix, else the
+# agent is pointed at a tool name it doesn't have. (Claude Code names plugin
+# MCP servers as mcp__plugin_<plugin>_<server>__<tool>.)
+REQUIRED_NUDGE_PREFIX = "mcp__plugin_kcoderag-qa_kcoderag-qa__"
 
 
 def run() -> int:
@@ -56,7 +74,13 @@ def run() -> int:
             print(f"FAIL  {pattern!r:<24} expected={expected} got={got}  ({desc})")
         else:
             print(f"ok    {pattern!r:<24} {expected}  ({desc})")
-    print(f"\n{len(CASES) - failures}/{len(CASES)} passed")
+    # NUDGE prefix check
+    if REQUIRED_NUDGE_PREFIX not in _mod.NUDGE:
+        failures += 1
+        print(f"FAIL  NUDGE missing real tool prefix {REQUIRED_NUDGE_PREFIX!r}")
+    else:
+        print(f"ok    NUDGE has real tool prefix")
+    print(f"\n{len(CASES) + 1 - failures}/{len(CASES) + 1} passed")
     return 1 if failures else 0
 
 
