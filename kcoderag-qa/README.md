@@ -28,9 +28,14 @@ The registered MCP server is named `kcoderag-qa`, so its tools are
 ## Install
 
 ```
-/plugin marketplace add <your-plugin-repo-url>
-/plugin install kcoderag-nav@<marketplace> --scope user
+/plugin marketplace add Tooc0ld/kcoderag-nav
+/plugin install kcoderag-qa@kcoderag-nav --scope user
 ```
+
+The first command registers the **marketplace** (`kcoderag-nav` — the store). The
+second installs the **plugin** (`kcoderag-qa` — the QA-environment plugin from that
+marketplace). You add the marketplace once; future plugins from the same
+marketplace (e.g. a `kcoderag-dev`) just need `/plugin install <name>@kcoderag-nav`.
 
 Use `--scope user` to enable it across all your projects, or `--scope project` to
 enable it only in the current project.
@@ -65,16 +70,24 @@ lookup — a bare identifier (`getPlayerInfo`), a C++-qualified name
 `method`. It stays silent for exact-string and bulk-replace greps (e.g.
 `foo.bar.*`, `s/old/new/g`), so it never gets in the way of mechanical text work.
 
-## This is a seed
+## Repo layout (multi-plugin marketplace)
 
-The `plugin/` directory in the KCodeRag repo is a seed. To publish your own
-marketplace, extract `plugin/` into its own git repo and register it:
+This repo IS the marketplace (`kcoderag-nav`). Each plugin lives in its own
+subdirectory; the root `.claude-plugin/marketplace.json` is the catalog:
 
 ```
-/plugin marketplace add <that-repo-url>
+kcoderag-nav/                       ← marketplace root
+  .claude-plugin/marketplace.json   ← catalog (lists all plugins)
+  kcoderag-qa/                      ← this plugin
+    .claude-plugin/plugin.json
+    .mcp.json  hooks/  agents/  skills/  settings.json  README.md
 ```
 
-Then everyone with repo access installs via the two `/plugin` commands above.
+To add a new plugin (e.g. `kcoderag-dev`): copy the `kcoderag-qa/` directory to
+`kcoderag-dev/`, change its `.mcp.json` to the dev server URL, add one entry to
+the root `marketplace.json` (`{ "name": "kcoderag-dev", "source": "./kcoderag-dev" }`),
+commit, push. Users then `/plugin install kcoderag-dev@kcoderag-nav` — no need to
+re-add the marketplace.
 
 ## Security note
 

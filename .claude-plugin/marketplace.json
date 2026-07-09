@@ -5,9 +5,9 @@
   "name": "kcoderag-nav",
   "plugins": [
     {
-      "name": "kcoderag-nav",
-      "source": "./",
-      "description": "KCodeRag navigation plugin — nudges Claude to prefer KCodeRag MCP over grep, auto-registers the internal QA MCP server"
+      "name": "kcoderag-qa",
+      "source": "./kcoderag-qa",
+      "description": "KCodeRag navigation plugin — QA environment (auto-registers internal QA MCP server, nudges Claude to prefer MCP over grep)"
     }
   ]
 }
