@@ -2,5 +2,7 @@
   "name": "kcoderag-dev",
   "description": "Nudges Claude to prefer KCodeRag MCP over grep for code lookup (Dev environment)",
   "version": "0.1.0",
-  "author": "KCodeRag"
+  "author": {
+    "name": "KCodeRag"
+  }
 }
