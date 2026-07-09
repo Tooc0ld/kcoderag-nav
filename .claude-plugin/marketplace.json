@@ -1,0 +1,13 @@
+{
+  "owner": {
+    "name": "Tooc0ld"
+  },
+  "name": "kcoderag-nav",
+  "plugins": [
+    {
+      "name": "kcoderag-nav",
+      "source": "./",
+      "description": "KCodeRag navigation plugin — nudges Claude to prefer KCodeRag MCP over grep, auto-registers the internal QA MCP server"
+    }
+  ]
+}
