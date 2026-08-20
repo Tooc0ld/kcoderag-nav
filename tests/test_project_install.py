@@ -59,6 +59,32 @@ def copy_canonical_source(destination: Path) -> Path:
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_update_project_keeps_active_qa_and_applies_current_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            (target / "ordinary.bin").write_bytes(b"unrelated-project-bytes\x00")
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            synthetic_source = copy_canonical_source(base)
+            source_launcher = synthetic_source / "plugin-src" / "hooks" / "run_hook.sh"
+            source_launcher.write_bytes(source_launcher.read_bytes() + b"# source-update\n")
+
+            result = installer.update_project(target, synthetic_source)
+
+            self.assertEqual(result, "updated: qa")
+            self.assertEqual(
+                installer.inspect_status(target, synthetic_source),
+                {
+                    "schema_version": 1,
+                    "status": "healthy",
+                    "active_environments": ["qa"],
+                    "issues": [],
+                },
+            )
+            self.assertEqual((target / "ordinary.bin").read_bytes(), b"unrelated-project-bytes\x00")
+            self.assertFalse((target / ".codex" / "kcoderag-nav" / "dev").exists())
+
     def test_status_distinguishes_fresh_target_from_healthy_install(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
