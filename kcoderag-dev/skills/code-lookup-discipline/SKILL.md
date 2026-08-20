@@ -1,34 +1,36 @@
 ---
 name: code-lookup-discipline
-description: Decision table for when to use KCodeRag MCP tools vs grep/Read when looking up code in this repo. Apply whenever searching for symbols, definitions, callers, callees, dependencies, or impact.
+description: Choose KCodeRag MCP tools over local text search for structural code navigation. Apply when finding symbols, definitions, callers, callees, dependencies, cross-language links, or change impact; use local search for exact text and uncommitted edits.
 ---
 
-# Code Lookup Discipline: MCP-first, grep-last
+# KCodeRag Code Navigation
 
-This codebase has a pre-built Neo4j knowledge graph exposed via the KCodeRag MCP
-tools. It is a daily snapshot (~06:00 parse) and is **more complete than grepping**
-for structural questions.
+Use the installed KCodeRag knowledge graph as the first stop for structural questions.
+Tool namespaces differ between Claude Code and Codex, so call the tool names exposed by
+the current host instead of inventing a fully qualified prefix.
 
-## Decision table
+This package supplies the **KCodeRag Dev** environment.
 
-| You want to... | Use this | Why |
-|---|---|---|
-| Find where a function/class/macro is defined | `mcp__kcoderag-dev__search_code` | Symbol-level, faster than grep, understands cross-file |
-| Find symbols by behavior ("get player level") | `mcp__kcoderag-dev__search_code` (semantic) | grep can't do semantic search |
-| See a symbol's 360° view (signature, relations, module) | `mcp__kcoderag-dev__context` | Structured, one call vs grep+read+grep |
-| Find who calls X / what X calls | `mcp__kcoderag-dev__get_call_chain` | Walks the call graph, crosses Lua↔C++ |
-| Impact analysis before editing X | `mcp__kcoderag-dev__get_call_chain` (callers) | Complete caller set in one call |
-| Count/aggregate (e.g. functions per module) | `mcp__kcoderag-dev__cypher` | grep can't aggregate the graph |
-| Custom multi-hop graph traversal | `mcp__kcoderag-dev__cypher` | Graph query grep can't express |
-| Verify a specific line's uncommitted edit | Read / Grep on that file | Graph is a snapshot; live edits need the file |
-| Exact-string bulk find-and-replace | Grep | Mechanical text op, not a structural query |
+## Choose the right lookup
 
-## Rule of thumb
+| Question | First choice |
+|---|---|
+| Where is a symbol defined? | `search_code` |
+| Which symbol matches a behavior or concept? | `search_code` semantic search |
+| What surrounds this symbol? | `context` |
+| Who calls it, or what does it call? | `get_call_chain` |
+| What may break if it changes? | `get_call_chain` callers, then `context` |
+| Is the graph/index available? | `list_indexes` |
+| What does a custom read-only graph traversal show? | `cypher` |
+| Where is an exact string in current local edits? | local Read/Grep/Glob |
 
-- **Structural question** (definition, caller, callee, dependency, impact, type,
-  module) → MCP tool first.
-- **Textual/local question** (a specific uncommitted edit, an exact string to
-  replace) → Read/Grep.
+## Workflow
 
-When an MCP tool returns nothing unexpectedly, call `mcp__kcoderag-dev__list_indexes`
-to confirm the graph/index is healthy **before** falling back to grep.
+1. Resolve the target with `search_code`.
+2. Inspect the best match with `context`.
+3. Traverse callers or callees with `get_call_chain` when relations matter.
+4. Read the located source before editing, because the graph is a snapshot.
+
+If a graph lookup unexpectedly returns nothing, call `list_indexes` and refine the query.
+Fall back to local search when the index is unavailable, the snapshot is stale, or the task is
+an exact-string operation. State that fallback explicitly when it affects confidence.

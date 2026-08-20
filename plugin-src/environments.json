@@ -1,0 +1,34 @@
+{
+  "environments": [
+    {
+      "id": "qa",
+      "plugin_name": "kcoderag-qa",
+      "server_name": "kcoderag-qa",
+      "mcp_source": "plugin-src/environments/qa.mcp.json",
+      "permission_namespace": "mcp__plugin_kcoderag-qa_kcoderag-qa__*",
+      "agent_tool_prefix": "mcp__kcoderag-qa__",
+      "display_name": "KCodeRag QA",
+      "short_description": "Graph-first code navigation for QA",
+      "long_description": "Search symbols, inspect context, and trace cross-language call chains through the KCodeRag QA knowledge graph.",
+      "manifest_description": "Graph-first code navigation through the KCodeRag QA MCP server.",
+      "claude_description": "Nudges Claude to prefer KCodeRag MCP over grep for code lookup (QA environment)",
+      "marketplace_description": "KCodeRag navigation plugin — QA environment for Claude Code and Codex (registers the internal QA MCP server and nudges structural lookup toward the graph)",
+      "brand_color": "#7C3AED"
+    },
+    {
+      "id": "dev",
+      "plugin_name": "kcoderag-dev",
+      "server_name": "kcoderag-dev",
+      "mcp_source": "plugin-src/environments/dev.mcp.json",
+      "permission_namespace": "mcp__plugin_kcoderag-dev_kcoderag-dev__*",
+      "agent_tool_prefix": "mcp__kcoderag-dev__",
+      "display_name": "KCodeRag Dev",
+      "short_description": "Graph-first code navigation for Dev",
+      "long_description": "Search symbols, inspect context, and trace cross-language call chains through the KCodeRag Dev knowledge graph.",
+      "manifest_description": "Graph-first code navigation through the KCodeRag Dev MCP server.",
+      "claude_description": "Nudges Claude to prefer KCodeRag MCP over grep for code lookup (Dev environment)",
+      "marketplace_description": "KCodeRag navigation plugin — Dev environment for Claude Code and Codex (registers the internal Dev MCP server and nudges structural lookup toward the graph)",
+      "brand_color": "#2563EB"
+    }
+  ]
+}

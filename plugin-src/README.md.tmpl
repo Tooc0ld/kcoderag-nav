@@ -1,11 +1,11 @@
-# KCodeRag QA navigation plugin
+# {{display_name}} navigation plugin
 
-KCodeRag QA packages its internal MCP endpoint, a graph-first code-navigation
+{{display_name}} packages its internal MCP endpoint, a graph-first code-navigation
 skill, and a non-blocking lookup hook for both Claude Code and Codex.
 
 ## Credentials
 
-The shared QA Bearer credential is bundled in this internal plugin,
+The shared {{environment_upper}} Bearer credential is bundled in this internal plugin,
 so installation requires no additional credential setup. Rotate the bundled value and
 bump the plugin version together when the credential changes.
 
@@ -14,7 +14,7 @@ bump the plugin version together when the credential changes.
 From the marketplace repository, install into a trusted target project:
 
 ```powershell
-python scripts/manage_project_install.py install --target PATH --environment qa
+python scripts/manage_project_install.py install --target PATH --environment {{environment}}
 ```
 
 The project installer writes only managed files under the target project's `.codex/`
@@ -24,7 +24,7 @@ and `.agents/` directories.
 
 ```powershell
 codex plugin marketplace add Tooc0ld/kcoderag-nav
-codex plugin add kcoderag-qa@kcoderag-nav
+codex plugin add {{plugin_name}}@kcoderag-nav
 ```
 
 This optional path is user-level. Codex does not currently provide a native
@@ -34,7 +34,7 @@ project-scoped plugin installation command.
 
 ```text
 /plugin marketplace add Tooc0ld/kcoderag-nav
-/plugin install kcoderag-qa@kcoderag-nav
+/plugin install {{plugin_name}}@kcoderag-nav
 ```
 
 ## Behavior
@@ -46,5 +46,5 @@ project-scoped plugin installation command.
 - Hook failures are advisory and fail open; they never block a command.
 
 The endpoint currently uses internal HTTP plus the bundled shared Bearer credential and
-is intended for the current QA network only. The credential value is
+is intended for the current {{environment_upper}} network only. The credential value is
 not printed by the generator or installer.

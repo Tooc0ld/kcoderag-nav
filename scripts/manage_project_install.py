@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+"""Safely install KCodeRag navigation assets into one trusted project.
+
+Only paths beneath the explicit target's ``.codex`` and ``.agents`` directories are
+eligible for mutation. Diagnostics contain paths and reason codes, never MCP values.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import copy
+import hashlib
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from generate_plugins import CanonicalInputs, GenerationError, canonical_json, load_inputs
+
+
+STATE_VERSION = 1
+STATE_RELATIVE = ".codex/kcoderag-nav/install-state.json"
+CONFIG_RELATIVE = ".codex/config.toml"
+HOOKS_RELATIVE = ".codex/hooks.json"
+SKILL_RELATIVE = ".agents/skills/kcoderag-nav/SKILL.md"
+MANAGED_ROOT = ".codex/kcoderag-nav"
+ENVIRONMENT_CHOICES = ("qa",)
+TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
+
+
+class InstallError(RuntimeError):
+    """A path-only installer error safe for command-line output."""
+
+    def __init__(self, code: str, path: str = "") -> None:
+        super().__init__(code)
+        self.code = code
+        self.path = path
+
+
+def _sha256(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _encode_original(payload: bytes | None) -> dict[str, object]:
+    if payload is None:
+        return {"existed": False, "base64": ""}
+    return {"existed": True, "base64": base64.b64encode(payload).decode("ascii")}
+
+
+def _decode_original(record: object, relative_path: str) -> bytes | None:
+    if not isinstance(record, dict) or set(record) != {"existed", "base64"}:
+        raise InstallError("invalid_state", relative_path)
+    existed = record["existed"]
+    encoded = record["base64"]
+    if not isinstance(existed, bool) or not isinstance(encoded, str):
+        raise InstallError("invalid_state", relative_path)
+    if not existed:
+        if encoded:
+            raise InstallError("invalid_state", relative_path)
+        return None
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise InstallError("invalid_state", relative_path) from exc
+
+
+def _read_optional(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes() if path.exists() else None
+    except OSError as exc:
+        raise InstallError("unreadable", path.name) from exc
+
+
+def _safe_target(raw_target: Path) -> Path:
+    if not raw_target.exists() or not raw_target.is_dir() or raw_target.is_symlink():
+        raise InstallError("invalid_target", str(raw_target))
+    try:
+        return raw_target.resolve(strict=True)
+    except OSError as exc:
+        raise InstallError("invalid_target", str(raw_target)) from exc
+
+
+def _assert_managed_path(target: Path, relative_path: str) -> Path:
+    if not (relative_path.startswith(".codex/") or relative_path.startswith(".agents/")):
+        raise InstallError("outside_managed_roots", relative_path)
+    candidate = target.joinpath(*relative_path.split("/"))
+    current = candidate
+    while current != target:
+        if current.exists() and current.is_symlink():
+            raise InstallError("symlink_escape", relative_path)
+        current = current.parent
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(target)
+    except (OSError, ValueError) as exc:
+        raise InstallError("path_escape", relative_path) from exc
+    return candidate
+
+
+def _load_state(target: Path) -> dict[str, Any] | None:
+    path = _assert_managed_path(target, STATE_RELATIVE)
+    if not path.exists():
+        return None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise InstallError("invalid_state", STATE_RELATIVE) from exc
+    if not isinstance(state, dict) or state.get("version") != STATE_VERSION:
+        raise InstallError("invalid_state", STATE_RELATIVE)
+    active = state.get("active_environments")
+    originals = state.get("originals")
+    digests = state.get("digests")
+    if (
+        not isinstance(active, list)
+        or not active
+        or not all(item in {"qa", "dev"} for item in active)
+        or len(set(active)) != len(active)
+        or not isinstance(originals, dict)
+        or not isinstance(digests, dict)
+    ):
+        raise InstallError("invalid_state", STATE_RELATIVE)
+    allowed_paths = _all_managed_paths({"qa", "dev"}) - {STATE_RELATIVE}
+    if not set(originals).issubset(allowed_paths) or not set(digests).issubset(allowed_paths):
+        raise InstallError("invalid_state", STATE_RELATIVE)
+    return state
+
+
+def _all_managed_paths(environments: set[str]) -> set[str]:
+    paths = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE, STATE_RELATIVE}
+    for environment in environments:
+        paths.add(f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py")
+        paths.add(f"{MANAGED_ROOT}/{environment}/hooks/hooks.json")
+    return paths
+
+
+def _verify_digests(target: Path, state: dict[str, Any]) -> None:
+    digests = state["digests"]
+    for relative_path, expected in digests.items():
+        if not isinstance(relative_path, str) or not isinstance(expected, str):
+            raise InstallError("invalid_state", STATE_RELATIVE)
+        current = _read_optional(_assert_managed_path(target, relative_path))
+        if current is None or _sha256(current) != expected:
+            raise InstallError("managed_content_changed", relative_path)
+
+
+def _environment_map(inputs: CanonicalInputs) -> dict[str, dict[str, str]]:
+    return {item["id"]: item for item in inputs.environments}
+
+
+def _mcp_entry(inputs: CanonicalInputs, environment: str) -> dict[str, Any]:
+    metadata = _environment_map(inputs)[environment]
+    try:
+        document = json.loads((inputs.root / metadata["mcp_source"]).read_text(encoding="utf-8"))
+        entry = document["mcpServers"][metadata["server_name"]]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise InstallError("invalid_mcp_source", metadata["mcp_source"]) from exc
+    if not isinstance(entry, dict) or not isinstance(entry.get("url"), str):
+        raise InstallError("invalid_mcp_source", metadata["mcp_source"])
+    headers = entry.get("http_headers", entry.get("headers"))
+    if not isinstance(headers, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in headers.items()
+    ):
+        raise InstallError("invalid_mcp_source", metadata["mcp_source"])
+    return {"url": entry["url"], "http_headers": headers}
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _config_block(inputs: CanonicalInputs, environment: str) -> bytes:
+    metadata = _environment_map(inputs)[environment]
+    entry = _mcp_entry(inputs, environment)
+    header_items = ", ".join(
+        f"{_toml_string(key)} = {_toml_string(value)}"
+        for key, value in sorted(entry["http_headers"].items())
+    )
+    text = (
+        f"# BEGIN KCODERAG-NAV {environment}\n"
+        f"[mcp_servers.{_toml_string(metadata['server_name'])}]\n"
+        f"url = {_toml_string(entry['url'])}\n"
+        f"http_headers = {{ {header_items} }}\n"
+        f"# END KCODERAG-NAV {environment}\n"
+    )
+    return text.encode("utf-8")
+
+
+def _render_config(inputs: CanonicalInputs, original: bytes | None, active: set[str]) -> bytes:
+    base = original or b""
+    try:
+        original_text = base.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InstallError("invalid_utf8", CONFIG_RELATIVE) from exc
+    if "# BEGIN KCODERAG-NAV" in original_text or TOML_TABLE_RE.search(original_text):
+        raise InstallError("unmanaged_name_conflict", CONFIG_RELATIVE)
+    if not active:
+        return base
+    separator = b"" if not base or base.endswith(b"\n\n") else (b"\n" if base.endswith(b"\n") else b"\n\n")
+    blocks = b"\n".join(_config_block(inputs, environment) for environment in sorted(active))
+    return base + separator + blocks
+
+
+def _parse_hooks(original: bytes | None) -> dict[str, Any]:
+    if original is None:
+        document: dict[str, Any] = {"hooks": {}}
+    else:
+        try:
+            document = json.loads(original.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InstallError("invalid_json", HOOKS_RELATIVE) from exc
+    if not isinstance(document, dict):
+        raise InstallError("invalid_json", HOOKS_RELATIVE)
+    hooks = document.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise InstallError("invalid_json", HOOKS_RELATIVE)
+    pre_tool_use = hooks.setdefault("PreToolUse", [])
+    if not isinstance(pre_tool_use, list) or not all(isinstance(item, dict) for item in pre_tool_use):
+        raise InstallError("invalid_json", HOOKS_RELATIVE)
+    encoded = json.dumps(document, ensure_ascii=False)
+    if ".codex/kcoderag-nav/" in encoded or ".codex\\kcoderag-nav\\" in encoded:
+        raise InstallError("unmanaged_name_conflict", HOOKS_RELATIVE)
+    return document
+
+
+def _project_hook(inputs: CanonicalInputs, environment: str) -> dict[str, Any]:
+    try:
+        source = json.loads((inputs.root / "plugin-src/hooks/hooks.json").read_text(encoding="utf-8"))
+        entry = copy.deepcopy(source["hooks"]["PreToolUse"][0])
+        command = entry["hooks"][0]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise InstallError("invalid_hook_source", "plugin-src/hooks/hooks.json") from exc
+    relative_script = f".codex/kcoderag-nav/{environment}/hooks/grep_nudge.py"
+    command["command"] = f'python "{relative_script}"'
+    command["commandWindows"] = f'python "{relative_script}"'
+    command["statusMessage"] = f"Checking code lookup strategy ({environment.upper()})"
+    return entry
+
+
+def _render_hooks(inputs: CanonicalInputs, original: bytes | None, active: set[str]) -> bytes:
+    document = _parse_hooks(original)
+    pre_tool_use = document["hooks"]["PreToolUse"]
+    pre_tool_use.extend(_project_hook(inputs, environment) for environment in sorted(active))
+    return canonical_json(document)
+
+
+def _render_skill(inputs: CanonicalInputs, active: set[str]) -> bytes:
+    if active != {"qa"}:
+        raise InstallError("unsupported_environment_set", SKILL_RELATIVE)
+    metadata = _environment_map(inputs)["qa"]
+    try:
+        text = (inputs.root / "plugin-src/skills/code-lookup-discipline/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+    except (OSError, UnicodeError) as exc:
+        raise InstallError("invalid_skill_source", "plugin-src/skills/code-lookup-discipline/SKILL.md") from exc
+    text = text.replace("{{display_name}}", metadata["display_name"])
+    if "{{" in text:
+        raise InstallError("invalid_skill_source", "plugin-src/skills/code-lookup-discipline/SKILL.md")
+    return (text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n").encode("utf-8")
+
+
+def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, bytes]:
+    payloads: dict[str, bytes] = {}
+    for filename in ("grep_nudge.py", "hooks.json"):
+        source = inputs.root / "plugin-src" / "hooks" / filename
+        try:
+            payload = source.read_bytes()
+        except OSError as exc:
+            raise InstallError("missing_source", f"plugin-src/hooks/{filename}") from exc
+        payloads[f"{MANAGED_ROOT}/{environment}/hooks/{filename}"] = payload
+    return payloads
+
+
+def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:
+    originals: dict[str, object] = {}
+    for relative_path in sorted(managed_paths - {STATE_RELATIVE}):
+        current = _read_optional(_assert_managed_path(target, relative_path))
+        if relative_path == SKILL_RELATIVE and current is not None:
+            raise InstallError("unmanaged_name_conflict", relative_path)
+        if relative_path.startswith(f"{MANAGED_ROOT}/") and current is not None:
+            raise InstallError("unmanaged_name_conflict", relative_path)
+        originals[relative_path] = _encode_original(current)
+    return {
+        "version": STATE_VERSION,
+        "active_environments": [],
+        "originals": originals,
+        "digests": {},
+    }
+
+
+def _desired_install(
+    target: Path, inputs: CanonicalInputs, state: dict[str, Any] | None, requested: set[str]
+) -> tuple[dict[str, bytes | None], dict[str, Any]]:
+    if state is None:
+        state = _capture_new_state(target, _all_managed_paths(requested))
+    else:
+        _verify_digests(target, state)
+        missing_originals = _all_managed_paths(requested) - {STATE_RELATIVE} - set(state["originals"])
+        for relative_path in sorted(missing_originals):
+            current = _read_optional(_assert_managed_path(target, relative_path))
+            if current is not None:
+                raise InstallError("unmanaged_name_conflict", relative_path)
+            state["originals"][relative_path] = _encode_original(None)
+
+    active = set(state["active_environments"]) | requested
+    if active != {"qa"}:
+        raise InstallError("unsupported_environment_set", STATE_RELATIVE)
+    config_original = _decode_original(state["originals"][CONFIG_RELATIVE], CONFIG_RELATIVE)
+    hooks_original = _decode_original(state["originals"][HOOKS_RELATIVE], HOOKS_RELATIVE)
+    desired: dict[str, bytes | None] = {
+        CONFIG_RELATIVE: _render_config(inputs, config_original, active),
+        HOOKS_RELATIVE: _render_hooks(inputs, hooks_original, active),
+        SKILL_RELATIVE: _render_skill(inputs, active),
+    }
+    for environment in active:
+        desired.update(_private_payloads(inputs, environment))
+
+    state["active_environments"] = sorted(active)
+    state["digests"] = {
+        relative_path: _sha256(payload)
+        for relative_path, payload in sorted(desired.items())
+        if payload is not None
+    }
+    desired[STATE_RELATIVE] = canonical_json(state)
+    return desired, state
+
+
+def _desired_uninstall(
+    inputs: CanonicalInputs, state: dict[str, Any], environment: str
+) -> dict[str, bytes | None]:
+    _ = inputs
+    active = set(state["active_environments"])
+    if environment not in active:
+        raise InstallError("environment_not_installed", STATE_RELATIVE)
+    remaining = active - {environment}
+    originals = state["originals"]
+    desired: dict[str, bytes | None] = {}
+    private_prefix = f"{MANAGED_ROOT}/{environment}/"
+    for relative_path in state["digests"]:
+        if relative_path.startswith(private_prefix):
+            desired[relative_path] = _decode_original(originals[relative_path], relative_path)
+
+    if not remaining:
+        for relative_path in (CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE):
+            desired[relative_path] = _decode_original(originals[relative_path], relative_path)
+        desired[STATE_RELATIVE] = None
+        return desired
+    raise InstallError("unsupported_environment_set", STATE_RELATIVE)
+
+
+def _write_temporary(path: Path, payload: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix=".kcoderag-install-", dir=path.parent)
+    temporary = Path(name)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return temporary
+
+
+def _restore_path(path: Path, original: bytes | None) -> None:
+    if original is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = _write_temporary(path, original)
+    os.replace(temporary, path)
+
+
+def _apply_transaction(target: Path, desired: dict[str, bytes | None]) -> None:
+    paths = {relative: _assert_managed_path(target, relative) for relative in desired}
+    originals = {relative: _read_optional(path) for relative, path in paths.items()}
+    temporary_files: dict[str, Path] = {}
+    try:
+        for relative_path, payload in desired.items():
+            if payload is not None:
+                temporary_files[relative_path] = _write_temporary(paths[relative_path], payload)
+        for relative_path in sorted(desired, key=lambda item: item == STATE_RELATIVE):
+            payload = desired[relative_path]
+            path = paths[relative_path]
+            if payload is None:
+                path.unlink(missing_ok=True)
+            else:
+                os.replace(temporary_files.pop(relative_path), path)
+    except Exception as exc:
+        for temporary in temporary_files.values():
+            temporary.unlink(missing_ok=True)
+        rollback_failed = False
+        for relative_path, original in originals.items():
+            try:
+                _restore_path(paths[relative_path], original)
+            except Exception:
+                rollback_failed = True
+        code = "rollback_failed" if rollback_failed else "transaction_failed"
+        raise InstallError(code) from exc
+
+
+def _prune_empty_directories(target: Path) -> None:
+    candidates = [
+        target / ".codex" / "kcoderag-nav" / "qa" / "hooks",
+        target / ".codex" / "kcoderag-nav" / "qa",
+        target / ".codex" / "kcoderag-nav",
+        target / ".agents" / "skills" / "kcoderag-nav",
+        target / ".agents" / "skills",
+        target / ".agents",
+        target / ".codex",
+    ]
+    for path in candidates:
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
+
+def install(target: Path, source_root: Path, environments: set[str]) -> None:
+    inputs = load_inputs(source_root)
+    state = _load_state(target)
+    if state is not None:
+        _verify_digests(target, state)
+        if environments.issubset(set(state["active_environments"])):
+            return
+    desired, _ = _desired_install(target, inputs, state, environments)
+    _apply_transaction(target, desired)
+
+
+def uninstall(target: Path, source_root: Path, environment: str) -> None:
+    inputs = load_inputs(source_root)
+    state = _load_state(target)
+    if state is None:
+        raise InstallError("not_installed", STATE_RELATIVE)
+    _verify_digests(target, state)
+    desired = _desired_uninstall(inputs, state, environment)
+    _apply_transaction(target, desired)
+    _prune_empty_directories(target)
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-root", type=Path, help=argparse.SUPPRESS)
+    commands = parser.add_subparsers(dest="command", required=True)
+    install_parser = commands.add_parser("install")
+    install_parser.add_argument("--target", type=Path, required=True)
+    install_parser.add_argument("--environment", choices=ENVIRONMENT_CHOICES, default="qa")
+    uninstall_parser = commands.add_parser("uninstall")
+    uninstall_parser.add_argument("--target", type=Path, required=True)
+    uninstall_parser.add_argument("--environment", choices=ENVIRONMENT_CHOICES, required=True)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    source_root = (args.source_root or Path(__file__).resolve().parents[1]).resolve()
+    try:
+        target = _safe_target(args.target)
+        if args.command == "install":
+            install(target, source_root, {args.environment})
+            print(f"installed: {args.environment}")
+        else:
+            uninstall(target, source_root, args.environment)
+            print(f"uninstalled: {args.environment}")
+        return 0
+    except (InstallError, GenerationError) as exc:
+        code = exc.code
+        path = exc.path
+        suffix = f": {path}" if path else ""
+        print(f"operation refused ({code}){suffix}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"operation failed ({type(exc).__name__})", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,29 @@
+{
+  "name": "kcoderag-qa",
+  "version": "0.1.0+codex.20260820070148",
+  "description": "Graph-first code navigation through the KCodeRag QA MCP server.",
+  "author": {
+    "name": "KCodeRag"
+  },
+  "keywords": [
+    "code-navigation",
+    "knowledge-graph",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "KCodeRag QA",
+    "shortDescription": "Graph-first code navigation for QA",
+    "longDescription": "Search symbols, inspect context, and trace cross-language call chains through the KCodeRag QA knowledge graph.",
+    "developerName": "KCodeRag",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Find a symbol and explain its callers and callees"
+    ],
+    "brandColor": "#7C3AED"
+  }
+}

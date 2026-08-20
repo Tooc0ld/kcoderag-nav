@@ -9,7 +9,7 @@ Use the installed KCodeRag knowledge graph as the first stop for structural ques
 Tool namespaces differ between Claude Code and Codex, so call the tool names exposed by
 the current host instead of inventing a fully qualified prefix.
 
-This package supplies the **KCodeRag QA** environment.
+This package supplies the **{{display_name}}** environment.
 
 ## Choose the right lookup
 

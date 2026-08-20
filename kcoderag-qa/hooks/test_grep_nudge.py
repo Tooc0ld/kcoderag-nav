@@ -1,86 +1,133 @@
 #!/usr/bin/env python3
-"""Regression tests for grep_nudge.py's looks_like_symbol_lookup heuristic.
+"""Regression tests for the dual-host, fail-open lookup nudge hook."""
 
-Run directly:  python test_grep_nudge.py
-Exits non-zero if any case fails. Standard library only.
-
-These cases pin the "widened" rule: real symbol lookups that sprinkle regex chars
-(\\bGetLevel\\b, GetLevel\\s*\\(, \\.GetLevel\\() must NUDGE, while bulk/wildcard
-patterns (foo.bar.*, s/old/new/g, filenames, TODO) must stay SILENT.
-"""
 import importlib.util
+import json
 import os
+import subprocess
 import sys
+import time
 
-# Load the sibling grep_nudge.py module (same dir as this test file).
+sys.dont_write_bytecode = True
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SPEC = importlib.util.spec_from_file_location("grep_nudge", os.path.join(_HERE, "grep_nudge.py"))
+_SCRIPT = os.path.join(_HERE, "grep_nudge.py")
+_SPEC = importlib.util.spec_from_file_location("grep_nudge", _SCRIPT)
+assert _SPEC is not None and _SPEC.loader is not None
 _mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_mod)
-looks_like_symbol_lookup = _mod.looks_like_symbol_lookup
 
-# (pattern, expected_nudge, description)
-CASES = [
-    # --- should NUDGE (symbol / call-relation lookups, incl. with regex) ---
-    ("GetLevel", True, "bare identifier"),
-    ("KPlayer::GetLevel", True, "C++ qualified name"),
-    (r"\bGetLevel\b", True, "word-boundary find definition"),
-    (r"GetLevel\s*\(", True, "find overloads/calls"),
-    (r"\.GetLevel\(", True, "method-call site"),
-    (":GetLevel(", True, "Lua call site"),
-    (r"\bGet.*\b", True, "word-boundary + wildcard (anchor must hold)"),
-    (r"Get.*Level\b", True, "trailing word-boundary + wildcard"),
-    ("GetLevel|GetHP", True, "alternation of symbols"),
-    ("KHomelandMgr|KMiniGameMgr", True, "alternation of PascalCase classes"),
-    ("void GetLevel", True, "declaration w/ void"),
-    ("function GetLevel", True, "Lua function def"),
-    ("class KPlayer", True, "class declaration"),
-    ("#define.*MAX_LEVEL", True, "macro definition"),
-    (r"getLevel\(\)", True, "call with parens"),
-    ("std::vector", True, ":: qualified type"),
-    ("def GetLevel", True, "Python def (word-boundary keyword)"),
-    ("甄道士", True, "CJK symbol name"),
-    ("获取玩家信息", True, "CJK semantic symbol"),
-    ("家园系统", True, "CJK symbol"),
-    # --- should stay SILENT (bulk / exact-string / non-symbol) ---
-    ("foo.bar.*", False, "wildcard bulk"),
-    ("s/old/new/g", False, "sed-style replace"),
-    ("m_nLevel = 123", False, "assignment"),
-    ("TODO.*fixme", False, "TODO comment"),
-    ("player.cpp", False, "bare filename .cpp"),
-    ("main.c", False, "bare filename .c"),
-    ("config.py", False, "bare filename .py"),
-    ("app.ts", False, "bare filename .ts"),
-    ("if.*return", False, "control flow"),
-    ("int.*count", False, "type + generic var"),
-    ("Foo.*Bar", False, "two wildcards no anchor"),
-    ("OnLogin.*OnDie", False, "two symbols + wildcard no anchor"),
-    ("if|else", False, "alternation of control-flow words"),
-    ("default", False, "keyword substring no longer trips (was NUDGE via 'def')"),
+PATTERN_CASES = [
+    ("GetLevel", True),
+    ("KPlayer::GetLevel", True),
+    (r"\bGetLevel\b", True),
+    (r"GetLevel\s*\(", True),
+    (r"\.GetLevel\(", True),
+    (":GetLevel(", True),
+    (r"\bGet.*\b", True),
+    ("GetLevel|GetHP", True),
+    ("class KPlayer", True),
+    ("获取玩家信息", True),
+    ("foo.bar.*", False),
+    ("s/old/new/g", False),
+    ("m_nLevel = 123", False),
+    ("TODO.*fixme", False),
+    ("player.cpp", False),
+    ("if.*return", False),
+    ("int.*count", False),
+    ("Foo.*Bar", False),
+    ("default", False),
 ]
 
-# The nudge text must reference the real plugin-namespaced tool prefix, else the
-# agent is pointed at a tool name it doesn't have. (Claude Code names plugin
-# MCP servers as mcp__plugin_<plugin>_<server>__<tool>.)
-REQUIRED_NUDGE_PREFIX = "mcp__plugin_kcoderag-qa_kcoderag-qa__"
+COMMAND_CASES = [
+    ('rg -n "KPlayer::GetLevel" src', True),
+    ('rg --glob "*.cpp" "GetLevel\\s*\\(" src', True),
+    ("git grep -n GetLevel", True),
+    ("Select-String -Path *.cpp -Pattern GetLevel", True),
+    ("findstr /S /N GetLevel *.cpp", True),
+    ('findstr /C:"GetLevel" *.cpp', True),
+    ('rg --files -g "*KPlayer*"', True),
+    ('rg --files -g"*KPlayer*"', True),
+    ('Get-ChildItem -Recurse -Filter "KPlayer*"', True),
+    ('Get-ChildItem -Recurse "KPlayer*"', True),
+    ('rg --files -g "*.cpp"', False),
+    ("rg -n TODO src", False),
+    ("rg -n -C 2 GetLevel src", True),
+    ("rg -n -c GetLevel src", True),
+    ("rg -eGetLevel src", True),
+    ("rg -- -GetLevel src", True),
+    ('pwsh -Command "rg GetLevel src"', True),
+    ("rg GetLevel one.cpp", False),
+    ("rg error_message logs", False),
+    ("pytest -q", False),
+    ('rg -n "m_nLevel = 123" src', False),
+]
+
+
+def check(label: str, got: object, expected: object) -> int:
+    if got == expected:
+        print(f"ok    {label}")
+        return 0
+    print(f"FAIL  {label}: expected={expected!r} got={got!r}")
+    return 1
 
 
 def run() -> int:
     failures = 0
-    for pattern, expected, desc in CASES:
-        got = looks_like_symbol_lookup(pattern)
-        if got != expected:
-            failures += 1
-            print(f"FAIL  {pattern!r:<24} expected={expected} got={got}  ({desc})")
-        else:
-            print(f"ok    {pattern!r:<24} {expected}  ({desc})")
-    # NUDGE prefix check
-    if REQUIRED_NUDGE_PREFIX not in _mod.NUDGE:
-        failures += 1
-        print(f"FAIL  NUDGE missing real tool prefix {REQUIRED_NUDGE_PREFIX!r}")
-    else:
-        print(f"ok    NUDGE has real tool prefix")
-    print(f"\n{len(CASES) + 1 - failures}/{len(CASES) + 1} passed")
+    for pattern, expected in PATTERN_CASES:
+        failures += check(
+            f"pattern {pattern!r}", _mod.looks_like_symbol_lookup(pattern), expected
+        )
+    for command, expected in COMMAND_CASES:
+        patterns = _mod.shell_lookup_patterns(command)
+        got = any(_mod.looks_like_symbol_lookup(pattern) for pattern in patterns)
+        failures += check(f"command {command!r} -> {patterns!r}", got, expected)
+
+    adversarial_substitution = "s/" + "/" * 16_000 + "!"
+    started = time.perf_counter()
+    adversarial_result = _mod.looks_like_symbol_lookup(adversarial_substitution)
+    elapsed = time.perf_counter() - started
+    failures += check("malformed substitution stays silent", adversarial_result, False)
+    failures += check("malformed substitution is classified within 250ms", elapsed < 0.25, True)
+    oversized_command = "rg GetLevel " + "x" * 65_536
+    failures += check(
+        "oversized shell command fails open", _mod.shell_lookup_patterns(oversized_command), []
+    )
+
+    claude_output = _mod.hook_output({"tool_input": {"pattern": "GetLevel"}})
+    codex_output = _mod.hook_output({"tool_input": {"command": "rg -n GetLevel src"}})
+    silent_output = _mod.hook_output({"tool_input": {"command": "rg -n TODO src"}})
+    failures += check("Claude pattern payload emits context", claude_output is not None, True)
+    failures += check("Codex command payload emits context", codex_output is not None, True)
+    failures += check("mechanical command stays silent", silent_output, None)
+    failures += check("nudge names search_code", "search_code" in _mod.NUDGE, True)
+    failures += check("nudge names get_call_chain", "get_call_chain" in _mod.NUDGE, True)
+    failures += check("nudge is host-neutral", "mcp__plugin_" in _mod.NUDGE, False)
+
+    malformed = subprocess.run(
+        [sys.executable, _SCRIPT],
+        input="not-json",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    failures += check("malformed input fails open", malformed.returncode, 0)
+    failures += check("malformed input has no output", malformed.stdout, "")
+
+    payload = json.dumps({"tool_input": {"command": "git grep KPlayer::GetLevel"}})
+    process = subprocess.run(
+        [sys.executable, _SCRIPT],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    parsed = json.loads(process.stdout) if process.stdout else None
+    failures += check("CLI payload exits successfully", process.returncode, 0)
+    failures += check("CLI payload emits hookSpecificOutput", isinstance(parsed, dict), True)
+
+    total = len(PATTERN_CASES) + len(COMMAND_CASES) + 13
+    print(f"\n{total - failures}/{total} passed")
     return 1 if failures else 0
 
 

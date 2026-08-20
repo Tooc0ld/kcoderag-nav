@@ -1,5 +1,7 @@
 {
   "permissions": {
-    "allow": ["mcp__plugin_kcoderag-qa_kcoderag-qa__*"]
+    "allow": [
+      "mcp__plugin_kcoderag-qa_kcoderag-qa__*"
+    ]
   }
 }

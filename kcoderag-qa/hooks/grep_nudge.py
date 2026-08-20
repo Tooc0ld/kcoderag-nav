@@ -1,128 +1,345 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: nudge toward KCodeRag MCP instead of grep/Glob for symbol lookup.
+"""Advise Claude Code and Codex to use KCodeRag for structural lookups.
 
-Non-blocking by design: only emits `additionalContext` advice and exits 0. It NEVER
-denies a tool call (no exit 2, no permissionDecision=deny). The grep/Glob still
-runs; the agent simply receives a tip to prefer the MCP tools next time.
+The hook is intentionally non-blocking. Claude Code supplies ``tool_input.pattern``
+for Grep/Glob. Codex exposes shell and unified-exec calls as ``Bash`` and supplies
+``tool_input.command``. Both payloads are normalized into lookup patterns before
+the existing symbol heuristic runs.
 
-Reads the hook JSON payload from stdin, inspects `tool_input.pattern`, and if the
-pattern looks like a symbol or call-relation lookup, emits the nudge. Otherwise it
-stays silent (exact-string/bulk-replace greps pass through untouched).
-
-Standard library only — no third-party dependencies.
+Standard library only; malformed input always fails open.
 """
+
 import json
 import re
 import sys
+from collections.abc import Mapping
+from typing import Any
 
 NUDGE = (
-    "Tip: this looks like a symbol or call-relation lookup. Prefer the KCodeRag "
-    "MCP tools (prefix mcp__plugin_kcoderag-qa_kcoderag-qa__): search_code (find "
-    "definitions / semantic search), get_call_chain (who calls / is called by), "
-    "context (360° symbol view). Reserve Grep/Glob for verifying a specific "
-    "already-located line's uncommitted edit, or for exact-string bulk replacement."
+    "Tip: this looks like a symbol or call-relation lookup. Prefer the installed "
+    "KCodeRag MCP tools: search_code (definitions / semantic search), "
+    "get_call_chain (callers / callees), and context (360-degree symbol view). "
+    "Reserve text search for verifying already-located uncommitted edits or exact-string "
+    "bulk replacement."
 )
 
-# --- Heuristic: does this grep pattern look like a symbol/call-relation lookup? ---
-# Strategy: real "find this symbol" greps usually anchor on the symbol somehow — a
-# bare identifier, a C++ :: qualifier, a word boundary \b, or call parens — even when
-# regex chars are sprinkled in (\bGetLevel\b, GetLevel\s*\(, \.GetLevel\(). We extract
-# identifier-like tokens and nudge if any looks like a real symbol. We stay silent for
-# bulk/wildcard patterns (foo.bar.*, Foo.*Bar), replacements (s/old/new/g), assignments
-# (x = 1), filenames, and TODO comments.
-
-# Hard-silent signals: these are never symbol lookups.
 SILENT_RES = [
-    re.compile(r"^s/.+/.+/[gimsx]*$"),                          # sed-style replace s/old/new/g
-    re.compile(r"[^=!<>]?={1,2}[^=]"),                           # assignment / equality compare
+    re.compile(r"^s/(?:\\.|[^/\\\r\n])*/(?:\\.|[^/\\\r\n])*/[gimsx]*$"),
+    re.compile(r"[^=!<>]?={1,2}[^=]"),
     re.compile(
         r"^\s*[\w./\\-]+\.(txt|json|yaml|yml|md|log|csv|exe|dll|so|"
         r"cpp|cxx|cc|c|h|hpp|hxx|inl|inc|proto|py|pyx|ts|tsx|js|jsx|"
         r"cs|go|rs|java|kt|lua|xml|ini|conf|cfg|toml|sql|sh|bat)\s*$",
         re.I,
-    ),  # bare filename (code + common config exts)
-    re.compile(r"TODO|FIXME|XXX|HACK", re.I),                    # comment markers
+    ),
+    re.compile(r"TODO|FIXME|XXX|HACK", re.I),
 ]
-# Wildcard/bulk signal: .* (dot-star). NOTE: alternation | alone is NOT a bulk
-# signal — "GetLevel|GetHP" or "KHomelandMgr|KMiniGameMgr" is a multi-symbol
-# lookup and should nudge. Bare alternations of generic/control-flow words are
-# still silenced via NON_SYMBOL below.
 WILDCARD_RE = re.compile(r"\.\*")
-# Symbol anchor: escaped-dot method call \. , :: qualifier, literal \b word
-# boundary (single backslash + b, as ripgrep writes it), or call parens
-# (escaped or not). A bare unescaped . is NOT an anchor (it's a wildcard).
 ANCHOR_RE = re.compile(r"\\\.|::|\\b|\\?\(|\\?\)")
-# Identifier-like token. First char is a Unicode letter/underscore ([^\W\d]) so
-# CJK / non-ASCII symbol names (甄道士, 获取玩家信息, 家园系统) are recognized —
-# this repo has many Chinese lua script names that are exactly what search_code
-# semantic search is for. May be C++-qualified (KPlayer::GetLevel).
 TOKEN_RE = re.compile(r"[^\W\d][\w:]*")
-# Overly generic words / types / control flow — a lone occurrence isn't a symbol lookup.
 NON_SYMBOL = {
-    "txt", "json", "yaml", "md", "log", "csv", "exe", "dll", "cpp", "hpp", "lua", "h",
-    "http", "https", "www", "com", "org", "true", "false", "null", "none",
-    "if", "else", "for", "while", "return", "break", "continue", "switch", "case", "default", "do",
-    "int", "char", "bool", "float", "double", "long", "short", "unsigned", "auto", "void", "const",
-    "size", "count", "len", "length", "name", "type", "value", "key", "data", "file", "path", "id", "idx", "num",
+    "txt",
+    "json",
+    "yaml",
+    "md",
+    "log",
+    "csv",
+    "exe",
+    "dll",
+    "cpp",
+    "hpp",
+    "lua",
+    "py",
+    "ts",
+    "src",
+    "test",
+    "tests",
+    "http",
+    "https",
+    "www",
+    "com",
+    "org",
+    "true",
+    "false",
+    "null",
+    "none",
+    "if",
+    "else",
+    "for",
+    "while",
+    "return",
+    "break",
+    "continue",
+    "switch",
+    "case",
+    "default",
+    "do",
+    "int",
+    "char",
+    "bool",
+    "float",
+    "double",
+    "long",
+    "short",
+    "unsigned",
+    "auto",
+    "void",
+    "const",
+    "size",
+    "count",
+    "len",
+    "length",
+    "name",
+    "type",
+    "value",
+    "key",
+    "data",
+    "file",
+    "path",
+    "id",
+    "idx",
+    "num",
 }
-# Declaration / definition keywords — their presence strongly implies a symbol
-# lookup (esp. in .* -wildcard greps like "function.*Login" / "#define.*MAX_*").
-# Matched with word boundaries so "default"/"defend" don't trip "def", etc.
-KEYWORDS = ("def", "function", "class", "func", "fn", "method", "inline", "virtual", "override", "struct", "enum", "define")
-KEYWORD_RES = [re.compile(r"\b" + kw + r"\b") for kw in KEYWORDS]
+KEYWORDS = (
+    "def",
+    "function",
+    "class",
+    "func",
+    "fn",
+    "method",
+    "inline",
+    "virtual",
+    "override",
+    "struct",
+    "enum",
+    "define",
+)
+KEYWORD_RES = [re.compile(r"\b" + keyword + r"\b") for keyword in KEYWORDS]
+
+TOKENIZE_RE = re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+''')
+MAX_COMMAND_CHARS = 65_536
+LOCAL_FILE_RE = re.compile(
+    r"\.(?:cpp|cxx|cc|c|h|hpp|hxx|inl|inc|proto|py|pyx|ts|tsx|js|jsx|"
+    r"cs|go|rs|java|kt|lua)$",
+    re.I,
+)
+SEARCH_TOOLS = {"rg", "ripgrep", "grep", "findstr", "select-string", "get-childitem", "gci"}
+LOCAL_TEXT_DIRS = {"log", "logs"}
+SHELL_WRAPPER_OPTIONS = {
+    "cmd": {"/c", "/k"},
+    "powershell": {"-c", "-command"},
+    "pwsh": {"-c", "-command"},
+}
+PATTERN_OPTIONS = {"-e", "--regexp", "-pattern"}
+FILTER_OPTIONS = {"-g", "--glob", "--iglob", "-filter", "-include"}
+SHORT_VALUE_OPTIONS = {"-A", "-B", "-C", "-E", "-f", "-j", "-m", "-M", "-r", "-t", "-T"}
+VALUE_OPTIONS = {
+    "--after-context",
+    "--before-context",
+    "--context",
+    "--color",
+    "--colors",
+    "--encoding",
+    "--engine",
+    "--file",
+    "--max-count",
+    "--max-depth",
+    "--max-filesize",
+    "-context",
+    "-encoding",
+    "-literalpath",
+    "-path",
+    "--pre",
+    "--pre-glob",
+    "--sort",
+    "--sortr",
+    "--threads",
+    "--type",
+    "--type-not",
+}
 
 
 def looks_like_symbol_lookup(pattern: str) -> bool:
-    """Heuristic: does this pattern look like a symbol/call-relation lookup?"""
+    """Return whether a text or glob pattern looks structural rather than mechanical."""
     if not pattern or not isinstance(pattern, str):
         return False
-    p = pattern.strip()
-    if not p or len(p) < 2:
+    candidate = pattern.strip()
+    if not candidate or len(candidate) < 2:
         return False
-    for rx in SILENT_RES:
-        if rx.search(p):
-            return False
-    low = p.lower()
-    if any(rx.search(low) for rx in KEYWORD_RES):
+    if any(regex.search(candidate) for regex in SILENT_RES):
+        return False
+    lowered = candidate.lower()
+    if any(regex.search(lowered) for regex in KEYWORD_RES):
         return True
-    # Wildcard pattern with no symbol anchor → bulk/exact-string, stay silent.
-    if WILDCARD_RE.search(p) and not ANCHOR_RE.search(p):
+    if WILDCARD_RE.search(candidate) and not ANCHOR_RE.search(candidate):
         return False
-    # Otherwise: does it contain at least one identifier-like token that looks like a symbol?
-    for tok in TOKEN_RE.findall(p):
-        t = tok.strip(":")
-        if len(t) < 2 or re.fullmatch(r"[A-Za-z]", t):
+    for token in TOKEN_RE.findall(candidate):
+        normalized = token.strip(":")
+        if len(normalized) < 2 or re.fullmatch(r"[A-Za-z]", normalized):
             continue
-        if t.lower() in NON_SYMBOL:
+        if normalized.lower() in NON_SYMBOL:
             continue
         return True
     return False
+
+
+def _unquote(token: str) -> str:
+    token = token.strip().rstrip(";|&")
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        return token[1:-1]
+    return token
+
+
+def _is_single_file_scope(scopes: list[str]) -> bool:
+    """Return whether a search is already constrained to one concrete source file."""
+    if len(scopes) != 1:
+        return False
+    scope = scopes[0]
+    return not any(marker in scope for marker in "*?[]") and LOCAL_FILE_RE.search(scope) is not None
+
+
+def _is_local_text_scope(scopes: list[str]) -> bool:
+    """Return whether a search is explicitly scoped to generated/runtime text."""
+    if len(scopes) != 1:
+        return False
+    parts = scopes[0].replace("\\", "/").lower().split("/")
+    return any(part in LOCAL_TEXT_DIRS for part in parts)
+
+
+def _is_local_only_scope(scopes: list[str]) -> bool:
+    return _is_single_file_scope(scopes) or _is_local_text_scope(scopes)
+
+
+def shell_lookup_patterns(command: str) -> list[str]:
+    """Extract likely search/glob patterns from common POSIX and PowerShell commands."""
+    if not isinstance(command, str) or not command.strip() or len(command) > MAX_COMMAND_CHARS:
+        return []
+
+    tokens = [_unquote(token) for token in TOKENIZE_RE.findall(command)]
+    lowered = [token.lower() for token in tokens]
+    if lowered:
+        wrapper = lowered[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".exe")
+        wrapper_options = SHELL_WRAPPER_OPTIONS.get(wrapper)
+        if wrapper_options:
+            for index, option in enumerate(lowered[1:], start=1):
+                if option in wrapper_options and index + 1 < len(tokens):
+                    return shell_lookup_patterns(" ".join(tokens[index + 1 :]))
+    start = -1
+    tool = ""
+    for index, token in enumerate(lowered):
+        executable = token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".exe")
+        if executable in SEARCH_TOOLS:
+            start = index + 1
+            tool = executable
+            break
+        if executable == "git" and index + 1 < len(lowered) and lowered[index + 1] == "grep":
+            start = index + 2
+            tool = "grep"
+            break
+    if start < 0:
+        return []
+
+    explicit_patterns: list[str] = []
+    glob_patterns: list[str] = []
+    positional: list[str] = []
+    index = start
+    options_enabled = True
+    while index < len(tokens):
+        token = tokens[index]
+        option = lowered[index]
+        if options_enabled and option == "--":
+            options_enabled = False
+            index += 1
+            continue
+        if not options_enabled:
+            positional.append(token)
+            index += 1
+            continue
+        if option in PATTERN_OPTIONS and index + 1 < len(tokens):
+            explicit_patterns.append(tokens[index + 1])
+            index += 2
+            continue
+        if tool in {"rg", "ripgrep", "grep"} and option.startswith("-e") and len(token) > 2:
+            explicit_patterns.append(token[2:])
+            index += 1
+            continue
+        if option in FILTER_OPTIONS and index + 1 < len(tokens):
+            glob_patterns.append(tokens[index + 1])
+            index += 2
+            continue
+        if tool in {"rg", "ripgrep"} and option.startswith("-g") and len(token) > 2:
+            glob_patterns.append(_unquote(token[2:]))
+            index += 1
+            continue
+        if (token in SHORT_VALUE_OPTIONS or option in VALUE_OPTIONS) and index + 1 < len(tokens):
+            index += 2
+            continue
+        if option.startswith("--glob=") or option.startswith("--iglob="):
+            glob_patterns.append(token.split("=", 1)[1])
+            index += 1
+            continue
+        if option.startswith("--regexp="):
+            explicit_patterns.append(token.split("=", 1)[1])
+            index += 1
+            continue
+        if tool == "findstr" and option.startswith("/c:") and len(token) > 3:
+            explicit_patterns.append(_unquote(token[3:]))
+            index += 1
+            continue
+        if option.startswith("-") or (tool == "findstr" and option.startswith("/")):
+            index += 1
+            continue
+        positional.append(token)
+        index += 1
+
+    if explicit_patterns:
+        if _is_local_only_scope(positional):
+            return []
+        return explicit_patterns
+    if tool in {"get-childitem", "gci"}:
+        return glob_patterns[:1] or positional[:1]
+    if "--files" in lowered:
+        return glob_patterns
+    if _is_local_only_scope(positional[1:]):
+        return []
+    return positional[:1] or glob_patterns[:1]
+
+
+def lookup_patterns(tool_input: Mapping[str, Any]) -> list[str]:
+    """Normalize Claude Code Grep/Glob and Codex Bash payloads."""
+    pattern = tool_input.get("pattern")
+    if isinstance(pattern, str) and pattern:
+        return [pattern]
+    command = tool_input.get("command")
+    if isinstance(command, list):
+        command = " ".join(str(part) for part in command)
+    return shell_lookup_patterns(command) if isinstance(command, str) else []
+
+
+def hook_output(data: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Build advisory hook output, or return None when the call should pass silently."""
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, Mapping):
+        return None
+    if not any(looks_like_symbol_lookup(pattern) for pattern in lookup_patterns(tool_input)):
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": NUDGE,
+        }
+    }
 
 
 def main() -> int:
     try:
         raw = sys.stdin.read()
         data = json.loads(raw) if raw.strip() else {}
+        output = hook_output(data) if isinstance(data, Mapping) else None
     except Exception:
-        # Malformed/missing input: never block. Silently pass.
         return 0
-
-    tool_input = data.get("tool_input") or {}
-    pattern = ""
-    if isinstance(tool_input, dict):
-        pattern = tool_input.get("pattern") or ""
-
-    if looks_like_symbol_lookup(pattern):
-        sys.stdout.write(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "additionalContext": NUDGE,
-                    }
-                }
-            )
-        )
+    if output is not None:
+        sys.stdout.write(json.dumps(output))
     return 0
 
 
