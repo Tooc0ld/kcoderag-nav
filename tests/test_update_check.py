@@ -571,6 +571,15 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertIn(current_version, context)
         self.assertIn(remote_version, context)
         self.assertIn("do not update automatically", context.lower())
+        for command in (
+            "codex plugin marketplace upgrade kcoderag-nav --json",
+            "codex plugin add kcoderag-qa@kcoderag-nav --json",
+            "claude plugin marketplace update kcoderag-nav",
+            "claude plugin update kcoderag-qa@kcoderag-nav --scope project",
+        ):
+            self.assertIn(command, context)
+        self.assertNotIn("python scripts/update_plugin.py", context)
+        self.assertLessEqual(len(context), 600)
         self.assertNotIn("Tooc0ld", context)
 
     def test_codex_dev_parity_same_version_and_irrelevant_payload_silence(self) -> None:
@@ -614,6 +623,14 @@ class UpdateCheckTests(unittest.TestCase):
         context = output["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(len(context), 600)
         self.assertLess(context.index(hook.NUDGE), context.index(remote_version))
+        for command in (
+            "codex plugin marketplace upgrade kcoderag-nav --json",
+            "codex plugin add kcoderag-dev@kcoderag-nav --json",
+            "claude plugin marketplace update kcoderag-nav",
+            "claude plugin update kcoderag-dev@kcoderag-nav --scope project",
+        ):
+            self.assertIn(command, context)
+        self.assertNotIn("python scripts/update_plugin.py", context)
 
         same_document = dict(document)
         same_document["versions"] = dict(document["versions"], dev=current_version)
