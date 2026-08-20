@@ -115,6 +115,21 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertNotIn("synthetic-local-change", serialized)
             self.assertNotIn("digest", serialized.lower())
 
+            launcher.unlink()
+            missing_tree = snapshot_tree(target)
+            missing = installer.inspect_status(target, ROOT)
+            self.assertEqual(missing["status"], "drifted")
+            self.assertEqual(
+                missing["issues"],
+                [
+                    {
+                        "code": "managed_file_missing",
+                        "path": ".codex/kcoderag-nav/qa/hooks/run_hook.sh",
+                    }
+                ],
+            )
+            self.assertEqual(snapshot_tree(target), missing_tree)
+
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             target = base / "target"

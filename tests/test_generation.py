@@ -162,6 +162,10 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("python scripts/manage_project_install.py install --target PATH", root_readme)
         self.assertIn("--environment dev", root_readme)
         self.assertIn("--environment both", root_readme)
+        self.assertIn("status --target PATH", root_readme)
+        self.assertIn("status --target PATH --json", root_readme)
+        self.assertIn("0 = `healthy`", root_readme)
+        self.assertIn("2 = `invalid`", root_readme)
         self.assertIn("codex plugin add", root_readme)
         self.assertIn("/plugin marketplace add", root_readme)
 
