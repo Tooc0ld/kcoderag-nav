@@ -9,19 +9,25 @@ the existing symbol heuristic runs.
 Standard library only; malformed input always fails open.
 """
 
+import hashlib
 import json
+import os
 import re
+import stat
 import sys
+import tempfile
+import time
 from collections.abc import Mapping
 from typing import Any
 
+ROUTING_GUIDANCE = " When QA and Dev are both installed, default to QA; use only Dev for explicit Dev intent; query both only for explicit comparison; never fall back when a selected environment is unreachable."
 NUDGE = (
     "Tip: this looks like a symbol or call-relation lookup. Prefer the installed "
     "KCodeRag MCP tools: search_code (definitions / semantic search), "
     "get_call_chain (callers / callees), and context (360-degree symbol view). "
     "Reserve text search for verifying already-located uncommitted edits or exact-string "
     "bulk replacement."
-)
+) + ROUTING_GUIDANCE
 
 SILENT_RES = [
     re.compile(r"^s/(?:\\.|[^/\\\r\n])*/(?:\\.|[^/\\\r\n])*/[gimsx]*$"),
@@ -118,6 +124,13 @@ KEYWORD_RES = [re.compile(r"\b" + keyword + r"\b") for keyword in KEYWORDS]
 
 TOKENIZE_RE = re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+''')
 MAX_COMMAND_CHARS = 65_536
+MAX_INPUT_CHARS = 131_072
+MAX_IDENTITY_CHARS = 131_072
+DEDUP_DIRECTORY_ENV = "KCODERAG_NAV_DEDUP_DIR"
+DEDUP_TTL_SECONDS = 120
+DEDUP_BUCKET_SECONDS = 2
+DEDUP_CLEANUP_LIMIT = 8
+MARKER_NAME_RE = re.compile(r"^[0-9a-f]{64}\.marker$")
 LOCAL_FILE_RE = re.compile(
     r"\.(?:cpp|cxx|cc|c|h|hpp|hxx|inl|inc|proto|py|pyx|ts|tsx|js|jsx|"
     r"cs|go|rs|java|kt|lua)$",
@@ -331,14 +344,105 @@ def hook_output(data: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _identity_text(data: Mapping[str, Any], key: str) -> str:
+    value = data.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str) or len(value) > 512:
+        raise ValueError("invalid identity")
+    return value
+
+
+def _identity_digest(data: Mapping[str, Any]) -> str:
+    """Hash host identity without persisting raw tool input."""
+    event = _identity_text(data, "hook_event_name") or _identity_text(data, "hookEventName")
+    event = event or "PreToolUse"
+    session_id = _identity_text(data, "session_id")
+    turn_id = _identity_text(data, "turn_id")
+    tool_use_id = _identity_text(data, "tool_use_id")
+    if tool_use_id:
+        identity: object = [event, session_id, turn_id, tool_use_id]
+    else:
+        tool_name = _identity_text(data, "tool_name")
+        tool_input = data.get("tool_input")
+        if not isinstance(tool_input, Mapping):
+            raise ValueError("invalid tool input")
+        identity = [
+            event,
+            session_id,
+            turn_id,
+            tool_name,
+            tool_input,
+            int(time.time() // DEDUP_BUCKET_SECONDS),
+        ]
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > MAX_IDENTITY_CHARS:
+        raise ValueError("identity too large")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _dedup_directory() -> str:
+    override = os.environ.get(DEDUP_DIRECTORY_ENV)
+    if override is not None:
+        if not override or len(override) > 4096:
+            raise OSError("invalid dedup directory")
+        directory = override
+    else:
+        directory = os.path.join(tempfile.gettempdir(), "kcoderag-nav-hook-dedup-v1")
+    if os.path.islink(directory):
+        raise OSError("dedup directory is a symlink")
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    if not os.path.isdir(directory):
+        raise OSError("dedup path is not a directory")
+    return directory
+
+
+def _cleanup_stale_markers(directory: str) -> None:
+    now = time.time()
+    inspected = 0
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            inspected += 1
+            if inspected > DEDUP_CLEANUP_LIMIT:
+                break
+            if not MARKER_NAME_RE.fullmatch(entry.name):
+                continue
+            details = entry.stat(follow_symlinks=False)
+            if not stat.S_ISREG(details.st_mode):
+                continue
+            if now - details.st_mtime > DEDUP_TTL_SECONDS:
+                os.unlink(entry.path)
+
+
+def _claim_nudge(data: Mapping[str, Any]) -> bool:
+    """Atomically claim output ownership; every failure stays fail-open and silent."""
+    try:
+        digest = _identity_digest(data)
+        directory = _dedup_directory()
+        _cleanup_stale_markers(directory)
+        marker = os.path.join(directory, f"{digest}.marker")
+        descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(descriptor)
+        return True
+    except Exception:
+        return False
+
+
 def main() -> int:
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_INPUT_CHARS + 1)
+        if len(raw) > MAX_INPUT_CHARS:
+            return 0
         data = json.loads(raw) if raw.strip() else {}
         output = hook_output(data) if isinstance(data, Mapping) else None
     except Exception:
         return 0
-    if output is not None:
+    if output is not None and _claim_nudge(data):
         sys.stdout.write(json.dumps(output))
     return 0
 

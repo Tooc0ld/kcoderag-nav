@@ -21,7 +21,6 @@ from typing import Any
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[+.-][A-Za-z0-9.-]+)?$")
 PLACEHOLDER_RE = re.compile(r"\{\{[a-z_]+\}\}")
 SHARED_FILES = {
-    "hooks/grep_nudge.py": "plugin-src/hooks/grep_nudge.py",
     "hooks/hooks.json": "plugin-src/hooks/hooks.json",
     "hooks/test_grep_nudge.py": "plugin-src/hooks/test_grep_nudge.py",
 }
@@ -108,6 +107,113 @@ def load_inputs(root: Path) -> CanonicalInputs:
     return CanonicalInputs(root=root, version=version, environments=tuple(environments))
 
 
+def load_routing(root: Path) -> dict[str, Any]:
+    """Load and validate the single executable routing decision table."""
+    path = root / "plugin-src" / "routing.json"
+    routing = _load_json(path)
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if routing.get("version") != 1 or not isinstance(rules, list) or not rules:
+        raise GenerationError("invalid_routing", "plugin-src/routing.json")
+    seen: set[tuple[tuple[str, ...], str]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict) or set(rule) != {"installed", "intent", "routes"}:
+            raise GenerationError("invalid_routing", "plugin-src/routing.json")
+        installed = rule["installed"]
+        routes = rule["routes"]
+        intent = rule["intent"]
+        if (
+            not isinstance(installed, list)
+            or not installed
+            or installed != [item for item in ("qa", "dev") if item in set(installed)]
+            or not set(installed).issubset({"qa", "dev"})
+            or not isinstance(routes, list)
+            or not routes
+            or not set(routes).issubset(set(installed))
+            or not isinstance(intent, str)
+            or intent not in {"default", "qa", "dev", "compare"}
+        ):
+            raise GenerationError("invalid_routing", "plugin-src/routing.json")
+        key = (tuple(installed), intent)
+        if key in seen:
+            raise GenerationError("duplicate_routing", "plugin-src/routing.json")
+        seen.add(key)
+    return routing
+
+
+def resolve_route(
+    routing: dict[str, Any],
+    installed: set[str],
+    intent: str,
+    *,
+    reachable: set[str] | None = None,
+) -> dict[str, Any]:
+    """Resolve an environment route without fallback after selection."""
+    installed_key = [environment for environment in ("qa", "dev") if environment in installed]
+    for rule in routing.get("rules", []):
+        if rule.get("installed") == installed_key and rule.get("intent") == intent:
+            routes = list(rule["routes"])
+            if reachable is not None:
+                unavailable = [environment for environment in routes if environment not in reachable]
+                if unavailable:
+                    return {
+                        "routes": [],
+                        "error": {"code": "unreachable", "environments": unavailable},
+                    }
+            return {"routes": routes, "error": None}
+    return {
+        "routes": [],
+        "error": {"code": "unsupported_route", "environments": installed_key},
+    }
+
+
+def render_routing_markdown(routing: dict[str, Any]) -> str:
+    """Render the executable route table into host-neutral user guidance."""
+    lines = [
+        "## Environment routing",
+        "",
+        "| Installed environments | User intent | Query environments |",
+        "|---|---|---|",
+    ]
+    labels = {"qa": "QA", "dev": "Dev"}
+    intents = {
+        "default": "No environment specified",
+        "qa": "Explicit QA",
+        "dev": "Explicit Dev",
+        "compare": "Explicit environment comparison",
+    }
+    for rule in routing["rules"]:
+        installed = " + ".join(labels[item] for item in rule["installed"])
+        routes = " + ".join(labels[item] for item in rule["routes"])
+        lines.append(f"| {installed} | {intents[rule['intent']]} | {routes} |")
+    lines.extend(
+        [
+            "",
+            "Choose the route before issuing a graph query. If any selected environment is",
+            "unreachable, report that environment explicitly and do not query another environment",
+            "as a fallback.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_routing_nudge(routing: dict[str, Any]) -> str:
+    """Render a compact hook hint after proving the required decision rows exist."""
+    expected = [
+        ({"qa", "dev"}, "default", ["qa"]),
+        ({"qa", "dev"}, "dev", ["dev"]),
+        ({"qa", "dev"}, "compare", ["qa", "dev"]),
+    ]
+    for installed, intent, routes in expected:
+        result = resolve_route(routing, installed, intent)
+        if result != {"routes": routes, "error": None}:
+            raise GenerationError("incomplete_routing", "plugin-src/routing.json")
+    return (
+        " When QA and Dev are both installed, default to QA; use only Dev for explicit "
+        "Dev intent; query both only for explicit comparison; never fall back when a selected "
+        "environment is unreachable."
+    )
+
+
 def _read_normalized(path: Path) -> bytes:
     try:
         text = path.read_text(encoding="utf-8")
@@ -160,6 +266,9 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
     outputs: dict[str, bytes] = {}
     marketplace_plugins: list[dict[str, str]] = []
     shared = {destination: _read_normalized(root / origin) for destination, origin in SHARED_FILES.items()}
+    routing = load_routing(root)
+    routing_policy = render_routing_markdown(routing)
+    routing_nudge = render_routing_nudge(routing)
 
     for environment in inputs.environments:
         env_id = environment["id"]
@@ -171,6 +280,8 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
             "plugin_name": package,
             "display_name": environment["display_name"],
             "tool_prefix": environment["agent_tool_prefix"],
+            "routing_policy": routing_policy,
+            "routing_nudge": routing_nudge,
         }
         outputs[prefix + ".claude-plugin/plugin.json"] = canonical_json(
             {
@@ -192,6 +303,9 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
         )
         for relative_path, payload in shared.items():
             outputs[prefix + relative_path] = payload
+        outputs[prefix + "hooks/grep_nudge.py"] = _render_template(
+            source / "hooks" / "grep_nudge.py", replacements
+        )
         outputs[prefix + "skills/code-lookup-discipline/SKILL.md"] = _render_template(
             source / "skills" / "code-lookup-discipline" / "SKILL.md", replacements
         )

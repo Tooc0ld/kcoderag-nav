@@ -20,3 +20,20 @@ ALWAYS prefer the KCodeRag MCP tools to build a global understanding before file
 Use Read/Grep/Glob only for a located uncommitted edit or an exact-string operation.
 Never silently switch to another KCodeRag environment when the selected environment is
 unreachable; report the unavailable environment instead.
+
+## Environment routing
+
+| Installed environments | User intent | Query environments |
+|---|---|---|
+| QA | No environment specified | QA |
+| Dev | No environment specified | Dev |
+| QA + Dev | No environment specified | QA |
+| QA | Explicit QA | QA |
+| Dev | Explicit Dev | Dev |
+| QA + Dev | Explicit QA | QA |
+| QA + Dev | Explicit Dev | Dev |
+| QA + Dev | Explicit environment comparison | QA + Dev |
+
+Choose the route before issuing a graph query. If any selected environment is
+unreachable, report that environment explicitly and do not query another environment
+as a fallback.

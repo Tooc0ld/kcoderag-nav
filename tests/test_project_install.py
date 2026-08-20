@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,16 @@ def snapshot_tree(root: Path) -> dict[str, bytes]:
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def run_installer(target: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(INSTALLER), *arguments, "--target", str(target)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 class ProjectInstallTests(unittest.TestCase):
@@ -63,6 +74,52 @@ class ProjectInstallTests(unittest.TestCase):
             )
             self.assertEqual(uninstall.returncode, 0, "QA uninstall failed")
             self.assertEqual(snapshot_tree(target), before)
+
+    def test_explicit_dev_and_both_installs_are_idempotent(self) -> None:
+        for environment, expected in (("dev", {"dev"}), ("both", {"qa", "dev"})):
+            with self.subTest(environment=environment), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                install = run_installer(target, "install", "--environment", environment)
+                self.assertEqual(install.returncode, 0, f"{environment} install failed")
+                state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(set(state["active_environments"]), expected)
+                for active in expected:
+                    self.assertTrue(
+                        (target / ".codex" / "kcoderag-nav" / active / "hooks" / "grep_nudge.py").is_file()
+                    )
+                before_repeat = snapshot_tree(target)
+                repeat = run_installer(target, "install", "--environment", environment)
+                self.assertEqual(repeat.returncode, 0, f"{environment} repeat install failed")
+                self.assertEqual(snapshot_tree(target), before_repeat)
+
+    def test_dual_install_supports_independent_uninstall(self) -> None:
+        for removed, remaining in (("qa", "dev"), ("dev", "qa")):
+            with self.subTest(removed=removed), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                before = snapshot_tree(target)
+                self.assertEqual(
+                    run_installer(target, "install", "--environment", "both").returncode,
+                    0,
+                )
+
+                uninstall = run_installer(target, "uninstall", "--environment", removed)
+                self.assertEqual(uninstall.returncode, 0, f"uninstall {removed} failed")
+                state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(state["active_environments"], [remaining])
+                config = (target / ".codex" / "config.toml").read_text(encoding="utf-8")
+                self.assertIn(f"kcoderag-{remaining}", config)
+                self.assertNotIn(f"kcoderag-{removed}", config)
+                skill = (target / ".agents" / "skills" / "kcoderag-nav" / "SKILL.md").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn(remaining.upper() if remaining == "qa" else "Dev", skill)
+                self.assertFalse((target / ".codex" / "kcoderag-nav" / removed).exists())
+
+                final = run_installer(target, "uninstall", "--environment", remaining)
+                self.assertEqual(final.returncode, 0, f"uninstall {remaining} failed")
+                self.assertEqual(snapshot_tree(target), before)
 
 
 if __name__ == "__main__":

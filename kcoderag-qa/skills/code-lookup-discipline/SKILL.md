@@ -11,6 +11,23 @@ the current host instead of inventing a fully qualified prefix.
 
 This package supplies the **KCodeRag QA** environment.
 
+## Environment routing
+
+| Installed environments | User intent | Query environments |
+|---|---|---|
+| QA | No environment specified | QA |
+| Dev | No environment specified | Dev |
+| QA + Dev | No environment specified | QA |
+| QA | Explicit QA | QA |
+| Dev | Explicit Dev | Dev |
+| QA + Dev | Explicit QA | QA |
+| QA + Dev | Explicit Dev | Dev |
+| QA + Dev | Explicit environment comparison | QA + Dev |
+
+Choose the route before issuing a graph query. If any selected environment is
+unreachable, report that environment explicitly and do not query another environment
+as a fallback.
+
 ## Choose the right lookup
 
 | Question | First choice |

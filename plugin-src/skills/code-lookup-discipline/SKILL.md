@@ -11,6 +11,8 @@ the current host instead of inventing a fully qualified prefix.
 
 This package supplies the **{{display_name}}** environment.
 
+{{routing_policy}}
+
 ## Choose the right lookup
 
 | Question | First choice |

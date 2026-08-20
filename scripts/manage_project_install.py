@@ -19,7 +19,26 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from generate_plugins import CanonicalInputs, GenerationError, canonical_json, load_inputs
+try:
+    from .generate_plugins import (
+        CanonicalInputs,
+        GenerationError,
+        canonical_json,
+        load_inputs,
+        load_routing,
+        render_routing_markdown,
+        resolve_route,
+    )
+except ImportError:  # Direct script execution keeps the scripts directory on sys.path.
+    from generate_plugins import (
+        CanonicalInputs,
+        GenerationError,
+        canonical_json,
+        load_inputs,
+        load_routing,
+        render_routing_markdown,
+        resolve_route,
+    )
 
 
 STATE_VERSION = 1
@@ -28,7 +47,8 @@ CONFIG_RELATIVE = ".codex/config.toml"
 HOOKS_RELATIVE = ".codex/hooks.json"
 SKILL_RELATIVE = ".agents/skills/kcoderag-nav/SKILL.md"
 MANAGED_ROOT = ".codex/kcoderag-nav"
-ENVIRONMENT_CHOICES = ("qa",)
+INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev", "both")
+UNINSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
 
 
@@ -248,16 +268,21 @@ def _render_hooks(inputs: CanonicalInputs, original: bytes | None, active: set[s
 
 
 def _render_skill(inputs: CanonicalInputs, active: set[str]) -> bytes:
-    if active != {"qa"}:
+    if not active or not active.issubset({"qa", "dev"}):
         raise InstallError("unsupported_environment_set", SKILL_RELATIVE)
-    metadata = _environment_map(inputs)["qa"]
+    metadata = _environment_map(inputs)
+    if active == {"qa", "dev"}:
+        display_name = "KCodeRag QA and Dev"
+    else:
+        display_name = metadata[next(iter(active))]["display_name"]
     try:
         text = (inputs.root / "plugin-src/skills/code-lookup-discipline/SKILL.md").read_text(
             encoding="utf-8"
         )
     except (OSError, UnicodeError) as exc:
         raise InstallError("invalid_skill_source", "plugin-src/skills/code-lookup-discipline/SKILL.md") from exc
-    text = text.replace("{{display_name}}", metadata["display_name"])
+    text = text.replace("{{display_name}}", display_name)
+    text = text.replace("{{routing_policy}}", render_routing_markdown(load_routing(inputs.root)))
     if "{{" in text:
         raise InstallError("invalid_skill_source", "plugin-src/skills/code-lookup-discipline/SKILL.md")
     return (text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n").encode("utf-8")
@@ -307,7 +332,7 @@ def _desired_install(
             state["originals"][relative_path] = _encode_original(None)
 
     active = set(state["active_environments"]) | requested
-    if active != {"qa"}:
+    if not active or not active.issubset({"qa", "dev"}):
         raise InstallError("unsupported_environment_set", STATE_RELATIVE)
     config_original = _decode_original(state["originals"][CONFIG_RELATIVE], CONFIG_RELATIVE)
     hooks_original = _decode_original(state["originals"][HOOKS_RELATIVE], HOOKS_RELATIVE)
@@ -332,7 +357,6 @@ def _desired_install(
 def _desired_uninstall(
     inputs: CanonicalInputs, state: dict[str, Any], environment: str
 ) -> dict[str, bytes | None]:
-    _ = inputs
     active = set(state["active_environments"])
     if environment not in active:
         raise InstallError("environment_not_installed", STATE_RELATIVE)
@@ -349,7 +373,26 @@ def _desired_uninstall(
             desired[relative_path] = _decode_original(originals[relative_path], relative_path)
         desired[STATE_RELATIVE] = None
         return desired
-    raise InstallError("unsupported_environment_set", STATE_RELATIVE)
+
+    config_original = _decode_original(originals[CONFIG_RELATIVE], CONFIG_RELATIVE)
+    hooks_original = _decode_original(originals[HOOKS_RELATIVE], HOOKS_RELATIVE)
+    shared = {
+        CONFIG_RELATIVE: _render_config(inputs, config_original, remaining),
+        HOOKS_RELATIVE: _render_hooks(inputs, hooks_original, remaining),
+        SKILL_RELATIVE: _render_skill(inputs, remaining),
+    }
+    desired.update(shared)
+    state["active_environments"] = sorted(remaining)
+    state["digests"] = {
+        relative_path: digest
+        for relative_path, digest in state["digests"].items()
+        if not relative_path.startswith(private_prefix)
+    }
+    state["digests"].update(
+        {relative_path: _sha256(payload) for relative_path, payload in shared.items()}
+    )
+    desired[STATE_RELATIVE] = canonical_json(state)
+    return desired
 
 
 def _write_temporary(path: Path, payload: bytes) -> Path:
@@ -403,6 +446,8 @@ def _prune_empty_directories(target: Path) -> None:
     candidates = [
         target / ".codex" / "kcoderag-nav" / "qa" / "hooks",
         target / ".codex" / "kcoderag-nav" / "qa",
+        target / ".codex" / "kcoderag-nav" / "dev" / "hooks",
+        target / ".codex" / "kcoderag-nav" / "dev",
         target / ".codex" / "kcoderag-nav",
         target / ".agents" / "skills" / "kcoderag-nav",
         target / ".agents" / "skills",
@@ -444,10 +489,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     commands = parser.add_subparsers(dest="command", required=True)
     install_parser = commands.add_parser("install")
     install_parser.add_argument("--target", type=Path, required=True)
-    install_parser.add_argument("--environment", choices=ENVIRONMENT_CHOICES, default="qa")
+    install_parser.add_argument("--environment", choices=INSTALL_ENVIRONMENT_CHOICES, default="qa")
     uninstall_parser = commands.add_parser("uninstall")
     uninstall_parser.add_argument("--target", type=Path, required=True)
-    uninstall_parser.add_argument("--environment", choices=ENVIRONMENT_CHOICES, required=True)
+    uninstall_parser.add_argument("--environment", choices=UNINSTALL_ENVIRONMENT_CHOICES, required=True)
     return parser.parse_args(argv)
 
 
@@ -457,7 +502,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         target = _safe_target(args.target)
         if args.command == "install":
-            install(target, source_root, {args.environment})
+            requested = {"qa", "dev"} if args.environment == "both" else {args.environment}
+            install(target, source_root, requested)
             print(f"installed: {args.environment}")
         else:
             uninstall(target, source_root, args.environment)
