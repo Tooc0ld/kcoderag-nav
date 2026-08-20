@@ -1,6 +1,6 @@
 # KCodeRag Nav Plugins
 
-本仓库从一份规范源生成两个可独立安装的 KCodeRag 导航插件：普通用户使用
+本仓库从一份规范源生成两个可独立安装、但互斥使用的 KCodeRag 导航插件：普通用户使用
 `kcoderag-qa`，开发与环境验证使用 `kcoderag-dev`。两个包都支持 Codex，并保留
 Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径。
 
@@ -20,14 +20,13 @@ python scripts/manage_project_install.py install --target PATH
 **Codex** 生效——Claude Code 不读取 `.codex/`与 `.agents/`，请使用下文的
 marketplace 插件安装。目标项目必须受信任，因为 Codex 会从其中加载 hook 与 MCP 配置。
 
-开发或测试人员可显式选择 Dev 或双环境：
+开发或测试人员可显式选择 Dev：
 
 ```powershell
 python scripts/manage_project_install.py install --target PATH --environment dev
-python scripts/manage_project_install.py install --target PATH --environment both
 ```
 
-按环境独立卸载；从双装状态移除一个环境不会删除另一个环境：
+QA 与 Dev 不能同时安装。若要切换环境，先卸载当前环境，再安装另一个：
 
 ```powershell
 python scripts/manage_project_install.py uninstall --target PATH --environment qa
@@ -48,16 +47,14 @@ python scripts/manage_project_install.py status --target PATH --json
 诊断只包含稳定状态、环境、问题 code 与项目相对 path，不输出受管文件内容、摘要或 MCP
 配置值，也不会修改或清理目标目录。
 
-## 环境路由
+## 环境选择
 
-- 仅安装一个环境时查询该环境。
-- QA 与 Dev 双装且未指定环境时默认查询 QA。
-- 明确指定 Dev 时只查询 Dev。
-- 只有明确要求环境比较时才同时查询 QA 与 Dev。
-- 选中的环境不可达时明确报告，不静默切换或回退到另一个环境。
+- 默认只安装并查询 QA；显式选择 Dev 时只安装并查询 Dev。
+- 项目安装器拒绝 `both` 以及在未卸载当前环境时安装另一个环境。
+- 已安装环境不可达时明确报告，不静默查询另一个 KCodeRag 环境。
+- 索引不可用或陈旧时，可以明确退回本地搜索。
 
-QA 与 Dev 的匹配 hook 可能由宿主并发启动；跨进程原子去重确保同一工具调用最多注入
-一次 advisory context。解析、身份或去重异常都 fail-open，不阻止原始搜索。
+单环境 hook 不创建跨进程 marker 或其他去重状态。解析异常仍 fail-open，不阻止原始搜索。
 
 hook source 明确要求 Python 3.10+。POSIX launcher 依次探测 `python3`、`python`；
 Windows launcher 依次探测 `py -3`、`python3`、`python`。只有合格解释器才执行 hook；
@@ -73,7 +70,9 @@ codex plugin add kcoderag-qa@kcoderag-nav
 ```
 
 Codex 当前没有原生 project-scope plugin install；本仓库的项目级行为由上面的兼容
-安装器提供。双装仅用于开发或环境对比，可再显式安装 `kcoderag-dev@kcoderag-nav`。
+安装器提供。当前 Codex plugin manifest 也没有插件互斥字段，因此用户级路径无法由宿主
+自动阻止双装；同时启用 `kcoderag-qa` 与 `kcoderag-dev` 属于不支持的配置，切换前必须先
+卸载或禁用现有环境。
 仓库根同时携带 Codex 版 marketplace 清单 `.agents/plugins/marketplace.json`（Claude
 Code 版在 `.claude-plugin/marketplace.json`）。插件包的 `.mcp.json` 保留 Claude Code
 格式；Codex 清单指向独立生成的 `.codex.mcp.json`（`mcp_servers` 封装）。

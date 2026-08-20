@@ -1,13 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
+  "mutually_exclusive": ["qa", "dev"],
   "rules": [
     {"installed": ["qa"], "intent": "default", "routes": ["qa"]},
-    {"installed": ["dev"], "intent": "default", "routes": ["dev"]},
-    {"installed": ["qa", "dev"], "intent": "default", "routes": ["qa"]},
-    {"installed": ["qa"], "intent": "qa", "routes": ["qa"]},
-    {"installed": ["dev"], "intent": "dev", "routes": ["dev"]},
-    {"installed": ["qa", "dev"], "intent": "qa", "routes": ["qa"]},
-    {"installed": ["qa", "dev"], "intent": "dev", "routes": ["dev"]},
-    {"installed": ["qa", "dev"], "intent": "compare", "routes": ["qa", "dev"]}
+    {"installed": ["dev"], "intent": "default", "routes": ["dev"]}
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: code-lookup-discipline
-description: Choose KCodeRag MCP tools over local text search for structural code navigation. Apply when finding symbols, definitions, callers, callees, dependencies, cross-language links, or change impact; use local search for exact text and uncommitted edits.
+description: Choose KCodeRag MCP tools over local text search for structural code navigation. Apply when finding symbols, definitions, callers, callees, dependencies, cross-language links, or change impact; use local search for exact text, uncommitted edits, or explicit unavailable-index fallback.
 ---
 
 # KCodeRag Code Navigation

@@ -142,7 +142,7 @@ def _prepare_synthetic_environment(
         encoding="utf-8",
         newline="\n",
     )
-    manage_project_install.install(workspace, source_root, {"qa", "dev"})
+    manage_project_install.install(workspace, source_root, {"qa"})
 
     mcp_config = temporary_root / "strict-mcp.json"
     mcp_config.write_bytes(
@@ -169,7 +169,11 @@ def _prepare_synthetic_environment(
         entry = package_mcp["mcpServers"][f"kcoderag-{environment}"]
         package_wired = package_wired and entry.get("url") == stub_url
     project_config = (workspace / ".codex" / "config.toml").read_text(encoding="utf-8")
-    project_wired = project_config.count(stub_url) == 2
+    project_wired = (
+        project_config.count(stub_url) == 1
+        and "kcoderag-qa" in project_config
+        and "kcoderag-dev" not in project_config
+    )
     strict_wired = json.loads(mcp_config.read_text(encoding="utf-8"))["mcpServers"][
         "kcoderag-qa"
     ]["url"] == stub_url
@@ -270,7 +274,6 @@ def run_smoke(
                     {
                         "CODEX_HOME": str(host_home),
                         "CLAUDE_CONFIG_DIR": str(host_home),
-                        "KCODERAG_NAV_DEDUP_DIR": str(temporary_root / "dedup"),
                         "KCODERAG_NAV_STUB_URL": server.url,
                     }
                 )

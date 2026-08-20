@@ -17,7 +17,8 @@ ALWAYS prefer the KCodeRag MCP tools to build a global understanding before file
 - **{{tool_prefix}}cypher** — perform custom read-only graph traversals.
 - **{{tool_prefix}}list_indexes** — check graph/index health.
 
-Use Read/Grep/Glob only for a located uncommitted edit or an exact-string operation.
+Use Read/Grep/Glob only for a located uncommitted edit, an exact-string operation, or an
+explicit fallback when the index is unavailable or stale.
 Never silently switch to another KCodeRag environment when the selected environment is
 unreachable; report the unavailable environment instead.
 

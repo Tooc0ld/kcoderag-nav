@@ -36,8 +36,6 @@ EXPECTED_FILES = {
 
 class GenerationTests(unittest.TestCase):
     def test_nudge_is_compact_and_policy_complete(self) -> None:
-        routing = generate_plugins.load_routing(ROOT)
-        routing_nudge = generate_plugins.render_routing_nudge(routing)
         for environment in ("qa", "dev"):
             script = ROOT / f"kcoderag-{environment}" / "hooks" / "grep_nudge.py"
             spec = importlib.util.spec_from_file_location(f"compact_nudge_{environment}", script)
@@ -53,11 +51,10 @@ class GenerationTests(unittest.TestCase):
                 self.assertIn(tool, nudge)
             self.assertIn("exact", lowered)
             self.assertIn("uncommitted", lowered)
-            self.assertIn("When QA and Dev are both installed", nudge)
-            self.assertIn("explicit Dev", nudge)
-            self.assertIn("explicit comparison", nudge)
-            self.assertIn("unreachable", lowered)
-            self.assertIn(routing_nudge, nudge)
+            self.assertIn("explicit fallback", lowered)
+            self.assertIn("index is unavailable or stale", lowered)
+            self.assertNotIn("qa and dev", lowered)
+            self.assertNotIn("routing", lowered)
             self.assertNotIn("mcp__plugin_", nudge)
             self.assertNotIn("deny", lowered)
             self.assertNotIn("enforce", lowered)
@@ -220,7 +217,8 @@ class GenerationTests(unittest.TestCase):
         root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("python scripts/manage_project_install.py install --target PATH", root_readme)
         self.assertIn("--environment dev", root_readme)
-        self.assertIn("--environment both", root_readme)
+        self.assertNotIn("--environment both", root_readme)
+        self.assertIn("QA 与 Dev 不能同时安装", root_readme)
         self.assertIn("status --target PATH", root_readme)
         self.assertIn("status --target PATH --json", root_readme)
         self.assertIn("0 = `healthy`", root_readme)

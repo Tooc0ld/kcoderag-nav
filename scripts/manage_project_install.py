@@ -31,7 +31,6 @@ try:
         load_inputs,
         load_routing,
         render_routing_markdown,
-        render_routing_nudge,
         resolve_route,
     )
 except ImportError:  # Direct script execution keeps the scripts directory on sys.path.
@@ -44,7 +43,6 @@ except ImportError:  # Direct script execution keeps the scripts directory on sy
         load_inputs,
         load_routing,
         render_routing_markdown,
-        render_routing_nudge,
         resolve_route,
     )
 
@@ -55,7 +53,7 @@ CONFIG_RELATIVE = ".codex/config.toml"
 HOOKS_RELATIVE = ".codex/hooks.json"
 SKILL_RELATIVE = ".agents/skills/kcoderag-nav/SKILL.md"
 MANAGED_ROOT = ".codex/kcoderag-nav"
-INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev", "both")
+INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 UNINSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 HOOK_PAYLOAD_FILENAMES = ("grep_nudge.py", "run_hook.sh", "run_hook.cmd")
 TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
@@ -68,6 +66,12 @@ class InstallError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.path = path
+
+
+def _single_environment(environments: set[str], path: str = STATE_RELATIVE) -> str:
+    if len(environments) != 1 or not environments.issubset({"qa", "dev"}):
+        raise InstallError("unsupported_environment_set", path)
+    return next(iter(environments))
 
 
 class StatusIssue(TypedDict):
@@ -301,13 +305,9 @@ def _render_hooks(inputs: CanonicalInputs, original: bytes | None, active: set[s
 
 
 def _render_skill(inputs: CanonicalInputs, active: set[str]) -> bytes:
-    if not active or not active.issubset({"qa", "dev"}):
-        raise InstallError("unsupported_environment_set", SKILL_RELATIVE)
+    environment = _single_environment(active, SKILL_RELATIVE)
     metadata = _environment_map(inputs)
-    if active == {"qa", "dev"}:
-        display_name = "KCodeRag QA and Dev"
-    else:
-        display_name = metadata[next(iter(active))]["display_name"]
+    display_name = metadata[environment]["display_name"]
     try:
         text = (inputs.root / "plugin-src/skills/code-lookup-discipline/SKILL.md").read_text(
             encoding="utf-8"
@@ -325,15 +325,12 @@ def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, by
     """Render one environment's hook source and copy its runtime launchers."""
     metadata = _environment_map(inputs)[environment]
     package = metadata["plugin_name"]
-    routing = load_routing(inputs.root)
     replacements = {
         "environment": environment,
         "environment_upper": environment.upper(),
         "plugin_name": package,
         "display_name": metadata["display_name"],
         "tool_prefix": metadata["agent_tool_prefix"],
-        "routing_policy": render_routing_markdown(routing),
-        "routing_nudge": render_routing_nudge(routing),
     }
     try:
         hook_source = inputs.root / "plugin-src" / "hooks"
@@ -370,6 +367,7 @@ def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:
 def _desired_install(
     target: Path, inputs: CanonicalInputs, state: dict[str, Any] | None, requested: set[str]
 ) -> tuple[dict[str, bytes | None], dict[str, Any]]:
+    requested_environment = _single_environment(requested)
     legacy_present = frozenset(
         relative_path
         for relative_path in sorted(LEGACY_PRIVATE_HOOKS)
@@ -391,9 +389,10 @@ def _desired_install(
                 raise InstallError("unmanaged_name_conflict", relative_path)
             state["originals"][relative_path] = _encode_original(None)
 
-    active = set(state["active_environments"]) | requested
-    if not active or not active.issubset({"qa", "dev"}):
-        raise InstallError("unsupported_environment_set", STATE_RELATIVE)
+    active = {requested_environment}
+    existing = set(state["active_environments"])
+    if existing and existing != active:
+        raise InstallError("environment_conflict", STATE_RELATIVE)
     config_original = _decode_original(state["originals"][CONFIG_RELATIVE], CONFIG_RELATIVE)
     hooks_original = _decode_original(state["originals"][HOOKS_RELATIVE], HOOKS_RELATIVE)
     desired: dict[str, bytes | None] = {
@@ -591,6 +590,12 @@ def inspect_status(target: Path, source_root: Path) -> StatusResult:
         return _status_result("not_installed")
 
     active = [item for item in ("qa", "dev") if item in state["active_environments"]]
+    if len(active) != 1:
+        return _status_result(
+            "invalid",
+            active,
+            [_status_issue("environment_conflict", STATE_RELATIVE)],
+        )
     required_owned = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE}
     required_owned.update(
         f"{MANAGED_ROOT}/{environment}/hooks/{filename}"
@@ -706,8 +711,7 @@ def main(argv: list[str] | None = None) -> int:
         target = _safe_target(args.target)
         if args.command == "install":
             runtime_available = _has_supported_hook_runtime()
-            requested = {"qa", "dev"} if args.environment == "both" else {args.environment}
-            install(target, source_root, requested)
+            install(target, source_root, {args.environment})
             print(f"installed: {args.environment}")
             if not runtime_available:
                 print(

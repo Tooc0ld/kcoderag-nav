@@ -17,23 +17,20 @@ ALWAYS prefer the KCodeRag MCP tools to build a global understanding before file
 - **mcp__plugin_kcoderag-qa_kcoderag-qa__cypher** — perform custom read-only graph traversals.
 - **mcp__plugin_kcoderag-qa_kcoderag-qa__list_indexes** — check graph/index health.
 
-Use Read/Grep/Glob only for a located uncommitted edit or an exact-string operation.
+Use Read/Grep/Glob only for a located uncommitted edit, an exact-string operation, or an
+explicit fallback when the index is unavailable or stale.
 Never silently switch to another KCodeRag environment when the selected environment is
 unreachable; report the unavailable environment instead.
 
-## Environment routing
+## Environment selection
 
-| Installed environments | User intent | Query environments |
-|---|---|---|
-| QA | No environment specified | QA |
-| Dev | No environment specified | Dev |
-| QA + Dev | No environment specified | QA |
-| QA | Explicit QA | QA |
-| Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit QA | QA |
-| QA + Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit environment comparison | QA + Dev |
+QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
 
-Choose the route before issuing a graph query. If any selected environment is
-unreachable, report that environment explicitly and do not query another environment
-as a fallback.
+| Installed plugin | Query environment |
+|---|---|
+| QA | QA |
+| Dev | Dev |
+
+If the installed KCodeRag environment is unreachable, report it instead of querying
+the other environment. Local search remains an explicit fallback when the index is
+unavailable or stale.

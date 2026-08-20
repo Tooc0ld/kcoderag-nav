@@ -75,7 +75,7 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertEqual(snapshot_tree(target), before)
 
             self.assertEqual(
-                run_installer(target, "install", "--environment", "both").returncode,
+                run_installer(target, "install").returncode,
                 0,
             )
             installed = snapshot_tree(target)
@@ -84,7 +84,7 @@ class ProjectInstallTests(unittest.TestCase):
                 {
                     "schema_version": 1,
                     "status": "healthy",
-                    "active_environments": ["qa", "dev"],
+                    "active_environments": ["qa"],
                     "issues": [],
                 },
             )
@@ -322,16 +322,17 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertEqual(snapshot_tree(target), before_repeat)
 
     def test_install_renders_hook_scripts_without_placeholders(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory)
-            install = run_installer(target, "install", "--environment", "both")
-            self.assertEqual(install.returncode, 0, "both install failed")
-            for environment in ("qa", "dev"):
+        for environment in ("qa", "dev"):
+            with self.subTest(environment=environment), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                install = run_installer(target, "install", "--environment", environment)
+                self.assertEqual(install.returncode, 0, f"{environment} install failed")
                 hooks_directory = target / ".codex" / "kcoderag-nav" / environment / "hooks"
                 script = hooks_directory / "grep_nudge.py"
                 text = script.read_text(encoding="utf-8")
                 self.assertNotIn("{{", text, f"{environment} hook still has unresolved placeholders")
-                self.assertIn("default to QA", text, f"{environment} hook lost the routing guidance")
+                self.assertNotIn("QA and Dev", text)
+                self.assertIn("index is unavailable or stale", text)
                 self.assertFalse(
                     (hooks_directory / "hooks.json").exists(),
                     f"{environment} must not ship the unconsumed inner hooks.json payload",
@@ -342,11 +343,11 @@ class ProjectInstallTests(unittest.TestCase):
                         (ROOT / "plugin-src" / "hooks" / launcher).read_bytes(),
                     )
 
-            registrations = json.loads(
-                (target / ".codex" / "hooks.json").read_text(encoding="utf-8")
-            )["hooks"]["PreToolUse"]
-            self.assertEqual(len(registrations), 2)
-            for environment, registration in zip(("dev", "qa"), registrations, strict=True):
+                registrations = json.loads(
+                    (target / ".codex" / "hooks.json").read_text(encoding="utf-8")
+                )["hooks"]["PreToolUse"]
+                self.assertEqual(len(registrations), 1)
+                registration = registrations[0]
                 handler = registration["hooks"][0]
                 self.assertIn(
                     f".codex/kcoderag-nav/{environment}/hooks/run_hook.sh",
@@ -359,30 +360,23 @@ class ProjectInstallTests(unittest.TestCase):
                 )
                 self.assertNotIn("grep_nudge.py", handler["commandWindows"])
 
-            environment = os.environ.copy()
-            environment["KCODERAG_NAV_DEDUP_DIR"] = str(target / "dedup")
-            codex_payload = {
-                "hook_event_name": "PreToolUse",
-                "session_id": "synthetic-session",
-                "turn_id": "synthetic-turn",
-                "tool_use_id": "synthetic-tool-use",
-                "tool_name": "Bash",
-                "tool_input": {"command": "rg KPlayer::GetLevel src"},
-            }
-            installed_script = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
-            result = subprocess.run(
-                [sys.executable, str(installed_script)],
-                input=json.dumps(codex_payload),
-                capture_output=True,
-                text=True,
-                check=False,
-                env=environment,
-                timeout=5,
-            )
-            self.assertEqual(result.returncode, 0)
-            output = json.loads(result.stdout)
-            self.assertIn("additionalContext", output["hookSpecificOutput"])
-            self.assertNotIn("{{", output["hookSpecificOutput"]["additionalContext"])
+                codex_payload = {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "rg KPlayer::GetLevel src"},
+                }
+                result = subprocess.run(
+                    [sys.executable, str(script)],
+                    input=json.dumps(codex_payload),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5,
+                )
+                self.assertEqual(result.returncode, 0)
+                output = json.loads(result.stdout)
+                self.assertIn("additionalContext", output["hookSpecificOutput"])
+                self.assertNotIn("{{", output["hookSpecificOutput"]["additionalContext"])
 
     def test_legacy_payloads_are_retired_without_resurrection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -476,59 +470,88 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertEqual(uninstall.returncode, 0, "QA uninstall failed")
             self.assertEqual(snapshot_tree(target), before)
 
-    def test_explicit_dev_and_both_installs_are_idempotent(self) -> None:
-        for environment, expected in (("dev", {"dev"}), ("both", {"qa", "dev"})):
+    def test_single_environment_installs_are_idempotent(self) -> None:
+        for environment in ("qa", "dev"):
             with self.subTest(environment=environment), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory)
                 install = run_installer(target, "install", "--environment", environment)
                 self.assertEqual(install.returncode, 0, f"{environment} install failed")
                 state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
                 state = json.loads(state_path.read_text(encoding="utf-8"))
-                self.assertEqual(set(state["active_environments"]), expected)
-                for active in expected:
-                    self.assertTrue(
-                        (target / ".codex" / "kcoderag-nav" / active / "hooks" / "grep_nudge.py").is_file()
-                    )
+                self.assertEqual(state["active_environments"], [environment])
+                self.assertTrue(
+                    (
+                        target
+                        / ".codex"
+                        / "kcoderag-nav"
+                        / environment
+                        / "hooks"
+                        / "grep_nudge.py"
+                    ).is_file()
+                )
                 before_repeat = snapshot_tree(target)
                 repeat = run_installer(target, "install", "--environment", environment)
                 self.assertEqual(repeat.returncode, 0, f"{environment} repeat install failed")
                 self.assertEqual(snapshot_tree(target), before_repeat)
 
-    def test_dual_install_supports_independent_uninstall(self) -> None:
-        for removed, remaining in (("qa", "dev"), ("dev", "qa")):
-            with self.subTest(removed=removed), tempfile.TemporaryDirectory() as directory:
+    def test_cross_environment_and_both_installs_are_refused_without_writes(self) -> None:
+        for installed, requested in (("qa", "dev"), ("dev", "qa")):
+            with self.subTest(installed=installed), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory)
-                before = snapshot_tree(target)
                 self.assertEqual(
-                    run_installer(target, "install", "--environment", "both").returncode,
+                    run_installer(target, "install", "--environment", installed).returncode,
                     0,
                 )
+                before_conflict = snapshot_tree(target)
 
-                uninstall = run_installer(target, "uninstall", "--environment", removed)
-                self.assertEqual(uninstall.returncode, 0, f"uninstall {removed} failed")
-                state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                self.assertEqual(state["active_environments"], [remaining])
-                config = (target / ".codex" / "config.toml").read_text(encoding="utf-8")
-                self.assertIn(f"kcoderag-{remaining}", config)
-                self.assertNotIn(f"kcoderag-{removed}", config)
-                skill = (target / ".agents" / "skills" / "kcoderag-nav" / "SKILL.md").read_text(
-                    encoding="utf-8"
-                )
-                self.assertIn(remaining.upper() if remaining == "qa" else "Dev", skill)
-                self.assertFalse((target / ".codex" / "kcoderag-nav" / removed).exists())
+                conflict = run_installer(target, "install", "--environment", requested)
 
-                final = run_installer(target, "uninstall", "--environment", remaining)
-                self.assertEqual(final.returncode, 0, f"uninstall {remaining} failed")
-                self.assertEqual(snapshot_tree(target), before)
+                self.assertEqual(conflict.returncode, 2)
+                self.assertIn("environment_conflict", conflict.stderr)
+                self.assertEqual(snapshot_tree(target), before_conflict)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            before = snapshot_tree(target)
+            both = run_installer(target, "install", "--environment", "both")
+            self.assertEqual(both.returncode, 2)
+            self.assertEqual(snapshot_tree(target), before)
+
+            with self.assertRaisesRegex(installer.InstallError, "unsupported_environment_set"):
+                installer.install(target, ROOT, {"qa", "dev"})
+            self.assertEqual(snapshot_tree(target), before)
+
+    def test_environment_switch_requires_uninstall_first(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            before = snapshot_tree(target)
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            self.assertEqual(
+                run_installer(target, "uninstall", "--environment", "qa").returncode,
+                0,
+            )
+            self.assertEqual(snapshot_tree(target), before)
+
+            self.assertEqual(
+                run_installer(target, "install", "--environment", "dev").returncode,
+                0,
+            )
+            state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["active_environments"], ["dev"])
+            self.assertEqual(
+                run_installer(target, "uninstall", "--environment", "dev").returncode,
+                0,
+            )
+            self.assertEqual(snapshot_tree(target), before)
 
     def test_install_permutations_preserve_project_and_user_boundaries(self) -> None:
         scenarios = [
             ([], ["qa"]),
+            (["qa"], ["qa"]),
             (["dev"], ["dev"]),
-            (["both"], ["qa", "dev"]),
-            (["qa", "dev"], ["qa", "dev"]),
-            (["dev", "qa"], ["dev", "qa"]),
+            (["qa", "qa"], ["qa"]),
+            (["dev", "dev"], ["dev"]),
         ]
         for install_sequence, active in scenarios:
             with self.subTest(sequence=install_sequence), tempfile.TemporaryDirectory() as directory:

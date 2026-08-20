@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import json
 import importlib.util
-import os
 import subprocess
 import sys
-import tempfile
-import time
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -27,16 +22,13 @@ HOOKS = [
 ]
 
 
-def run_hook(script: Path, payload: dict[str, object], dedup_directory: Path) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment["KCODERAG_NAV_DEDUP_DIR"] = str(dedup_directory)
+def run_hook(script: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(script)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         check=False,
-        env=environment,
         timeout=5,
     )
 
@@ -68,11 +60,13 @@ class RoutingTests(unittest.TestCase):
                     self.assertEqual(failed["routes"], [])
                     self.assertEqual(failed["error"]["code"], "unreachable")
                     self.assertIn(unavailable, failed["error"]["environments"])
+        unsupported = installer.resolve_route(routing, {"qa", "dev"}, "default")
+        self.assertEqual(unsupported["routes"], [])
+        self.assertEqual(unsupported["error"]["code"], "unsupported_route")
 
     def test_generated_guidance_comes_from_routing_table(self) -> None:
         routing = generate_plugins.load_routing(ROOT)
         policy = generate_plugins.render_routing_markdown(routing)
-        nudge = generate_plugins.render_routing_nudge(routing)
         for environment in ("qa", "dev"):
             package = ROOT / f"kcoderag-{environment}"
             for relative_path in (
@@ -87,7 +81,8 @@ class RoutingTests(unittest.TestCase):
             self.assertIsNotNone(spec.loader)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            self.assertIn(nudge, module.NUDGE)
+            self.assertNotIn("QA and Dev", module.NUDGE)
+            self.assertIn("index is unavailable or stale", module.NUDGE)
 
 
 class HookCommandParsingTests(unittest.TestCase):
@@ -147,160 +142,41 @@ class HookCommandParsingTests(unittest.TestCase):
         self.assert_command_patterns(excessive, [])
 
 
-class HookDedupTests(unittest.TestCase):
-    def test_concurrent_generated_hooks_emit_one_context_per_tool_call(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            dedup_directory = Path(directory) / "dedup"
-            payload: dict[str, object] = {
-                "hook_event_name": "PreToolUse",
-                "session_id": "synthetic-session",
-                "turn_id": "synthetic-turn",
-                "tool_use_id": "synthetic-tool-use-1",
-                "tool_name": "Bash",
-                "tool_input": {"command": "rg SyntheticSecretSymbol src"},
-            }
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                results = list(
-                    pool.map(
-                        lambda script: run_hook(script, payload, dedup_directory),
-                        HOOKS,
-                    )
-                )
-            self.assertEqual([result.returncode for result in results], [0, 0])
-            outputs = [result.stdout for result in results if result.stdout]
-            self.assertEqual(len(outputs), 1)
-            parsed = json.loads(outputs[0])
-            self.assertIn("additionalContext", parsed["hookSpecificOutput"])
-
-            payload["tool_use_id"] = "synthetic-tool-use-2"
-            later = [run_hook(script, payload, dedup_directory) for script in HOOKS]
-            self.assertEqual(sum(bool(result.stdout) for result in later), 1)
-
-            markers = list(dedup_directory.glob("*.marker"))
-            self.assertEqual(len(markers), 2)
-            for marker in markers:
-                self.assertRegex(marker.name, r"^[0-9a-f]{64}\.marker$")
-                self.assertEqual(marker.read_bytes(), b"")
-                self.assertNotIn("SyntheticSecretSymbol", marker.name)
-
-    def test_dedup_and_identity_failures_are_silent(self) -> None:
+class HookExecutionTests(unittest.TestCase):
+    def test_each_single_environment_hook_emits_context(self) -> None:
         payload: dict[str, object] = {
             "hook_event_name": "PreToolUse",
-            "session_id": "synthetic-session",
-            "turn_id": "synthetic-turn",
-            "tool_use_id": {"malformed": True},
             "tool_name": "Bash",
-            "tool_input": {"command": "rg SyntheticSecretSymbol src"},
+            "tool_input": {"command": "rg KPlayer::GetLevel src"},
         }
-        with tempfile.TemporaryDirectory() as directory:
-            blocked_directory = Path(directory) / "not-a-directory"
-            blocked_directory.write_bytes(b"sentinel")
-            for script in HOOKS:
-                malformed = run_hook(script, payload, Path(directory) / "dedup")
-                self.assertEqual((malformed.returncode, malformed.stdout), (0, ""))
+        for script in HOOKS:
+            with self.subTest(environment=script.parent.parent.name):
+                result = run_hook(script, payload)
+                self.assertEqual(result.returncode, 0)
+                parsed = json.loads(result.stdout)
+                self.assertIn("additionalContext", parsed["hookSpecificOutput"])
 
-                valid_payload = dict(payload, tool_use_id="synthetic-tool-use")
-                blocked = run_hook(script, valid_payload, blocked_directory)
-                self.assertEqual((blocked.returncode, blocked.stdout), (0, ""))
-
-                environment = os.environ.copy()
-                environment["KCODERAG_NAV_DEDUP_DIR"] = str(Path(directory) / "oversized")
+    def test_oversized_input_and_mechanical_search_fail_open(self) -> None:
+        for script in HOOKS:
+            with self.subTest(environment=script.parent.parent.name):
                 oversized = subprocess.run(
                     [sys.executable, str(script)],
                     input="{" + "x" * 131_073,
                     capture_output=True,
                     text=True,
                     check=False,
-                    env=environment,
                     timeout=5,
                 )
                 self.assertEqual((oversized.returncode, oversized.stdout), (0, ""))
-
-                spec = importlib.util.spec_from_file_location(f"dedup_{script.parent.parent.name}", script)
-                self.assertIsNotNone(spec)
-                self.assertIsNotNone(spec.loader)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                claim_payload = dict(valid_payload)
-                with mock.patch.object(module.os, "scandir", side_effect=OSError("synthetic")):
-                    self.assertFalse(module._claim_nudge(claim_payload))
-                with mock.patch.object(module.os, "open", side_effect=OSError("synthetic")):
-                    self.assertFalse(module._claim_nudge(claim_payload))
-
-    def test_repeated_dedup_and_dual_host_payloads(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            dedup_directory = Path(directory) / "dedup"
-            for index in range(5):
-                payload: dict[str, object] = {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "synthetic-session",
-                    "turn_id": f"synthetic-turn-{index}",
-                    "tool_use_id": f"synthetic-tool-{index}",
-                    "tool_name": "Bash",
-                    "tool_input": {"command": "rg KPlayer::GetLevel src"},
-                }
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    results = list(
-                        pool.map(lambda script: run_hook(script, payload, dedup_directory), HOOKS)
-                    )
-                self.assertEqual(sum(bool(result.stdout) for result in results), 1)
-
-            fallback_payload: dict[str, object] = {
-                "hook_event_name": "PreToolUse",
-                "session_id": "synthetic-session",
-                "turn_id": "synthetic-fallback-turn",
-                "tool_name": "Grep",
-                "tool_input": {"pattern": "KPlayer::GetLevel"},
-            }
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                fallback = list(
-                    pool.map(
-                        lambda script: run_hook(script, fallback_payload, dedup_directory),
-                        HOOKS,
-                    )
-                )
-            self.assertEqual(sum(bool(result.stdout) for result in fallback), 1)
-
-            stale = dedup_directory / ("0" * 64 + ".marker")
-            stale.write_bytes(b"")
-            old = time.time() - 1_000
-            os.utime(stale, (old, old))
-            cleanup_payload = dict(fallback_payload, turn_id="synthetic-cleanup-turn")
-            cleanup = run_hook(HOOKS[0], cleanup_payload, dedup_directory)
-            self.assertEqual(cleanup.returncode, 0)
-            self.assertFalse(stale.exists())
-
-            for script in HOOKS:
-                claude = run_hook(
-                    script,
-                    dict(fallback_payload, turn_id=f"claude-{script.parent.parent.name}"),
-                    dedup_directory,
-                )
-                codex = run_hook(
-                    script,
-                    {
-                        "hook_event_name": "PreToolUse",
-                        "session_id": "synthetic-session",
-                        "turn_id": f"codex-{script.parent.parent.name}",
-                        "tool_name": "Bash",
-                        "tool_input": {"command": "rg KPlayer::GetLevel src"},
-                    },
-                    dedup_directory,
-                )
                 mechanical = run_hook(
                     script,
                     {
                         "hook_event_name": "PreToolUse",
-                        "session_id": "synthetic-session",
-                        "turn_id": f"mechanical-{script.parent.parent.name}",
                         "tool_name": "Bash",
                         "tool_input": {"command": "rg TODO logs"},
                     },
-                    dedup_directory,
                 )
-                self.assertTrue(claude.stdout)
-                self.assertTrue(codex.stdout)
-                self.assertEqual(mechanical.stdout, "")
+                self.assertEqual((mechanical.returncode, mechanical.stdout), (0, ""))
 
 
 if __name__ == "__main__":

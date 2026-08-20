@@ -1,6 +1,6 @@
 ---
 name: code-lookup-discipline
-description: Choose KCodeRag MCP tools over local text search for structural code navigation. Apply when finding symbols, definitions, callers, callees, dependencies, cross-language links, or change impact; use local search for exact text and uncommitted edits.
+description: Choose KCodeRag MCP tools over local text search for structural code navigation. Apply when finding symbols, definitions, callers, callees, dependencies, cross-language links, or change impact; use local search for exact text, uncommitted edits, or explicit unavailable-index fallback.
 ---
 
 # KCodeRag Code Navigation
@@ -11,22 +11,18 @@ the current host instead of inventing a fully qualified prefix.
 
 This package supplies the **KCodeRag Dev** environment.
 
-## Environment routing
+## Environment selection
 
-| Installed environments | User intent | Query environments |
-|---|---|---|
-| QA | No environment specified | QA |
-| Dev | No environment specified | Dev |
-| QA + Dev | No environment specified | QA |
-| QA | Explicit QA | QA |
-| Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit QA | QA |
-| QA + Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit environment comparison | QA + Dev |
+QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
 
-Choose the route before issuing a graph query. If any selected environment is
-unreachable, report that environment explicitly and do not query another environment
-as a fallback.
+| Installed plugin | Query environment |
+|---|---|
+| QA | QA |
+| Dev | Dev |
+
+If the installed KCodeRag environment is unreachable, report it instead of querying
+the other environment. Local search remains an explicit fallback when the index is
+unavailable or stale.
 
 ## Choose the right lookup
 

@@ -20,22 +20,18 @@ python scripts/manage_project_install.py install --target PATH --environment dev
 The project installer writes only managed files under the target project's `.codex/`
 and `.agents/` directories.
 
-## Environment routing
+## Environment selection
 
-| Installed environments | User intent | Query environments |
-|---|---|---|
-| QA | No environment specified | QA |
-| Dev | No environment specified | Dev |
-| QA + Dev | No environment specified | QA |
-| QA | Explicit QA | QA |
-| Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit QA | QA |
-| QA + Dev | Explicit Dev | Dev |
-| QA + Dev | Explicit environment comparison | QA + Dev |
+QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
 
-Choose the route before issuing a graph query. If any selected environment is
-unreachable, report that environment explicitly and do not query another environment
-as a fallback.
+| Installed plugin | Query environment |
+|---|---|
+| QA | QA |
+| Dev | Dev |
+
+If the installed KCodeRag environment is unreachable, report it instead of querying
+the other environment. Local search remains an explicit fallback when the index is
+unavailable or stale.
 
 ## Optional user-level Codex install
 
@@ -45,7 +41,8 @@ codex plugin add kcoderag-dev@kcoderag-nav
 ```
 
 This optional path is user-level. Codex does not currently provide a native
-project-scoped plugin installation command.
+project-scoped plugin installation command. Current plugin manifests do not enforce
+conflicts, so uninstall or disable the other KCodeRag environment before using this path.
 
 ## Install in Claude Code
 

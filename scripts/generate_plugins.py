@@ -120,7 +120,14 @@ def load_routing(root: Path) -> dict[str, Any]:
     path = root / "plugin-src" / "routing.json"
     routing = _load_json(path)
     rules = routing.get("rules") if isinstance(routing, dict) else None
-    if routing.get("version") != 1 or not isinstance(rules, list) or not rules:
+    if (
+        not isinstance(routing, dict)
+        or set(routing) != {"version", "mutually_exclusive", "rules"}
+        or routing.get("version") != 2
+        or routing.get("mutually_exclusive") != ["qa", "dev"]
+        or not isinstance(rules, list)
+        or not rules
+    ):
         raise GenerationError("invalid_routing", "plugin-src/routing.json")
     seen: set[tuple[tuple[str, ...], str]] = set()
     for rule in rules:
@@ -131,20 +138,20 @@ def load_routing(root: Path) -> dict[str, Any]:
         intent = rule["intent"]
         if (
             not isinstance(installed, list)
-            or not installed
-            or installed != [item for item in ("qa", "dev") if item in set(installed)]
-            or not set(installed).issubset({"qa", "dev"})
+            or len(installed) != 1
+            or installed[0] not in {"qa", "dev"}
             or not isinstance(routes, list)
-            or not routes
-            or not set(routes).issubset(set(installed))
+            or routes != installed
             or not isinstance(intent, str)
-            or intent not in {"default", "qa", "dev", "compare"}
+            or intent != "default"
         ):
             raise GenerationError("invalid_routing", "plugin-src/routing.json")
         key = (tuple(installed), intent)
         if key in seen:
             raise GenerationError("duplicate_routing", "plugin-src/routing.json")
         seen.add(key)
+    if seen != {(("qa",), "default"), (("dev",), "default")}:
+        raise GenerationError("incomplete_routing", "plugin-src/routing.json")
     return routing
 
 
@@ -175,50 +182,29 @@ def resolve_route(
 
 
 def render_routing_markdown(routing: dict[str, Any]) -> str:
-    """Render the executable route table into host-neutral user guidance."""
+    """Render the mutually exclusive environment policy into user guidance."""
     lines = [
-        "## Environment routing",
+        "## Environment selection",
         "",
-        "| Installed environments | User intent | Query environments |",
-        "|---|---|---|",
+        "QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.",
+        "",
+        "| Installed plugin | Query environment |",
+        "|---|---|",
     ]
     labels = {"qa": "QA", "dev": "Dev"}
-    intents = {
-        "default": "No environment specified",
-        "qa": "Explicit QA",
-        "dev": "Explicit Dev",
-        "compare": "Explicit environment comparison",
-    }
     for rule in routing["rules"]:
-        installed = " + ".join(labels[item] for item in rule["installed"])
-        routes = " + ".join(labels[item] for item in rule["routes"])
-        lines.append(f"| {installed} | {intents[rule['intent']]} | {routes} |")
+        installed = labels[rule["installed"][0]]
+        route = labels[rule["routes"][0]]
+        lines.append(f"| {installed} | {route} |")
     lines.extend(
         [
             "",
-            "Choose the route before issuing a graph query. If any selected environment is",
-            "unreachable, report that environment explicitly and do not query another environment",
-            "as a fallback.",
+            "If the installed KCodeRag environment is unreachable, report it instead of querying",
+            "the other environment. Local search remains an explicit fallback when the index is",
+            "unavailable or stale.",
         ]
     )
     return "\n".join(lines)
-
-
-def render_routing_nudge(routing: dict[str, Any]) -> str:
-    """Render a compact hook hint after proving the required decision rows exist."""
-    expected = [
-        ({"qa", "dev"}, "default", ["qa"]),
-        ({"qa", "dev"}, "dev", ["dev"]),
-        ({"qa", "dev"}, "compare", ["qa", "dev"]),
-    ]
-    for installed, intent, routes in expected:
-        result = resolve_route(routing, installed, intent)
-        if result != {"routes": routes, "error": None}:
-            raise GenerationError("incomplete_routing", "plugin-src/routing.json")
-    return (
-        " When QA and Dev are both installed, default to QA; explicit Dev uses only Dev, "
-        "explicit comparison uses both; if a selected environment is unreachable, do not fall back."
-    )
 
 
 def _read_normalized(path: Path) -> bytes:
@@ -299,7 +285,6 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
     shared = {destination: _read_normalized(root / origin) for destination, origin in SHARED_FILES.items()}
     routing = load_routing(root)
     routing_policy = render_routing_markdown(routing)
-    routing_nudge = render_routing_nudge(routing)
 
     for environment in inputs.environments:
         env_id = environment["id"]
@@ -312,7 +297,6 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
             "display_name": environment["display_name"],
             "tool_prefix": environment["agent_tool_prefix"],
             "routing_policy": routing_policy,
-            "routing_nudge": routing_nudge,
         }
         outputs[prefix + ".claude-plugin/plugin.json"] = canonical_json(
             {

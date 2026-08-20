@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.dont_write_bytecode = True
@@ -104,6 +103,8 @@ def run() -> int:
     failures += check("mechanical command stays silent", silent_output, None)
     failures += check("nudge names search_code", "search_code" in _mod.NUDGE, True)
     failures += check("nudge names get_call_chain", "get_call_chain" in _mod.NUDGE, True)
+    failures += check("nudge allows unavailable-index fallback", "unavailable" in _mod.NUDGE, True)
+    failures += check("nudge omits dual-environment routing", "QA and Dev" in _mod.NUDGE, False)
     failures += check("nudge is host-neutral", "mcp__plugin_" in _mod.NUDGE, False)
 
     malformed = subprocess.run(
@@ -117,22 +118,18 @@ def run() -> int:
     failures += check("malformed input has no output", malformed.stdout, "")
 
     payload = json.dumps({"tool_input": {"command": "git grep KPlayer::GetLevel"}})
-    with tempfile.TemporaryDirectory() as dedup_directory:
-        environment = os.environ.copy()
-        environment["KCODERAG_NAV_DEDUP_DIR"] = dedup_directory
-        process = subprocess.run(
-            [sys.executable, _SCRIPT],
-            input=payload,
-            text=True,
-            capture_output=True,
-            check=False,
-            env=environment,
-        )
+    process = subprocess.run(
+        [sys.executable, _SCRIPT],
+        input=payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
     parsed = json.loads(process.stdout) if process.stdout else None
     failures += check("CLI payload exits successfully", process.returncode, 0)
     failures += check("CLI payload emits hookSpecificOutput", isinstance(parsed, dict), True)
 
-    total = len(PATTERN_CASES) + len(COMMAND_CASES) + 13
+    total = len(PATTERN_CASES) + len(COMMAND_CASES) + 15
     print(f"\n{total - failures}/{total} passed")
     return 1 if failures else 0
 
