@@ -454,15 +454,25 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("Default Off", root_readme)
         self.assertIn("project scope", root_readme)
         self.assertIn("不要在本仓库中安装", root_readme)
-        for cursor_update_contract in (
+        cursor_update_contracts = (
             "Enable Auto Refresh",
             "Cursor GitHub App",
             "最多每 10 分钟",
             "手动点击 **Refresh**",
             "Default Off 只控制是否默认安装",
             "重新复制 `kcoderag-cursor/`",
-        ):
-            self.assertIn(cursor_update_contract, root_readme)
+        )
+        for cursor_update_contract in cursor_update_contracts:
+            for operational_doc in (root_readme, qa_guide):
+                self.assertIn(cursor_update_contract, operational_doc)
+
+        guide_sync_policy = "影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更"
+        self.assertIn(guide_sync_policy, qa_guide)
+        self.assertIn(
+            guide_sync_policy,
+            (ROOT / ".planning" / "PROJECT.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(guide_sync_policy, (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
 
         for environment in environments:
             package = ROOT / environment["plugin_name"]

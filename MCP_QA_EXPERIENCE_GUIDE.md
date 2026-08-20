@@ -3,6 +3,9 @@
 本指南说明如何通过本仓库安全安装、检查和验证 QA 导航插件。连接配置与认证材料由受控插件
 携带；使用者不需要把这些内容复制到命令、日志或问题报告中。
 
+维护要求：任何影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更，都必须在同一
+变更中同步更新本指南；自动化测试会锁定其中的关键操作契约。
+
 ## 安装与 Python runtime
 
 项目级 Codex 安装要求受信任目标目录，hook source 要求 Python 3.10+：
@@ -99,6 +102,26 @@ python scripts/manage_project_install.py update --target PATH
 若 `status` 为 `drifted` 或 `invalid`，update 会在写入前拒绝；先处理本地变更或 state 问题。
 命令不接受 `--environment`，不会把 QA 切到 Dev。更新成功后开启新的 Codex thread 或 Claude
 session。需要 Dev 时仍须先卸载 QA，再安装 Dev；update 本身不负责切换环境。
+
+## Cursor 私有插件与更新
+
+Cursor 只分发一个配置单一环境的 `kcoderag-nav` 私有插件。团队管理员通过 Dashboard 的
+**Plugins → Team Marketplaces → Import from Repo** 导入本仓库，将插件设为 project scope 和
+**Default Off**；普通开发者再从 **Customize** 页面按项目安装。不要在本分发仓库内安装，
+否则项目自身的 KCodeRag 配置会影响维护与验收搜索。
+
+从 GitHub 导入 Team Marketplace 时，推荐安装 **Cursor GitHub App** 并开启
+**Enable Auto Refresh**。跟踪分支 push 后 Cursor 会自动刷新并更新 marketplace 插件；重新
+索引最多每 10 分钟进行一次，并把短时间内的连续 push 合并到最新提交。未开启自动刷新时，
+团队管理员需要在 Dashboard 的 Marketplace 中手动点击 **Refresh**。
+
+**Default Off 只控制是否默认安装**，自动更新由 **Enable Auto Refresh** 单独控制。更新后
+执行 **Developer: Reload Window** 或开启新的 Agent 会话，以加载新的 Rule、Skill 与 MCP
+配置。
+
+本地 `~/.cursor/plugins/local/kcoderag-nav` 不受 Team Marketplace Auto Refresh 管理。使用
+符号链接时更新源 checkout 并重新生成；使用复制方式时需重新复制 `kcoderag-cursor/`，然后
+重启 Cursor 或执行 **Developer: Reload Window**。
 
 ## 查询与环境选择
 
