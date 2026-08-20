@@ -84,6 +84,33 @@ class ProjectInstallTests(unittest.TestCase):
             )
             self.assertEqual((target / "ordinary.bin").read_bytes(), b"unrelated-project-bytes\x00")
             self.assertFalse((target / ".codex" / "kcoderag-nav" / "dev").exists())
+            updated_tree = snapshot_tree(target)
+            self.assertEqual(installer.update_project(target, synthetic_source), "already current: qa")
+            self.assertEqual(snapshot_tree(target), updated_tree)
+
+    def test_update_project_refuses_missing_drifted_and_environment_argument_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            before = snapshot_tree(target)
+            with self.assertRaisesRegex(installer.InstallError, "not_installed"):
+                installer.update_project(target, ROOT)
+            self.assertEqual(snapshot_tree(target), before)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            hook = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
+            hook.write_bytes(hook.read_bytes() + b"# user-drift\n")
+            before = snapshot_tree(target)
+            result = run_installer(target, "update")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("managed_content_changed", result.stderr)
+            self.assertNotIn("digest", result.stderr.lower())
+            self.assertEqual(snapshot_tree(target), before)
+
+            argument_result = run_installer(target, "update", "--environment", "dev")
+            self.assertNotEqual(argument_result.returncode, 0)
+            self.assertEqual(snapshot_tree(target), before)
 
     def test_status_distinguishes_fresh_target_from_healthy_install(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -539,6 +539,26 @@ def install(target: Path, source_root: Path, environments: set[str]) -> None:
     _apply_transaction(target, desired)
 
 
+def update_project(target: Path, source_root: Path) -> str:
+    """Refresh the one active environment from this checkout without switching it."""
+    target = _safe_target(target)
+    inputs = load_inputs(source_root)
+    state = _load_state(target)
+    if state is None:
+        raise InstallError("not_installed", STATE_RELATIVE)
+    _verify_digests(target, state)
+    environment = _single_environment(set(state["active_environments"]), STATE_RELATIVE)
+    desired, _ = _desired_install(target, inputs, copy.deepcopy(state), {environment})
+    changed = any(
+        _read_optional(_assert_managed_path(target, relative_path)) != payload
+        for relative_path, payload in desired.items()
+    )
+    if changed:
+        _apply_transaction(target, desired)
+        return f"updated: {environment}"
+    return f"already current: {environment}"
+
+
 def uninstall(target: Path, source_root: Path, environment: str) -> None:
     target = _safe_target(target)
     inputs = load_inputs(source_root)
@@ -663,6 +683,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     uninstall_parser = commands.add_parser("uninstall")
     uninstall_parser.add_argument("--target", type=Path, required=True)
     uninstall_parser.add_argument("--environment", choices=UNINSTALL_ENVIRONMENT_CHOICES, required=True)
+    update_parser = commands.add_parser("update")
+    update_parser.add_argument("--target", type=Path, required=True)
     status_parser = commands.add_parser("status")
     status_parser.add_argument("--target", type=Path, required=True)
     status_parser.add_argument("--json", action="store_true", dest="json_output")
@@ -723,9 +745,11 @@ def main(argv: list[str] | None = None) -> int:
                     "warning: hook_runtime_unavailable (python_3_10_required)",
                     file=sys.stderr,
                 )
-        else:
+        elif args.command == "uninstall":
             uninstall(target, source_root, args.environment)
             print(f"uninstalled: {args.environment}")
+        else:
+            print(update_project(target, source_root))
         return 0
     except (InstallError, GenerationError) as exc:
         code = exc.code
