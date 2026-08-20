@@ -48,6 +48,40 @@ python scripts/manage_project_install.py status --target PATH --json
 诊断只包含稳定状态、环境、问题 code 与项目相对 path，不输出受管文件内容、摘要或 MCP
 配置值，也不会修改或清理目标目录。
 
+## 更新感知与应用
+
+向 `master` 推送新代码不会主动替换其他用户已经缓存或安装的插件。旧版安装不包含本节所述
+checker，因此必须先手动刷新一次；完成这次升级后，插件才具备后续的低打扰更新感知。
+
+新版 QA/Dev 插件只在每个会话首次相关 `PreToolUse`（`Grep`、`Glob` 或 `Bash`）到来时
+延迟检查。相同 session 后续不再检查或提示；缺少 session id 时，按环境、项目和一小时时间桶
+做有界 throttle。已验证的远端版本结果缓存 24 小时，所以新 session 可以复用缓存而不重复
+访问 GitHub，但每个新 session 最多仍会收到一次可用更新提示。网络、schema、lock 或 cache
+异常全部静默 fail-open，不影响原工具。
+
+提示只报告当前版本、新版本和固定更新命令，并要求 AI 先取得用户确认；hook 不会自动刷新
+marketplace、重装插件或修改项目。项目级安装从本仓库 checkout 显式更新，且保留当前唯一环境：
+
+```powershell
+git pull --ff-only
+python scripts/manage_project_install.py update --target PATH
+```
+
+Codex 与 Claude Code marketplace 安装从本仓库 checkout 使用统一 updater；普通用户把下例中的
+`qa` 保持不变，Dev 测试人员可改为 `dev`：
+
+```powershell
+python scripts/update_plugin.py --host codex --environment qa
+python scripts/update_plugin.py --host claude --environment qa
+```
+
+Codex updater 内部依次执行 `codex plugin marketplace upgrade kcoderag-nav --json` 和
+`codex plugin add kcoderag-qa@kcoderag-nav --json`；Claude updater 依次执行
+`claude plugin marketplace update kcoderag-nav` 和
+`claude plugin update kcoderag-qa@kcoderag-nav --scope project`。任何一步失败都会停止，且只返回
+稳定的 stage/reason，不透传宿主 stdout/stderr。更新成功后开启新的 Codex thread 或 Claude
+session 以加载新插件。更新不会切换环境；QA/Dev 切换仍须先卸载再安装。
+
 ## 环境选择
 
 - 默认只安装并查询 QA；显式选择 Dev 时只安装并查询 Dev。
@@ -55,7 +89,8 @@ python scripts/manage_project_install.py status --target PATH --json
 - 已安装环境不可达时明确报告，不静默查询另一个 KCodeRag 环境。
 - 索引不可用或陈旧时，可以明确退回本地搜索。
 
-单环境 hook 不创建跨进程 marker 或其他去重状态。解析异常仍 fail-open，不阻止原始搜索。
+单环境 hook 只在用户 cache 中创建有界、hash 命名的 session marker、版本 cache 与短期 refresh
+lock，不写入目标项目或插件目录。解析和状态异常仍 fail-open，不阻止原始搜索。
 
 hook source 明确要求 Python 3.10+。POSIX launcher 依次探测 `python3`、`python`；
 Windows launcher 依次探测 `py -3`、`python3`、`python`。只有合格解释器才执行 hook；

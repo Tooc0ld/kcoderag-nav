@@ -60,6 +60,41 @@ python scripts/manage_project_install.py status --target PATH --json
 输出只包含状态、active environment、稳定 issue code 和项目相对 path。命令不会修复、
 prune 或重写目标，也不会打印配置内容或摘要。
 
+## 更新感知与应用
+
+仓库 `master` 更新后，已经安装的 plugin cache 不会自动被替换。旧版安装尚未携带更新 checker，
+需要先按下面对应路径手动升级一次；此后才会在会话中感知新版本。
+
+新版插件在每个 session 的首次相关 `PreToolUse`（`Grep`、`Glob` 或 `Bash`）才延迟检查版本。
+同一 session 后续不重复检查或提示；宿主没有 session id 时，用当前环境、规范化项目路径与一小时
+时间桶做有界 throttle。严格验证的远端版本结果缓存 24 小时，因此新 session 可以复用缓存，
+而不是每个 session 都访问 GitHub。检查失败完全 fail-open，原工具照常执行。
+
+更新提示只是 advisory：AI 必须先询问用户，不能自动调用 installer 或宿主 CLI。项目级 Codex
+安装先更新本仓库 checkout，再保留当前单一环境刷新目标项目：
+
+```powershell
+git pull --ff-only
+python scripts/manage_project_install.py update --target PATH
+```
+
+若 `status` 为 `drifted` 或 `invalid`，update 会在写入前拒绝；先处理本地变更或 state 问题。
+命令不接受 `--environment`，不会把 QA 切到 Dev。
+
+Codex marketplace 与 Claude Code marketplace 安装使用显式 updater：
+
+```powershell
+python scripts/update_plugin.py --host codex --environment qa
+python scripts/update_plugin.py --host claude --environment qa
+```
+
+前者内部运行 `codex plugin marketplace upgrade kcoderag-nav --json` 后再运行
+`codex plugin add kcoderag-qa@kcoderag-nav --json`；后者运行
+`claude plugin marketplace update kcoderag-nav` 后再运行
+`claude plugin update kcoderag-qa@kcoderag-nav --scope project`。第一步失败后不会执行第二步，
+输出只保留稳定 reason/stage，不包含捕获的宿主输出。成功后开启新的 Codex thread 或 Claude
+session。需要 Dev 时仍须先卸载 QA，再安装 Dev；update 本身不负责切换环境。
+
 ## 查询与环境选择
 
 QA 插件提供 `search_code`、`context`、`get_call_chain`、`list_indexes`、`cypher` 与

@@ -59,6 +59,35 @@ conflicts, so uninstall or disable the other KCodeRag environment before using t
 - Exact-string replacement and verification of uncommitted edits stay local.
 - Hook failures are advisory and fail open; they never block a command.
 
+## Update awareness and application
+
+A push to `master` does not replace an already installed plugin cache. An older install
+without the checker must be manually refreshed once before it can detect later releases.
+
+The checker runs lazily on the first relevant `PreToolUse` (`Grep`, `Glob`, or `Bash`)
+for a session. It consumes that session before bounded I/O, reuses a strict 24-hour
+remote-version cache across sessions, and silently fails open on every network, schema,
+lock, or cache error. A notice is advisory only: it asks for user confirmation and does
+not update automatically.
+
+From the marketplace repository checkout, update this environment explicitly:
+
+```powershell
+python scripts/update_plugin.py --host codex --environment dev
+python scripts/update_plugin.py --host claude --environment dev
+```
+
+For a project-installed Codex copy, update the checkout and then refresh the managed
+files without changing environments:
+
+```powershell
+git pull --ff-only
+python scripts/manage_project_install.py update --target PATH
+```
+
+Start a new Codex thread or Claude session after a successful update. QA and Dev remain
+mutually exclusive; switching environments still requires uninstalling the current one.
+
 The endpoint currently uses internal HTTP plus the bundled shared Bearer credential and
 is intended for the current DEV network only. The credential value is
 not printed by the generator or installer.
