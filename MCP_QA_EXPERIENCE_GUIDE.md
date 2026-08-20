@@ -15,12 +15,14 @@ POSIX launcher 按 `python3`、`python` 顺序探测；Windows launcher 按 `py 
 `python3`、`python` 顺序探测。只有版本不低于 3.10 的解释器才会执行 hook。解释器缺失、
 版本过旧、probe 失败或 launch 失败都会静默 fail-open，原宿主工具继续执行。
 
-需要 Dev 或环境比较时才显式安装：
+需要 Dev 时先卸载当前 QA 安装，再显式安装 Dev：
 
 ```powershell
+python scripts/manage_project_install.py uninstall --target PATH --environment qa
 python scripts/manage_project_install.py install --target PATH --environment dev
-python scripts/manage_project_install.py install --target PATH --environment both
 ```
+
+项目安装器拒绝 QA 与 Dev 双装，也拒绝未先卸载当前环境的跨环境安装。
 
 Claude Code 使用仓库 marketplace 的 project scope 安装；不要把 Codex 项目安装器当成
 Claude Code 的 project-scope plugin 命令。
@@ -58,14 +60,14 @@ python scripts/manage_project_install.py status --target PATH --json
 输出只包含状态、active environment、稳定 issue code 和项目相对 path。命令不会修复、
 prune 或重写目标，也不会打印配置内容或摘要。
 
-## 查询与环境路由
+## 查询与环境选择
 
 QA 插件提供 `search_code`、`context`、`get_call_chain`、`list_indexes`、`cypher` 与
 `submit_feedback` 六个正式工具。常见路径是先用 `search_code` 找到符号，再用 `context`
 查看关系和源码，最后用 `get_call_chain` 追踪调用方向。
 
-仅安装一个环境时查询该环境；QA 与 Dev 双装且未指定环境时默认 QA。只有明确指定 Dev 或
-明确要求环境比较时才查询 Dev 或两侧。选中的环境不可达时应明确报告，不静默回退。
+导航只查询当前安装的单一环境。选中的环境不可达时应明确报告，不静默查询另一个 KCodeRag
+环境；索引不可用或陈旧时允许明确退回本地搜索。
 
 ## CI 与 host smoke
 

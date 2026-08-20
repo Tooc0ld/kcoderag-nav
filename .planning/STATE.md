@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-20 - Completed quick task 260820-umj: 修复复合命令 scope 误判并精简 nudge
+Last activity: 2026-08-20 - Completed quick task 260820-vuc: QA/Dev 互斥安装并移除双环境 routing 与 hook 去重
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -53,8 +53,8 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecting current work:
 
 - [Phase 1]: 一份规范源生成两个自包含环境包；只读检查负责发现产物漂移。
-- [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，Dev/双装必须显式选择。
-- [Phase 3]: 双装默认 QA，显式 Dev 或环境比较才改变查询范围；跨进程 hook 去重保持 fail-open。
+- [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，QA/Dev 互斥，切换前必须显式卸载。
+- [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；hook 不创建 marker。
 
 ### Pending Todos
 
@@ -74,6 +74,7 @@ None yet.
 | 260820-t66 | Fix installer ownership and cross-host versioning | 2026-08-20 | 0b478fc | [260820-t66-fix-installer-ownership-and-cross-host-v](./quick/260820-t66-fix-installer-ownership-and-cross-host-v/) |
 | 260820-thb | Python 3.10+ fail-open runtime、只读 status、stub MCP 双宿主 smoke CI 与 QA 指南 | 2026-08-20 | 4104675 | [260820-thb-python-3-10-hook-fail-open-claude-code-c](./quick/260820-thb-python-3-10-hook-fail-open-claude-code-c/) |
 | 260820-umj | 修复管道和复合命令的 scope 误判，补回归测试，并适度缩短 nudge | 2026-08-20 | 9c97596 | [260820-umj-scope-nudge](./quick/260820-umj-scope-nudge/) |
+| 260820-vuc | QA/Dev 互斥安装，移除双环境 routing 与跨进程 hook 去重 | 2026-08-20 | 1119e67 | [260820-vuc-make-qa-and-dev-installations-mutually-e](./quick/260820-vuc-make-qa-and-dev-installations-mutually-e/) |
 
 ## Deferred Items
 
