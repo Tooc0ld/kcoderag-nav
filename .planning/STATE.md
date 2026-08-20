@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-20 - Completed quick task 260820-vuc: QA/Dev 互斥安装并移除双环境 routing 与 hook 去重
+Last activity: 2026-08-20 - Completed quick task 260820-wwm: private Cursor plugin distribution
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -55,6 +55,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 1]: 一份规范源生成两个自包含环境包；只读检查负责发现产物漂移。
 - [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，QA/Dev 互斥，切换前必须显式卸载。
 - [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；hook 不创建 marker。
+- [Cursor]: 只发布一个可配置环境的 `kcoderag-nav`，使用单 MCP server、共享 skill 与 always-on Rule；私有 project scope 且 Default Off。
 
 ### Pending Todos
 
@@ -64,6 +65,7 @@ None yet.
 
 - 现有插件文件存在未提交修改；后续工作必须保留并适配这些修改。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
+- Cursor 扩大分发前应把内置 Bearer 默认值迁移到 Team Marketplace 管理员配置；Cloud Agent 还需单独确认内部网络可达性。
 
 ### Quick Tasks Completed
 
@@ -75,6 +77,7 @@ None yet.
 | 260820-thb | Python 3.10+ fail-open runtime、只读 status、stub MCP 双宿主 smoke CI 与 QA 指南 | 2026-08-20 | 4104675 | [260820-thb-python-3-10-hook-fail-open-claude-code-c](./quick/260820-thb-python-3-10-hook-fail-open-claude-code-c/) |
 | 260820-umj | 修复管道和复合命令的 scope 误判，补回归测试，并适度缩短 nudge | 2026-08-20 | 9c97596 | [260820-umj-scope-nudge](./quick/260820-umj-scope-nudge/) |
 | 260820-vuc | QA/Dev 互斥安装，移除双环境 routing 与跨进程 hook 去重 | 2026-08-20 | 1119e67 | [260820-vuc-make-qa-and-dev-installations-mutually-e](./quick/260820-vuc-make-qa-and-dev-installations-mutually-e/) |
+| 260820-wwm | 单环境 Cursor 私有插件、共享 skill、always-on Rule 与 Team Marketplace 分发 | 2026-08-20 | 76fe0e1, 55291ad | [260820-wwm-add-private-cursor-plugin-distribution-w](./quick/260820-wwm-add-private-cursor-plugin-distribution-w/) |
 
 ## Deferred Items
 

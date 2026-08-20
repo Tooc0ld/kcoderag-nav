@@ -2,15 +2,17 @@
 
 ## What This Is
 
-KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓库，面向 Codex，
-并保留 Claude Code 兼容能力。仓库发布 `kcoderag-qa` 与 `kcoderag-dev` 两个可独立安装、
-独立卸载、单独完整工作的插件，使代码代理在结构化代码检索时优先使用知识图谱，精确文本
-和未提交改动仍使用本地搜索。
+KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓库，面向 Codex、
+Claude Code 与 Cursor。仓库发布 `kcoderag-qa` 与 `kcoderag-dev` 两个可独立安装、独立卸载、
+单独完整工作的 Codex/Claude 插件，并生成一个只配置单环境的 Cursor 私有插件，使代码代理
+在结构化代码检索时优先使用知识图谱，精确文本和未提交改动仍使用本地搜索。
 
 普通用户只需要安装 QA 插件；Dev 插件主要用于开发和测试。QA 与 Dev 互斥，切换环境时
 必须先卸载当前环境，再安装另一个环境。
 默认分发路径采用项目级安装器，将 Codex hook、skill 与 MCP 配置部署到目标仓库自己的
 `.codex/` 和 `.agents/`；用户级 `codex plugin add` 仅作为显式可选路径。
+Cursor 通过私有 Team Marketplace 的 project scope 或本地插件目录分发，默认 QA，Dev 通过
+成对替换 URL 与 Bearer 配置切换。
 
 ## Core Value
 
@@ -38,6 +40,9 @@ KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓
 - [ ] 当前内部 QA/Dev 阶段保持装即用，插件安装包携带可直接连接的 Bearer 配置
 - [ ] 默认项目安装只修改目标仓库的 `.codex/` 与 `.agents/`，不修改用户级 Codex 配置或插件缓存
 - [ ] 项目安装默认选择 QA，Dev 必须通过显式参数选择，切换环境必须先卸载
+- [ ] Cursor 只发布一个 `kcoderag-nav` 插件和一个 MCP server，默认 QA，Dev 通过成对配置切换
+- [ ] Cursor 使用 project scope、Default Off 的私有 Team Marketplace，不在本分发仓库中安装
+- [ ] Cursor 使用 always-on Rule 加共享 skill 提示导航，不移植不能注入 advisory context 的 hook
 
 ### Out of Scope
 
@@ -48,6 +53,7 @@ KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓
 - 修改 KCodeRag MCP 服务、解析流水线、Neo4j 数据或接口实现 — 本仓库只负责插件分发和导航策略
 - 让 Dev 成为普通用户的隐式回退 — 环境不可达必须明确报告，不能静默换环境
 - 声称 `codex plugin add` 具有当前不存在的原生 project scope — 项目级行为由兼容安装器实现
+- 提交公共 Cursor Marketplace — 当前包携带内部连接默认值，只允许受限私有分发
 
 ## Context
 
@@ -63,6 +69,8 @@ KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓
   positional `Get-ChildItem`、PowerShell/cmd wrapper、单文件抑制和输入长度边界等覆盖。
 - 当前测试为标准库 Python 脚本，没有第三方包管理或构建系统；新增生成和 E2E 验证应尽量
   保持轻量、跨 Windows 与 Unix 可执行。
+- Cursor `preToolUse` 不能在执行前注入 advisory context；Cursor 包因此使用 always-on Rule，
+  并通过单一通用 MCP server 从配置层保证 QA/Dev 不会同时启用。
 
 ## Constraints
 
@@ -71,7 +79,7 @@ KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓
 - **分发**: 安装产物必须自包含 — 插件缓存不会可靠保留仓库级共享父目录
 - **项目边界**: 默认安装与卸载只能修改目标仓库内由安装器管理的文件 — 不污染用户配置或无关项目文件
 - **Hook**: 仅提供 advisory context，任何异常都必须 fail-open — 不阻断 `grep`、`glob` 或 shell
-- **兼容性**: 支持 Codex，并维持现有 Claude Code marketplace/hook 兼容能力
+- **兼容性**: 支持 Codex、Claude Code 与 Cursor；Cursor 使用 Rule，不声称 hook 行为等价
 - **凭据**: 当前 QA/Dev 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
@@ -88,6 +96,9 @@ KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓
 | 当前继续内置 Bearer | 用户要求内部 QA/Dev 阶段装即用且暂不考虑安全治理 | — Pending |
 | 默认使用项目级兼容安装器 | Codex 当前没有原生插件 project scope，但用户要求默认仅作用于当前仓库 | — Pending |
 | 用户级 plugin add 仅作为显式可选路径 | 保留原生插件浏览器能力，同时避免普通安装默认全局生效 | — Pending |
+| Cursor 只发布一个可配置环境的插件 | Cursor 正常使用不应双装 QA/Dev，单 server 从结构上消除双环境路由 | — Pending |
+| Cursor 私有分发使用 project scope 和 Default Off | 避免在无关项目或本分发仓库中默认启用 KCodeRag | — Pending |
+| Cursor 以 Rule 替代查找 hook | `preToolUse` 无法追加 advisory context，Rule 能提供非阻塞导航提示 | — Pending |
 
 ## Evolution
 
@@ -107,4 +118,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-20 after mutually exclusive environment decision*
+*Last updated: 2026-08-20 after adding private Cursor distribution*
