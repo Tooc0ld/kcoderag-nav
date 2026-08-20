@@ -99,6 +99,14 @@ class HookCommandParsingTests(unittest.TestCase):
                 self.assertEqual(module.shell_lookup_patterns(command), [])
                 self.assertIsNone(module.hook_output({"tool_input": {"command": command}}))
 
+    def test_pipeline_keeps_repository_scope_structural(self) -> None:
+        command = "rg KPlayer src | head -1"
+        for script in HOOKS:
+            with self.subTest(environment=script.parent.parent.name):
+                module = load_hook(script, "pipeline_repository")
+                self.assertEqual(module.shell_lookup_patterns(command), ["KPlayer"])
+                self.assertIsNotNone(module.hook_output({"tool_input": {"command": command}}))
+
 
 class HookDedupTests(unittest.TestCase):
     def test_concurrent_generated_hooks_emit_one_context_per_tool_call(self) -> None:

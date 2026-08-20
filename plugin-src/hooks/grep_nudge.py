@@ -124,6 +124,7 @@ KEYWORD_RES = [re.compile(r"\b" + keyword + r"\b") for keyword in KEYWORDS]
 
 TOKENIZE_RE = re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+''')
 MAX_COMMAND_CHARS = 65_536
+MAX_COMMAND_SEGMENTS = 64
 MAX_INPUT_CHARS = 131_072
 MAX_IDENTITY_CHARS = 131_072
 DEDUP_DIRECTORY_ENV = "KCODERAG_NAV_DEDUP_DIR"
@@ -223,11 +224,66 @@ def _is_local_only_scope(scopes: list[str]) -> bool:
     return _is_single_file_scope(scopes) or _is_local_text_scope(scopes)
 
 
-def shell_lookup_patterns(command: str) -> list[str]:
-    """Extract likely search/glob patterns from common POSIX and PowerShell commands."""
-    if not isinstance(command, str) or not command.strip() or len(command) > MAX_COMMAND_CHARS:
+def _simple_command_segments(command: str) -> list[str]:
+    """Split unquoted shell control operators while preserving escaped literals."""
+    segments: list[str] = []
+    current: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            current.append(char)
+            if char == "'":
+                quote = ""
+            index += 1
+            continue
+        if char in {"\\", "^", "`"}:
+            current.append(char)
+            index += 1
+            if index < len(command):
+                current.append(command[index])
+                index += 1
+            continue
+        if char in {"'", '"'}:
+            current.append(char)
+            if quote == char:
+                quote = ""
+            elif not quote:
+                quote = char
+            index += 1
+            continue
+        if not quote and (
+            char in {"|", ";", "\r", "\n"}
+            or (char == "&" and index + 1 < len(command) and command[index + 1] == "&")
+        ):
+            segment = "".join(current).strip()
+            if segment:
+                segments.append(segment)
+                if len(segments) > MAX_COMMAND_SEGMENTS:
+                    return []
+            current = []
+            if char == "\r" and index + 1 < len(command) and command[index + 1] == "\n":
+                index += 2
+            elif char == "|" and index + 1 < len(command) and command[index + 1] in {"|", "&"}:
+                index += 2
+            elif char == "&":
+                index += 2
+            else:
+                index += 1
+            continue
+        current.append(char)
+        index += 1
+    if quote:
         return []
+    segment = "".join(current).strip()
+    if segment:
+        segments.append(segment)
+    return segments if len(segments) <= MAX_COMMAND_SEGMENTS else []
 
+
+def _simple_shell_lookup_patterns(command: str) -> list[str]:
+    """Extract likely search/glob patterns from one simple shell command."""
     tokens = [_unquote(token) for token in TOKENIZE_RE.findall(command)]
     lowered = [token.lower() for token in tokens]
     if lowered:
@@ -316,6 +372,19 @@ def shell_lookup_patterns(command: str) -> list[str]:
     if _is_local_only_scope(positional[1:]):
         return []
     return positional[:1] or glob_patterns[:1]
+
+
+def shell_lookup_patterns(command: str) -> list[str]:
+    """Extract lookup patterns across bounded POSIX, cmd, and PowerShell command segments."""
+    if not isinstance(command, str) or not command.strip() or len(command) > MAX_COMMAND_CHARS:
+        return []
+    segments = _simple_command_segments(command)
+    if not segments:
+        return []
+    patterns: list[str] = []
+    for segment in segments:
+        patterns.extend(_simple_shell_lookup_patterns(segment))
+    return patterns
 
 
 def lookup_patterns(tool_input: Mapping[str, Any]) -> list[str]:
