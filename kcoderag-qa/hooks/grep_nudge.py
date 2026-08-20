@@ -20,7 +20,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-ROUTING_GUIDANCE = " When QA and Dev are both installed, QA is default; explicit Dev uses only Dev, explicit comparison uses both; if a selected environment is unreachable, do not fall back."
+ROUTING_GUIDANCE = " When QA and Dev are both installed, default to QA; explicit Dev uses only Dev, explicit comparison uses both; if a selected environment is unreachable, do not fall back."
 NUDGE = (
     "Structural lookup: use KCodeRag search_code, context, or get_call_chain. "
     "Local text search is for exact strings or uncommitted edits."

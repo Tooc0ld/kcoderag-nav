@@ -216,7 +216,7 @@ def render_routing_nudge(routing: dict[str, Any]) -> str:
         if result != {"routes": routes, "error": None}:
             raise GenerationError("incomplete_routing", "plugin-src/routing.json")
     return (
-        " When QA and Dev are both installed, QA is default; explicit Dev uses only Dev, "
+        " When QA and Dev are both installed, default to QA; explicit Dev uses only Dev, "
         "explicit comparison uses both; if a selected environment is unreachable, do not fall back."
     )
 
