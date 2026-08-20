@@ -322,17 +322,14 @@ def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, by
     return {f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py": payload}
 
 
-def _capture_new_state(
-    target: Path, managed_paths: set[str], no_conflict: frozenset[str] = frozenset()
-) -> dict[str, Any]:
+def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:
     originals: dict[str, object] = {}
     for relative_path in sorted(managed_paths - {STATE_RELATIVE}):
         current = _read_optional(_assert_managed_path(target, relative_path))
-        if relative_path not in no_conflict:
-            if relative_path == SKILL_RELATIVE and current is not None:
-                raise InstallError("unmanaged_name_conflict", relative_path)
-            if relative_path.startswith(f"{MANAGED_ROOT}/") and current is not None:
-                raise InstallError("unmanaged_name_conflict", relative_path)
+        if relative_path == SKILL_RELATIVE and current is not None:
+            raise InstallError("unmanaged_name_conflict", relative_path)
+        if relative_path.startswith(f"{MANAGED_ROOT}/") and current is not None:
+            raise InstallError("unmanaged_name_conflict", relative_path)
         originals[relative_path] = _encode_original(current)
     return {
         "version": STATE_VERSION,
@@ -351,20 +348,20 @@ def _desired_install(
         if _read_optional(_assert_managed_path(target, relative_path)) is not None
     )
     if state is None:
-        state = _capture_new_state(
-            target, _all_managed_paths(requested) | legacy_present, no_conflict=legacy_present
-        )
+        state = _capture_new_state(target, _all_managed_paths(requested) | legacy_present)
+        owned_legacy = frozenset()
     else:
         _verify_digests(target, state)
+        owned_legacy = legacy_present & set(state["digests"])
+        unowned_legacy = legacy_present - owned_legacy
+        if unowned_legacy:
+            raise InstallError("unmanaged_name_conflict", sorted(unowned_legacy)[0])
         missing_originals = _all_managed_paths(requested) - {STATE_RELATIVE} - set(state["originals"])
         for relative_path in sorted(missing_originals):
             current = _read_optional(_assert_managed_path(target, relative_path))
             if current is not None:
                 raise InstallError("unmanaged_name_conflict", relative_path)
             state["originals"][relative_path] = _encode_original(None)
-        for relative_path in sorted(legacy_present - set(state["originals"])):
-            current = _read_optional(_assert_managed_path(target, relative_path))
-            state["originals"][relative_path] = _encode_original(current)
 
     active = set(state["active_environments"]) | requested
     if not active or not active.issubset({"qa", "dev"}):
@@ -378,9 +375,8 @@ def _desired_install(
     }
     for environment in active:
         desired.update(_private_payloads(inputs, environment))
-    for relative_path in sorted(LEGACY_PRIVATE_HOOKS):
-        if relative_path in state["originals"] or relative_path in legacy_present:
-            desired.setdefault(relative_path, None)
+    for relative_path in sorted(owned_legacy):
+        desired[relative_path] = None
 
     state["active_environments"] = sorted(active)
     state["digests"] = {

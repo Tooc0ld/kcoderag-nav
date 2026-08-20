@@ -40,6 +40,33 @@ def run_installer(
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_unowned_legacy_payloads_refuse_install_without_deletion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            legacy_hook = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "hooks.json"
+            legacy_hook.parent.mkdir(parents=True)
+            legacy_hook.write_bytes(b'{"manual": true}\n')
+            before = snapshot_tree(target)
+
+            install = run_installer(target, "install")
+
+            self.assertNotEqual(install.returncode, 0)
+            self.assertIn("unmanaged_name_conflict", install.stderr)
+            self.assertEqual(snapshot_tree(target), before)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            legacy_hook = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "hooks.json"
+            legacy_hook.write_bytes(b'{"manual": true}\n')
+            before_repeat = snapshot_tree(target)
+
+            repeat = run_installer(target, "install")
+
+            self.assertNotEqual(repeat.returncode, 0)
+            self.assertIn("unmanaged_name_conflict", repeat.stderr)
+            self.assertEqual(snapshot_tree(target), before_repeat)
+
     def test_install_renders_hook_scripts_without_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

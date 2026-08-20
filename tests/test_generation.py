@@ -132,7 +132,7 @@ class GenerationTests(unittest.TestCase):
                 for manifest_path in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
                     manifest = json.loads((package / manifest_path).read_text(encoding="utf-8"))
                     self.assertEqual(manifest["version"], version)
-                    self.assertNotIn("+", manifest["version"])
+                    self.assertRegex(manifest["version"], r"^0\.1\.1\+codex\.\d{14}$")
 
     def test_manifest_and_install_documentation_contracts(self) -> None:
         metadata = json.loads((ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8"))
