@@ -1,7 +1,7 @@
 {
   "name": "kcoderag-qa",
   "description": "Nudges Claude to prefer KCodeRag MCP over grep for code lookup (QA environment)",
-  "version": "0.1.1+codex.bd1ac69ac04a6da8",
+  "version": "0.1.1+codex.1cda8157e1776138",
   "author": {
     "name": "KCodeRag"
   }

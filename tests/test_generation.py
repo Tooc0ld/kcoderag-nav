@@ -26,12 +26,19 @@ EXPECTED_FILES = {
     ".mcp.json",
     "README.md",
     "agents/kcode-explorer.md",
-            "hooks/grep_nudge.py",
+    "hooks/grep_nudge.py",
     "hooks/hooks.json",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
     "hooks/test_grep_nudge.py",
     "hooks/update_check.py",
+    "skills/code-lookup-discipline/SKILL.md",
+}
+CURSOR_EXPECTED_FILES = {
+    ".cursor-plugin/plugin.json",
+    "README.md",
+    "mcp.json",
+    "rules/kcoderag-navigation.mdc",
     "skills/code-lookup-discipline/SKILL.md",
 }
 
@@ -46,17 +53,24 @@ class GenerationTests(unittest.TestCase):
             second = generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
 
             def versions(outputs: dict[str, bytes]) -> dict[str, str]:
-                return {
+                result = {
                     environment: json.loads(
                         outputs[f"kcoderag-{environment}/.codex-plugin/plugin.json"]
                     )["version"]
                     for environment in ("qa", "dev")
                 }
+                result["cursor"] = json.loads(
+                    outputs["kcoderag-cursor/.cursor-plugin/plugin.json"]
+                )["version"]
+                return result
 
             first_versions = versions(first)
             self.assertEqual(versions(second), first_versions)
-            for version in first_versions.values():
+            for version in (first_versions["qa"], first_versions["dev"]):
                 self.assertRegex(version, r"^0\.1\.1\+codex\.[0-9a-f]{16}$")
+            self.assertRegex(
+                first_versions["cursor"], r"^0\.1\.1\+cursor\.[0-9a-f]{16}$"
+            )
 
             shared_hook = isolated / "plugin-src" / "hooks" / "grep_nudge.py"
             shared_hook.write_bytes(shared_hook.read_bytes() + b"\n# content identity probe\n")
@@ -65,6 +79,7 @@ class GenerationTests(unittest.TestCase):
             )
             self.assertNotEqual(shared_versions["qa"], first_versions["qa"])
             self.assertNotEqual(shared_versions["dev"], first_versions["dev"])
+            self.assertEqual(shared_versions["cursor"], first_versions["cursor"])
 
             shutil.copytree(ROOT / "plugin-src", isolated / "plugin-src", dirs_exist_ok=True)
             qa_mcp = isolated / "plugin-src" / "environments" / "qa.mcp.json"
@@ -74,6 +89,22 @@ class GenerationTests(unittest.TestCase):
             )
             self.assertNotEqual(qa_versions["qa"], first_versions["qa"])
             self.assertEqual(qa_versions["dev"], first_versions["dev"])
+            self.assertEqual(qa_versions["cursor"], first_versions["cursor"])
+
+            cursor_rule = (
+                isolated
+                / "plugin-src"
+                / "cursor"
+                / "rules"
+                / "kcoderag-navigation.mdc"
+            )
+            cursor_rule.write_bytes(cursor_rule.read_bytes() + b"\nCursor identity probe.\n")
+            cursor_versions = versions(
+                generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
+            )
+            self.assertEqual(cursor_versions["qa"], qa_versions["qa"])
+            self.assertEqual(cursor_versions["dev"], qa_versions["dev"])
+            self.assertNotEqual(cursor_versions["cursor"], qa_versions["cursor"])
 
     def test_nudge_is_compact_and_policy_complete(self) -> None:
         for environment in ("qa", "dev"):
@@ -109,6 +140,38 @@ class GenerationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, "generation check failed")
 
+    def test_cursor_profile_errors_do_not_expose_connection_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            isolated = Path(directory) / "repository"
+            shutil.copytree(ROOT / "plugin-src", isolated / "plugin-src")
+            metadata = json.loads(
+                (isolated / "plugin-src" / "environments.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            qa = next(item for item in metadata["environments"] if item["id"] == "qa")
+            qa_path = isolated / qa["mcp_source"]
+            qa_mcp = json.loads(qa_path.read_text(encoding="utf-8"))
+            qa_entry = qa_mcp["mcpServers"][qa["server_name"]]
+            qa_headers = qa_entry.get("http_headers", qa_entry.get("headers"))
+            original_url = qa_entry["url"]
+            original_authorization = qa_headers["Authorization"]
+            qa_headers["Authorization"] = "invalid-auth-scheme"
+            qa_path.write_text(json.dumps(qa_mcp), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(GENERATOR), "--check", "--root", str(isolated)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("generation failed (environment_mismatch)", result.stderr)
+            self.assertTrue(original_url not in result.stderr)
+            self.assertTrue(original_authorization not in result.stderr)
+
     def test_generated_text_checkout_contract_is_lf(self) -> None:
         text_suffixes = {".json", ".md", ".tmpl", ".txt", ".py", ".sh", ".cmd"}
         paths = {
@@ -116,9 +179,16 @@ class GenerationTests(unittest.TestCase):
             for path in (ROOT / "plugin-src").rglob("*")
             if path.is_file() and path.suffix in text_suffixes
         }
-        paths.update({".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"})
+        paths.update(
+            {
+                ".agents/plugins/marketplace.json",
+                ".claude-plugin/marketplace.json",
+                ".cursor-plugin/marketplace.json",
+            }
+        )
         for environment in ("qa", "dev"):
             paths.update(f"kcoderag-{environment}/{relative}" for relative in EXPECTED_FILES)
+        paths.update(f"kcoderag-cursor/{relative}" for relative in CURSOR_EXPECTED_FILES)
 
         result = subprocess.run(
             ["git", "check-attr", "eol", "--", *sorted(paths)],
@@ -150,6 +220,17 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(manifest["mcpServers"], "./.codex.mcp.json")
             self.assertEqual(manifest["skills"], "./skills/")
 
+        cursor_package = ROOT / "kcoderag-cursor"
+        cursor_paths = {
+            path.relative_to(cursor_package).as_posix()
+            for path in cursor_package.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+        }
+        self.assertEqual(cursor_paths, CURSOR_EXPECTED_FILES)
+        self.assertFalse(any(path.is_symlink() for path in cursor_package.rglob("*")))
+        self.assertFalse((cursor_package / "hooks").exists())
+        self.assertFalse((cursor_package / "agents").exists())
+
     def test_isolated_write_is_repeatable_and_check_is_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             isolated = Path(directory) / "repository"
@@ -159,8 +240,10 @@ class GenerationTests(unittest.TestCase):
                 "scripts",
                 "kcoderag-qa",
                 "kcoderag-dev",
+                "kcoderag-cursor",
                 ".claude-plugin",
                 ".agents",
+                ".cursor-plugin",
             ):
                 shutil.copytree(ROOT / relative_path, isolated / relative_path)
 
@@ -262,6 +345,16 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(item["policy"]["authentication"], "ON_INSTALL")
             self.assertTrue((ROOT / item["source"]).is_dir())
 
+        cursor_marketplace = json.loads(
+            (ROOT / ".cursor-plugin" / "marketplace.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(cursor_marketplace["name"], "kcoderag-nav")
+        self.assertEqual(len(cursor_marketplace["plugins"]), 1)
+        cursor_entry = cursor_marketplace["plugins"][0]
+        self.assertEqual(cursor_entry["name"], "kcoderag-nav")
+        self.assertEqual(cursor_entry["source"], "kcoderag-cursor")
+        self.assertTrue((ROOT / cursor_entry["source"]).is_dir())
+
         root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("python scripts/manage_project_install.py install --target PATH", root_readme)
         self.assertIn("--environment dev", root_readme)
@@ -281,6 +374,11 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("纯 MCP 安装", root_readme)
         self.assertIn("只连接 MCP server", root_readme)
         self.assertIn("不包含 plugin hook、skill 或 agent", root_readme)
+        self.assertIn("Cursor 私有插件", root_readme)
+        self.assertIn("~/.cursor/plugins/local/kcoderag-nav", root_readme)
+        self.assertIn("Default Off", root_readme)
+        self.assertIn("project scope", root_readme)
+        self.assertIn("不要在本仓库中安装", root_readme)
 
         for environment in environments:
             package = ROOT / environment["plugin_name"]
@@ -317,6 +415,59 @@ class GenerationTests(unittest.TestCase):
                 self.assertIn(f"{environment['agent_tool_prefix']}{tool}", agent)
             self.assertNotIn(f"mcp__{environment['server_name']}__", agent)
 
+    def test_cursor_package_uses_one_configured_environment(self) -> None:
+        package = ROOT / "kcoderag-cursor"
+        manifest = json.loads(
+            (package / ".cursor-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["name"], "kcoderag-nav")
+        self.assertEqual(manifest["mcpServers"], "./mcp.json")
+        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertEqual(manifest["rules"], "./rules/")
+        self.assertRegex(manifest["version"], r"^0\.1\.1\+cursor\.[0-9a-f]{16}$")
+
+        variables = manifest["variables"]
+        self.assertEqual(variables["type"], "object")
+        self.assertEqual(
+            set(variables["properties"]),
+            {"KCODERAG_MCP_URL", "KCODERAG_BEARER_TOKEN"},
+        )
+        self.assertEqual(
+            set(variables["required"]),
+            {"KCODERAG_MCP_URL", "KCODERAG_BEARER_TOKEN"},
+        )
+
+        metadata = json.loads(
+            (ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8")
+        )
+        qa = next(item for item in metadata["environments"] if item["id"] == "qa")
+        qa_entry = json.loads((ROOT / qa["mcp_source"]).read_text(encoding="utf-8"))[
+            "mcpServers"
+        ][qa["server_name"]]
+        qa_headers = qa_entry.get("http_headers", qa_entry.get("headers"))
+        self.assertTrue(
+            variables["properties"]["KCODERAG_MCP_URL"]["default"] == qa_entry["url"]
+        )
+        self.assertTrue(
+            "Bearer " + variables["properties"]["KCODERAG_BEARER_TOKEN"]["default"]
+            == qa_headers["Authorization"]
+        )
+
+        mcp = json.loads((package / "mcp.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(mcp["mcpServers"]), ["kcoderag"])
+        self.assertEqual(mcp["mcpServers"]["kcoderag"]["url"], "${KCODERAG_MCP_URL}")
+        self.assertEqual(
+            mcp["mcpServers"]["kcoderag"]["headers"]["Authorization"],
+            "Bearer ${KCODERAG_BEARER_TOKEN}",
+        )
+
+        rule = (package / "rules" / "kcoderag-navigation.mdc").read_text(encoding="utf-8")
+        self.assertIn("alwaysApply: true", rule)
+        for tool in ("search_code", "context", "get_call_chain"):
+            self.assertIn(tool, rule)
+        self.assertIn("explicit fallback", rule)
+        self.assertNotIn("preToolUse", rule)
+
     def test_environment_metadata_locks_plugin_scoped_prefixes(self) -> None:
         metadata = json.loads((ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8"))
         for environment in metadata["environments"]:
@@ -333,10 +484,15 @@ class GenerationTests(unittest.TestCase):
 
     @staticmethod
     def _distribution_manifest(root: Path) -> dict[str, str]:
-        paths = [root / ".claude-plugin" / "marketplace.json"]
+        paths = [
+            root / ".claude-plugin" / "marketplace.json",
+            root / ".cursor-plugin" / "marketplace.json",
+        ]
         for environment in ("qa", "dev"):
             package = root / f"kcoderag-{environment}"
             paths.extend(package / relative_path for relative_path in EXPECTED_FILES)
+        cursor_package = root / "kcoderag-cursor"
+        paths.extend(cursor_package / relative_path for relative_path in CURSOR_EXPECTED_FILES)
         return {
             path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(paths)

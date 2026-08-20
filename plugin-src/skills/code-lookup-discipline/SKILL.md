@@ -6,8 +6,8 @@ description: Choose KCodeRag MCP tools over local text search for structural cod
 # KCodeRag Code Navigation
 
 Use the installed KCodeRag knowledge graph as the first stop for structural questions.
-Tool namespaces differ between Claude Code and Codex, so call the tool names exposed by
-the current host instead of inventing a fully qualified prefix.
+Tool namespaces differ by host, so call the tool names exposed by the current host instead
+of inventing a fully qualified prefix.
 
 This package supplies the **{{display_name}}** environment.
 

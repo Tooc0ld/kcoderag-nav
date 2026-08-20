@@ -9,19 +9,16 @@ Use the installed KCodeRag knowledge graph as the first stop for structural ques
 Tool namespaces differ by host, so call the tool names exposed by the current host instead
 of inventing a fully qualified prefix.
 
-This package supplies the **KCodeRag Dev** environment.
+This package supplies the **configured KCodeRag** environment.
 
 ## Environment selection
 
-QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
+This Cursor plugin exposes exactly one configured KCodeRag environment.
+The bundled defaults select QA. To test Dev, replace the MCP URL and bearer
+token together in Cursor's plugin configuration; never configure both environments.
 
-| Installed plugin | Query environment |
-|---|---|
-| QA | QA |
-| Dev | Dev |
-
-If the installed KCodeRag environment is unreachable, report it instead of querying
-the other environment. Local search remains an explicit fallback when the index is
+If the configured environment is unreachable, report it instead of querying another
+KCodeRag environment. Local search remains an explicit fallback when the index is
 unavailable or stale.
 
 ## Choose the right lookup

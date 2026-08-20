@@ -1,8 +1,9 @@
 # KCodeRag Nav Plugins
 
 本仓库从一份规范源生成两个可独立安装、但互斥使用的 KCodeRag 导航插件：普通用户使用
-`kcoderag-qa`，开发与环境验证使用 `kcoderag-dev`。两个包都支持 Codex，并保留
-Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径。
+`kcoderag-qa`，开发与环境验证使用 `kcoderag-dev`。两个环境包都支持 Codex，并保留
+Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径；另生成一个互斥环境的
+Cursor 私有插件 `kcoderag-nav`。
 
 面向 QA 使用者的完整安装、状态诊断和 smoke 流程见
 [MCP_QA_EXPERIENCE_GUIDE.md](MCP_QA_EXPERIENCE_GUIDE.md)。
@@ -91,6 +92,31 @@ claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project
 否则需要把 `mcp__plugin_kcoderag-qa_kcoderag-qa__*`（dev 同理）自行加入 settings 的
 `permissions.allow`。
 
+## Cursor 私有插件
+
+Cursor 分发只提供一个 `kcoderag-nav` 插件，位于生成目录 `kcoderag-cursor/`，仓库根清单为
+`.cursor-plugin/marketplace.json`。插件只声明一个通用 `kcoderag` MCP server，因此不会出现
+QA 与 Dev 同时启用；内置默认配置选择 QA。
+
+团队分发使用 Cursor Dashboard 的 **Plugins → Team Marketplaces → Import from Repo** 导入本
+仓库，然后把 `kcoderag-nav` 的安装模式设为 **Default Off**。开发者从 Cursor 的
+**Customize** 页面安装并选择 **project scope**。不要在本仓库中安装这个插件，否则会让维护
+和验收搜索被本项目自己的 KCodeRag 配置影响。
+
+本地开发时，可把生成目录复制或链接到：
+
+```text
+~/.cursor/plugins/local/kcoderag-nav
+```
+
+然后重启 Cursor 或执行 **Developer: Reload Window**。需要测试 Dev 时，在插件的
+**Configure** 中成对替换 `KCODERAG_MCP_URL` 与 `KCODERAG_BEARER_TOKEN`；测试结束后也应成对
+恢复 QA 配置。
+
+Cursor 的 `preToolUse` hook 不能在工具执行前注入 advisory context，因此 Cursor 包不复制
+现有 hook，而使用精简的 always-on Rule 加共享 skill。该 Rule 仍明确允许精确字符串、未提交
+改动，以及索引不可用或陈旧时的本地搜索回退。
+
 ## 纯 MCP 安装
 
 纯 MCP 安装只连接 MCP server，不包含 plugin hook、skill 或 agent 行为。它适合只需要协议工具
@@ -98,8 +124,10 @@ claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project
 
 ## 内部连接边界
 
-当前 QA/Dev 内部测试包携带受控连接配置和认证材料。本仓库不会在生成器、安装器、status、
-测试输出或公开指南中打印这些值。生产级身份、传输升级与轮换不属于当前版本范围。
+当前 QA/Dev 内部测试包及 Cursor 私有插件默认变量携带受控连接配置和认证材料。本仓库不会
+在生成器、安装器、status、测试输出或公开指南中打印这些值。Cursor 包只能进入受限的私有
+Team Marketplace，不能提交公共 Cursor Marketplace。生产级身份、传输升级、团队后台注入
+凭据与轮换不属于当前版本范围。
 
 ## CI 分层
 

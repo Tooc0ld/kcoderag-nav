@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministically render the QA and Dev plugin distribution trees.
+"""Deterministically render the QA, Dev, and Cursor plugin distribution trees.
 
 The generator deliberately reports only relative paths. Canonical MCP inputs contain
 internal connection details and must never be copied into diagnostics.
@@ -22,6 +22,8 @@ from typing import Any
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 PLACEHOLDER_RE = re.compile(r"\{\{[a-z_]+\}\}")
 CACHEBUSTER_HEX_LENGTH = 16
+CURSOR_PACKAGE = "kcoderag-cursor"
+CURSOR_PLUGIN_NAME = "kcoderag-nav"
 SHARED_FILES = {
     "hooks/hooks.json": "plugin-src/hooks/hooks.json",
     "hooks/run_hook.cmd": "plugin-src/hooks/run_hook.cmd",
@@ -279,6 +281,122 @@ def _codex_manifest(environment: dict[str, str], version: str) -> dict[str, obje
     }
 
 
+def _cursor_connection_defaults(inputs: CanonicalInputs) -> tuple[str, str]:
+    """Return the internal QA URL and bearer token without exposing them in diagnostics."""
+    qa = next((item for item in inputs.environments if item["id"] == "qa"), None)
+    if qa is None:
+        raise GenerationError("environment_mismatch", "plugin-src/environments.json")
+    mcp = _load_json(inputs.root / qa["mcp_source"])
+    entry = mcp["mcpServers"][qa["server_name"]]
+    if not isinstance(entry, dict):
+        raise GenerationError("environment_mismatch", qa["mcp_source"])
+    url = entry.get("url")
+    headers = entry.get("http_headers", entry.get("headers"))
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if (
+        not isinstance(url, str)
+        or not url
+        or not isinstance(authorization, str)
+        or not authorization.startswith("Bearer ")
+        or not authorization.removeprefix("Bearer ").strip()
+    ):
+        raise GenerationError("environment_mismatch", qa["mcp_source"])
+    return url, authorization.removeprefix("Bearer ").strip()
+
+
+def _cursor_routing_policy() -> str:
+    return "\n".join(
+        [
+            "## Environment selection",
+            "",
+            "This Cursor plugin exposes exactly one configured KCodeRag environment.",
+            "The bundled defaults select QA. To test Dev, replace the MCP URL and bearer",
+            "token together in Cursor's plugin configuration; never configure both environments.",
+            "",
+            "If the configured environment is unreachable, report it instead of querying another",
+            "KCodeRag environment. Local search remains an explicit fallback when the index is",
+            "unavailable or stale.",
+        ]
+    )
+
+
+def _cursor_manifest(inputs: CanonicalInputs, version: str) -> dict[str, object]:
+    url, bearer_token = _cursor_connection_defaults(inputs)
+    return {
+        "name": CURSOR_PLUGIN_NAME,
+        "version": version,
+        "description": "Graph-first structural code navigation with one configured KCodeRag environment.",
+        "author": {"name": "KCodeRag"},
+        "keywords": ["code-navigation", "knowledge-graph", "mcp"],
+        "skills": "./skills/",
+        "rules": "./rules/",
+        "mcpServers": "./mcp.json",
+        "variables": {
+            "type": "object",
+            "properties": {
+                "KCODERAG_MCP_URL": {
+                    "type": "string",
+                    "title": "KCodeRag MCP URL",
+                    "description": (
+                        "Internal QA by default; replace together with the bearer token for Dev."
+                    ),
+                    "default": url,
+                },
+                "KCODERAG_BEARER_TOKEN": {
+                    "type": "string",
+                    "title": "KCodeRag bearer token",
+                    "description": (
+                        "Internal QA by default; replace together with the MCP URL for Dev."
+                    ),
+                    "default": bearer_token,
+                },
+            },
+            "required": ["KCODERAG_MCP_URL", "KCODERAG_BEARER_TOKEN"],
+        },
+    }
+
+
+def _cursor_package_outputs(inputs: CanonicalInputs, version: str) -> dict[str, bytes]:
+    """Render the single-environment Cursor package."""
+    source = inputs.root / "plugin-src"
+    replacements = {
+        "display_name": "configured KCodeRag",
+        "routing_policy": _cursor_routing_policy(),
+        "plugin_version": version,
+    }
+    return dict(
+        sorted(
+            {
+                ".cursor-plugin/plugin.json": canonical_json(
+                    _cursor_manifest(inputs, version)
+                ),
+                "mcp.json": canonical_json(
+                    {
+                        "mcpServers": {
+                            "kcoderag": {
+                                "url": "${KCODERAG_MCP_URL}",
+                                "headers": {
+                                    "Authorization": "Bearer ${KCODERAG_BEARER_TOKEN}"
+                                },
+                            }
+                        }
+                    }
+                ),
+                "skills/code-lookup-discipline/SKILL.md": _render_template(
+                    source / "skills" / "code-lookup-discipline" / "SKILL.md",
+                    replacements,
+                ),
+                "rules/kcoderag-navigation.mdc": _read_normalized(
+                    source / "cursor" / "rules" / "kcoderag-navigation.mdc"
+                ),
+                "README.md": _render_template(
+                    source / "cursor" / "README.md.tmpl", replacements
+                ),
+            }.items()
+        )
+    )
+
+
 def _package_outputs(
     inputs: CanonicalInputs,
     environment: dict[str, str],
@@ -371,6 +489,12 @@ def effective_version(inputs: CanonicalInputs, environment: str) -> str:
     return _effective_version(inputs, metadata, shared, routing_policy)
 
 
+def cursor_effective_version(inputs: CanonicalInputs) -> str:
+    """Return a deterministic version derived from the Cursor package bytes."""
+    provisional = _cursor_package_outputs(inputs, inputs.version)
+    return f"{inputs.version}+cursor.{_content_identity(provisional)}"
+
+
 def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
     """Return every generated path and byte payload without touching disk."""
     outputs: dict[str, bytes] = {}
@@ -394,6 +518,10 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
                 "description": environment["marketplace_description"],
             }
         )
+
+    cursor_version = cursor_effective_version(inputs)
+    for relative_path, payload in _cursor_package_outputs(inputs, cursor_version).items():
+        outputs[f"{CURSOR_PACKAGE}/{relative_path}"] = payload
 
     outputs["kcoderag-update.json"] = canonical_json(
         {
@@ -422,6 +550,27 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
             ],
         }
     )
+    outputs[".cursor-plugin/marketplace.json"] = canonical_json(
+        {
+            "name": CURSOR_PLUGIN_NAME,
+            "owner": {"name": "Tooc0ld"},
+            "metadata": {
+                "description": "Private KCodeRag navigation plugins for internal teams."
+            },
+            "plugins": [
+                {
+                    "name": CURSOR_PLUGIN_NAME,
+                    "source": CURSOR_PACKAGE,
+                    "description": (
+                        "Graph-first navigation through one configured internal KCodeRag environment."
+                    ),
+                    "version": cursor_version,
+                    "category": "Developer Tools",
+                    "keywords": ["code-navigation", "knowledge-graph", "mcp"],
+                }
+            ],
+        }
+    )
     return dict(sorted(outputs.items()))
 
 
@@ -446,7 +595,7 @@ def compare_outputs(root: Path, outputs: dict[str, bytes]) -> list[str]:
         if current != expected:
             issues.append(f"drift: {relative_path}")
 
-    for package in ("kcoderag-qa", "kcoderag-dev"):
+    for package in ("kcoderag-qa", "kcoderag-dev", CURSOR_PACKAGE):
         package_root = root / package
         if not package_root.is_dir():
             continue

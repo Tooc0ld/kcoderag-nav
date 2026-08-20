@@ -1,0 +1,37 @@
+{
+  "name": "kcoderag-nav",
+  "version": "0.1.1+cursor.c0a2438f679363fc",
+  "description": "Graph-first structural code navigation with one configured KCodeRag environment.",
+  "author": {
+    "name": "KCodeRag"
+  },
+  "keywords": [
+    "code-navigation",
+    "knowledge-graph",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "rules": "./rules/",
+  "mcpServers": "./mcp.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "KCODERAG_MCP_URL": {
+        "type": "string",
+        "title": "KCodeRag MCP URL",
+        "description": "Internal QA by default; replace together with the bearer token for Dev.",
+        "default": "http://10.11.184.71:8010/mcp/"
+      },
+      "KCODERAG_BEARER_TOKEN": {
+        "type": "string",
+        "title": "KCodeRag bearer token",
+        "description": "Internal QA by default; replace together with the MCP URL for Dev.",
+        "default": "kcoderag-qa-token-2026"
+      }
+    },
+    "required": [
+      "KCODERAG_MCP_URL",
+      "KCODERAG_BEARER_TOKEN"
+    ]
+  }
+}

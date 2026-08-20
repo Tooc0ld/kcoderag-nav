@@ -1,0 +1,23 @@
+{
+  "name": "kcoderag-nav",
+  "owner": {
+    "name": "Tooc0ld"
+  },
+  "metadata": {
+    "description": "Private KCodeRag navigation plugins for internal teams."
+  },
+  "plugins": [
+    {
+      "name": "kcoderag-nav",
+      "source": "kcoderag-cursor",
+      "description": "Graph-first navigation through one configured internal KCodeRag environment.",
+      "version": "0.1.1+cursor.c0a2438f679363fc",
+      "category": "Developer Tools",
+      "keywords": [
+        "code-navigation",
+        "knowledge-graph",
+        "mcp"
+      ]
+    }
+  ]
+}

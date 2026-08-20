@@ -1,0 +1,11 @@
+---
+description: Prefer the configured KCodeRag MCP server for structural code navigation.
+alwaysApply: true
+---
+
+For symbols, definitions, callers, callees, dependencies, and change impact, prefer
+KCodeRag `search_code`, `context`, and `get_call_chain` before local text search.
+
+Use local text search for exact strings, uncommitted edits, or an explicit fallback when
+the configured index is unavailable or stale. Query only the configured KCodeRag server;
+do not fall back to another KCodeRag environment.

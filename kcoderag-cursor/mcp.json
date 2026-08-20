@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "kcoderag": {
+      "url": "${KCODERAG_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${KCODERAG_BEARER_TOKEN}"
+      }
+    }
+  }
+}
