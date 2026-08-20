@@ -35,6 +35,44 @@ EXPECTED_FILES = {
 
 
 class GenerationTests(unittest.TestCase):
+    def test_effective_versions_are_deterministic_and_content_sensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            isolated = Path(directory) / "repository"
+            shutil.copytree(ROOT / "plugin-src", isolated / "plugin-src")
+
+            first = generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
+            second = generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
+
+            def versions(outputs: dict[str, bytes]) -> dict[str, str]:
+                return {
+                    environment: json.loads(
+                        outputs[f"kcoderag-{environment}/.codex-plugin/plugin.json"]
+                    )["version"]
+                    for environment in ("qa", "dev")
+                }
+
+            first_versions = versions(first)
+            self.assertEqual(versions(second), first_versions)
+            for version in first_versions.values():
+                self.assertRegex(version, r"^0\.1\.1\+codex\.[0-9a-f]{16}$")
+
+            shared_hook = isolated / "plugin-src" / "hooks" / "grep_nudge.py"
+            shared_hook.write_bytes(shared_hook.read_bytes() + b"\n# content identity probe\n")
+            shared_versions = versions(
+                generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
+            )
+            self.assertNotEqual(shared_versions["qa"], first_versions["qa"])
+            self.assertNotEqual(shared_versions["dev"], first_versions["dev"])
+
+            shutil.copytree(ROOT / "plugin-src", isolated / "plugin-src", dirs_exist_ok=True)
+            qa_mcp = isolated / "plugin-src" / "environments" / "qa.mcp.json"
+            qa_mcp.write_bytes(qa_mcp.read_bytes() + b"\n")
+            qa_versions = versions(
+                generate_plugins.render_outputs(generate_plugins.load_inputs(isolated))
+            )
+            self.assertNotEqual(qa_versions["qa"], first_versions["qa"])
+            self.assertEqual(qa_versions["dev"], first_versions["dev"])
+
     def test_nudge_is_compact_and_policy_complete(self) -> None:
         for environment in ("qa", "dev"):
             script = ROOT / f"kcoderag-{environment}" / "hooks" / "grep_nudge.py"
