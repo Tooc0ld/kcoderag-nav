@@ -44,6 +44,48 @@ def _load_module(path: Path, name: str):
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def test_session_marker_state_is_pruned_to_a_fixed_bound(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_bounded_marker_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.9999999999999999",
+                "dev": "0.1.1+codex.aaaaaaaaaaaaaaaa",
+            },
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            return _Response(document)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            for index in range(140):
+                checker.maybe_update_notice(
+                    {
+                        "session_id": f"bounded-session-{index}",
+                        "tool_name": "Grep",
+                        "tool_input": {"pattern": "GetLevel"},
+                    },
+                    "qa",
+                    current_version,
+                    cache_root=cache_root,
+                    now=lambda: 1_500_000_000.0,
+                    opener=opener,
+                )
+            markers = list((cache_root / "sessions").glob("session-*.seen"))
+
+        self.assertLessEqual(len(markers), 128)
+        self.assertEqual(calls, [TRUSTED_URL])
+
     def test_concurrent_calls_for_one_session_have_one_winner(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_concurrent_update_check"
