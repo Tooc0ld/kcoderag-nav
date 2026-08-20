@@ -8,6 +8,7 @@ internal connection details and must never be copied into diagnostics.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,8 +19,9 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[+.-][A-Za-z0-9.-]+)?$")
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 PLACEHOLDER_RE = re.compile(r"\{\{[a-z_]+\}\}")
+CACHEBUSTER_HEX_LENGTH = 16
 SHARED_FILES = {
     "hooks/hooks.json": "plugin-src/hooks/hooks.json",
     "hooks/run_hook.cmd": "plugin-src/hooks/run_hook.cmd",
@@ -276,56 +278,114 @@ def _codex_manifest(environment: dict[str, str], version: str) -> dict[str, obje
     }
 
 
-def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
-    """Return every generated path and byte payload without touching disk."""
+def _package_outputs(
+    inputs: CanonicalInputs,
+    environment: dict[str, str],
+    version: str,
+    shared: dict[str, bytes],
+    routing_policy: str,
+) -> dict[str, bytes]:
+    """Render one self-contained package with an explicit non-recursive version."""
     root = inputs.root
     source = root / "plugin-src"
+    env_id = environment["id"]
+    package = environment["plugin_name"]
+    replacements = {
+        "environment": env_id,
+        "environment_upper": env_id.upper(),
+        "plugin_name": package,
+        "display_name": environment["display_name"],
+        "tool_prefix": environment["agent_tool_prefix"],
+        "routing_policy": routing_policy,
+        "plugin_version": version,
+    }
+    outputs: dict[str, bytes] = {
+        ".claude-plugin/plugin.json": canonical_json(
+            {
+                "name": package,
+                "description": environment["claude_description"],
+                "version": version,
+                "author": {"name": "KCodeRag"},
+            }
+        ),
+        ".codex-plugin/plugin.json": canonical_json(_codex_manifest(environment, version)),
+        ".codex.mcp.json": canonical_json(_codex_mcp_document(root, environment)),
+    }
+    try:
+        outputs[".mcp.json"] = (root / environment["mcp_source"]).read_bytes()
+    except OSError as exc:
+        raise GenerationError("missing_input", environment["mcp_source"]) from exc
+    outputs.update(shared)
+    outputs["hooks/grep_nudge.py"] = _render_template(
+        source / "hooks" / "grep_nudge.py", replacements
+    )
+    outputs["skills/code-lookup-discipline/SKILL.md"] = _render_template(
+        source / "skills" / "code-lookup-discipline" / "SKILL.md", replacements
+    )
+    outputs["agents/kcode-explorer.md"] = _render_template(
+        source / "agents" / "kcode-explorer.md.tmpl", replacements
+    )
+    outputs["README.md"] = _render_template(source / "README.md.tmpl", replacements)
+    return dict(sorted(outputs.items()))
+
+
+def _content_identity(package: dict[str, bytes]) -> str:
+    digest = hashlib.sha256()
+    for relative_path, payload in sorted(package.items()):
+        encoded_path = relative_path.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()[:CACHEBUSTER_HEX_LENGTH]
+
+
+def _render_context(inputs: CanonicalInputs) -> tuple[dict[str, bytes], str]:
+    shared = {
+        destination: _read_normalized(inputs.root / origin)
+        for destination, origin in SHARED_FILES.items()
+    }
+    routing_policy = render_routing_markdown(load_routing(inputs.root))
+    return shared, routing_policy
+
+
+def _effective_version(
+    inputs: CanonicalInputs,
+    environment: dict[str, str],
+    shared: dict[str, bytes],
+    routing_policy: str,
+) -> str:
+    provisional = _package_outputs(
+        inputs, environment, inputs.version, shared, routing_policy
+    )
+    return f"{inputs.version}+codex.{_content_identity(provisional)}"
+
+
+def effective_version(inputs: CanonicalInputs, environment: str) -> str:
+    """Return a deterministic version derived from one environment's package bytes."""
+    metadata = next((item for item in inputs.environments if item["id"] == environment), None)
+    if metadata is None:
+        raise GenerationError("unknown_environment", "plugin-src/environments.json")
+    shared, routing_policy = _render_context(inputs)
+    return _effective_version(inputs, metadata, shared, routing_policy)
+
+
+def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
+    """Return every generated path and byte payload without touching disk."""
     outputs: dict[str, bytes] = {}
     marketplace_plugins: list[dict[str, str]] = []
-    shared = {destination: _read_normalized(root / origin) for destination, origin in SHARED_FILES.items()}
-    routing = load_routing(root)
-    routing_policy = render_routing_markdown(routing)
+    shared, routing_policy = _render_context(inputs)
+    versions: dict[str, str] = {}
 
     for environment in inputs.environments:
         env_id = environment["id"]
         package = environment["plugin_name"]
-        prefix = f"{package}/"
-        replacements = {
-            "environment": env_id,
-            "environment_upper": env_id.upper(),
-            "plugin_name": package,
-            "display_name": environment["display_name"],
-            "tool_prefix": environment["agent_tool_prefix"],
-            "routing_policy": routing_policy,
-        }
-        outputs[prefix + ".claude-plugin/plugin.json"] = canonical_json(
-            {
-                "name": package,
-                "description": environment["claude_description"],
-                "version": inputs.version,
-                "author": {"name": "KCodeRag"},
-            }
-        )
-        outputs[prefix + ".codex-plugin/plugin.json"] = canonical_json(
-            _codex_manifest(environment, inputs.version)
-        )
-        try:
-            outputs[prefix + ".mcp.json"] = (root / environment["mcp_source"]).read_bytes()
-        except OSError as exc:
-            raise GenerationError("missing_input", environment["mcp_source"]) from exc
-        outputs[prefix + ".codex.mcp.json"] = canonical_json(_codex_mcp_document(root, environment))
-        for relative_path, payload in shared.items():
-            outputs[prefix + relative_path] = payload
-        outputs[prefix + "hooks/grep_nudge.py"] = _render_template(
-            source / "hooks" / "grep_nudge.py", replacements
-        )
-        outputs[prefix + "skills/code-lookup-discipline/SKILL.md"] = _render_template(
-            source / "skills" / "code-lookup-discipline" / "SKILL.md", replacements
-        )
-        outputs[prefix + "agents/kcode-explorer.md"] = _render_template(
-            source / "agents" / "kcode-explorer.md.tmpl", replacements
-        )
-        outputs[prefix + "README.md"] = _render_template(source / "README.md.tmpl", replacements)
+        version = _effective_version(inputs, environment, shared, routing_policy)
+        versions[env_id] = version
+        for relative_path, payload in _package_outputs(
+            inputs, environment, version, shared, routing_policy
+        ).items():
+            outputs[f"{package}/{relative_path}"] = payload
         marketplace_plugins.append(
             {
                 "name": package,
@@ -333,6 +393,15 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
                 "description": environment["marketplace_description"],
             }
         )
+
+    outputs["kcoderag-update.json"] = canonical_json(
+        {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": versions,
+        }
+    )
 
     outputs[".claude-plugin/marketplace.json"] = canonical_json(
         {"owner": {"name": "Tooc0ld"}, "name": "kcoderag-nav", "plugins": marketplace_plugins}

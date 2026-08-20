@@ -6,6 +6,7 @@ import importlib.util
 import json
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,7 +26,7 @@ EXPECTED_FILES = {
     ".mcp.json",
     "README.md",
     "agents/kcode-explorer.md",
-    "hooks/grep_nudge.py",
+            "hooks/grep_nudge.py",
     "hooks/hooks.json",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
@@ -224,11 +225,19 @@ class GenerationTests(unittest.TestCase):
                 self.assertEqual(codex_entry["http_headers"], source_entry["http_headers"])
 
                 self.assertFalse((package / "settings.json").exists())
-                version = (ROOT / "plugin-src" / "version.txt").read_text(encoding="utf-8").strip()
+                base_version = (ROOT / "plugin-src" / "version.txt").read_text(
+                    encoding="utf-8"
+                ).strip()
+                published_versions = json.loads(
+                    (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+                )["versions"]
                 for manifest_path in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
                     manifest = json.loads((package / manifest_path).read_text(encoding="utf-8"))
-                    self.assertEqual(manifest["version"], version)
-                    self.assertRegex(manifest["version"], r"^0\.1\.1\+codex\.\d{14}$")
+                    self.assertEqual(manifest["version"], published_versions[environment])
+                    self.assertRegex(
+                        manifest["version"],
+                        rf"^{re.escape(base_version)}\+codex\.[0-9a-f]{{16}}$",
+                    )
 
     def test_manifest_and_install_documentation_contracts(self) -> None:
         metadata = json.loads((ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8"))

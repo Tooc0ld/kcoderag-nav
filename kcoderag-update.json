@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "Tooc0ld/kcoderag-nav",
+  "channel": "master",
+  "versions": {
+    "qa": "0.1.1+codex.5956aaf36fa19e90",
+    "dev": "0.1.1+codex.5fbc50d18e28d472"
+  }
+}
