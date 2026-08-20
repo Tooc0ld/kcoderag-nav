@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -179,6 +181,65 @@ class ProjectInstallTests(unittest.TestCase):
                     [{"code": expected_code, "path": expected_path}],
                 )
                 self.assertEqual(snapshot_tree(target), before)
+
+    def test_status_rejects_incomplete_launcher_ownership_without_writes(self) -> None:
+        for collection in ("originals", "digests"):
+            for launcher in ("run_hook.sh", "run_hook.cmd"):
+                with (
+                    self.subTest(collection=collection, launcher=launcher),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    target = Path(directory)
+                    self.assertEqual(run_installer(target, "install").returncode, 0)
+                    state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
+                    state = json.loads(state_path.read_text(encoding="utf-8"))
+                    managed_launcher = f".codex/kcoderag-nav/qa/hooks/{launcher}"
+                    state[collection].pop(managed_launcher)
+                    state_path.write_text(json.dumps(state), encoding="utf-8")
+                    before = snapshot_tree(target)
+
+                    result = installer.inspect_status(target, ROOT)
+
+                    self.assertEqual(result["status"], "invalid")
+                    self.assertEqual(
+                        result["issues"],
+                        [
+                            {
+                                "code": "ownership_incomplete",
+                                "path": ".codex/kcoderag-nav/install-state.json",
+                            }
+                        ],
+                    )
+                    self.assertEqual(snapshot_tree(target), before)
+
+    def test_cli_install_warns_when_no_supported_hook_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "cli"
+            target.mkdir()
+            environment = os.environ.copy()
+            environment["PATH"] = ""
+
+            result = run_installer(
+                target,
+                "install",
+                process_environment=environment,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "installed: qa\n")
+            self.assertEqual(
+                result.stderr,
+                "warning: hook_runtime_unavailable (python_3_10_required)\n",
+            )
+
+            programmatic_target = Path(directory) / "programmatic"
+            programmatic_target.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                installer.install(programmatic_target, ROOT, {"qa"})
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_status_cli_uses_stable_safe_schema_and_exit_codes(self) -> None:
         expected_keys = {
