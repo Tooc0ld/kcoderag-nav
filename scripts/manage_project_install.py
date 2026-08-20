@@ -528,6 +528,7 @@ def _prune_empty_directories(target: Path) -> None:
 
 def install(target: Path, source_root: Path, environments: set[str]) -> None:
     # Always recompute desired state: rendering upgrades must refresh installed bytes.
+    target = _safe_target(target)
     inputs = load_inputs(source_root)
     state = _load_state(target)
     desired, _ = _desired_install(target, inputs, state, environments)
@@ -535,6 +536,7 @@ def install(target: Path, source_root: Path, environments: set[str]) -> None:
 
 
 def uninstall(target: Path, source_root: Path, environment: str) -> None:
+    target = _safe_target(target)
     inputs = load_inputs(source_root)
     state = _load_state(target)
     if state is None:
