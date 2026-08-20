@@ -410,6 +410,13 @@ class GenerationTests(unittest.TestCase):
             "旧版安装",
             "git pull --ff-only",
             "python scripts/manage_project_install.py update --target PATH",
+            "普通 marketplace 用户",
+            "可选安全封装",
+            "项目级 update 仍要求本仓库 checkout",
+            "codex plugin marketplace upgrade kcoderag-nav --json",
+            "codex plugin add kcoderag-qa@kcoderag-nav --json",
+            "claude plugin marketplace update kcoderag-nav",
+            "claude plugin update kcoderag-qa@kcoderag-nav --scope project",
             "python scripts/update_plugin.py --host codex --environment qa",
             "python scripts/update_plugin.py --host claude --environment qa",
         ):
@@ -423,6 +430,13 @@ class GenerationTests(unittest.TestCase):
             "旧版安装",
             "git pull --ff-only",
             "python scripts/manage_project_install.py update --target PATH",
+            "普通 marketplace 用户",
+            "可选安全封装",
+            "项目级 update 仍要求本仓库 checkout",
+            "codex plugin marketplace upgrade kcoderag-nav --json",
+            "codex plugin add kcoderag-qa@kcoderag-nav --json",
+            "claude plugin marketplace update kcoderag-nav",
+            "claude plugin update kcoderag-qa@kcoderag-nav --scope project",
             "python scripts/update_plugin.py --host codex --environment qa",
             "python scripts/update_plugin.py --host claude --environment qa",
         ):
@@ -448,7 +462,24 @@ class GenerationTests(unittest.TestCase):
             package_readme = (package / "README.md").read_text(encoding="utf-8")
             self.assertIn("first relevant `PreToolUse`", package_readme)
             self.assertIn("24-hour", package_readme)
-            self.assertIn("scripts/update_plugin.py", package_readme)
+            self.assertIn("ordinary marketplace users", package_readme)
+            self.assertIn("optional repository-checkout safety wrapper", package_readme)
+            self.assertIn(
+                "Project-installed updates still require a repository checkout.",
+                package_readme,
+            )
+            for command in (
+                "codex plugin marketplace upgrade kcoderag-nav --json",
+                f"codex plugin add {environment['plugin_name']}@kcoderag-nav --json",
+                "claude plugin marketplace update kcoderag-nav",
+                (
+                    f"claude plugin update {environment['plugin_name']}@kcoderag-nav "
+                    "--scope project"
+                ),
+                f"python scripts/update_plugin.py --host codex --environment {environment['id']}",
+                f"python scripts/update_plugin.py --host claude --environment {environment['id']}",
+            ):
+                self.assertIn(command, package_readme)
             hooks = json.loads((package / "hooks" / "hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(set(hooks["hooks"]), {"PreToolUse"})
             registration = hooks["hooks"]["PreToolUse"][0]
