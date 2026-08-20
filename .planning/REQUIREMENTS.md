@@ -76,38 +76,38 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PKG-01 | Pending | Pending |
-| PKG-02 | Pending | Pending |
-| PKG-03 | Pending | Pending |
-| PKG-04 | Pending | Pending |
-| PKG-05 | Pending | Pending |
-| PKG-06 | Pending | Pending |
-| ROUT-01 | Pending | Pending |
-| ROUT-02 | Pending | Pending |
-| ROUT-03 | Pending | Pending |
-| ROUT-04 | Pending | Pending |
-| HOOK-01 | Pending | Pending |
-| HOOK-02 | Pending | Pending |
-| HOOK-03 | Pending | Pending |
-| HOOK-04 | Pending | Pending |
-| HOOK-05 | Pending | Pending |
-| GEN-01 | Pending | Pending |
-| GEN-02 | Pending | Pending |
-| GEN-03 | Pending | Pending |
-| GEN-04 | Pending | Pending |
-| GEN-05 | Pending | Pending |
-| TEST-01 | Pending | Pending |
-| TEST-02 | Pending | Pending |
-| TEST-03 | Pending | Pending |
-| TEST-04 | Pending | Pending |
-| TEST-05 | Pending | Pending |
-| TEST-06 | Pending | Pending |
+| PKG-01 | Phase 1 | Pending |
+| PKG-02 | Phase 2 | Pending |
+| PKG-03 | Phase 1 | Pending |
+| PKG-04 | Phase 1 | Pending |
+| PKG-05 | Phase 1 | Pending |
+| PKG-06 | Phase 2 | Pending |
+| ROUT-01 | Phase 3 | Pending |
+| ROUT-02 | Phase 3 | Pending |
+| ROUT-03 | Phase 3 | Pending |
+| ROUT-04 | Phase 3 | Pending |
+| HOOK-01 | Phase 1 | Pending |
+| HOOK-02 | Phase 3 | Pending |
+| HOOK-03 | Phase 1 | Pending |
+| HOOK-04 | Phase 1 | Pending |
+| HOOK-05 | Phase 1 | Pending |
+| GEN-01 | Phase 1 | Pending |
+| GEN-02 | Phase 1 | Pending |
+| GEN-03 | Phase 1 | Pending |
+| GEN-04 | Phase 1 | Pending |
+| GEN-05 | Phase 1 | Pending |
+| TEST-01 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 2 | Pending |
+| TEST-04 | Phase 3 | Pending |
+| TEST-05 | Phase 2 | Pending |
+| TEST-06 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 26 total
-- Mapped to phases: 0
-- Unmapped: 26
+- Mapped to phases: 26
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-20*
-*Last updated: 2026-08-20 after initial definition*
+*Last updated: 2026-08-20 after roadmap creation*
