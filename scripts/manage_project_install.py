@@ -23,6 +23,7 @@ try:
     from .generate_plugins import (
         CanonicalInputs,
         GenerationError,
+        _read_normalized,
         _render_template,
         canonical_json,
         load_inputs,
@@ -35,6 +36,7 @@ except ImportError:  # Direct script execution keeps the scripts directory on sy
     from generate_plugins import (
         CanonicalInputs,
         GenerationError,
+        _read_normalized,
         _render_template,
         canonical_json,
         load_inputs,
@@ -156,7 +158,8 @@ def _load_state(target: Path) -> dict[str, Any] | None:
 def _all_managed_paths(environments: set[str]) -> set[str]:
     paths = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE, STATE_RELATIVE}
     for environment in environments:
-        paths.add(f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py")
+        for filename in ("grep_nudge.py", "run_hook.sh", "run_hook.cmd"):
+            paths.add(f"{MANAGED_ROOT}/{environment}/hooks/{filename}")
     return paths
 
 
@@ -266,9 +269,11 @@ def _project_hook(inputs: CanonicalInputs, environment: str) -> dict[str, Any]:
         command = entry["hooks"][0]
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         raise InstallError("invalid_hook_source", "plugin-src/hooks/hooks.json") from exc
-    relative_script = f".codex/kcoderag-nav/{environment}/hooks/grep_nudge.py"
-    command["command"] = f'python "{relative_script}"'
-    command["commandWindows"] = f'python "{relative_script}"'
+    relative_posix = f".codex/kcoderag-nav/{environment}/hooks/run_hook.sh"
+    relative_windows = relative_posix.replace("/", "\\").removesuffix("run_hook.sh")
+    relative_windows += "run_hook.cmd"
+    command["command"] = f'sh "{relative_posix}"'
+    command["commandWindows"] = f'call "{relative_windows}"'
     command["statusMessage"] = f"Checking code lookup strategy ({environment.upper()})"
     return entry
 
@@ -302,7 +307,7 @@ def _render_skill(inputs: CanonicalInputs, active: set[str]) -> bytes:
 
 
 def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, bytes]:
-    """Render the per-environment hook script; raw copies would ship unresolved placeholders."""
+    """Render one environment's hook source and copy its runtime launchers."""
     metadata = _environment_map(inputs)[environment]
     package = metadata["plugin_name"]
     routing = load_routing(inputs.root)
@@ -316,10 +321,18 @@ def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, by
         "routing_nudge": render_routing_nudge(routing),
     }
     try:
-        payload = _render_template(inputs.root / "plugin-src/hooks/grep_nudge.py", replacements)
+        hook_source = inputs.root / "plugin-src" / "hooks"
+        payload = _render_template(hook_source / "grep_nudge.py", replacements)
+        posix_launcher = _read_normalized(hook_source / "run_hook.sh")
+        windows_launcher = _read_normalized(hook_source / "run_hook.cmd")
     except GenerationError as exc:
         raise InstallError(exc.code, "plugin-src/hooks/grep_nudge.py") from exc
-    return {f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py": payload}
+    prefix = f"{MANAGED_ROOT}/{environment}/hooks"
+    return {
+        f"{prefix}/grep_nudge.py": payload,
+        f"{prefix}/run_hook.sh": posix_launcher,
+        f"{prefix}/run_hook.cmd": windows_launcher,
+    }
 
 
 def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:

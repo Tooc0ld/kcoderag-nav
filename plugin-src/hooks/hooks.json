@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/grep_nudge.py\"",
-            "commandWindows": "python -c \"import os,runpy;runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'hooks','grep_nudge.py'),run_name='__main__')\"",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.sh\"",
+            "commandWindows": "call \"%PLUGIN_ROOT%\\hooks\\run_hook.cmd\"",
             "timeout": 5,
             "statusMessage": "Checking code lookup strategy",
             "additionalContextLimit": 600

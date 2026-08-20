@@ -22,6 +22,8 @@ VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[+.-][A-Za-z0-9.-]+)?$")
 PLACEHOLDER_RE = re.compile(r"\{\{[a-z_]+\}\}")
 SHARED_FILES = {
     "hooks/hooks.json": "plugin-src/hooks/hooks.json",
+    "hooks/run_hook.cmd": "plugin-src/hooks/run_hook.cmd",
+    "hooks/run_hook.sh": "plugin-src/hooks/run_hook.sh",
     "hooks/test_grep_nudge.py": "plugin-src/hooks/test_grep_nudge.py",
 }
 
