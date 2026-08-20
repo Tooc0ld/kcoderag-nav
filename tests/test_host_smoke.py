@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -11,6 +13,9 @@ from pathlib import Path
 
 from scripts import run_host_smoke
 from tests.stub_mcp_server import StubMCPServer, read_receipts
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def post_json(url: str, payload: object) -> tuple[int, dict[str, object] | None]:
@@ -160,6 +165,139 @@ class HostCommandTests(unittest.TestCase):
         ):
             self.assertIn(argument, claude)
         self.assertNotIn("--dangerously-skip-permissions", claude)
+
+
+def write_fake_host(path: Path) -> None:
+    path.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+import time
+import urllib.request
+
+mode = os.environ.get("SYNTHETIC_HOST_MODE", "pass")
+if mode == "auth":
+    print("authentication required", file=sys.stderr)
+    raise SystemExit(2)
+if mode == "timeout":
+    time.sleep(10)
+    raise SystemExit(0)
+
+url = os.environ["KCODERAG_NAV_STUB_URL"]
+def post(payload):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        response.read()
+
+post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+post({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+post({
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {"name": "search_code", "arguments": {"query": "SyntheticSymbol"}},
+})
+if mode == "plain":
+    print("hook and tool passed")
+else:
+    print(json.dumps({"type": "hook_event", "hook_event_name": "PreToolUse"}))
+    print(json.dumps({"type": "mcp_tool_call", "tool_name": "search_code"}))
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+class HostSmokeHarnessTests(unittest.TestCase):
+    def test_fake_hosts_require_structured_events_and_stub_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_host = Path(directory) / "fake_host.py"
+            write_fake_host(fake_host)
+            executable = (sys.executable, str(fake_host))
+            for host in ("codex", "claude"):
+                with self.subTest(host=host):
+                    result = run_host_smoke.run_smoke(
+                        host,
+                        executable=executable,
+                        repository_root=ROOT,
+                        timeout_seconds=5,
+                    )
+                    self.assertEqual(result["status"], "PASS")
+                    self.assertEqual(result["reason"], "verified")
+                    self.assertTrue(result["hook_event"])
+                    self.assertTrue(result["tool_event"])
+                    self.assertTrue(result["stub_receipt"])
+                    self.assertTrue(result["config_wired"])
+                    self.assertEqual(
+                        set(result),
+                        {
+                            "schema_version",
+                            "status",
+                            "host",
+                            "reason",
+                            "hook_event",
+                            "tool_event",
+                            "stub_receipt",
+                            "config_wired",
+                        },
+                    )
+
+    def test_natural_language_success_is_not_accepted_as_host_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_host = Path(directory) / "fake_host.py"
+            write_fake_host(fake_host)
+            environment = os.environ.copy()
+            environment["SYNTHETIC_HOST_MODE"] = "plain"
+            result = run_host_smoke.run_smoke(
+                "codex",
+                executable=(sys.executable, str(fake_host)),
+                repository_root=ROOT,
+                process_environment=environment,
+                timeout_seconds=5,
+            )
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["reason"], "structured_evidence_incomplete")
+            self.assertFalse(result["hook_event"])
+            self.assertFalse(result["tool_event"])
+            self.assertTrue(result["stub_receipt"])
+
+    def test_missing_auth_and_timeout_have_stable_safe_verdicts(self) -> None:
+        missing = run_host_smoke.run_smoke(
+            "codex",
+            executable=("synthetic-host-does-not-exist",),
+            repository_root=ROOT,
+        )
+        self.assertEqual((missing["status"], missing["reason"]), ("NOT_RUN", "cli_missing"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            fake_host = Path(directory) / "fake_host.py"
+            write_fake_host(fake_host)
+            executable = (sys.executable, str(fake_host))
+            for mode, expected in (
+                ("auth", ("NOT_RUN", "auth_missing")),
+                ("timeout", ("FAIL", "timeout")),
+            ):
+                environment = os.environ.copy()
+                environment["SYNTHETIC_HOST_MODE"] = mode
+                with self.subTest(mode=mode):
+                    result = run_host_smoke.run_smoke(
+                        "claude",
+                        executable=executable,
+                        repository_root=ROOT,
+                        process_environment=environment,
+                        timeout_seconds=0.1,
+                    )
+                    self.assertEqual((result["status"], result["reason"]), expected)
+                    serialized = json.dumps(result)
+                    self.assertNotIn("authentication required", serialized)
+                    self.assertNotIn("KCODERAG_NAV_STUB_URL", serialized)
 
 
 if __name__ == "__main__":
