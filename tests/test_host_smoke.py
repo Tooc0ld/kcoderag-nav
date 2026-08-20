@@ -338,6 +338,16 @@ class WorkflowAndDocumentationTests(unittest.TestCase):
             "--dangerously-bypass-hook-trust",
         ):
             self.assertIn(token, combined)
+        for document in (readme, guide):
+            for command in (
+                "claude plugin marketplace add Tooc0ld/kcoderag-nav --scope project",
+                "claude plugin install kcoderag-qa@kcoderag-nav --scope project",
+                "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project",
+            ):
+                self.assertIn(command, document)
+            self.assertIn("纯 MCP 安装", document)
+            self.assertIn("只连接 MCP server", document)
+            self.assertIn("不包含 plugin hook、skill 或 agent", document)
         self.assertNotIn("Authorization", combined)
         self.assertNotIn("Bearer", combined)
 

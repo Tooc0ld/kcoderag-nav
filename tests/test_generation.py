@@ -167,7 +167,15 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("0 = `healthy`", root_readme)
         self.assertIn("2 = `invalid`", root_readme)
         self.assertIn("codex plugin add", root_readme)
-        self.assertIn("/plugin marketplace add", root_readme)
+        for command in (
+            "claude plugin marketplace add Tooc0ld/kcoderag-nav --scope project",
+            "claude plugin install kcoderag-qa@kcoderag-nav --scope project",
+            "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project",
+        ):
+            self.assertIn(command, root_readme)
+        self.assertIn("纯 MCP 安装", root_readme)
+        self.assertIn("只连接 MCP server", root_readme)
+        self.assertIn("不包含 plugin hook、skill 或 agent", root_readme)
 
         for environment in environments:
             package = ROOT / environment["plugin_name"]
