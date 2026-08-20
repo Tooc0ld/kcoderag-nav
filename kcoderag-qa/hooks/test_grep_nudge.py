@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.dont_write_bytecode = True
@@ -115,13 +116,17 @@ def run() -> int:
     failures += check("malformed input has no output", malformed.stdout, "")
 
     payload = json.dumps({"tool_input": {"command": "git grep KPlayer::GetLevel"}})
-    process = subprocess.run(
-        [sys.executable, _SCRIPT],
-        input=payload,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory() as dedup_directory:
+        environment = os.environ.copy()
+        environment["KCODERAG_NAV_DEDUP_DIR"] = dedup_directory
+        process = subprocess.run(
+            [sys.executable, _SCRIPT],
+            input=payload,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
     parsed = json.loads(process.stdout) if process.stdout else None
     failures += check("CLI payload exits successfully", process.returncode, 0)
     failures += check("CLI payload emits hookSpecificOutput", isinstance(parsed, dict), True)

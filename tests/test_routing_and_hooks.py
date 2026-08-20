@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -159,6 +160,81 @@ class HookDedupTests(unittest.TestCase):
                     self.assertFalse(module._claim_nudge(claim_payload))
                 with mock.patch.object(module.os, "open", side_effect=OSError("synthetic")):
                     self.assertFalse(module._claim_nudge(claim_payload))
+
+    def test_repeated_dedup_and_dual_host_payloads(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dedup_directory = Path(directory) / "dedup"
+            for index in range(5):
+                payload: dict[str, object] = {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "synthetic-session",
+                    "turn_id": f"synthetic-turn-{index}",
+                    "tool_use_id": f"synthetic-tool-{index}",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "rg KPlayer::GetLevel src"},
+                }
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(
+                        pool.map(lambda script: run_hook(script, payload, dedup_directory), HOOKS)
+                    )
+                self.assertEqual(sum(bool(result.stdout) for result in results), 1)
+
+            fallback_payload: dict[str, object] = {
+                "hook_event_name": "PreToolUse",
+                "session_id": "synthetic-session",
+                "turn_id": "synthetic-fallback-turn",
+                "tool_name": "Grep",
+                "tool_input": {"pattern": "KPlayer::GetLevel"},
+            }
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                fallback = list(
+                    pool.map(
+                        lambda script: run_hook(script, fallback_payload, dedup_directory),
+                        HOOKS,
+                    )
+                )
+            self.assertEqual(sum(bool(result.stdout) for result in fallback), 1)
+
+            stale = dedup_directory / ("0" * 64 + ".marker")
+            stale.write_bytes(b"")
+            old = time.time() - 1_000
+            os.utime(stale, (old, old))
+            cleanup_payload = dict(fallback_payload, turn_id="synthetic-cleanup-turn")
+            cleanup = run_hook(HOOKS[0], cleanup_payload, dedup_directory)
+            self.assertEqual(cleanup.returncode, 0)
+            self.assertFalse(stale.exists())
+
+            for script in HOOKS:
+                claude = run_hook(
+                    script,
+                    dict(fallback_payload, turn_id=f"claude-{script.parent.parent.name}"),
+                    dedup_directory,
+                )
+                codex = run_hook(
+                    script,
+                    {
+                        "hook_event_name": "PreToolUse",
+                        "session_id": "synthetic-session",
+                        "turn_id": f"codex-{script.parent.parent.name}",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "rg KPlayer::GetLevel src"},
+                    },
+                    dedup_directory,
+                )
+                mechanical = run_hook(
+                    script,
+                    {
+                        "hook_event_name": "PreToolUse",
+                        "session_id": "synthetic-session",
+                        "turn_id": f"mechanical-{script.parent.parent.name}",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "rg TODO logs"},
+                    },
+                    dedup_directory,
+                )
+                self.assertTrue(claude.stdout)
+                self.assertTrue(codex.stdout)
+                self.assertEqual(mechanical.stdout, "")
 
 
 if __name__ == "__main__":

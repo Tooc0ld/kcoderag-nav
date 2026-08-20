@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -22,13 +23,18 @@ def snapshot_tree(root: Path) -> dict[str, bytes]:
     }
 
 
-def run_installer(target: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def run_installer(
+    target: Path,
+    *arguments: str,
+    process_environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(INSTALLER), *arguments, "--target", str(target)],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
+        env=process_environment,
     )
 
 
@@ -120,6 +126,128 @@ class ProjectInstallTests(unittest.TestCase):
                 final = run_installer(target, "uninstall", "--environment", remaining)
                 self.assertEqual(final.returncode, 0, f"uninstall {remaining} failed")
                 self.assertEqual(snapshot_tree(target), before)
+
+    def test_install_permutations_preserve_project_and_user_boundaries(self) -> None:
+        scenarios = [
+            ([], ["qa"]),
+            (["dev"], ["dev"]),
+            (["both"], ["qa", "dev"]),
+            (["qa", "dev"], ["qa", "dev"]),
+            (["dev", "qa"], ["dev", "qa"]),
+        ]
+        for install_sequence, active in scenarios:
+            with self.subTest(sequence=install_sequence), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                target = base / "target"
+                target.mkdir()
+                (target / ".codex").mkdir()
+                (target / ".codex" / "config.toml").write_bytes(
+                    b"# unrelated config bytes\n[features]\nexample = true\n"
+                )
+                unrelated_hook = {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "Read",
+                                "hooks": [{"type": "command", "command": "python unrelated.py"}],
+                            }
+                        ]
+                    },
+                    "unrelated": {"preserve": True},
+                }
+                (target / ".codex" / "hooks.json").write_text(
+                    json.dumps(unrelated_hook, indent=4) + "\n", encoding="utf-8"
+                )
+                unrelated_skill = target / ".agents" / "skills" / "unrelated" / "SKILL.md"
+                unrelated_skill.parent.mkdir(parents=True)
+                unrelated_skill.write_bytes(b"unrelated-skill-bytes\n")
+                (target / "ordinary.bin").write_bytes(b"ordinary-project-bytes\x00")
+                before_target = snapshot_tree(target)
+
+                fake_codex_home = base / "fake-user-codex"
+                (fake_codex_home / "cache").mkdir(parents=True)
+                (fake_codex_home / "config.toml").write_bytes(b"user-config-sentinel\n")
+                (fake_codex_home / "cache" / "sentinel.bin").write_bytes(b"user-cache-sentinel\x00")
+                before_user = snapshot_tree(fake_codex_home)
+                environment = os.environ.copy()
+                environment["CODEX_HOME"] = str(fake_codex_home)
+
+                sequence = install_sequence or [None]
+                for selected in sequence:
+                    arguments = ["install"]
+                    if selected is not None:
+                        arguments.extend(["--environment", selected])
+                    result = run_installer(
+                        target,
+                        *arguments,
+                        process_environment=environment,
+                    )
+                    self.assertEqual(result.returncode, 0, "project install permutation failed")
+                self.assertEqual(snapshot_tree(fake_codex_home), before_user)
+                self.assertEqual((target / "ordinary.bin").read_bytes(), b"ordinary-project-bytes\x00")
+                installed_hooks = json.loads(
+                    (target / ".codex" / "hooks.json").read_text(encoding="utf-8")
+                )
+                self.assertIn(unrelated_hook["hooks"]["PreToolUse"][0], installed_hooks["hooks"]["PreToolUse"])
+                self.assertEqual(installed_hooks["unrelated"], unrelated_hook["unrelated"])
+
+                for selected in reversed(active):
+                    result = run_installer(
+                        target,
+                        "uninstall",
+                        "--environment",
+                        selected,
+                        process_environment=environment,
+                    )
+                    self.assertEqual(result.returncode, 0, "project uninstall permutation failed")
+                self.assertEqual(snapshot_tree(target), before_target)
+                self.assertEqual(snapshot_tree(fake_codex_home), before_user)
+
+    def test_conflicts_and_symlink_escape_fail_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "conflict"
+            (target / ".codex").mkdir(parents=True)
+            (target / ".codex" / "config.toml").write_bytes(
+                b'[mcp_servers."kcoderag-qa"]\nurl = "synthetic"\n'
+            )
+            before = snapshot_tree(target)
+            conflict = run_installer(target, "install")
+            self.assertNotEqual(conflict.returncode, 0)
+            self.assertEqual(snapshot_tree(target), before)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            managed = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
+            managed.write_bytes(managed.read_bytes() + b"# synthetic user edit\n")
+            before_refusal = snapshot_tree(target)
+            refused = run_installer(target, "uninstall", "--environment", "qa")
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertEqual(snapshot_tree(target), before_refusal)
+
+        with tempfile.TemporaryDirectory() as target_directory, tempfile.TemporaryDirectory() as outside_directory:
+            target = Path(target_directory)
+            outside = Path(outside_directory)
+            (outside / "sentinel.bin").write_bytes(b"outside-sentinel\x00")
+            link = target / ".codex"
+            try:
+                os.symlink(outside, link, target_is_directory=True)
+            except OSError:
+                junction = subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(junction.returncode, 0, "could not create test junction")
+            before_outside = snapshot_tree(outside)
+            try:
+                escaped = run_installer(target, "install")
+                self.assertNotEqual(escaped.returncode, 0)
+                self.assertEqual(snapshot_tree(outside), before_outside)
+            finally:
+                if link.exists() or link.is_symlink():
+                    os.rmdir(link)
 
 
 if __name__ == "__main__":
