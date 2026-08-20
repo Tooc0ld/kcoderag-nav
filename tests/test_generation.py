@@ -23,6 +23,8 @@ EXPECTED_FILES = {
     "agents/kcode-explorer.md",
     "hooks/grep_nudge.py",
     "hooks/hooks.json",
+    "hooks/run_hook.cmd",
+    "hooks/run_hook.sh",
     "hooks/test_grep_nudge.py",
     "skills/code-lookup-discipline/SKILL.md",
 }
@@ -177,9 +179,18 @@ class GenerationTests(unittest.TestCase):
             hooks = json.loads((package / "hooks" / "hooks.json").read_text(encoding="utf-8"))
             registration = hooks["hooks"]["PreToolUse"][0]
             self.assertEqual(registration["matcher"], "^(Grep|Glob|Bash)$")
-            self.assertIn("hooks/grep_nudge.py", registration["hooks"][0]["command"])
-            self.assertIn("${CLAUDE_PLUGIN_ROOT}", registration["hooks"][0]["command"])
-            self.assertIn("PLUGIN_ROOT", registration["hooks"][0]["commandWindows"])
+            handler = registration["hooks"][0]
+            self.assertIn("hooks/run_hook.sh", handler["command"])
+            self.assertIn("${CLAUDE_PLUGIN_ROOT}", handler["command"])
+            self.assertNotIn("grep_nudge.py", handler["command"])
+            self.assertIn("hooks\\run_hook.cmd", handler["commandWindows"])
+            self.assertIn("PLUGIN_ROOT", handler["commandWindows"])
+            self.assertNotIn("grep_nudge.py", handler["commandWindows"])
+            for launcher in ("run_hook.sh", "run_hook.cmd"):
+                self.assertEqual(
+                    (package / "hooks" / launcher).read_bytes(),
+                    (ROOT / "plugin-src" / "hooks" / launcher).read_bytes(),
+                )
             mcp = json.loads((package / ".mcp.json").read_text(encoding="utf-8"))
             self.assertEqual(list(mcp["mcpServers"]), [environment["server_name"]])
 

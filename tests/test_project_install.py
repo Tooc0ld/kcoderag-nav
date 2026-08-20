@@ -82,6 +82,28 @@ class ProjectInstallTests(unittest.TestCase):
                     (hooks_directory / "hooks.json").exists(),
                     f"{environment} must not ship the unconsumed inner hooks.json payload",
                 )
+                for launcher in ("run_hook.sh", "run_hook.cmd"):
+                    self.assertEqual(
+                        (hooks_directory / launcher).read_bytes(),
+                        (ROOT / "plugin-src" / "hooks" / launcher).read_bytes(),
+                    )
+
+            registrations = json.loads(
+                (target / ".codex" / "hooks.json").read_text(encoding="utf-8")
+            )["hooks"]["PreToolUse"]
+            self.assertEqual(len(registrations), 2)
+            for environment, registration in zip(("dev", "qa"), registrations, strict=True):
+                handler = registration["hooks"][0]
+                self.assertIn(
+                    f".codex/kcoderag-nav/{environment}/hooks/run_hook.sh",
+                    handler["command"],
+                )
+                self.assertNotIn("grep_nudge.py", handler["command"])
+                self.assertIn(
+                    f".codex\\kcoderag-nav\\{environment}\\hooks\\run_hook.cmd",
+                    handler["commandWindows"],
+                )
+                self.assertNotIn("grep_nudge.py", handler["commandWindows"])
 
             environment = os.environ.copy()
             environment["KCODERAG_NAV_DEDUP_DIR"] = str(target / "dedup")
