@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from scripts import run_host_smoke
 from tests.stub_mcp_server import StubMCPServer, read_receipts
 
 
@@ -112,6 +113,53 @@ class StubMCPServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 StubMCPServer(host="0.0.0.0", receipt_path=Path(directory) / "receipts.jsonl")
+
+
+class HostCommandTests(unittest.TestCase):
+    def test_host_commands_enforce_isolated_headless_contracts(self) -> None:
+        workspace = Path("synthetic-workspace")
+        plugin = Path("synthetic-plugin")
+        config = Path("synthetic-mcp.json")
+
+        codex = run_host_smoke.build_host_command(
+            "codex",
+            ("codex",),
+            workspace=workspace,
+            plugin_dir=plugin,
+            mcp_config=config,
+        )
+        self.assertEqual(
+            codex[:7],
+            [
+                "codex",
+                "exec",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--dangerously-bypass-hook-trust",
+                "--json",
+                "--sandbox",
+            ],
+        )
+        self.assertEqual(codex[7], "read-only")
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", codex)
+
+        claude = run_host_smoke.build_host_command(
+            "claude",
+            ("claude",),
+            workspace=workspace,
+            plugin_dir=plugin,
+            mcp_config=config,
+        )
+        for argument in (
+            "-p",
+            "--plugin-dir",
+            "--mcp-config",
+            "--strict-mcp-config",
+            "--output-format",
+            "stream-json",
+        ):
+            self.assertIn(argument, claude)
+        self.assertNotIn("--dangerously-skip-permissions", claude)
 
 
 if __name__ == "__main__":
