@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import os
 import re
+import tempfile
+import time
 import urllib.request
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -18,6 +21,7 @@ UPDATE_URL = (
 )
 UPDATE_TIMEOUT_SECONDS = 1.5
 MAX_RESPONSE_BYTES = 8 * 1024
+CACHE_TTL_SECONDS = 24 * 60 * 60
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+codex\.[0-9a-f]{16}$")
 RELEVANT_TOOLS = {"Grep", "Glob", "Bash"}
 
@@ -111,6 +115,74 @@ def _claim_session(cache_root: Path, session_key: str) -> bool:
     return True
 
 
+def _read_cache(cache_root: Path) -> tuple[float, dict[str, str]] | None:
+    path = cache_root / "remote-cache.json"
+    try:
+        with path.open("rb") as handle:
+            body = handle.read(MAX_RESPONSE_BYTES + 1)
+    except FileNotFoundError:
+        return None
+    if len(body) > MAX_RESPONSE_BYTES:
+        return None
+    try:
+        document = json.loads(body.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(document, dict) or set(document) != {
+        "schema_version",
+        "checked_at",
+        "versions",
+    }:
+        return None
+    checked_at = document.get("checked_at")
+    versions = document.get("versions")
+    if (
+        document.get("schema_version") != 1
+        or isinstance(checked_at, bool)
+        or not isinstance(checked_at, (int, float))
+        or not math.isfinite(float(checked_at))
+        or float(checked_at) < 0
+        or not isinstance(versions, dict)
+        or set(versions) != {"qa", "dev"}
+        or not all(
+            isinstance(value, str) and VERSION_RE.fullmatch(value)
+            for value in versions.values()
+        )
+    ):
+        return None
+    return float(checked_at), {"qa": versions["qa"], "dev": versions["dev"]}
+
+
+def _write_cache(cache_root: Path, checked_at: float, versions: dict[str, str]) -> None:
+    cache_root.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps(
+            {"schema_version": 1, "checked_at": checked_at, "versions": versions},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".remote-cache-", dir=cache_root)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, cache_root / "remote-cache.json")
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _now(clock: Callable[[], float] | None) -> float:
+    value = float(clock() if clock is not None else time.time())
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("invalid clock")
+    return value
+
+
 def maybe_update_notice(
     data: Mapping[str, Any],
     environment: str,
@@ -121,7 +193,6 @@ def maybe_update_notice(
     opener: Callable[..., Any] | None = None,
 ) -> str | None:
     """Return a locally rendered advisory for a validated different version; never raise."""
-    del now  # Reserved test seam used by the bounded cache layer.
     try:
         if os.environ.get("KCODERAG_NAV_UPDATE_CHECK") == "0":
             return None
@@ -131,10 +202,18 @@ def maybe_update_notice(
             or not _is_relevant_pretooluse(data)
         ):
             return None
+        root = cache_root or _default_cache_root()
         session_key = _explicit_session_key(data, environment)
-        if session_key is None or not _claim_session(cache_root or _default_cache_root(), session_key):
+        if session_key is None or not _claim_session(root, session_key):
             return None
-        versions = _fetch_versions(opener)
+        checked_at = _now(now)
+        cached = _read_cache(root)
+        if cached is not None and 0 <= checked_at - cached[0] < CACHE_TTL_SECONDS:
+            versions = cached[1]
+        else:
+            versions = _fetch_versions(opener)
+            if versions is not None:
+                _write_cache(root, checked_at, versions)
         remote_version = versions.get(environment) if versions is not None else None
         if remote_version is None or remote_version == current_version:
             return None
