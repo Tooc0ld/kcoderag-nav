@@ -78,16 +78,24 @@ Codex 当前没有原生 project-scope plugin install；本仓库的项目级行
 Code 版在 `.claude-plugin/marketplace.json`）。插件包的 `.mcp.json` 保留 Claude Code
 格式；Codex 清单指向独立生成的 `.codex.mcp.json`（`mcp_servers` 封装）。
 
-## Claude Code marketplace
+## Claude Code marketplace（project scope）
 
-```text
-/plugin marketplace add Tooc0ld/kcoderag-nav
-/plugin install kcoderag-qa@kcoderag-nav
+以下 CLI 命令把 marketplace 与 QA 插件安装限定在当前项目；卸载时使用相同 scope：
+
+```powershell
+claude plugin marketplace add Tooc0ld/kcoderag-nav --scope project
+claude plugin install kcoderag-qa@kcoderag-nav --scope project
+claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project
 ```
 
 插件不做权限预授权：首次调用 KCodeRag MCP 工具时宿主会弹出权限确认，批准后放行。
 否则需要把 `mcp__plugin_kcoderag-qa_kcoderag-qa__*`（dev 同理）自行加入 settings 的
 `permissions.allow`。
+
+## 纯 MCP 安装
+
+纯 MCP 安装只连接 MCP server，不包含 plugin hook、skill 或 agent 行为。它适合只需要协议工具
+连接的场景；查询前提醒、环境路由纪律和专用 agent 工作流仍需完整插件安装。
 
 ## 内部连接边界
 

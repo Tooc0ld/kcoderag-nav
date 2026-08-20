@@ -25,6 +25,19 @@ python scripts/manage_project_install.py install --target PATH --environment bot
 Claude Code 使用仓库 marketplace 的 project scope 安装；不要把 Codex 项目安装器当成
 Claude Code 的 project-scope plugin 命令。
 
+```powershell
+claude plugin marketplace add Tooc0ld/kcoderag-nav --scope project
+claude plugin install kcoderag-qa@kcoderag-nav --scope project
+claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project
+```
+
+前两条命令完成当前项目的 marketplace 注册与 QA 插件安装；第三条只卸载当前项目中的插件。
+
+## 纯 MCP 安装
+
+纯 MCP 安装只连接 MCP server，不包含 plugin hook、skill 或 agent 行为。选择这条路径时仍可调用
+协议工具，但不会获得插件提供的查询提醒、环境路由纪律或专用 agent 工作流。
+
 ## 只读状态诊断
 
 安装、升级或排障前运行：
