@@ -172,6 +172,36 @@ class GenerationTests(unittest.TestCase):
             self.assertTrue(original_url not in result.stderr)
             self.assertTrue(original_authorization not in result.stderr)
 
+    def test_cursor_profile_can_require_an_admin_supplied_bearer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            isolated = Path(directory) / "repository"
+            shutil.copytree(ROOT / "plugin-src", isolated / "plugin-src")
+            metadata = json.loads(
+                (isolated / "plugin-src" / "environments.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            qa = next(item for item in metadata["environments"] if item["id"] == "qa")
+            qa_path = isolated / qa["mcp_source"]
+            qa_mcp = json.loads(qa_path.read_text(encoding="utf-8"))
+            qa_entry = qa_mcp["mcpServers"][qa["server_name"]]
+            qa_entry.get("http_headers", qa_entry.get("headers")).pop("Authorization")
+            qa_path.write_text(json.dumps(qa_mcp), encoding="utf-8")
+
+            outputs = generate_plugins.render_outputs(
+                generate_plugins.load_inputs(isolated)
+            )
+            manifest = json.loads(
+                outputs["kcoderag-cursor/.cursor-plugin/plugin.json"]
+            )
+            bearer_variable = manifest["variables"]["properties"][
+                "KCODERAG_BEARER_TOKEN"
+            ]
+            self.assertNotIn("default", bearer_variable)
+            self.assertIn(
+                "KCODERAG_BEARER_TOKEN", manifest["variables"]["required"]
+            )
+
     def test_generated_text_checkout_contract_is_lf(self) -> None:
         text_suffixes = {".json", ".md", ".tmpl", ".txt", ".py", ".sh", ".cmd"}
         paths = {
@@ -374,6 +404,30 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("纯 MCP 安装", root_readme)
         self.assertIn("只连接 MCP server", root_readme)
         self.assertIn("不包含 plugin hook、skill 或 agent", root_readme)
+        for update_contract in (
+            "首次相关 `PreToolUse`",
+            "24 小时",
+            "旧版安装",
+            "git pull --ff-only",
+            "python scripts/manage_project_install.py update --target PATH",
+            "python scripts/update_plugin.py --host codex --environment qa",
+            "python scripts/update_plugin.py --host claude --environment qa",
+        ):
+            self.assertIn(update_contract, root_readme)
+        self.assertNotIn("SessionStart", root_readme)
+
+        qa_guide = (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8")
+        for update_contract in (
+            "首次相关 `PreToolUse`",
+            "24 小时",
+            "旧版安装",
+            "git pull --ff-only",
+            "python scripts/manage_project_install.py update --target PATH",
+            "python scripts/update_plugin.py --host codex --environment qa",
+            "python scripts/update_plugin.py --host claude --environment qa",
+        ):
+            self.assertIn(update_contract, qa_guide)
+        self.assertNotIn("SessionStart", qa_guide)
         self.assertIn("Cursor 私有插件", root_readme)
         self.assertIn("~/.cursor/plugins/local/kcoderag-nav", root_readme)
         self.assertIn("Default Off", root_readme)
@@ -391,6 +445,10 @@ class GenerationTests(unittest.TestCase):
                 (package / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
             )
             self.assertEqual(claude_manifest["name"], environment["plugin_name"])
+            package_readme = (package / "README.md").read_text(encoding="utf-8")
+            self.assertIn("first relevant `PreToolUse`", package_readme)
+            self.assertIn("24-hour", package_readme)
+            self.assertIn("scripts/update_plugin.py", package_readme)
             hooks = json.loads((package / "hooks" / "hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(set(hooks["hooks"]), {"PreToolUse"})
             registration = hooks["hooks"]["PreToolUse"][0]
