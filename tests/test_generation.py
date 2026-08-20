@@ -294,6 +294,7 @@ class GenerationTests(unittest.TestCase):
             )
             self.assertEqual(claude_manifest["name"], environment["plugin_name"])
             hooks = json.loads((package / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(hooks["hooks"]), {"PreToolUse"})
             registration = hooks["hooks"]["PreToolUse"][0]
             self.assertEqual(registration["matcher"], "^(Grep|Glob|Bash)$")
             handler = registration["hooks"][0]

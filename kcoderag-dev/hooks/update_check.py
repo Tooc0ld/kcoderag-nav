@@ -24,6 +24,7 @@ UPDATE_TIMEOUT_SECONDS = 1.5
 MAX_RESPONSE_BYTES = 8 * 1024
 CACHE_TTL_SECONDS = 24 * 60 * 60
 REFRESH_LOCK_STALE_SECONDS = 10
+MAX_SESSION_MARKERS = 128
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+codex\.[0-9a-f]{16}$")
 RELEVANT_TOOLS = {"Grep", "Glob", "Bash"}
 
@@ -123,7 +124,23 @@ def _claim_session(cache_root: Path, session_key: str) -> bool:
     except FileExistsError:
         return False
     os.close(descriptor)
+    _prune_session_markers(directory, marker)
     return True
+
+
+def _prune_session_markers(directory: Path, keep: Path) -> None:
+    try:
+        markers = [path for path in directory.glob("session-*.seen") if path.is_file()]
+        if len(markers) <= MAX_SESSION_MARKERS:
+            return
+        removable = sorted(
+            (path for path in markers if path != keep),
+            key=lambda path: (path.stat().st_mtime_ns, path.name),
+        )
+        for path in removable[: len(markers) - MAX_SESSION_MARKERS]:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _read_cache(cache_root: Path) -> tuple[float, dict[str, str]] | None:

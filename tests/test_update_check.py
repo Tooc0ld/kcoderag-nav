@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import os
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,9 +21,17 @@ TRUSTED_URL = (
 
 
 class _Response:
-    def __init__(self, payload: dict[str, object]) -> None:
-        self._body = json.dumps(payload).encode("utf-8")
-        self.status = 200
+    def __init__(
+        self,
+        payload: dict[str, object] | None = None,
+        *,
+        body: bytes | None = None,
+        url: str = TRUSTED_URL,
+        status: int = 200,
+    ) -> None:
+        self._body = body if body is not None else json.dumps(payload).encode("utf-8")
+        self._url = url
+        self.status = status
 
     def __enter__(self) -> "_Response":
         return self
@@ -28,7 +40,7 @@ class _Response:
         return None
 
     def geturl(self) -> str:
-        return TRUSTED_URL
+        return self._url
 
     def read(self, amount: int = -1) -> bytes:
         return self._body if amount < 0 else self._body[:amount]
@@ -44,6 +56,152 @@ def _load_module(path: Path, name: str):
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def test_remote_and_cache_failures_are_silent_and_credential_safe(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_failure_matrix_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        valid_document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.bbbbbbbbbbbbbbbb",
+                "dev": "0.1.1+codex.cccccccccccccccc",
+            },
+        }
+        payload = {
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "GetLevel"},
+        }
+        cases = {
+            "redirect": lambda: _Response(valid_document, url="https://example.invalid/secret"),
+            "http_status": lambda: _Response(valid_document, status=503),
+            "oversize": lambda: _Response(body=b"x" * (8 * 1024 + 1)),
+            "malformed": lambda: _Response(body=b'{"secret-token":"prompt injection"}'),
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            for index, (label, response_factory) in enumerate(cases.items()):
+                with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                    notice = checker.maybe_update_notice(
+                        dict(payload, session_id=f"failure-{index}"),
+                        "qa",
+                        current_version,
+                        cache_root=Path(directory),
+                        opener=lambda *_args, factory=response_factory, **_kwargs: factory(),
+                    )
+                    self.assertIsNone(notice)
+
+            with tempfile.TemporaryDirectory() as directory:
+                cache_root = Path(directory)
+                cache_root.joinpath("remote-cache.json").write_text(
+                    "corrupt secret-token", encoding="utf-8"
+                )
+                notice = checker.maybe_update_notice(
+                    dict(payload, session_id="corrupt-cache"),
+                    "qa",
+                    current_version,
+                    cache_root=cache_root,
+                    opener=lambda *_args, **_kwargs: _Response(valid_document),
+                )
+                self.assertIsNotNone(notice)
+                self.assertNotIn("secret-token", notice or "")
+
+            with tempfile.TemporaryDirectory() as directory:
+                cache_root = Path(directory) / "not-a-directory"
+                cache_root.write_bytes(b"secret-token")
+                called: list[bool] = []
+                notice = checker.maybe_update_notice(
+                    dict(payload, session_id="unwritable-cache"),
+                    "qa",
+                    current_version,
+                    cache_root=cache_root,
+                    opener=lambda *_args, **_kwargs: called.append(True),
+                )
+                self.assertIsNone(notice)
+                self.assertEqual(called, [])
+
+            with tempfile.TemporaryDirectory() as directory:
+                with mock.patch.object(
+                    checker.os, "replace", side_effect=OSError("secret-token replace failure")
+                ):
+                    notice = checker.maybe_update_notice(
+                        dict(payload, session_id="replace-failure"),
+                        "qa",
+                        current_version,
+                        cache_root=Path(directory),
+                        opener=lambda *_args, **_kwargs: _Response(valid_document),
+                    )
+                self.assertIsNone(notice)
+                self.assertFalse((Path(directory) / "refresh.lock").exists())
+
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_refresh_lock_loser_uses_stale_cache_and_old_lock_is_recovered(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_lock_state_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        stale_version = "0.1.1+codex.dddddddddddddddd"
+        valid_document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.eeeeeeeeeeeeeeee",
+                "dev": "0.1.1+codex.ffffffffffffffff",
+            },
+        }
+        payload = {"tool_name": "Glob", "tool_input": {"pattern": "*.txt"}}
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            (cache_root / "remote-cache.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "checked_at": 10.0,
+                        "versions": {
+                            "qa": stale_version,
+                            "dev": "0.1.1+codex.1111111111111111",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            lock = cache_root / "refresh.lock"
+            lock.write_bytes(b"")
+            os.utime(lock, (100_000.0, 100_000.0))
+            calls: list[bool] = []
+            loser_notice = checker.maybe_update_notice(
+                dict(payload, session_id="lock-loser"),
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 100_005.0,
+                opener=lambda *_args, **_kwargs: calls.append(True),
+            )
+            self.assertIn(stale_version, loser_notice or "")
+            self.assertEqual(calls, [])
+
+            os.utime(lock, (90_000.0, 90_000.0))
+            recovered_notice = checker.maybe_update_notice(
+                dict(payload, session_id="stale-lock"),
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 100_020.0,
+                opener=lambda *_args, **_kwargs: _Response(valid_document),
+            )
+            self.assertIn(valid_document["versions"]["qa"], recovered_notice or "")
+            self.assertFalse(lock.exists())
+
     def test_session_marker_state_is_pruned_to_a_fixed_bound(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_bounded_marker_check"
