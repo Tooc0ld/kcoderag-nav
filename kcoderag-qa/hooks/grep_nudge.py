@@ -20,13 +20,10 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-ROUTING_GUIDANCE = " When QA and Dev are both installed, default to QA; use only Dev for explicit Dev intent; query both only for explicit comparison; never fall back when a selected environment is unreachable."
+ROUTING_GUIDANCE = " When QA and Dev are both installed, QA is default; explicit Dev uses only Dev, explicit comparison uses both; if a selected environment is unreachable, do not fall back."
 NUDGE = (
-    "Tip: this looks like a symbol or call-relation lookup. Prefer the installed "
-    "KCodeRag MCP tools: search_code (definitions / semantic search), "
-    "get_call_chain (callers / callees), and context (360-degree symbol view). "
-    "Reserve text search for verifying already-located uncommitted edits or exact-string "
-    "bulk replacement."
+    "Structural lookup: use KCodeRag search_code, context, or get_call_chain. "
+    "Local text search is for exact strings or uncommitted edits."
 ) + ROUTING_GUIDANCE
 
 SILENT_RES = [

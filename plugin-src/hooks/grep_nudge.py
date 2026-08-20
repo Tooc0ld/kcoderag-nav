@@ -22,11 +22,8 @@ from typing import Any
 
 ROUTING_GUIDANCE = "{{routing_nudge}}"
 NUDGE = (
-    "Tip: this looks like a symbol or call-relation lookup. Prefer the installed "
-    "KCodeRag MCP tools: search_code (definitions / semantic search), "
-    "get_call_chain (callers / callees), and context (360-degree symbol view). "
-    "Reserve text search for verifying already-located uncommitted edits or exact-string "
-    "bulk replacement."
+    "Structural lookup: use KCodeRag search_code, context, or get_call_chain. "
+    "Local text search is for exact strings or uncommitted edits."
 ) + ROUTING_GUIDANCE
 
 SILENT_RES = [
