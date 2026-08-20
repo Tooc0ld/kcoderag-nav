@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import hashlib
 import shutil
@@ -10,6 +11,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from scripts import generate_plugins
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,33 @@ EXPECTED_FILES = {
 
 
 class GenerationTests(unittest.TestCase):
+    def test_nudge_is_compact_and_policy_complete(self) -> None:
+        routing = generate_plugins.load_routing(ROOT)
+        routing_nudge = generate_plugins.render_routing_nudge(routing)
+        for environment in ("qa", "dev"):
+            script = ROOT / f"kcoderag-{environment}" / "hooks" / "grep_nudge.py"
+            spec = importlib.util.spec_from_file_location(f"compact_nudge_{environment}", script)
+            self.assertIsNotNone(spec)
+            self.assertIsNotNone(spec.loader)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            nudge = module.NUDGE
+            lowered = nudge.lower()
+
+            self.assertLessEqual(len(nudge), 320)
+            for tool in ("search_code", "context", "get_call_chain"):
+                self.assertIn(tool, nudge)
+            self.assertIn("exact", lowered)
+            self.assertIn("uncommitted", lowered)
+            self.assertIn("When QA and Dev are both installed", nudge)
+            self.assertIn("explicit Dev", nudge)
+            self.assertIn("explicit comparison", nudge)
+            self.assertIn("unreachable", lowered)
+            self.assertIn(routing_nudge, nudge)
+            self.assertNotIn("mcp__plugin_", nudge)
+            self.assertNotIn("deny", lowered)
+            self.assertNotIn("enforce", lowered)
+
     def test_generation_check_accepts_tracked_outputs(self) -> None:
         result = subprocess.run(
             [sys.executable, str(GENERATOR), "--check"],
