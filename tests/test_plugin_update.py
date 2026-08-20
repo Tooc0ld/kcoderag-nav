@@ -24,6 +24,34 @@ def _load_updater():
 
 
 class PluginUpdateTests(unittest.TestCase):
+    def test_claude_refreshes_marketplace_then_updates_project_plugin(self) -> None:
+        updater = _load_updater()
+        calls: list[list[str]] = []
+
+        def runner(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "synthetic-secret-error")
+
+        result = updater.run_marketplace_update("claude", "dev", runner=runner)
+
+        self.assertEqual(
+            calls,
+            [
+                ["claude", "plugin", "marketplace", "update", "kcoderag-nav"],
+                [
+                    "claude",
+                    "plugin",
+                    "update",
+                    "kcoderag-dev@kcoderag-nav",
+                    "--scope",
+                    "project",
+                ],
+            ],
+        )
+        self.assertEqual(result["status"], "update_completed")
+        self.assertTrue(result["restart_required"])
+        self.assertNotIn("synthetic-secret-error", repr(result))
+
     def test_codex_refreshes_marketplace_then_reinstalls_selected_plugin(self) -> None:
         updater = _load_updater()
         calls: list[list[str]] = []
