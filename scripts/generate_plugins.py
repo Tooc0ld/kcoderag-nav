@@ -27,6 +27,7 @@ SHARED_FILES = {
     "hooks/run_hook.cmd": "plugin-src/hooks/run_hook.cmd",
     "hooks/run_hook.sh": "plugin-src/hooks/run_hook.sh",
     "hooks/test_grep_nudge.py": "plugin-src/hooks/test_grep_nudge.py",
+    "hooks/update_check.py": "plugin-src/hooks/update_check.py",
 }
 
 

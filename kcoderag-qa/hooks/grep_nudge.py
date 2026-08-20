@@ -15,6 +15,16 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+try:
+    from update_check import maybe_update_notice
+except Exception:
+    def maybe_update_notice(*_args: object, **_kwargs: object) -> None:
+        return None
+
+
+ENVIRONMENT = "qa"
+CURRENT_VERSION = "0.1.1+codex.a3d48d05f0781f1e"
+
 NUDGE = (
     "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. "
     "Use local text search for exact strings, uncommitted edits, or explicit fallback "
@@ -384,17 +394,23 @@ def lookup_patterns(tool_input: Mapping[str, Any]) -> list[str]:
     return shell_lookup_patterns(command) if isinstance(command, str) else []
 
 
-def hook_output(data: Mapping[str, Any]) -> dict[str, Any] | None:
+def hook_output(
+    data: Mapping[str, Any], update_notice: str | None = None
+) -> dict[str, Any] | None:
     """Build advisory hook output, or return None when the call should pass silently."""
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, Mapping):
         return None
-    if not any(looks_like_symbol_lookup(pattern) for pattern in lookup_patterns(tool_input)):
+    structural = any(
+        looks_like_symbol_lookup(pattern) for pattern in lookup_patterns(tool_input)
+    )
+    if not structural and not update_notice:
         return None
+    contexts = [context for context in (NUDGE if structural else None, update_notice) if context]
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "additionalContext": NUDGE,
+            "additionalContext": "\n\n".join(contexts)[:600],
         }
     }
 
@@ -405,7 +421,11 @@ def main() -> int:
         if len(raw) > MAX_INPUT_CHARS:
             return 0
         data = json.loads(raw) if raw.strip() else {}
-        output = hook_output(data) if isinstance(data, Mapping) else None
+        if isinstance(data, Mapping):
+            update_notice = maybe_update_notice(data, ENVIRONMENT, CURRENT_VERSION)
+            output = hook_output(data, update_notice=update_notice)
+        else:
+            output = None
     except Exception:
         return 0
     if output is not None:

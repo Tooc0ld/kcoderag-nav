@@ -28,6 +28,7 @@ try:
         _read_normalized,
         _render_template,
         canonical_json,
+        effective_version,
         load_inputs,
         load_routing,
         render_routing_markdown,
@@ -40,6 +41,7 @@ except ImportError:  # Direct script execution keeps the scripts directory on sy
         _read_normalized,
         _render_template,
         canonical_json,
+        effective_version,
         load_inputs,
         load_routing,
         render_routing_markdown,
@@ -55,7 +57,7 @@ SKILL_RELATIVE = ".agents/skills/kcoderag-nav/SKILL.md"
 MANAGED_ROOT = ".codex/kcoderag-nav"
 INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 UNINSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
-HOOK_PAYLOAD_FILENAMES = ("grep_nudge.py", "run_hook.sh", "run_hook.cmd")
+HOOK_PAYLOAD_FILENAMES = ("grep_nudge.py", "run_hook.sh", "run_hook.cmd", "update_check.py")
 TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
 
 
@@ -331,12 +333,14 @@ def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, by
         "plugin_name": package,
         "display_name": metadata["display_name"],
         "tool_prefix": metadata["agent_tool_prefix"],
+        "plugin_version": effective_version(inputs, environment),
     }
     try:
         hook_source = inputs.root / "plugin-src" / "hooks"
         payload = _render_template(hook_source / "grep_nudge.py", replacements)
         posix_launcher = _read_normalized(hook_source / "run_hook.sh")
         windows_launcher = _read_normalized(hook_source / "run_hook.cmd")
+        update_checker = _read_normalized(hook_source / "update_check.py")
     except GenerationError as exc:
         raise InstallError(exc.code, "plugin-src/hooks/grep_nudge.py") from exc
     prefix = f"{MANAGED_ROOT}/{environment}/hooks"
@@ -344,6 +348,7 @@ def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, by
         f"{prefix}/grep_nudge.py": payload,
         f"{prefix}/run_hook.sh": posix_launcher,
         f"{prefix}/run_hook.cmd": windows_launcher,
+        f"{prefix}/update_check.py": update_checker,
     }
 
 

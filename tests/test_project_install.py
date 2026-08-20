@@ -150,6 +150,10 @@ class ProjectInstallTests(unittest.TestCase):
                 [
                     {
                         "code": "source_update_available",
+                        "path": ".codex/kcoderag-nav/qa/hooks/grep_nudge.py",
+                    },
+                    {
+                        "code": "source_update_available",
                         "path": ".codex/kcoderag-nav/qa/hooks/run_hook.sh",
                     }
                 ],

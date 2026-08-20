@@ -3,7 +3,7 @@
   "repository": "Tooc0ld/kcoderag-nav",
   "channel": "master",
   "versions": {
-    "qa": "0.1.1+codex.5956aaf36fa19e90",
-    "dev": "0.1.1+codex.5fbc50d18e28d472"
+    "qa": "0.1.1+codex.a3d48d05f0781f1e",
+    "dev": "0.1.1+codex.b7c79c0c9d82cc3b"
   }
 }

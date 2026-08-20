@@ -31,6 +31,7 @@ EXPECTED_FILES = {
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
     "hooks/test_grep_nudge.py",
+    "hooks/update_check.py",
     "skills/code-lookup-discipline/SKILL.md",
 }
 

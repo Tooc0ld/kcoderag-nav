@@ -75,6 +75,8 @@ def check(label: str, got: object, expected: object) -> int:
 
 def run() -> int:
     failures = 0
+    offline_environment = os.environ.copy()
+    offline_environment["KCODERAG_NAV_UPDATE_CHECK"] = "0"
     for pattern, expected in PATTERN_CASES:
         failures += check(
             f"pattern {pattern!r}", _mod.looks_like_symbol_lookup(pattern), expected
@@ -113,6 +115,7 @@ def run() -> int:
         text=True,
         capture_output=True,
         check=False,
+        env=offline_environment,
     )
     failures += check("malformed input fails open", malformed.returncode, 0)
     failures += check("malformed input has no output", malformed.stdout, "")
@@ -124,6 +127,7 @@ def run() -> int:
         text=True,
         capture_output=True,
         check=False,
+        env=offline_environment,
     )
     parsed = json.loads(process.stdout) if process.stdout else None
     failures += check("CLI payload exits successfully", process.returncode, 0)

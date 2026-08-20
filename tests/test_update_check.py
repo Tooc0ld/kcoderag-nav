@@ -91,6 +91,61 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertIn("do not update automatically", context.lower())
         self.assertNotIn("Tooc0ld", context)
 
+    def test_codex_dev_parity_same_version_and_irrelevant_payload_silence(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-dev" / "hooks" / "update_check.py", "dev_update_check"
+        )
+        hook = _load_module(ROOT / "kcoderag-dev" / "hooks" / "grep_nudge.py", "dev_hook")
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["dev"]
+        remote_version = "0.1.1+codex.dddddddddddddddd"
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {"qa": "0.1.1+codex.cccccccccccccccc", "dev": remote_version},
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            self.assertEqual(timeout, 1.5)
+            calls.append(request.full_url)
+            return _Response(document)
+
+        payload = {
+            "thread_id": "codex-thread",
+            "tool_name": "Bash",
+            "tool_input": {"command": "rg GetLevel src"},
+        }
+        notice = checker.maybe_update_notice(payload, "dev", current_version, opener=opener)
+        output = hook.hook_output(payload, update_notice=notice)
+        self.assertEqual(calls, [TRUSTED_URL])
+        self.assertIsNotNone(output)
+        context = output["hookSpecificOutput"]["additionalContext"]
+        self.assertLessEqual(len(context), 600)
+        self.assertLess(context.index(hook.NUDGE), context.index(remote_version))
+
+        same_document = dict(document)
+        same_document["versions"] = dict(document["versions"], dev=current_version)
+        same = checker.maybe_update_notice(
+            payload,
+            "dev",
+            current_version,
+            opener=lambda *_args, **_kwargs: _Response(same_document),
+        )
+        self.assertIsNone(same)
+
+        irrelevant_calls: list[object] = []
+        irrelevant = checker.maybe_update_notice(
+            {"tool_name": "Read", "tool_input": {"path": "README.md"}},
+            "dev",
+            current_version,
+            opener=lambda *args, **_kwargs: irrelevant_calls.append((args, _kwargs)),
+        )
+        self.assertIsNone(irrelevant)
+        self.assertEqual(irrelevant_calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
