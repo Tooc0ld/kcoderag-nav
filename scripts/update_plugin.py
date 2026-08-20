@@ -53,6 +53,8 @@ def run_marketplace_update(
         return _failed(host, environment, "preflight", "invalid_environment", 2)
     if host not in {"codex", "claude"}:
         return _failed(host, environment, "preflight", "unsupported_host", 2)
+    if scope not in {"project", "local", "user"}:
+        return _failed(host, environment, "preflight", "unsupported_scope", 2)
     if host == "codex" and scope != "project":
         return _failed(host, environment, "preflight", "unsupported_scope", 2)
 

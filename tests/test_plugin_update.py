@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import subprocess
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +27,76 @@ def _load_updater():
 
 
 class PluginUpdateTests(unittest.TestCase):
+    def test_failures_stop_at_stage_and_never_expose_captured_output(self) -> None:
+        updater = _load_updater()
+
+        marketplace_calls: list[list[str]] = []
+
+        def marketplace_failure(
+            argv: list[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            marketplace_calls.append(argv)
+            return subprocess.CompletedProcess(
+                argv, 9, "Bearer synthetic-secret", "Authorization: synthetic-secret"
+            )
+
+        marketplace = updater.run_marketplace_update(
+            "codex", "qa", runner=marketplace_failure
+        )
+        self.assertEqual(len(marketplace_calls), 1)
+        self.assertEqual(marketplace["stage"], "marketplace")
+        self.assertEqual(marketplace["reason"], "marketplace_refresh_failed")
+        self.assertEqual(marketplace["exit_code"], 9)
+
+        plugin_calls: list[list[str]] = []
+
+        def plugin_failure(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            plugin_calls.append(argv)
+            return subprocess.CompletedProcess(
+                argv,
+                0 if len(plugin_calls) == 1 else 7,
+                "Bearer synthetic-secret",
+                "Authorization: synthetic-secret",
+            )
+
+        plugin = updater.run_marketplace_update("claude", "dev", runner=plugin_failure)
+        self.assertEqual(len(plugin_calls), 2)
+        self.assertEqual(plugin["stage"], "plugin")
+        self.assertEqual(plugin["reason"], "plugin_update_failed")
+        self.assertEqual(plugin["exit_code"], 7)
+
+        timeout_calls: list[list[str]] = []
+
+        def timeout(argv: list[str], **_kwargs: object):
+            timeout_calls.append(argv)
+            raise subprocess.TimeoutExpired(argv, 30, output="Bearer synthetic-secret")
+
+        timed_out = updater.run_marketplace_update("codex", "qa", runner=timeout)
+        self.assertEqual(len(timeout_calls), 1)
+        self.assertEqual(timed_out["reason"], "timeout")
+        self.assertEqual(timed_out["exit_code"], 124)
+
+        with mock.patch.object(updater.shutil, "which", return_value=None):
+            missing = updater.run_marketplace_update("codex", "qa")
+        self.assertEqual(missing["stage"], "preflight")
+        self.assertEqual(missing["reason"], "cli_not_found")
+        self.assertEqual(missing["exit_code"], 127)
+
+        safe_results = repr((marketplace, plugin, timed_out, missing))
+        self.assertNotIn("synthetic-secret", safe_results)
+        self.assertNotIn("Bearer", safe_results)
+        self.assertNotIn("Authorization", safe_results)
+
+        stderr = io.StringIO()
+        with mock.patch.object(updater, "run_marketplace_update", return_value=marketplace):
+            with redirect_stderr(stderr):
+                exit_code = updater.main(["--host", "codex", "--environment", "qa"])
+        self.assertEqual(exit_code, 9)
+        self.assertEqual(
+            stderr.getvalue(),
+            "update failed (marketplace_refresh_failed): stage=marketplace\n",
+        )
+
     def test_invalid_scope_is_rejected_before_host_commands(self) -> None:
         updater = _load_updater()
         calls: list[list[str]] = []
