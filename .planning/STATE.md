@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-20 - Completed quick task 260820-w7c: lazy first-PreToolUse update awareness and explicit updates
+Last activity: 2026-08-21 - Completed quick task 260821-07f: bump plugins to 0.1.2 and publish accumulated local changes
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -79,6 +79,7 @@ None yet.
 | 260820-vuc | QA/Dev 互斥安装，移除双环境 routing 与跨进程 hook 去重 | 2026-08-20 | 1119e67 | [260820-vuc-make-qa-and-dev-installations-mutually-e](./quick/260820-vuc-make-qa-and-dev-installations-mutually-e/) |
 | 260820-wwm | 单环境 Cursor 私有插件、共享 skill、always-on Rule 与 Team Marketplace 分发 | 2026-08-20 | 76fe0e1, 55291ad | [260820-wwm-add-private-cursor-plugin-distribution-w](./quick/260820-wwm-add-private-cursor-plugin-distribution-w/) |
 | 260820-w7c | QA/Dev 首次 PreToolUse 延迟更新感知、确定性版本与显式更新命令 | 2026-08-20 | 8cf74e0 | [260820-w7c-add-lazy-first-pretooluse-update-detecti](./quick/260820-w7c-add-lazy-first-pretooluse-update-detecti/) |
+| 260821-07f | 将 QA/Dev/Cursor 插件基础版本升至 0.1.2 并发布本地累积改动 | 2026-08-21 | 8774487 | [260821-07f-bump-plugin-base-version-from-0-1-1-to-0](./quick/260821-07f-bump-plugin-base-version-from-0-1-1-to-0/) |
 
 ## Deferred Items
 
