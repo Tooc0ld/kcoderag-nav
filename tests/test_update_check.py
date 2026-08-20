@@ -227,6 +227,104 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertNotIn("secret-token", notice or "")
         self.assertEqual(calls, [TRUSTED_URL])
 
+    def test_failed_refresh_is_still_consumed_for_the_session(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_failure_consumed_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        calls: list[str] = []
+
+        def failing_opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            raise TimeoutError("synthetic timeout secret-token")
+
+        payload = {
+            "session_id": "failed-refresh-session",
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "GetLevel"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            first = checker.maybe_update_notice(
+                payload, "qa", current_version, cache_root=cache_root, opener=failing_opener
+            )
+            second = checker.maybe_update_notice(
+                payload, "qa", current_version, cache_root=cache_root, opener=failing_opener
+            )
+
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(calls, [TRUSTED_URL])
+
+    def test_missing_session_uses_project_hour_bucket_without_raw_path_state(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_fallback_session_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        remote_version = "0.1.1+codex.7777777777777777"
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": remote_version,
+                "dev": "0.1.1+codex.8888888888888888",
+            },
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            return _Response(document)
+
+        raw_cwd = "D:/secret-customer/project"
+        payload = {
+            "cwd": raw_cwd,
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "*.txt"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            first = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 7_200_100.0,
+                opener=opener,
+            )
+            same_bucket = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 7_200_200.0,
+                opener=opener,
+            )
+            next_bucket = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 7_203_700.0,
+                opener=opener,
+            )
+            state_paths = [path.relative_to(cache_root).as_posix() for path in cache_root.rglob("*")]
+            state_bytes = b"".join(
+                path.read_bytes() for path in cache_root.rglob("*") if path.is_file()
+            )
+
+        self.assertIn(remote_version, first or "")
+        self.assertIsNone(same_bucket)
+        self.assertIn(remote_version, next_bucket or "")
+        self.assertEqual(calls, [TRUSTED_URL])
+        self.assertNotIn(raw_cwd, "\n".join(state_paths))
+        self.assertNotIn(raw_cwd.encode("utf-8"), state_bytes)
+
     def test_newer_qa_document_adds_notice_to_first_claude_pretooluse(self) -> None:
         checker_path = ROOT / "kcoderag-qa" / "hooks" / "update_check.py"
         self.assertTrue(checker_path.is_file(), "QA package lacks its update checker")
