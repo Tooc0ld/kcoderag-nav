@@ -7,6 +7,7 @@ import json
 import hashlib
 import math
 import os
+import posixpath
 import re
 import tempfile
 import time
@@ -92,7 +93,9 @@ def _default_cache_root() -> Path:
     return (Path(base) if base else Path.home() / ".cache") / "kcoderag-nav"
 
 
-def _explicit_session_key(data: Mapping[str, Any], environment: str) -> str | None:
+def _session_key(
+    data: Mapping[str, Any], environment: str, checked_at: float
+) -> str:
     for field in ("session_id", "thread_id", "conversation_id"):
         raw = data.get(field)
         if isinstance(raw, bool) or not isinstance(raw, (str, int)):
@@ -101,7 +104,14 @@ def _explicit_session_key(data: Mapping[str, Any], environment: str) -> str | No
         if value:
             material = f"{environment}\0{field}\0{value}".encode("utf-8", errors="replace")
             return hashlib.sha256(material).hexdigest()
-    return None
+    raw_cwd = data.get("cwd")
+    cwd = str(raw_cwd).strip()[:2048] if isinstance(raw_cwd, (str, int)) else "."
+    normalized_cwd = posixpath.normpath(cwd.replace("\\", "/")).casefold()
+    hour_bucket = int(checked_at // 3600)
+    material = f"{environment}\0fallback\0{normalized_cwd}\0{hour_bucket}".encode(
+        "utf-8", errors="replace"
+    )
+    return hashlib.sha256(material).hexdigest()
 
 
 def _claim_session(cache_root: Path, session_key: str) -> bool:
@@ -232,10 +242,10 @@ def maybe_update_notice(
         ):
             return None
         root = cache_root or _default_cache_root()
-        session_key = _explicit_session_key(data, environment)
-        if session_key is None or not _claim_session(root, session_key):
-            return None
         checked_at = _now(now)
+        session_key = _session_key(data, environment, checked_at)
+        if not _claim_session(root, session_key):
+            return None
         cached = _read_cache(root)
         if cached is not None and 0 <= checked_at - cached[0] < CACHE_TTL_SECONDS:
             versions = cached[1]
