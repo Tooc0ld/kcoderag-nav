@@ -6,6 +6,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -43,6 +44,52 @@ def _load_module(path: Path, name: str):
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def test_concurrent_calls_for_one_session_have_one_winner(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_concurrent_update_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.1111111111111111",
+                "dev": "0.1.1+codex.2222222222222222",
+            },
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            return _Response(document)
+
+        payload = {
+            "session_id": "concurrent-session",
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "GetLevel"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                notices = list(
+                    executor.map(
+                        lambda _index: checker.maybe_update_notice(
+                            payload,
+                            "qa",
+                            current_version,
+                            cache_root=cache_root,
+                            opener=opener,
+                        ),
+                        range(8),
+                    )
+                )
+
+        self.assertEqual(sum(notice is not None for notice in notices), 1)
+        self.assertEqual(calls, [TRUSTED_URL])
+
     def test_explicit_session_is_consumed_before_a_second_pretooluse(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_session_update_check"
@@ -81,6 +128,56 @@ class UpdateCheckTests(unittest.TestCase):
 
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+        self.assertEqual(calls, [TRUSTED_URL])
+
+    def test_fresh_valid_cache_serves_a_new_session_without_network(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_fresh_cache_update_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        remote_version = "0.1.1+codex.3333333333333333"
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": remote_version,
+                "dev": "0.1.1+codex.4444444444444444",
+            },
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            return _Response(document)
+
+        common = {
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "GetLevel"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            first = checker.maybe_update_notice(
+                dict(common, session_id="cache-session-a"),
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 2_000_000_000.0,
+                opener=opener,
+            )
+            second = checker.maybe_update_notice(
+                dict(common, session_id="cache-session-b"),
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 2_000_000_100.0,
+                opener=opener,
+            )
+
+        self.assertIn(remote_version, first or "")
+        self.assertIn(remote_version, second or "")
         self.assertEqual(calls, [TRUSTED_URL])
 
     def test_newer_qa_document_adds_notice_to_first_claude_pretooluse(self) -> None:
