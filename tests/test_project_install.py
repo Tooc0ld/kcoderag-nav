@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts import manage_project_install as installer
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "manage_project_install.py"
@@ -40,6 +42,37 @@ def run_installer(
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_status_distinguishes_fresh_target_from_healthy_install(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            before = snapshot_tree(target)
+            self.assertEqual(
+                installer.inspect_status(target, ROOT),
+                {
+                    "schema_version": 1,
+                    "status": "not_installed",
+                    "active_environments": [],
+                    "issues": [],
+                },
+            )
+            self.assertEqual(snapshot_tree(target), before)
+
+            self.assertEqual(
+                run_installer(target, "install", "--environment", "both").returncode,
+                0,
+            )
+            installed = snapshot_tree(target)
+            self.assertEqual(
+                installer.inspect_status(target, ROOT),
+                {
+                    "schema_version": 1,
+                    "status": "healthy",
+                    "active_environments": ["qa", "dev"],
+                    "issues": [],
+                },
+            )
+            self.assertEqual(snapshot_tree(target), installed)
+
     def test_unowned_legacy_payloads_refuse_install_without_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
