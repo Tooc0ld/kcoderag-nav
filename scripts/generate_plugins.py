@@ -281,8 +281,8 @@ def _codex_manifest(environment: dict[str, str], version: str) -> dict[str, obje
     }
 
 
-def _cursor_connection_defaults(inputs: CanonicalInputs) -> tuple[str, str]:
-    """Return the internal QA URL and bearer token without exposing them in diagnostics."""
+def _cursor_connection_defaults(inputs: CanonicalInputs) -> tuple[str, str | None]:
+    """Return safe Cursor defaults; allow the bearer value to be admin-supplied."""
     qa = next((item for item in inputs.environments if item["id"] == "qa"), None)
     if qa is None:
         raise GenerationError("environment_mismatch", "plugin-src/environments.json")
@@ -293,10 +293,12 @@ def _cursor_connection_defaults(inputs: CanonicalInputs) -> tuple[str, str]:
     url = entry.get("url")
     headers = entry.get("http_headers", entry.get("headers"))
     authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(url, str) or not url:
+        raise GenerationError("environment_mismatch", qa["mcp_source"])
+    if authorization is None:
+        return url, None
     if (
-        not isinstance(url, str)
-        or not url
-        or not isinstance(authorization, str)
+        not isinstance(authorization, str)
         or not authorization.startswith("Bearer ")
         or not authorization.removeprefix("Bearer ").strip()
     ):
@@ -322,6 +324,13 @@ def _cursor_routing_policy() -> str:
 
 def _cursor_manifest(inputs: CanonicalInputs, version: str) -> dict[str, object]:
     url, bearer_token = _cursor_connection_defaults(inputs)
+    bearer_variable = {
+        "type": "string",
+        "title": "KCodeRag bearer token",
+        "description": "Internal QA by default; replace together with the MCP URL for Dev.",
+    }
+    if bearer_token is not None:
+        bearer_variable["default"] = bearer_token
     return {
         "name": CURSOR_PLUGIN_NAME,
         "version": version,
@@ -342,14 +351,7 @@ def _cursor_manifest(inputs: CanonicalInputs, version: str) -> dict[str, object]
                     ),
                     "default": url,
                 },
-                "KCODERAG_BEARER_TOKEN": {
-                    "type": "string",
-                    "title": "KCodeRag bearer token",
-                    "description": (
-                        "Internal QA by default; replace together with the MCP URL for Dev."
-                    ),
-                    "default": bearer_token,
-                },
+                "KCODERAG_BEARER_TOKEN": bearer_variable,
             },
             "required": ["KCODERAG_MCP_URL", "KCODERAG_BEARER_TOKEN"],
         },
