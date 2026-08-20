@@ -4,6 +4,9 @@
 `kcoderag-qa`，开发与环境验证使用 `kcoderag-dev`。两个包都支持 Codex，并保留
 Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径。
 
+面向 QA 使用者的完整安装、状态诊断和 smoke 流程见
+[MCP_QA_EXPERIENCE_GUIDE.md](MCP_QA_EXPERIENCE_GUIDE.md)。
+
 ## 推荐：项目级安装（默认 QA）
 
 在本仓库 checkout 中运行以下命令，把插件资产安装到一个**受信任的目标项目**：
@@ -56,6 +59,10 @@ python scripts/manage_project_install.py status --target PATH --json
 QA 与 Dev 的匹配 hook 可能由宿主并发启动；跨进程原子去重确保同一工具调用最多注入
 一次 advisory context。解析、身份或去重异常都 fail-open，不阻止原始搜索。
 
+hook source 明确要求 Python 3.10+。POSIX launcher 依次探测 `python3`、`python`；
+Windows launcher 依次探测 `py -3`、`python3`、`python`。只有合格解释器才执行 hook；
+缺失、版本过旧、probe 或 launch 失败全部静默 fail-open（exit 0，空诊断），不会阻断宿主。
+
 ## 可选：用户级 Codex 插件路径
 
 以下是显式的用户级可选安装方式，不是 project scope：
@@ -82,11 +89,21 @@ Code 版在 `.claude-plugin/marketplace.json`）。插件包的 `.mcp.json` 保�
 否则需要把 `mcp__plugin_kcoderag-qa_kcoderag-qa__*`（dev 同理）自行加入 settings 的
 `permissions.allow`。
 
-## 内部凭据边界
+## 内部连接边界
 
-当前 QA/Dev 内部测试阶段的插件包携带装即用 Bearer，并连接内部 HTTP endpoint；
-本仓库不会在生成器、安装器、测试输出或文档中打印凭据值。生产级身份、HTTPS 与轮换
-不属于当前版本范围。
+当前 QA/Dev 内部测试包携带受控连接配置和认证材料。本仓库不会在生成器、安装器、status、
+测试输出或公开指南中打印这些值。生产级身份、传输升级与轮换不属于当前版本范围。
+
+## CI 分层
+
+required CI 使用 Python 3.10 与较新版本的 Ubuntu/Windows matrix，离线运行 generation
+check、全套 unittest、两份 generated hook regression 与 loopback stub MCP 合同；不依赖
+内部服务或模型认证。optional host smoke 只能由显式 workflow dispatch 在预装、已认证的
+隔离 runner 上运行，并仍只连接 loopback stub。
+
+Codex headless smoke 会传 `--dangerously-bypass-hook-trust`，但仅限已经 vet 的临时 hook
+source，同时保持 read-only sandbox。普通用户安装不得复制该 trust bypass，也不得加入
+blanket approval 或 sandbox bypass。
 
 ## 离线验证
 
