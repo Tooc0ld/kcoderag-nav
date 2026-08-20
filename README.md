@@ -146,13 +146,26 @@ QA 与 Dev 同时启用；内置默认配置选择 QA。
 **Customize** 页面安装并选择 **project scope**。不要在本仓库中安装这个插件，否则会让维护
 和验收搜索被本项目自己的 KCodeRag 配置影响。
 
+### Cursor 更新
+
+推荐在 Team Marketplace 的设置中安装 **Cursor GitHub App** 并开启
+**Enable Auto Refresh**。跟踪分支 push 新提交后，Cursor 会自动刷新并更新 marketplace
+插件；官方说明重新索引最多每 10 分钟进行一次，会把短时间内的连续 push 合并到最新提交。
+若未开启自动刷新，团队管理员需要在 Dashboard 的 Marketplace 中手动点击 **Refresh**。
+
+**Default Off 只控制是否默认安装**；是否自动更新由 Marketplace Settings 中的
+**Enable Auto Refresh** 单独控制。为确保新 Rule、Skill 和 MCP 配置进入当前工作区，更新后
+建议执行 **Developer: Reload Window** 或开启新的 Agent 会话。
+
 本地开发时，可把生成目录复制或链接到：
 
 ```text
 ~/.cursor/plugins/local/kcoderag-nav
 ```
 
-然后重启 Cursor 或执行 **Developer: Reload Window**。需要测试 Dev 时，在插件的
+本地目录不受 Team Marketplace Auto Refresh 管理：使用符号链接时先更新源 checkout 并重新
+生成；使用复制方式时需重新复制 `kcoderag-cursor/`，然后重启 Cursor 或执行
+**Developer: Reload Window**。需要测试 Dev 时，在插件的
 **Configure** 中成对替换 `KCODERAG_MCP_URL` 与 `KCODERAG_BEARER_TOKEN`；测试结束后也应成对
 恢复 QA 配置。
 

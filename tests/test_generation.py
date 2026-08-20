@@ -454,6 +454,15 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("Default Off", root_readme)
         self.assertIn("project scope", root_readme)
         self.assertIn("不要在本仓库中安装", root_readme)
+        for cursor_update_contract in (
+            "Enable Auto Refresh",
+            "Cursor GitHub App",
+            "最多每 10 分钟",
+            "手动点击 **Refresh**",
+            "Default Off 只控制是否默认安装",
+            "重新复制 `kcoderag-cursor/`",
+        ):
+            self.assertIn(cursor_update_contract, root_readme)
 
         for environment in environments:
             package = ROOT / environment["plugin_name"]
@@ -569,6 +578,17 @@ class GenerationTests(unittest.TestCase):
             self.assertIn(tool, rule)
         self.assertIn("explicit fallback", rule)
         self.assertNotIn("preToolUse", rule)
+
+        package_readme = (package / "README.md").read_text(encoding="utf-8")
+        for cursor_update_contract in (
+            "Enable Auto Refresh",
+            "Cursor GitHub App",
+            "at most once every 10 minutes",
+            "manually select **Refresh**",
+            "Default Off controls initial installation",
+            "copy `kcoderag-cursor/` again",
+        ):
+            self.assertIn(cursor_update_contract, package_readme)
 
     def test_environment_metadata_locks_plugin_scoped_prefixes(self) -> None:
         metadata = json.loads((ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8"))

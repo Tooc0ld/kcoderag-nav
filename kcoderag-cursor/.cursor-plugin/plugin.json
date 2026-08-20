@@ -1,6 +1,6 @@
 {
   "name": "kcoderag-nav",
-  "version": "0.1.2+cursor.a2fcb2d0bb341e8b",
+  "version": "0.1.2+cursor.fd9b7360f6ddfabc",
   "description": "Graph-first structural code navigation with one configured KCodeRag environment.",
   "author": {
     "name": "KCodeRag"
