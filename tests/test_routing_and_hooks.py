@@ -41,6 +41,15 @@ def run_hook(script: Path, payload: dict[str, object], dedup_directory: Path) ->
     )
 
 
+def load_hook(script: Path, prefix: str) -> object:
+    """Load one generated hook package for behavior-level assertions."""
+    spec = importlib.util.spec_from_file_location(f"{prefix}_{script.parent.parent.name}", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class RoutingTests(unittest.TestCase):
     def test_routing_rules_and_unreachable_behavior(self) -> None:
         routing = json.loads(ROUTING_PATH.read_text(encoding="utf-8"))
@@ -79,6 +88,16 @@ class RoutingTests(unittest.TestCase):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             self.assertIn(nudge, module.NUDGE)
+
+
+class HookCommandParsingTests(unittest.TestCase):
+    def test_pipeline_preserves_single_file_scope(self) -> None:
+        command = "rg KPlayer one.cpp | head -1"
+        for script in HOOKS:
+            with self.subTest(environment=script.parent.parent.name):
+                module = load_hook(script, "pipeline_scope")
+                self.assertEqual(module.shell_lookup_patterns(command), [])
+                self.assertIsNone(module.hook_output({"tool_input": {"command": command}}))
 
 
 class HookDedupTests(unittest.TestCase):
