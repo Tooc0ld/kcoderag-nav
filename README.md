@@ -33,6 +33,18 @@ python scripts/manage_project_install.py uninstall --target PATH --environment d
 
 若受管文件在安装后被修改，卸载会安全拒绝并报告冲突路径，不覆盖或删除用户内容。
 
+安装或升级前可只读检查目标项目；机器消费场景使用稳定 JSON：
+
+```powershell
+python scripts/manage_project_install.py status --target PATH
+python scripts/manage_project_install.py status --target PATH --json
+```
+
+状态区分 `healthy`、`not_installed`、`drifted`、`update_available` 与 `invalid`。
+退出码为：0 = `healthy`；1 = 未安装、本地 drift 或存在可用源更新；2 = `invalid`。
+诊断只包含稳定状态、环境、问题 code 与项目相对 path，不输出受管文件内容、摘要或 MCP
+配置值，也不会修改或清理目标目录。
+
 ## 环境路由
 
 - 仅安装一个环境时查询该环境。

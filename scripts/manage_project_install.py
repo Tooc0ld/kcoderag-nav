@@ -17,7 +17,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 try:
     from .generate_plugins import (
@@ -65,6 +65,18 @@ class InstallError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.path = path
+
+
+class StatusIssue(TypedDict):
+    code: str
+    path: str
+
+
+class StatusResult(TypedDict):
+    schema_version: int
+    status: str
+    active_environments: list[str]
+    issues: list[StatusIssue]
 
 
 def _sha256(payload: bytes) -> str:
@@ -530,6 +542,100 @@ def uninstall(target: Path, source_root: Path, environment: str) -> None:
     _prune_empty_directories(target)
 
 
+def _status_issue(code: str, path: str = "") -> StatusIssue:
+    normalized = path.replace("\\", "/") if path else "."
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+        normalized = "."
+    if any(part == ".." for part in normalized.split("/")):
+        normalized = "."
+    return {"code": code, "path": normalized}
+
+
+def _status_result(
+    status: str,
+    active_environments: list[str] | None = None,
+    issues: list[StatusIssue] | None = None,
+) -> StatusResult:
+    return {
+        "schema_version": 1,
+        "status": status,
+        "active_environments": active_environments or [],
+        "issues": sorted(issues or [], key=lambda issue: (issue["path"], issue["code"])),
+    }
+
+
+def inspect_status(target: Path, source_root: Path) -> StatusResult:
+    """Inspect managed installation health without changing the target tree."""
+    try:
+        target = _safe_target(target)
+        inputs = load_inputs(source_root)
+        state = _load_state(target)
+    except (InstallError, GenerationError) as exc:
+        return _status_result("invalid", issues=[_status_issue(exc.code, exc.path)])
+
+    if state is None:
+        try:
+            managed_root = _assert_managed_path(target, MANAGED_ROOT)
+        except InstallError as exc:
+            return _status_result("invalid", issues=[_status_issue(exc.code, exc.path)])
+        if managed_root.exists():
+            return _status_result(
+                "invalid",
+                issues=[_status_issue("orphaned_managed_root", MANAGED_ROOT)],
+            )
+        return _status_result("not_installed")
+
+    active = [item for item in ("qa", "dev") if item in state["active_environments"]]
+    required_owned = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE}
+    required_owned.update(
+        f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py" for environment in active
+    )
+    if not required_owned.issubset(state["originals"]) or not required_owned.issubset(
+        state["digests"]
+    ):
+        return _status_result(
+            "invalid",
+            active,
+            [_status_issue("ownership_incomplete", STATE_RELATIVE)],
+        )
+
+    try:
+        for relative_path, original in state["originals"].items():
+            _decode_original(original, relative_path)
+        for digest in state["digests"].values():
+            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                raise InstallError("invalid_state", STATE_RELATIVE)
+    except InstallError as exc:
+        return _status_result("invalid", active, [_status_issue(exc.code, exc.path)])
+
+    drift: list[StatusIssue] = []
+    try:
+        for relative_path, expected in state["digests"].items():
+            current = _read_optional(_assert_managed_path(target, relative_path))
+            code = "managed_file_missing" if current is None else "managed_content_changed"
+            if current is None or _sha256(current) != expected:
+                drift.append(_status_issue(code, relative_path))
+    except InstallError as exc:
+        return _status_result("invalid", active, [_status_issue(exc.code, exc.path)])
+    if drift:
+        return _status_result("drifted", active, drift)
+
+    try:
+        desired, _ = _desired_install(target, inputs, copy.deepcopy(state), set(active))
+        updates: list[StatusIssue] = []
+        for relative_path, desired_payload in desired.items():
+            if relative_path == STATE_RELATIVE:
+                continue
+            current = _read_optional(_assert_managed_path(target, relative_path))
+            if current != desired_payload:
+                updates.append(_status_issue("source_update_available", relative_path))
+    except (InstallError, GenerationError) as exc:
+        return _status_result("invalid", active, [_status_issue(exc.code, exc.path)])
+    if updates:
+        return _status_result("update_available", active, updates)
+    return _status_result("healthy", active)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, help=argparse.SUPPRESS)
@@ -540,12 +646,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     uninstall_parser = commands.add_parser("uninstall")
     uninstall_parser.add_argument("--target", type=Path, required=True)
     uninstall_parser.add_argument("--environment", choices=UNINSTALL_ENVIRONMENT_CHOICES, required=True)
+    status_parser = commands.add_parser("status")
+    status_parser.add_argument("--target", type=Path, required=True)
+    status_parser.add_argument("--json", action="store_true", dest="json_output")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     source_root = (args.source_root or Path(__file__).resolve().parents[1]).resolve()
+    if args.command == "status":
+        result = inspect_status(args.target, source_root)
+        if args.json_output:
+            print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        else:
+            print(f"status: {result['status']}")
+            environments = result["active_environments"]
+            if environments:
+                print(f"active environments: {','.join(environments)}")
+            for issue in result["issues"]:
+                print(f"issue: {issue['code']} {issue['path']}")
+        if result["status"] == "healthy":
+            return 0
+        return 2 if result["status"] == "invalid" else 1
     try:
         target = _safe_target(args.target)
         if args.command == "install":
