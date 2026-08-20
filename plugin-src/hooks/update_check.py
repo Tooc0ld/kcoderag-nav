@@ -22,6 +22,7 @@ UPDATE_URL = (
 UPDATE_TIMEOUT_SECONDS = 1.5
 MAX_RESPONSE_BYTES = 8 * 1024
 CACHE_TTL_SECONDS = 24 * 60 * 60
+REFRESH_LOCK_STALE_SECONDS = 10
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+codex\.[0-9a-f]{16}$")
 RELEVANT_TOOLS = {"Grep", "Glob", "Bash"}
 
@@ -183,6 +184,34 @@ def _now(clock: Callable[[], float] | None) -> float:
     return value
 
 
+def _claim_refresh_lock(cache_root: Path, checked_at: float) -> Path | None:
+    cache_root.mkdir(parents=True, exist_ok=True)
+    lock = cache_root / "refresh.lock"
+    for attempt in range(2):
+        try:
+            descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            if attempt or checked_at - lock.stat().st_mtime <= REFRESH_LOCK_STALE_SECONDS:
+                return None
+            lock.unlink()
+            continue
+        os.close(descriptor)
+        try:
+            os.utime(lock, (checked_at, checked_at))
+        except Exception:
+            lock.unlink(missing_ok=True)
+            raise
+        return lock
+    return None
+
+
+def _release_refresh_lock(lock: Path) -> None:
+    try:
+        lock.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def maybe_update_notice(
     data: Mapping[str, Any],
     environment: str,
@@ -211,9 +240,22 @@ def maybe_update_notice(
         if cached is not None and 0 <= checked_at - cached[0] < CACHE_TTL_SECONDS:
             versions = cached[1]
         else:
-            versions = _fetch_versions(opener)
-            if versions is not None:
-                _write_cache(root, checked_at, versions)
+            lock = _claim_refresh_lock(root, checked_at)
+            if lock is None:
+                versions = cached[1] if cached is not None else None
+            else:
+                try:
+                    try:
+                        refreshed = _fetch_versions(opener)
+                    except Exception:
+                        refreshed = None
+                    if refreshed is not None:
+                        _write_cache(root, checked_at, refreshed)
+                        versions = refreshed
+                    else:
+                        versions = cached[1] if cached is not None else None
+                finally:
+                    _release_refresh_lock(lock)
         remote_version = versions.get(environment) if versions is not None else None
         if remote_version is None or remote_version == current_version:
             return None
