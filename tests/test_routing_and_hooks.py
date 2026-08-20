@@ -91,6 +91,12 @@ class RoutingTests(unittest.TestCase):
 
 
 class HookCommandParsingTests(unittest.TestCase):
+    def assert_command_patterns(self, command: str, expected: list[str]) -> None:
+        for script in HOOKS:
+            with self.subTest(environment=script.parent.parent.name, command=command):
+                module = load_hook(script, "compound_command")
+                self.assertEqual(module.shell_lookup_patterns(command), expected)
+
     def test_pipeline_preserves_single_file_scope(self) -> None:
         command = "rg KPlayer one.cpp | head -1"
         for script in HOOKS:
@@ -106,6 +112,39 @@ class HookCommandParsingTests(unittest.TestCase):
                 module = load_hook(script, "pipeline_repository")
                 self.assertEqual(module.shell_lookup_patterns(command), ["KPlayer"])
                 self.assertIsNotNone(module.hook_output({"tool_input": {"command": command}}))
+
+    def test_compound_separators_preserve_single_file_scope(self) -> None:
+        for command in (
+            "rg KPlayer one.cpp && echo done",
+            "rg KPlayer one.cpp; echo done",
+            "rg KPlayer one.cpp\necho done",
+            "rg KPlayer one.cpp\r\necho done",
+        ):
+            self.assert_command_patterns(command, [])
+
+    def test_later_repository_search_segment_is_still_detected(self) -> None:
+        self.assert_command_patterns("echo ready && rg KPlayer src", ["KPlayer"])
+        self.assert_command_patterns("rg TODO src; rg KPlayer src", ["TODO", "KPlayer"])
+
+    def test_quoted_and_escaped_control_characters_remain_in_patterns(self) -> None:
+        cases = {
+            "rg 'KPlayer|GetLevel' src": ["KPlayer|GetLevel"],
+            r"rg KPlayer\|GetLevel src": [r"KPlayer\|GetLevel"],
+            'rg "KPlayer;GetLevel" src': ["KPlayer;GetLevel"],
+            "rg KPlayer^|GetLevel src": ["KPlayer^|GetLevel"],
+            "rg KPlayer`|GetLevel src": ["KPlayer`|GetLevel"],
+        }
+        for command, expected in cases.items():
+            self.assert_command_patterns(command, expected)
+
+    def test_shell_wrappers_reuse_compound_command_scope(self) -> None:
+        self.assert_command_patterns('pwsh -Command "rg KPlayer one.cpp | head -1"', [])
+        self.assert_command_patterns('cmd /c "rg KPlayer src | more"', ["KPlayer"])
+
+    def test_malformed_or_excessive_segmentation_fails_open(self) -> None:
+        self.assert_command_patterns("rg 'KPlayer src | head -1", [])
+        excessive = ";".join(["rg KPlayer src"] * 65)
+        self.assert_command_patterns(excessive, [])
 
 
 class HookDedupTests(unittest.TestCase):
