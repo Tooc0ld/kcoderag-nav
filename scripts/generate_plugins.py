@@ -93,7 +93,13 @@ def load_inputs(root: Path) -> CanonicalInputs:
         environment = dict(item)
         environment_id = environment["id"]
         expected_name = f"kcoderag-{environment_id}"
-        if environment["plugin_name"] != expected_name or environment["server_name"] != expected_name:
+        expected_prefix = f"mcp__plugin_{expected_name}_{expected_name}__"
+        if (
+            environment["plugin_name"] != expected_name
+            or environment["server_name"] != expected_name
+            or environment["agent_tool_prefix"] != expected_prefix
+            or environment["permission_namespace"] != expected_prefix + "*"
+        ):
             raise GenerationError("environment_mismatch", "plugin-src/environments.json")
         mcp_path = root / environment["mcp_source"]
         mcp = _load_json(mcp_path)
@@ -237,6 +243,30 @@ def _render_template(path: Path, replacements: dict[str, str]) -> bytes:
     return (text.rstrip("\n") + "\n").encode("utf-8")
 
 
+def _codex_mcp_document(root: Path, environment: dict[str, str]) -> dict[str, object]:
+    """Build the Codex-shaped MCP document (``mcp_servers`` wrapper, codex field names).
+
+    Claude Code requires the ``mcpServers`` wrapper in ``.mcp.json`` while Codex only
+    accepts a direct server map or an ``mcp_servers`` wrapper, so each host gets its own
+    file and each manifest points at its own one.
+    """
+    mcp = _load_json(root / environment["mcp_source"])
+    entry = mcp["mcpServers"][environment["server_name"]]
+    url = entry.get("url")
+    headers = entry.get("http_headers", entry.get("headers"))
+    if (
+        not isinstance(url, str)
+        or not isinstance(headers, dict)
+        or not all(isinstance(key, str) and isinstance(value, str) for key, value in headers.items())
+    ):
+        raise GenerationError("environment_mismatch", environment["mcp_source"])
+    return {
+        "mcp_servers": {
+            environment["server_name"]: {"url": url, "http_headers": dict(sorted(headers.items()))}
+        }
+    }
+
+
 def _codex_manifest(environment: dict[str, str], version: str) -> dict[str, object]:
     return {
         "name": environment["plugin_name"],
@@ -245,7 +275,7 @@ def _codex_manifest(environment: dict[str, str], version: str) -> dict[str, obje
         "author": {"name": "KCodeRag"},
         "keywords": ["code-navigation", "knowledge-graph", "mcp"],
         "skills": "./skills/",
-        "mcpServers": "./.mcp.json",
+        "mcpServers": "./.codex.mcp.json",
         "interface": {
             "displayName": environment["display_name"],
             "shortDescription": environment["short_description"],
@@ -287,7 +317,7 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
             {
                 "name": package,
                 "description": environment["claude_description"],
-                "version": inputs.version.split("+", 1)[0],
+                "version": inputs.version,
                 "author": {"name": "KCodeRag"},
             }
         )
@@ -298,9 +328,7 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
             outputs[prefix + ".mcp.json"] = (root / environment["mcp_source"]).read_bytes()
         except OSError as exc:
             raise GenerationError("missing_input", environment["mcp_source"]) from exc
-        outputs[prefix + "settings.json"] = canonical_json(
-            {"permissions": {"allow": [environment["permission_namespace"]]}}
-        )
+        outputs[prefix + ".codex.mcp.json"] = canonical_json(_codex_mcp_document(root, environment))
         for relative_path, payload in shared.items():
             outputs[prefix + relative_path] = payload
         outputs[prefix + "hooks/grep_nudge.py"] = _render_template(
@@ -323,6 +351,21 @@ def render_outputs(inputs: CanonicalInputs) -> dict[str, bytes]:
 
     outputs[".claude-plugin/marketplace.json"] = canonical_json(
         {"owner": {"name": "Tooc0ld"}, "name": "kcoderag-nav", "plugins": marketplace_plugins}
+    )
+    outputs[".agents/plugins/marketplace.json"] = canonical_json(
+        {
+            "name": "kcoderag-nav",
+            "interface": {"displayName": "KCodeRag Nav"},
+            "plugins": [
+                {
+                    "name": item["name"],
+                    "source": item["source"],
+                    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                    "category": "Developer Tools",
+                }
+                for item in marketplace_plugins
+            ],
+        }
     )
     return dict(sorted(outputs.items()))
 

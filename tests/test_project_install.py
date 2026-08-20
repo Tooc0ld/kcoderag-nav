@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -39,6 +40,97 @@ def run_installer(
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_install_renders_hook_scripts_without_placeholders(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            install = run_installer(target, "install", "--environment", "both")
+            self.assertEqual(install.returncode, 0, "both install failed")
+            for environment in ("qa", "dev"):
+                hooks_directory = target / ".codex" / "kcoderag-nav" / environment / "hooks"
+                script = hooks_directory / "grep_nudge.py"
+                text = script.read_text(encoding="utf-8")
+                self.assertNotIn("{{", text, f"{environment} hook still has unresolved placeholders")
+                self.assertIn("default to QA", text, f"{environment} hook lost the routing guidance")
+                self.assertFalse(
+                    (hooks_directory / "hooks.json").exists(),
+                    f"{environment} must not ship the unconsumed inner hooks.json payload",
+                )
+
+            environment = os.environ.copy()
+            environment["KCODERAG_NAV_DEDUP_DIR"] = str(target / "dedup")
+            codex_payload = {
+                "hook_event_name": "PreToolUse",
+                "session_id": "synthetic-session",
+                "turn_id": "synthetic-turn",
+                "tool_use_id": "synthetic-tool-use",
+                "tool_name": "Bash",
+                "tool_input": {"command": "rg KPlayer::GetLevel src"},
+            }
+            installed_script = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
+            result = subprocess.run(
+                [sys.executable, str(installed_script)],
+                input=json.dumps(codex_payload),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0)
+            output = json.loads(result.stdout)
+            self.assertIn("additionalContext", output["hookSpecificOutput"])
+            self.assertNotIn("{{", output["hookSpecificOutput"]["additionalContext"])
+
+    def test_legacy_payloads_are_retired_without_resurrection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            before = snapshot_tree(target)
+
+            legacy_files = {
+                ".codex/config.toml": b"[mcp_servers.legacy]\nurl = \"synthetic\"\n",
+                ".codex/hooks.json": b'{"hooks": {"PreToolUse": []}}\n',
+                ".agents/skills/kcoderag-nav/SKILL.md": b"legacy-skill\n",
+                ".codex/kcoderag-nav/qa/hooks/grep_nudge.py": b'ROUTING_GUIDANCE = "{{routing_nudge}}"\n',
+                ".codex/kcoderag-nav/qa/hooks/hooks.json": b'{"legacy": true}\n',
+            }
+            for relative_path, payload in legacy_files.items():
+                path = target.joinpath(*relative_path.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            state = {
+                "version": 1,
+                "active_environments": ["qa"],
+                "originals": {
+                    relative_path: {"existed": False, "base64": ""}
+                    for relative_path in legacy_files
+                },
+                "digests": {
+                    relative_path: hashlib.sha256(payload).hexdigest()
+                    for relative_path, payload in legacy_files.items()
+                },
+            }
+            state_path = target / ".codex" / "kcoderag-nav" / "install-state.json"
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            upgrade = run_installer(target, "install", "--environment", "qa")
+            self.assertEqual(upgrade.returncode, 0, "legacy upgrade refused")
+            legacy_hook = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "hooks.json"
+            self.assertFalse(legacy_hook.exists(), "legacy inner hooks.json must be retired")
+            script_text = (
+                target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("{{", script_text)
+            upgraded_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(
+                any(path.endswith("hooks/hooks.json") for path in upgraded_state["digests"]),
+                "retired payload must leave the digest set",
+            )
+
+            uninstall = run_installer(target, "uninstall", "--environment", "qa")
+            self.assertEqual(uninstall.returncode, 0, "post-upgrade uninstall failed")
+            self.assertFalse(legacy_hook.exists(), "legacy payload must not be resurrected")
+            self.assertEqual(snapshot_tree(target), before)
+
     def test_default_qa_round_trip_preserves_project_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

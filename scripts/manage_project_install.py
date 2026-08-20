@@ -23,20 +23,24 @@ try:
     from .generate_plugins import (
         CanonicalInputs,
         GenerationError,
+        _render_template,
         canonical_json,
         load_inputs,
         load_routing,
         render_routing_markdown,
+        render_routing_nudge,
         resolve_route,
     )
 except ImportError:  # Direct script execution keeps the scripts directory on sys.path.
     from generate_plugins import (
         CanonicalInputs,
         GenerationError,
+        _render_template,
         canonical_json,
         load_inputs,
         load_routing,
         render_routing_markdown,
+        render_routing_nudge,
         resolve_route,
     )
 
@@ -143,7 +147,7 @@ def _load_state(target: Path) -> dict[str, Any] | None:
         or not isinstance(digests, dict)
     ):
         raise InstallError("invalid_state", STATE_RELATIVE)
-    allowed_paths = _all_managed_paths({"qa", "dev"}) - {STATE_RELATIVE}
+    allowed_paths = _all_managed_paths({"qa", "dev"}) | LEGACY_PRIVATE_HOOKS - {STATE_RELATIVE}
     if not set(originals).issubset(allowed_paths) or not set(digests).issubset(allowed_paths):
         raise InstallError("invalid_state", STATE_RELATIVE)
     return state
@@ -153,8 +157,17 @@ def _all_managed_paths(environments: set[str]) -> set[str]:
     paths = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE, STATE_RELATIVE}
     for environment in environments:
         paths.add(f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py")
-        paths.add(f"{MANAGED_ROOT}/{environment}/hooks/hooks.json")
     return paths
+
+
+def _legacy_payload_paths() -> frozenset[str]:
+    """Payload copies older installer revisions wrote but nothing consumes."""
+    return frozenset(
+        f"{MANAGED_ROOT}/{environment}/hooks/hooks.json" for environment in ("qa", "dev")
+    )
+
+
+LEGACY_PRIVATE_HOOKS = _legacy_payload_paths()
 
 
 def _verify_digests(target: Path, state: dict[str, Any]) -> None:
@@ -289,25 +302,37 @@ def _render_skill(inputs: CanonicalInputs, active: set[str]) -> bytes:
 
 
 def _private_payloads(inputs: CanonicalInputs, environment: str) -> dict[str, bytes]:
-    payloads: dict[str, bytes] = {}
-    for filename in ("grep_nudge.py", "hooks.json"):
-        source = inputs.root / "plugin-src" / "hooks" / filename
-        try:
-            payload = source.read_bytes()
-        except OSError as exc:
-            raise InstallError("missing_source", f"plugin-src/hooks/{filename}") from exc
-        payloads[f"{MANAGED_ROOT}/{environment}/hooks/{filename}"] = payload
-    return payloads
+    """Render the per-environment hook script; raw copies would ship unresolved placeholders."""
+    metadata = _environment_map(inputs)[environment]
+    package = metadata["plugin_name"]
+    routing = load_routing(inputs.root)
+    replacements = {
+        "environment": environment,
+        "environment_upper": environment.upper(),
+        "plugin_name": package,
+        "display_name": metadata["display_name"],
+        "tool_prefix": metadata["agent_tool_prefix"],
+        "routing_policy": render_routing_markdown(routing),
+        "routing_nudge": render_routing_nudge(routing),
+    }
+    try:
+        payload = _render_template(inputs.root / "plugin-src/hooks/grep_nudge.py", replacements)
+    except GenerationError as exc:
+        raise InstallError(exc.code, "plugin-src/hooks/grep_nudge.py") from exc
+    return {f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py": payload}
 
 
-def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:
+def _capture_new_state(
+    target: Path, managed_paths: set[str], no_conflict: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     originals: dict[str, object] = {}
     for relative_path in sorted(managed_paths - {STATE_RELATIVE}):
         current = _read_optional(_assert_managed_path(target, relative_path))
-        if relative_path == SKILL_RELATIVE and current is not None:
-            raise InstallError("unmanaged_name_conflict", relative_path)
-        if relative_path.startswith(f"{MANAGED_ROOT}/") and current is not None:
-            raise InstallError("unmanaged_name_conflict", relative_path)
+        if relative_path not in no_conflict:
+            if relative_path == SKILL_RELATIVE and current is not None:
+                raise InstallError("unmanaged_name_conflict", relative_path)
+            if relative_path.startswith(f"{MANAGED_ROOT}/") and current is not None:
+                raise InstallError("unmanaged_name_conflict", relative_path)
         originals[relative_path] = _encode_original(current)
     return {
         "version": STATE_VERSION,
@@ -320,8 +345,15 @@ def _capture_new_state(target: Path, managed_paths: set[str]) -> dict[str, Any]:
 def _desired_install(
     target: Path, inputs: CanonicalInputs, state: dict[str, Any] | None, requested: set[str]
 ) -> tuple[dict[str, bytes | None], dict[str, Any]]:
+    legacy_present = frozenset(
+        relative_path
+        for relative_path in sorted(LEGACY_PRIVATE_HOOKS)
+        if _read_optional(_assert_managed_path(target, relative_path)) is not None
+    )
     if state is None:
-        state = _capture_new_state(target, _all_managed_paths(requested))
+        state = _capture_new_state(
+            target, _all_managed_paths(requested) | legacy_present, no_conflict=legacy_present
+        )
     else:
         _verify_digests(target, state)
         missing_originals = _all_managed_paths(requested) - {STATE_RELATIVE} - set(state["originals"])
@@ -330,6 +362,9 @@ def _desired_install(
             if current is not None:
                 raise InstallError("unmanaged_name_conflict", relative_path)
             state["originals"][relative_path] = _encode_original(None)
+        for relative_path in sorted(legacy_present - set(state["originals"])):
+            current = _read_optional(_assert_managed_path(target, relative_path))
+            state["originals"][relative_path] = _encode_original(current)
 
     active = set(state["active_environments"]) | requested
     if not active or not active.issubset({"qa", "dev"}):
@@ -343,6 +378,9 @@ def _desired_install(
     }
     for environment in active:
         desired.update(_private_payloads(inputs, environment))
+    for relative_path in sorted(LEGACY_PRIVATE_HOOKS):
+        if relative_path in state["originals"] or relative_path in legacy_present:
+            desired.setdefault(relative_path, None)
 
     state["active_environments"] = sorted(active)
     state["digests"] = {
@@ -366,7 +404,10 @@ def _desired_uninstall(
     private_prefix = f"{MANAGED_ROOT}/{environment}/"
     for relative_path in state["digests"]:
         if relative_path.startswith(private_prefix):
-            desired[relative_path] = _decode_original(originals[relative_path], relative_path)
+            if relative_path in LEGACY_PRIVATE_HOOKS:
+                desired[relative_path] = None  # Retire dead payloads; never resurrect them.
+            else:
+                desired[relative_path] = _decode_original(originals[relative_path], relative_path)
 
     if not remaining:
         for relative_path in (CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE):
@@ -462,12 +503,9 @@ def _prune_empty_directories(target: Path) -> None:
 
 
 def install(target: Path, source_root: Path, environments: set[str]) -> None:
+    # Always recompute desired state: rendering upgrades must refresh installed bytes.
     inputs = load_inputs(source_root)
     state = _load_state(target)
-    if state is not None:
-        _verify_digests(target, state)
-        if environments.issubset(set(state["active_environments"])):
-            return
     desired, _ = _desired_install(target, inputs, state, environments)
     _apply_transaction(target, desired)
 

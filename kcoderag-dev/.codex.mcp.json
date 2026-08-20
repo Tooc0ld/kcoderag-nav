@@ -1,0 +1,10 @@
+{
+  "mcp_servers": {
+    "kcoderag-dev": {
+      "url": "http://10.11.184.143:8020/mcp/",
+      "http_headers": {
+        "Authorization": "Bearer kcoderag-dev-token-2026"
+      }
+    }
+  }
+}

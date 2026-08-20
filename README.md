@@ -13,8 +13,9 @@ python scripts/manage_project_install.py install --target PATH
 ```
 
 未指定环境时只安装 QA。安装器仅管理目标项目内的 `.codex/` 与 `.agents/` 内容，
-不会调用用户级 plugin 命令，也不会修改用户级 Codex config 或 cache。目标项目必须受
-信任，因为 Codex/Claude Code 会从其中加载 hook 与 MCP 配置。
+不会调用用户级 plugin 命令，也不会修改用户级 Codex config 或 cache。项目级安装只对
+**Codex** 生效——Claude Code 不读取 `.codex/`与 `.agents/`，请使用下文的
+marketplace 插件安装。目标项目必须受信任，因为 Codex 会从其中加载 hook 与 MCP 配置。
 
 开发或测试人员可显式选择 Dev 或双环境：
 
@@ -54,6 +55,9 @@ codex plugin add kcoderag-qa@kcoderag-nav
 
 Codex 当前没有原生 project-scope plugin install；本仓库的项目级行为由上面的兼容
 安装器提供。双装仅用于开发或环境对比，可再显式安装 `kcoderag-dev@kcoderag-nav`。
+仓库根同时携带 Codex 版 marketplace 清单 `.agents/plugins/marketplace.json`（Claude
+Code 版在 `.claude-plugin/marketplace.json`）。插件包的 `.mcp.json` 保留 Claude Code
+格式；Codex 清单指向独立生成的 `.codex.mcp.json`（`mcp_servers` 封装）。
 
 ## Claude Code marketplace
 
@@ -61,6 +65,10 @@ Codex 当前没有原生 project-scope plugin install；本仓库的项目级行
 /plugin marketplace add Tooc0ld/kcoderag-nav
 /plugin install kcoderag-qa@kcoderag-nav
 ```
+
+插件不做权限预授权：首次调用 KCodeRag MCP 工具时宿主会弹出权限确认，批准后放行。
+否则需要把 `mcp__plugin_kcoderag-qa_kcoderag-qa__*`（dev 同理）自行加入 settings 的
+`permissions.allow`。
 
 ## 内部凭据边界
 
