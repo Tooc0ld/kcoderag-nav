@@ -51,33 +51,56 @@ def run_marketplace_update(
     """Run fixed host commands in order and return only stable, safe metadata."""
     if environment not in {"qa", "dev"}:
         return _failed(host, environment, "preflight", "invalid_environment", 2)
-    if host != "codex":
+    if host not in {"codex", "claude"}:
         return _failed(host, environment, "preflight", "unsupported_host", 2)
-    if scope != "project":
+    if host == "codex" and scope != "project":
         return _failed(host, environment, "preflight", "unsupported_scope", 2)
 
     run = runner or subprocess.run
     executable = host if runner is not None else shutil.which(host)
     if executable is None:
         return _failed(host, environment, "preflight", "cli_not_found", 127)
-    commands = [
-        (
-            "marketplace",
-            [executable, "plugin", "marketplace", "upgrade", MARKETPLACE, "--json"],
-            "marketplace_refresh_failed",
-        ),
-        (
-            "plugin",
-            [
-                executable,
+    if host == "codex":
+        commands = [
+            (
+                "marketplace",
+                [executable, "plugin", "marketplace", "upgrade", MARKETPLACE, "--json"],
+                "marketplace_refresh_failed",
+            ),
+            (
                 "plugin",
-                "add",
-                f"kcoderag-{environment}@{MARKETPLACE}",
-                "--json",
-            ],
-            "plugin_update_failed",
-        ),
-    ]
+                [
+                    executable,
+                    "plugin",
+                    "add",
+                    f"kcoderag-{environment}@{MARKETPLACE}",
+                    "--json",
+                ],
+                "plugin_update_failed",
+            ),
+        ]
+        success_status = "reinstall_completed"
+    else:
+        commands = [
+            (
+                "marketplace",
+                [executable, "plugin", "marketplace", "update", MARKETPLACE],
+                "marketplace_refresh_failed",
+            ),
+            (
+                "plugin",
+                [
+                    executable,
+                    "plugin",
+                    "update",
+                    f"kcoderag-{environment}@{MARKETPLACE}",
+                    "--scope",
+                    scope,
+                ],
+                "plugin_update_failed",
+            ),
+        ]
+        success_status = "update_completed"
     for stage, argv, nonzero_reason in commands:
         try:
             completed = run(
@@ -98,7 +121,7 @@ def run_marketplace_update(
         True,
         host,
         environment,
-        "reinstall_completed",
+        success_status,
         "complete",
         None,
         0,
