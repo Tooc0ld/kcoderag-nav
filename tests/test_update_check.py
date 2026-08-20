@@ -158,7 +158,14 @@ class UpdateCheckTests(unittest.TestCase):
             "tool_name": "Bash",
             "tool_input": {"command": "rg GetLevel src"},
         }
-        notice = checker.maybe_update_notice(payload, "dev", current_version, opener=opener)
+        with tempfile.TemporaryDirectory() as directory:
+            notice = checker.maybe_update_notice(
+                payload,
+                "dev",
+                current_version,
+                cache_root=Path(directory),
+                opener=opener,
+            )
         output = hook.hook_output(payload, update_notice=notice)
         self.assertEqual(calls, [TRUSTED_URL])
         self.assertIsNotNone(output)
@@ -168,12 +175,14 @@ class UpdateCheckTests(unittest.TestCase):
 
         same_document = dict(document)
         same_document["versions"] = dict(document["versions"], dev=current_version)
-        same = checker.maybe_update_notice(
-            payload,
-            "dev",
-            current_version,
-            opener=lambda *_args, **_kwargs: _Response(same_document),
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            same = checker.maybe_update_notice(
+                payload,
+                "dev",
+                current_version,
+                cache_root=Path(directory),
+                opener=lambda *_args, **_kwargs: _Response(same_document),
+            )
         self.assertIsNone(same)
 
         irrelevant_calls: list[object] = []

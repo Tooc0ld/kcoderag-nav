@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import urllib.request
@@ -78,6 +79,38 @@ def _notice(environment: str, current_version: str, remote_version: str) -> str:
     )
 
 
+def _default_cache_root() -> Path:
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA")
+        return (Path(base) if base else Path.home() / "AppData" / "Local") / "kcoderag-nav"
+    base = os.environ.get("XDG_CACHE_HOME")
+    return (Path(base) if base else Path.home() / ".cache") / "kcoderag-nav"
+
+
+def _explicit_session_key(data: Mapping[str, Any], environment: str) -> str | None:
+    for field in ("session_id", "thread_id", "conversation_id"):
+        raw = data.get(field)
+        if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+            continue
+        value = str(raw).strip()[:512]
+        if value:
+            material = f"{environment}\0{field}\0{value}".encode("utf-8", errors="replace")
+            return hashlib.sha256(material).hexdigest()
+    return None
+
+
+def _claim_session(cache_root: Path, session_key: str) -> bool:
+    directory = cache_root / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / f"session-{session_key}.seen"
+    try:
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    return True
+
+
 def maybe_update_notice(
     data: Mapping[str, Any],
     environment: str,
@@ -88,7 +121,7 @@ def maybe_update_notice(
     opener: Callable[..., Any] | None = None,
 ) -> str | None:
     """Return a locally rendered advisory for a validated different version; never raise."""
-    del cache_root, now  # Reserved test seams used by the bounded state layer.
+    del now  # Reserved test seam used by the bounded cache layer.
     try:
         if os.environ.get("KCODERAG_NAV_UPDATE_CHECK") == "0":
             return None
@@ -97,6 +130,9 @@ def maybe_update_notice(
             or VERSION_RE.fullmatch(current_version) is None
             or not _is_relevant_pretooluse(data)
         ):
+            return None
+        session_key = _explicit_session_key(data, environment)
+        if session_key is None or not _claim_session(cache_root or _default_cache_root(), session_key):
             return None
         versions = _fetch_versions(opener)
         remote_version = versions.get(environment) if versions is not None else None
