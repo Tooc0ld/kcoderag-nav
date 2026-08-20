@@ -180,6 +180,53 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertIn(remote_version, second or "")
         self.assertEqual(calls, [TRUSTED_URL])
 
+    def test_stale_available_cache_survives_refresh_failure(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_stale_cache_update_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        stale_version = "0.1.1+codex.5555555555555555"
+        payload = {
+            "session_id": "stale-cache-session",
+            "tool_name": "Bash",
+            "tool_input": {"command": "rg GetLevel src"},
+        }
+        calls: list[str] = []
+
+        def failing_opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            raise OSError("synthetic network failure with secret-token")
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            (cache_root / "remote-cache.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "checked_at": 1_000_000_000.0,
+                        "versions": {
+                            "qa": stale_version,
+                            "dev": "0.1.1+codex.6666666666666666",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            notice = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 1_000_100_000.0,
+                opener=failing_opener,
+            )
+
+        self.assertIn(stale_version, notice or "")
+        self.assertNotIn("secret-token", notice or "")
+        self.assertEqual(calls, [TRUSTED_URL])
+
     def test_newer_qa_document_adds_notice_to_first_claude_pretooluse(self) -> None:
         checker_path = ROOT / "kcoderag-qa" / "hooks" / "update_check.py"
         self.assertTrue(checker_path.is_file(), "QA package lacks its update checker")
