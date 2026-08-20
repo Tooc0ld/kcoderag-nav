@@ -89,6 +89,7 @@ class StubMCPServerTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as raised:
                     urllib.request.urlopen(bad, timeout=3)
                 self.assertEqual(raised.exception.code, 400)
+                raised.exception.close()
 
             receipts = read_receipts(receipt_path)
             self.assertTrue(receipts)
