@@ -1,6 +1,6 @@
 {
   "name": "kcoderag-qa",
-  "version": "0.1.1+codex.bd23d4e94e27e346",
+  "version": "0.1.2+codex.a43d4253120fcb4b",
   "description": "Graph-first code navigation through the KCodeRag QA MCP server.",
   "author": {
     "name": "KCodeRag"

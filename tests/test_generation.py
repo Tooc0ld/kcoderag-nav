@@ -66,10 +66,17 @@ class GenerationTests(unittest.TestCase):
 
             first_versions = versions(first)
             self.assertEqual(versions(second), first_versions)
+            base_version = (isolated / "plugin-src" / "version.txt").read_text(
+                encoding="utf-8"
+            ).strip()
             for version in (first_versions["qa"], first_versions["dev"]):
-                self.assertRegex(version, r"^0\.1\.1\+codex\.[0-9a-f]{16}$")
+                self.assertRegex(
+                    version,
+                    rf"^{re.escape(base_version)}\+codex\.[0-9a-f]{{16}}$",
+                )
             self.assertRegex(
-                first_versions["cursor"], r"^0\.1\.1\+cursor\.[0-9a-f]{16}$"
+                first_versions["cursor"],
+                rf"^{re.escape(base_version)}\+cursor\.[0-9a-f]{{16}}$",
             )
 
             shared_hook = isolated / "plugin-src" / "hooks" / "grep_nudge.py"
@@ -513,7 +520,13 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(manifest["mcpServers"], "./mcp.json")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["rules"], "./rules/")
-        self.assertRegex(manifest["version"], r"^0\.1\.1\+cursor\.[0-9a-f]{16}$")
+        base_version = (ROOT / "plugin-src" / "version.txt").read_text(
+            encoding="utf-8"
+        ).strip()
+        self.assertRegex(
+            manifest["version"],
+            rf"^{re.escape(base_version)}\+cursor\.[0-9a-f]{{16}}$",
+        )
 
         variables = manifest["variables"]
         self.assertEqual(variables["type"], "object")
