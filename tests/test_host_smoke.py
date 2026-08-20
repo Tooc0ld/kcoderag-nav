@@ -10,6 +10,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+import re
 
 from scripts import run_host_smoke
 from tests.stub_mcp_server import StubMCPServer, read_receipts
@@ -298,6 +299,70 @@ class HostSmokeHarnessTests(unittest.TestCase):
                     serialized = json.dumps(result)
                     self.assertNotIn("authentication required", serialized)
                     self.assertNotIn("KCODERAG_NAV_STUB_URL", serialized)
+
+
+class WorkflowAndDocumentationTests(unittest.TestCase):
+    def test_required_and_optional_ci_are_strictly_separated(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertRegex(workflow, r"actions/checkout@[0-9a-f]{40}")
+        self.assertRegex(workflow, r"actions/setup-python@[0-9a-f]{40}")
+        for token in (
+            "push:",
+            "pull_request:",
+            "workflow_dispatch:",
+            "ubuntu-latest",
+            "windows-latest",
+            '"3.10"',
+            "scripts/generate_plugins.py --check",
+            'unittest discover -s tests -p "test_*.py" -v',
+            "kcoderag-qa/hooks/test_grep_nudge.py",
+            "kcoderag-dev/hooks/test_grep_nudge.py",
+            "kcoderag-host-smoke",
+            "scripts/run_host_smoke.py --host",
+        ):
+            self.assertIn(token, workflow)
+        self.assertNotRegex(workflow, r"(?i)(pip|npm|cargo)\s+install")
+
+    def test_readme_and_experience_guide_document_safe_operational_boundaries(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        guide = (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8")
+        combined = "\n".join((readme, guide))
+        for token in (
+            "Python 3.10+",
+            "python3",
+            "py -3",
+            "fail-open",
+            "status --target PATH --json",
+            "required CI",
+            "optional host smoke",
+            "--dangerously-bypass-hook-trust",
+        ):
+            self.assertIn(token, combined)
+        self.assertNotIn("Authorization", combined)
+        self.assertNotIn("Bearer", combined)
+
+        sensitive_values: list[str] = []
+        metadata = json.loads(
+            (ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8")
+        )
+        for environment in metadata["environments"]:
+            document = json.loads((ROOT / environment["mcp_source"]).read_text(encoding="utf-8"))
+            entry = document["mcpServers"][environment["server_name"]]
+            sensitive_values.append(entry["url"])
+            headers = entry.get("headers", entry.get("http_headers", {}))
+            sensitive_values.extend(headers.values())
+        artifacts = "\n".join(
+            (
+                combined,
+                (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"),
+                (ROOT / "scripts" / "run_host_smoke.py").read_text(encoding="utf-8"),
+            )
+        )
+        self.assertFalse(
+            any(value and value in artifacts for value in sensitive_values),
+            "public smoke artifacts contain a canonical sensitive value",
+        )
+        self.assertIsNone(re.search(r"https?://[^\s)>]+", guide))
 
 
 if __name__ == "__main__":
