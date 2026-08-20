@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-21 - Completed quick task 260821-0nj: document Cursor Team Marketplace Auto Refresh updates
+Last activity: 2026-08-21 - Completed quick task 260821-0r6: synchronize operational changes with the QA experience guide
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -81,6 +81,7 @@ None yet.
 | 260820-w7c | QA/Dev 首次 PreToolUse 延迟更新感知、确定性版本与显式更新命令 | 2026-08-20 | 8cf74e0 | [260820-w7c-add-lazy-first-pretooluse-update-detecti](./quick/260820-w7c-add-lazy-first-pretooluse-update-detecti/) |
 | 260821-07f | 将 QA/Dev/Cursor 插件基础版本升至 0.1.2 并发布本地累积改动 | 2026-08-21 | 8774487 | [260821-07f-bump-plugin-base-version-from-0-1-1-to-0](./quick/260821-07f-bump-plugin-base-version-from-0-1-1-to-0/) |
 | 260821-0nj | 记录 Cursor Team Marketplace Auto Refresh、手动 Refresh 与本地同步更新路径 | 2026-08-21 | d147f66 | [260821-0nj-document-cursor-team-marketplace-auto-re](./quick/260821-0nj-document-cursor-team-marketplace-auto-re/) |
+| 260821-0r6 | 将 Cursor 更新说明同步到 QA 体验指南，并建立同次更新约束 | 2026-08-21 | d711b1a | [260821-0r6-synchronize-cursor-update-guidance-into-](./quick/260821-0r6-synchronize-cursor-update-guidance-into-/) |
 
 ## Deferred Items
 
