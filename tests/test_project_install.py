@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,20 @@ def run_installer(
     )
 
 
+def copy_canonical_source(destination: Path) -> Path:
+    source = destination / "source"
+    shutil.copytree(ROOT / "plugin-src", source / "plugin-src")
+    metadata = json.loads(
+        (ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8")
+    )
+    for environment in metadata["environments"]:
+        relative = Path(environment["mcp_source"])
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    return source
+
+
 class ProjectInstallTests(unittest.TestCase):
     def test_status_distinguishes_fresh_target_from_healthy_install(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -72,6 +87,120 @@ class ProjectInstallTests(unittest.TestCase):
                 },
             )
             self.assertEqual(snapshot_tree(target), installed)
+
+    def test_status_separates_managed_drift_from_source_update(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            launcher = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "run_hook.sh"
+            launcher.write_bytes(b"synthetic-local-change\n")
+            drifted_tree = snapshot_tree(target)
+
+            drifted = installer.inspect_status(target, ROOT)
+
+            self.assertEqual(drifted["status"], "drifted")
+            self.assertEqual(
+                drifted["issues"],
+                [
+                    {
+                        "code": "managed_content_changed",
+                        "path": ".codex/kcoderag-nav/qa/hooks/run_hook.sh",
+                    }
+                ],
+            )
+            self.assertEqual(snapshot_tree(target), drifted_tree)
+            serialized = json.dumps(drifted)
+            self.assertNotIn("synthetic-local-change", serialized)
+            self.assertNotIn("digest", serialized.lower())
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            installed_tree = snapshot_tree(target)
+            synthetic_source = copy_canonical_source(base)
+            source_launcher = synthetic_source / "plugin-src" / "hooks" / "run_hook.sh"
+            source_launcher.write_bytes(source_launcher.read_bytes() + b"# synthetic-update\n")
+
+            available = installer.inspect_status(target, synthetic_source)
+
+            self.assertEqual(available["status"], "update_available")
+            self.assertEqual(
+                available["issues"],
+                [
+                    {
+                        "code": "source_update_available",
+                        "path": ".codex/kcoderag-nav/qa/hooks/run_hook.sh",
+                    }
+                ],
+            )
+            self.assertEqual(snapshot_tree(target), installed_tree)
+
+    def test_status_reports_invalid_state_and_orphaned_managed_root_without_writes(self) -> None:
+        cases = ("invalid_state", "orphan")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory)
+                managed_root = target / ".codex" / "kcoderag-nav"
+                managed_root.mkdir(parents=True)
+                if case == "invalid_state":
+                    (managed_root / "install-state.json").write_text("not-json", encoding="utf-8")
+                    expected_code = "invalid_state"
+                    expected_path = ".codex/kcoderag-nav/install-state.json"
+                else:
+                    (managed_root / "orphan.txt").write_bytes(b"synthetic")
+                    expected_code = "orphaned_managed_root"
+                    expected_path = ".codex/kcoderag-nav"
+                before = snapshot_tree(target)
+
+                result = installer.inspect_status(target, ROOT)
+
+                self.assertEqual(result["status"], "invalid")
+                self.assertEqual(
+                    result["issues"],
+                    [{"code": expected_code, "path": expected_path}],
+                )
+                self.assertEqual(snapshot_tree(target), before)
+
+    def test_status_cli_uses_stable_safe_schema_and_exit_codes(self) -> None:
+        expected_keys = {
+            "schema_version",
+            "status",
+            "active_environments",
+            "issues",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            fresh_json = run_installer(target, "status", "--json")
+            fresh_human = run_installer(target, "status")
+            self.assertEqual(fresh_json.returncode, 1)
+            self.assertEqual(fresh_human.returncode, 1)
+            parsed = json.loads(fresh_json.stdout)
+            self.assertEqual(set(parsed), expected_keys)
+            self.assertEqual(parsed["status"], "not_installed")
+            self.assertIn("not_installed", fresh_human.stdout)
+
+            self.assertEqual(run_installer(target, "install").returncode, 0)
+            healthy_json = run_installer(target, "status", "--json")
+            self.assertEqual(healthy_json.returncode, 0)
+            self.assertEqual(json.loads(healthy_json.stdout)["status"], "healthy")
+
+            managed = target / ".codex" / "kcoderag-nav" / "qa" / "hooks" / "grep_nudge.py"
+            managed.write_bytes(b"synthetic-secret-material-must-not-appear\n")
+            drifted = run_installer(target, "status", "--json")
+            self.assertEqual(drifted.returncode, 1)
+            self.assertEqual(json.loads(drifted.stdout)["status"], "drifted")
+            self.assertNotIn("synthetic-secret-material", drifted.stdout)
+
+        with tempfile.TemporaryDirectory() as directory:
+            invalid_target = Path(directory) / "not-a-directory"
+            invalid_target.write_bytes(b"synthetic")
+            invalid = run_installer(invalid_target, "status", "--json")
+            self.assertEqual(invalid.returncode, 2)
+            self.assertEqual(json.loads(invalid.stdout)["status"], "invalid")
 
     def test_unowned_legacy_payloads_refuse_install_without_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
