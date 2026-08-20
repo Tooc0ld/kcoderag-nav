@@ -14,6 +14,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -55,6 +57,7 @@ SKILL_RELATIVE = ".agents/skills/kcoderag-nav/SKILL.md"
 MANAGED_ROOT = ".codex/kcoderag-nav"
 INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev", "both")
 UNINSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
+HOOK_PAYLOAD_FILENAMES = ("grep_nudge.py", "run_hook.sh", "run_hook.cmd")
 TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
 
 
@@ -170,7 +173,7 @@ def _load_state(target: Path) -> dict[str, Any] | None:
 def _all_managed_paths(environments: set[str]) -> set[str]:
     paths = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE, STATE_RELATIVE}
     for environment in environments:
-        for filename in ("grep_nudge.py", "run_hook.sh", "run_hook.cmd"):
+        for filename in HOOK_PAYLOAD_FILENAMES:
             paths.add(f"{MANAGED_ROOT}/{environment}/hooks/{filename}")
     return paths
 
@@ -588,7 +591,9 @@ def inspect_status(target: Path, source_root: Path) -> StatusResult:
     active = [item for item in ("qa", "dev") if item in state["active_environments"]]
     required_owned = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE}
     required_owned.update(
-        f"{MANAGED_ROOT}/{environment}/hooks/grep_nudge.py" for environment in active
+        f"{MANAGED_ROOT}/{environment}/hooks/{filename}"
+        for environment in active
+        for filename in HOOK_PAYLOAD_FILENAMES
     )
     if not required_owned.issubset(state["originals"]) or not required_owned.issubset(
         state["digests"]
@@ -652,6 +657,32 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _has_supported_hook_runtime() -> bool:
+    candidates = (("py", "-3"), ("python3",), ("python",)) if os.name == "nt" else (
+        ("python3",),
+        ("python",),
+    )
+    probe = "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
+    for executable, *arguments in candidates:
+        resolved = shutil.which(executable)
+        if resolved is None:
+            continue
+        try:
+            result = subprocess.run(
+                [resolved, *arguments, "-c", probe],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     source_root = (args.source_root or Path(__file__).resolve().parents[1]).resolve()
@@ -672,9 +703,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         target = _safe_target(args.target)
         if args.command == "install":
+            runtime_available = _has_supported_hook_runtime()
             requested = {"qa", "dev"} if args.environment == "both" else {args.environment}
             install(target, source_root, requested)
             print(f"installed: {args.environment}")
+            if not runtime_available:
+                print(
+                    "warning: hook_runtime_unavailable (python_3_10_required)",
+                    file=sys.stderr,
+                )
         else:
             uninstall(target, source_root, args.environment)
             print(f"uninstalled: {args.environment}")
