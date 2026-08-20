@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-20 — 已创建 v1 MVP 路线图并完成 26 条需求映射。
+Last activity: 2026-08-20 - Completed quick task 260820-nhw: 将 KCodeRag Nav 的 QA/Dev 插件收敛为单一规范源和生成式独立产物，保留解析器修复，实现默认项目级 QA 安装、显式 Dev/双装、独立卸载、双装 QA 优先路由与 hook 去重，并补齐生成检查和 E2E 验证
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -64,6 +64,12 @@ None yet.
 
 - 现有插件文件存在未提交修改；后续工作必须保留并适配这些修改。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260820-nhw | QA/Dev 规范源、生成式独立产物、项目级安装生命周期、QA 优先路由、hook 去重与 E2E | 2026-08-20 | fd40d70 | [260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e](./quick/260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e/) |
 
 ## Deferred Items
 
