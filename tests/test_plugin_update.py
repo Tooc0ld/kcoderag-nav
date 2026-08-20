@@ -24,6 +24,22 @@ def _load_updater():
 
 
 class PluginUpdateTests(unittest.TestCase):
+    def test_invalid_scope_is_rejected_before_host_commands(self) -> None:
+        updater = _load_updater()
+        calls: list[list[str]] = []
+
+        result = updater.run_marketplace_update(
+            "claude",
+            "qa",
+            scope="workspace",
+            runner=lambda argv, **_kwargs: calls.append(argv),
+        )
+
+        self.assertEqual(calls, [])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage"], "preflight")
+        self.assertEqual(result["reason"], "unsupported_scope")
+
     def test_claude_refreshes_marketplace_then_updates_project_plugin(self) -> None:
         updater = _load_updater()
         calls: list[list[str]] = []
