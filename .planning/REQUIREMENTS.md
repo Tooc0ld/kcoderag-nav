@@ -11,6 +11,8 @@
 - [ ] **PKG-02**: 用户可独立安装、使用和卸载 Dev 插件
 - [ ] **PKG-03**: 普通用户文档默认只引导安装 QA，双装明确标记为测试场景
 - [ ] **PKG-04**: 用户安装后无需额外索取或配置 Bearer 凭据即可连接对应环境
+- [ ] **PKG-05**: 默认项目安装将 QA hook、skill 与 MCP 配置部署到目标仓库自己的 `.codex/` 和 `.agents/`
+- [ ] **PKG-06**: 用户必须通过显式参数选择 Dev 或 QA+Dev 项目安装，并可只卸载对应的受管文件
 
 ### 环境路由
 
@@ -42,6 +44,7 @@
 - [ ] **TEST-03**: 自动验证仅 QA、仅 Dev、QA 与 Dev 双装以及独立卸载场景
 - [ ] **TEST-04**: 自动验证默认 QA、显式 Dev、双环境对比和 hook 去重行为
 - [ ] **TEST-05**: 插件保持 Codex 支持与现有 Claude Code 兼容路径
+- [ ] **TEST-06**: 项目安装与卸载验证用户级 Codex 配置、插件缓存和无关项目文件保持不变
 
 ## v2 Requirements
 
@@ -65,6 +68,7 @@
 | QA 不可达时自动回退 Dev | 会隐藏环境故障并可能返回错误环境的数据 |
 | 修改 KCodeRag MCP 服务或图数据 | 本仓库只负责插件分发和导航策略 |
 | 当前里程碑实施生产级身份与凭据治理 | 用户明确限定为内部 QA/Dev 装即用阶段 |
+| Codex 原生 project-scope plugin install | 当前 CLI 与官方文档没有该能力，使用项目级兼容安装器 |
 
 ## Traceability
 
@@ -76,6 +80,8 @@
 | PKG-02 | Pending | Pending |
 | PKG-03 | Pending | Pending |
 | PKG-04 | Pending | Pending |
+| PKG-05 | Pending | Pending |
+| PKG-06 | Pending | Pending |
 | ROUT-01 | Pending | Pending |
 | ROUT-02 | Pending | Pending |
 | ROUT-03 | Pending | Pending |
@@ -95,11 +101,12 @@
 | TEST-03 | Pending | Pending |
 | TEST-04 | Pending | Pending |
 | TEST-05 | Pending | Pending |
+| TEST-06 | Pending | Pending |
 
 **Coverage:**
-- v1 requirements: 23 total
+- v1 requirements: 26 total
 - Mapped to phases: 0
-- Unmapped: 23
+- Unmapped: 26
 
 ---
 *Requirements defined: 2026-08-20*
