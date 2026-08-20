@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -153,6 +154,8 @@ class GenerationTests(unittest.TestCase):
         by_id = {item["id"]: item for item in metadata["environments"]}
         with tempfile.TemporaryDirectory() as directory:
             standalone_root = Path(directory)
+            process_environment = os.environ.copy()
+            process_environment["PYTHONIOENCODING"] = "ascii"
             for environment in ("qa", "dev"):
                 package = standalone_root / f"standalone-{environment}"
                 shutil.copytree(ROOT / f"kcoderag-{environment}", package)
@@ -163,6 +166,7 @@ class GenerationTests(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     check=False,
+                    env=process_environment,
                 )
                 self.assertEqual(result.returncode, 0, f"{environment} standalone hook regression failed")
 
