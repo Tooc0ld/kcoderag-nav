@@ -41,6 +41,31 @@ class GenerationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, "generation check failed")
 
+    def test_generated_text_checkout_contract_is_lf(self) -> None:
+        text_suffixes = {".json", ".md", ".tmpl", ".txt", ".py", ".sh", ".cmd"}
+        paths = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "plugin-src").rglob("*")
+            if path.is_file() and path.suffix in text_suffixes
+        }
+        paths.update({".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json"})
+        for environment in ("qa", "dev"):
+            paths.update(f"kcoderag-{environment}/{relative}" for relative in EXPECTED_FILES)
+
+        result = subprocess.run(
+            ["git", "check-attr", "eol", "--", *sorted(paths)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [f"{path}: eol: lf" for path in sorted(paths)],
+        )
+
     def test_generated_packages_are_self_contained(self) -> None:
         for environment in ("qa", "dev"):
             package = ROOT / f"kcoderag-{environment}"
