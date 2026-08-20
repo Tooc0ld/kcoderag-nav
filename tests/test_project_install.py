@@ -241,6 +241,22 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertEqual(stdout.getvalue(), "")
             self.assertEqual(stderr.getvalue(), "")
 
+    def test_programmatic_install_accepts_canonical_target_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical_target = root / "project"
+            alias_parent = root / "alias"
+            canonical_target.mkdir()
+            alias_parent.mkdir()
+            aliased_target = alias_parent / ".." / canonical_target.name
+
+            installer.install(aliased_target, ROOT, {"qa"})
+
+            self.assertTrue(
+                (canonical_target / ".codex" / "kcoderag-nav" / "install-state.json").is_file()
+            )
+            self.assertEqual(installer.inspect_status(canonical_target, ROOT)["status"], "healthy")
+
     def test_status_cli_uses_stable_safe_schema_and_exit_codes(self) -> None:
         expected_keys = {
             "schema_version",
