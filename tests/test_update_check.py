@@ -43,6 +43,46 @@ def _load_module(path: Path, name: str):
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def test_explicit_session_is_consumed_before_a_second_pretooluse(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_session_update_check"
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.aaaaaaaaaaaaaaaa",
+                "dev": "0.1.1+codex.bbbbbbbbbbbbbbbb",
+            },
+        }
+        calls: list[str] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append(request.full_url)
+            return _Response(document)
+
+        payload = {
+            "session_id": "repeat-session",
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "*.txt"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            first = checker.maybe_update_notice(
+                payload, "qa", current_version, cache_root=cache_root, opener=opener
+            )
+            second = checker.maybe_update_notice(
+                payload, "qa", current_version, cache_root=cache_root, opener=opener
+            )
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(calls, [TRUSTED_URL])
+
     def test_newer_qa_document_adds_notice_to_first_claude_pretooluse(self) -> None:
         checker_path = ROOT / "kcoderag-qa" / "hooks" / "update_check.py"
         self.assertTrue(checker_path.is_file(), "QA package lacks its update checker")
