@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-20 - Completed quick task 260820-p1v: 将 QA/Dev 项目级插件迁移到 kcoderag-nav，并让 KCodeRag 仅保留 QA/Dev MCP 配置
+Last activity: 2026-08-20 - Completed quick task 260820-t66: Fix installer ownership and cross-host versioning
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -71,6 +71,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260820-nhw | QA/Dev 规范源、生成式独立产物、项目级安装生命周期、QA 优先路由、hook 去重与 E2E | 2026-08-20 | fd40d70 | [260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e](./quick/260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e/) |
 | 260820-p1v | 将 QA/Dev 项目级插件迁移到 kcoderag-nav，并让 KCodeRag 仅保留 QA/Dev MCP 配置 | 2026-08-20 | local-only | [260820-p1v-qa-dev-kcoderag-nav-kcoderag-qa-dev-mcp](./quick/260820-p1v-qa-dev-kcoderag-nav-kcoderag-qa-dev-mcp/) |
+| 260820-t66 | Fix installer ownership and cross-host versioning | 2026-08-20 | 0b478fc | [260820-t66-fix-installer-ownership-and-cross-host-v](./quick/260820-t66-fix-installer-ownership-and-cross-host-v/) |
 
 ## Deferred Items
 
