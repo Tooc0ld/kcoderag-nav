@@ -78,11 +78,15 @@ def _fetch_versions(opener: Callable[..., Any] | None) -> dict[str, str] | None:
 
 
 def _notice(environment: str, current_version: str, remote_version: str) -> str:
+    package = f"kcoderag-{environment}@kcoderag-nav"
     return (
-        f"KCodeRag {environment.upper()} update available: {current_version} -> "
-        f"{remote_version}. Ask the user before running "
-        f"python scripts/update_plugin.py --host <codex|claude> --environment {environment}; "
-        "do not update automatically. Start a new session after updating."
+        f"KCodeRag {environment.upper()} update: {current_version} -> {remote_version}. "
+        "Ask the user first; do not update automatically. Codex: "
+        "codex plugin marketplace upgrade kcoderag-nav --json && "
+        f"codex plugin add {package} --json. Claude: "
+        "claude plugin marketplace update kcoderag-nav && "
+        f"claude plugin update {package} --scope project. "
+        "Start a new session after updating."
     )
 
 
