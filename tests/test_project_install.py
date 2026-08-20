@@ -626,7 +626,12 @@ class ProjectInstallTests(unittest.TestCase):
                 self.assertEqual(snapshot_tree(outside), before_outside)
             finally:
                 if link.exists() or link.is_symlink():
-                    os.rmdir(link)
+                    try:
+                        link.unlink()
+                    except OSError:
+                        if os.name != "nt":
+                            raise
+                        os.rmdir(link)
 
 
 if __name__ == "__main__":
