@@ -70,15 +70,27 @@ remote-version cache across sessions, and silently fails open on every network, 
 lock, or cache error. A notice is advisory only: it asks for user confirmation and does
 not update automatically.
 
-From the marketplace repository checkout, update this environment explicitly:
+The primary path for ordinary marketplace users is the native host CLI. These commands
+run from any directory and do not require a repository checkout:
+
+```powershell
+codex plugin marketplace upgrade kcoderag-nav --json
+codex plugin add kcoderag-dev@kcoderag-nav --json
+
+claude plugin marketplace update kcoderag-nav
+claude plugin update kcoderag-dev@kcoderag-nav --scope project
+```
+
+With a checkout of this repository, the optional repository-checkout safety wrapper
+provides the same ordered operations with stable failure output:
 
 ```powershell
 python scripts/update_plugin.py --host codex --environment dev
 python scripts/update_plugin.py --host claude --environment dev
 ```
 
-For a project-installed Codex copy, update the checkout and then refresh the managed
-files without changing environments:
+Project-installed updates still require a repository checkout. Update it and then
+refresh the managed files without changing environments:
 
 ```powershell
 git pull --ff-only

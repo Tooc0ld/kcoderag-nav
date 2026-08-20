@@ -60,27 +60,35 @@ checker，因此必须先手动刷新一次；完成这次升级后，插件才�
 异常全部静默 fail-open，不影响原工具。
 
 提示只报告当前版本、新版本和固定更新命令，并要求 AI 先取得用户确认；hook 不会自动刷新
-marketplace、重装插件或修改项目。项目级安装从本仓库 checkout 显式更新，且保留当前唯一环境：
+marketplace、重装插件或修改项目。普通 marketplace 用户应优先使用下面的宿主原生命令；这些
+命令可以在任意目录执行，不需要本仓库 checkout。普通用户保持 `qa` 不变，Dev 测试人员把插件名
+改为 `kcoderag-dev`：
 
 ```powershell
-git pull --ff-only
-python scripts/manage_project_install.py update --target PATH
+codex plugin marketplace upgrade kcoderag-nav --json
+codex plugin add kcoderag-qa@kcoderag-nav --json
+
+claude plugin marketplace update kcoderag-nav
+claude plugin update kcoderag-qa@kcoderag-nav --scope project
 ```
 
-Codex 与 Claude Code marketplace 安装从本仓库 checkout 使用统一 updater；普通用户把下例中的
-`qa` 保持不变，Dev 测试人员可改为 `dev`：
+如果已经 checkout 本仓库，可以改用下面的可选安全封装；它按相同顺序调用原生命令，任何一步
+失败都会停止，且只返回稳定的 stage/reason，不透传宿主 stdout/stderr：
 
 ```powershell
 python scripts/update_plugin.py --host codex --environment qa
 python scripts/update_plugin.py --host claude --environment qa
 ```
 
-Codex updater 内部依次执行 `codex plugin marketplace upgrade kcoderag-nav --json` 和
-`codex plugin add kcoderag-qa@kcoderag-nav --json`；Claude updater 依次执行
-`claude plugin marketplace update kcoderag-nav` 和
-`claude plugin update kcoderag-qa@kcoderag-nav --scope project`。任何一步失败都会停止，且只返回
-稳定的 stage/reason，不透传宿主 stdout/stderr。更新成功后开启新的 Codex thread 或 Claude
-session 以加载新插件。更新不会切换环境；QA/Dev 切换仍须先卸载再安装。
+项目级 update 仍要求本仓库 checkout；先更新 checkout，再保留当前唯一环境刷新目标项目：
+
+```powershell
+git pull --ff-only
+python scripts/manage_project_install.py update --target PATH
+```
+
+更新成功后开启新的 Codex thread 或 Claude session 以加载新插件。更新不会切换环境；QA/Dev
+切换仍须先卸载再安装。
 
 ## 环境选择
 
