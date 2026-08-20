@@ -66,10 +66,11 @@ COMMAND_CASES = [
 
 
 def check(label: str, got: object, expected: object) -> int:
+    safe_label = label.encode("ascii", errors="backslashreplace").decode("ascii")
     if got == expected:
-        print(f"ok    {label}")
+        print(f"ok    {safe_label}")
         return 0
-    print(f"FAIL  {label}: expected={expected!r} got={got!r}")
+    print(f"FAIL  {safe_label}: expected={expected!r} got={got!r}")
     return 1
 
 
