@@ -44,6 +44,18 @@ CURSOR_EXPECTED_FILES = {
 
 
 class GenerationTests(unittest.TestCase):
+    def test_qa_experience_guide_has_single_external_owner(self) -> None:
+        self.assertFalse((ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").exists())
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "https://github.com/Tooc0ld/KCodeRag/blob/main/MCP_QA_EXPERIENCE_GUIDE.md",
+            readme,
+        )
+        for policy_path in (ROOT / "AGENTS.md", ROOT / ".planning" / "PROJECT.md"):
+            policy = policy_path.read_text(encoding="utf-8")
+            self.assertIn("由 KCodeRag 服务仓库独占维护", policy)
+            self.assertIn("本仓库不保留副本", policy)
+
     def test_effective_versions_are_deterministic_and_content_sensitive(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             isolated = Path(directory) / "repository"
