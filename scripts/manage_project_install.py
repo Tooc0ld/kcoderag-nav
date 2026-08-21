@@ -58,7 +58,15 @@ MANAGED_ROOT = ".codex/kcoderag-nav"
 INSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 UNINSTALL_ENVIRONMENT_CHOICES = ("qa", "dev")
 HOOK_PAYLOAD_FILENAMES = ("grep_nudge.py", "run_hook.sh", "run_hook.cmd", "update_check.py")
-TOML_TABLE_RE = re.compile(r"(?m)^\s*\[\s*mcp_servers\.(?:\"?)(kcoderag-(?:qa|dev))(?:\"?)\s*\]")
+TOML_TABLE_RE = re.compile(
+    r"(?m)^\s*\[\s*mcp_servers\.(?:\"|')?(kcoderag-(?:qa|dev))(?:\"|')?\s*\]"
+)
+PLUGIN_TABLE_RE = re.compile(
+    r"(?mi)^\s*\[\s*plugins\.(?:\"|')?(kcoderag-(qa|dev)@kcoderag-nav)(?:\"|')?\s*\]\s*(?:#.*)?$"
+)
+TOML_ANY_TABLE_RE = re.compile(r"(?m)^\s*\[")
+PLUGIN_ENABLED_RE = re.compile(r"(?mi)^\s*enabled\s*=\s*(true|false)\s*(?:#.*)?$")
+USER_CODEX_CONFIG_DISPLAY = "~/.codex/config.toml"
 
 
 class InstallError(RuntimeError):
@@ -86,6 +94,12 @@ class StatusResult(TypedDict):
     status: str
     active_environments: list[str]
     issues: list[StatusIssue]
+
+
+class CodexSource(TypedDict):
+    environment: str
+    kind: str
+    path: str
 
 
 def _sha256(payload: bytes) -> str:
@@ -129,6 +143,88 @@ def _safe_target(raw_target: Path) -> Path:
         return raw_target.resolve(strict=True)
     except OSError as exc:
         raise InstallError("invalid_target", str(raw_target)) from exc
+
+
+def _user_codex_config_path() -> Path:
+    configured = os.environ.get("CODEX_HOME")
+    codex_home = Path(configured).expanduser() if configured else Path.home() / ".codex"
+    return codex_home / "config.toml"
+
+
+def _source_display(kind: str, name: str) -> str:
+    return f"{USER_CODEX_CONFIG_DISPLAY}#{kind}:{name}"
+
+
+def _user_codex_sources(target: Path) -> list[CodexSource]:
+    """Return enabled user-level KCodeRag sources without reading their values.
+
+    This intentionally scans only TOML section names and a plugin's boolean
+    ``enabled`` setting. URLs, headers, Bearer values, and unrelated sections are
+    never parsed or returned.
+    """
+    config_path = _user_codex_config_path()
+    target_config = target.joinpath(*CONFIG_RELATIVE.split("/"))
+    try:
+        if config_path.resolve(strict=False) == target_config.resolve(strict=False):
+            return []
+    except OSError:
+        pass
+    if not config_path.exists():
+        return []
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise InstallError("unreadable_user_codex_config", USER_CODEX_CONFIG_DISPLAY) from exc
+
+    sources: list[CodexSource] = []
+    for match in TOML_TABLE_RE.finditer(text):
+        server_name = match.group(1)
+        sources.append(
+            {
+                "environment": server_name.removeprefix("kcoderag-"),
+                "kind": "user_mcp",
+                "path": _source_display("user_mcp", server_name),
+            }
+        )
+    for match in PLUGIN_TABLE_RE.finditer(text):
+        plugin_name = match.group(1)
+        next_table = TOML_ANY_TABLE_RE.search(text, match.end())
+        body = text[match.end() : next_table.start() if next_table else len(text)]
+        enabled_values = PLUGIN_ENABLED_RE.findall(body)
+        if enabled_values and enabled_values[-1].lower() == "false":
+            continue
+        sources.append(
+            {
+                "environment": match.group(2).lower(),
+                "kind": "user_plugin",
+                "path": _source_display("user_plugin", plugin_name),
+            }
+        )
+    return sorted(sources, key=lambda source: (source["path"], source["kind"]))
+
+
+def _external_source_issues(
+    sources: list[CodexSource], project_environment: str | None
+) -> list[StatusIssue]:
+    if not sources:
+        return []
+    environments = {source["environment"] for source in sources}
+    if len(environments) > 1 or (
+        project_environment is not None and environments != {project_environment}
+    ):
+        code = "environment_conflict"
+    elif project_environment is None:
+        code = "external_codex_source"
+    else:
+        code = "duplicate_same_environment"
+    return [_status_issue(code, source["path"]) for source in sources]
+
+
+def _assert_no_external_codex_source(target: Path, environment: str) -> None:
+    issues = _external_source_issues(_user_codex_sources(target), environment)
+    if issues:
+        first = issues[0]
+        raise InstallError(first["code"], first["path"])
 
 
 def _assert_managed_path(target: Path, relative_path: str) -> Path:
@@ -533,6 +629,8 @@ def _prune_empty_directories(target: Path) -> None:
 def install(target: Path, source_root: Path, environments: set[str]) -> None:
     # Always recompute desired state: rendering upgrades must refresh installed bytes.
     target = _safe_target(target)
+    requested_environment = _single_environment(environments)
+    _assert_no_external_codex_source(target, requested_environment)
     inputs = load_inputs(source_root)
     state = _load_state(target)
     desired, _ = _desired_install(target, inputs, state, environments)
@@ -548,6 +646,7 @@ def update_project(target: Path, source_root: Path) -> str:
         raise InstallError("not_installed", STATE_RELATIVE)
     _verify_digests(target, state)
     environment = _single_environment(set(state["active_environments"]), STATE_RELATIVE)
+    _assert_no_external_codex_source(target, environment)
     desired, _ = _desired_install(target, inputs, copy.deepcopy(state), {environment})
     changed = any(
         _read_optional(_assert_managed_path(target, relative_path)) != payload
@@ -599,6 +698,7 @@ def inspect_status(target: Path, source_root: Path) -> StatusResult:
         target = _safe_target(target)
         inputs = load_inputs(source_root)
         state = _load_state(target)
+        external_sources = _user_codex_sources(target)
     except (InstallError, GenerationError) as exc:
         return _status_result("invalid", issues=[_status_issue(exc.code, exc.path)])
 
@@ -612,7 +712,10 @@ def inspect_status(target: Path, source_root: Path) -> StatusResult:
                 "invalid",
                 issues=[_status_issue("orphaned_managed_root", MANAGED_ROOT)],
             )
-        return _status_result("not_installed")
+        external_issues = _external_source_issues(external_sources, None)
+        if any(issue["code"] == "environment_conflict" for issue in external_issues):
+            return _status_result("invalid", issues=external_issues)
+        return _status_result("not_installed", issues=external_issues)
 
     active = [item for item in ("qa", "dev") if item in state["active_environments"]]
     if len(active) != 1:
@@ -621,6 +724,9 @@ def inspect_status(target: Path, source_root: Path) -> StatusResult:
             active,
             [_status_issue("environment_conflict", STATE_RELATIVE)],
         )
+    external_issues = _external_source_issues(external_sources, active[0])
+    if external_issues:
+        return _status_result("invalid", active, external_issues)
     required_owned = {CONFIG_RELATIVE, HOOKS_RELATIVE, SKILL_RELATIVE}
     required_owned.update(
         f"{MANAGED_ROOT}/{environment}/hooks/{filename}"

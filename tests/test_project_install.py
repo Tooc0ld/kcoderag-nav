@@ -36,7 +36,8 @@ def run_installer(
     process_environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy() if process_environment is None else process_environment.copy()
-    environment.setdefault("CODEX_HOME", str(target.parent / ".test-user-codex-home"))
+    if process_environment is None:
+        environment["CODEX_HOME"] = str(target.parent / ".test-user-codex-home")
     return subprocess.run(
         [sys.executable, str(INSTALLER), *arguments, "--target", str(target)],
         cwd=ROOT,
@@ -78,7 +79,7 @@ class ProjectInstallTests(unittest.TestCase):
             ),
             (
                 "opposite_mcp",
-                '[mcp_servers."kcoderag-dev"]\nurl = "synthetic"\n',
+                "[mcp_servers.'kcoderag-dev']\nurl = \"synthetic\"\n",
                 "qa",
                 "environment_conflict",
             ),

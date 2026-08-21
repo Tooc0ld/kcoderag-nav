@@ -49,6 +49,13 @@ python scripts/manage_project_install.py status --target PATH --json
 诊断只包含稳定状态、环境、问题 code 与项目相对 path，不输出受管文件内容、摘要或 MCP
 配置值，也不会修改或清理目标目录。
 
+安装器还会只读扫描当前 `CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）里的
+KCodeRag MCP section 名和启用的 marketplace plugin section。它不会解析或打印 URL、Header
+或 Bearer。若项目安装将与同环境的用户级来源重复，install/update 在任何写入前以
+`duplicate_same_environment` 硬停止；若发现 QA/Dev 跨来源并存，则以
+`environment_conflict` 硬停止。先按 status 报告的来源显式卸载或禁用用户级配置，再重试。
+同一项目安装器拥有的同环境重复 install 仍然幂等，uninstall 也始终保留为清理通道。
+
 ## 更新感知与应用
 
 向 `master` 推送新代码不会主动替换其他用户已经缓存或安装的插件。旧版安装不包含本节所述
@@ -121,10 +128,12 @@ codex plugin add kcoderag-qa@kcoderag-nav
 Codex 当前没有原生 project-scope plugin install；本仓库的项目级行为由上面的兼容
 安装器提供。当前 Codex plugin manifest 也没有插件互斥字段，因此用户级路径无法由宿主
 自动阻止双装；同时启用 `kcoderag-qa` 与 `kcoderag-dev` 属于不支持的配置，切换前必须先
-卸载或禁用现有环境。
+卸载或禁用现有环境。直接执行 `codex plugin add` 会绕过项目安装器的安装前检查；项目级
+`status` 会只读发现这个用户级来源，之后的项目 install/update 会硬停止，而不会自动删除它。
 仓库根同时携带 Codex 版 marketplace 清单 `.agents/plugins/marketplace.json`（Claude
 Code 版在 `.claude-plugin/marketplace.json`）。插件包的 `.mcp.json` 保留 Claude Code
-格式；Codex 清单指向独立生成的 `.codex.mcp.json`（`mcp_servers` 封装）。
+格式；Codex 清单指向独立生成的 `.codex.mcp.json`，并使用官方支持的 direct server map，
+兼容 Codex 0.144.4 未正确展开 `mcp_servers` wrapper 的实际解析行为。
 
 ## Claude Code marketplace（project scope）
 
