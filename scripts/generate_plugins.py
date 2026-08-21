@@ -236,11 +236,12 @@ def _render_template(path: Path, replacements: dict[str, str]) -> bytes:
 
 
 def _codex_mcp_document(root: Path, environment: dict[str, str]) -> dict[str, object]:
-    """Build the Codex-shaped MCP document (``mcp_servers`` wrapper, codex field names).
+    """Build the Codex-shaped MCP document (direct server map, codex field names).
 
     Claude Code requires the ``mcpServers`` wrapper in ``.mcp.json`` while Codex only
-    accepts a direct server map or an ``mcp_servers`` wrapper, so each host gets its own
-    file and each manifest points at its own one.
+    accepts a direct server map or an ``mcp_servers`` wrapper. The direct form also works
+    around the wrapped-map parsing bug observed in Codex 0.144.4, so each host gets its
+    own file and each manifest points at its own one.
     """
     mcp = _load_json(root / environment["mcp_source"])
     entry = mcp["mcpServers"][environment["server_name"]]
@@ -253,8 +254,9 @@ def _codex_mcp_document(root: Path, environment: dict[str, str]) -> dict[str, ob
     ):
         raise GenerationError("environment_mismatch", environment["mcp_source"])
     return {
-        "mcp_servers": {
-            environment["server_name"]: {"url": url, "http_headers": dict(sorted(headers.items()))}
+        environment["server_name"]: {
+            "url": url,
+            "http_headers": dict(sorted(headers.items())),
         }
     }
 

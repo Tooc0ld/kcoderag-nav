@@ -23,7 +23,7 @@ except Exception:
 
 
 ENVIRONMENT = "dev"
-CURRENT_VERSION = "0.1.3+codex.014bda7797d77e14"
+CURRENT_VERSION = "0.1.3+codex.a0cb1d67e9259dc1"
 
 NUDGE = (
     "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. "
