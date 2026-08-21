@@ -41,6 +41,9 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertIn("QA、Dev 与 Cursor", document)
             self.assertIn("scripts/manage_cursor_local_install.py update", document)
             self.assertIn("不需要 Cursor Team", document)
+            self.assertIn("duplicate_same_environment", document)
+            self.assertIn("environment_conflict", document)
+            self.assertIn("direct server map", document)
 
     def test_versioned_hook_invokes_helper_without_auto_staging(self) -> None:
         hook = HOOK.read_text(encoding="utf-8")

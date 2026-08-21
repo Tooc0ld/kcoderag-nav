@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import manage_project_install as installer
 
@@ -34,13 +35,15 @@ def run_installer(
     *arguments: str,
     process_environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy() if process_environment is None else process_environment.copy()
+    environment.setdefault("CODEX_HOME", str(target.parent / ".test-user-codex-home"))
     return subprocess.run(
         [sys.executable, str(INSTALLER), *arguments, "--target", str(target)],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
-        env=process_environment,
+        env=environment,
     )
 
 
@@ -59,6 +62,158 @@ def copy_canonical_source(destination: Path) -> Path:
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_install_refuses_enabled_user_mcp_or_plugin_sources_without_writes(self) -> None:
+        cases = (
+            (
+                "same_mcp",
+                '[mcp_servers."kcoderag-qa"]\nurl = "synthetic"\n',
+                "qa",
+                "duplicate_same_environment",
+            ),
+            (
+                "same_plugin",
+                '[plugins."kcoderag-qa@kcoderag-nav"]\nenabled = true\n',
+                "qa",
+                "duplicate_same_environment",
+            ),
+            (
+                "opposite_mcp",
+                '[mcp_servers."kcoderag-dev"]\nurl = "synthetic"\n',
+                "qa",
+                "environment_conflict",
+            ),
+            (
+                "opposite_plugin",
+                '[plugins."kcoderag-dev@kcoderag-nav"]\nenabled = true\n',
+                "qa",
+                "environment_conflict",
+            ),
+        )
+        for name, user_config, requested, expected_code in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                target = base / "target"
+                target.mkdir()
+                codex_home = base / "user-codex"
+                codex_home.mkdir()
+                config = codex_home / "config.toml"
+                config.write_text(user_config, encoding="utf-8")
+                before_target = snapshot_tree(target)
+                before_user = snapshot_tree(codex_home)
+                environment = os.environ.copy()
+                environment["CODEX_HOME"] = str(codex_home)
+
+                result = run_installer(
+                    target,
+                    "install",
+                    "--environment",
+                    requested,
+                    process_environment=environment,
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected_code, result.stderr)
+                self.assertEqual(snapshot_tree(target), before_target)
+                self.assertEqual(snapshot_tree(codex_home), before_user)
+
+    def test_disabled_user_plugin_does_not_block_owned_idempotent_install(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            codex_home = base / "user-codex"
+            codex_home.mkdir()
+            config = codex_home / "config.toml"
+            config.write_text(
+                '[plugins."kcoderag-qa@kcoderag-nav"]\nenabled = false\n',
+                encoding="utf-8",
+            )
+            before_user = snapshot_tree(codex_home)
+            environment = os.environ.copy()
+            environment["CODEX_HOME"] = str(codex_home)
+
+            first = run_installer(target, "install", process_environment=environment)
+            installed = snapshot_tree(target)
+            second = run_installer(target, "install", process_environment=environment)
+
+            self.assertEqual(first.returncode, 0)
+            self.assertEqual(second.returncode, 0)
+            self.assertEqual(snapshot_tree(target), installed)
+            self.assertEqual(snapshot_tree(codex_home), before_user)
+
+    def test_status_update_and_uninstall_handle_late_user_duplicate_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            codex_home = base / "user-codex"
+            codex_home.mkdir()
+            environment = os.environ.copy()
+            environment["CODEX_HOME"] = str(codex_home)
+            self.assertEqual(
+                run_installer(target, "install", process_environment=environment).returncode,
+                0,
+            )
+            config = codex_home / "config.toml"
+            config.write_text(
+                '[mcp_servers."kcoderag-qa"]\nurl = "synthetic"\n',
+                encoding="utf-8",
+            )
+            before_target = snapshot_tree(target)
+            before_user = snapshot_tree(codex_home)
+
+            with mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                status = installer.inspect_status(target, ROOT)
+            update = run_installer(target, "update", process_environment=environment)
+
+            self.assertEqual(status["status"], "invalid")
+            self.assertEqual(status["active_environments"], ["qa"])
+            self.assertEqual(
+                [issue["code"] for issue in status["issues"]],
+                ["duplicate_same_environment"],
+            )
+            self.assertEqual(update.returncode, 2)
+            self.assertIn("duplicate_same_environment", update.stderr)
+            self.assertEqual(snapshot_tree(target), before_target)
+            self.assertEqual(snapshot_tree(codex_home), before_user)
+
+            removed = run_installer(
+                target,
+                "uninstall",
+                "--environment",
+                "qa",
+                process_environment=environment,
+            )
+            self.assertEqual(removed.returncode, 0)
+            self.assertEqual(snapshot_tree(target), {})
+            self.assertEqual(snapshot_tree(codex_home), before_user)
+
+    def test_fresh_status_reports_external_source_without_claiming_project_install(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            target = base / "target"
+            target.mkdir()
+            codex_home = base / "user-codex"
+            codex_home.mkdir()
+            (codex_home / "config.toml").write_text(
+                '[plugins."kcoderag-qa@kcoderag-nav"]\n',
+                encoding="utf-8",
+            )
+            before_target = snapshot_tree(target)
+            before_user = snapshot_tree(codex_home)
+
+            with mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                status = installer.inspect_status(target, ROOT)
+
+            self.assertEqual(status["status"], "not_installed")
+            self.assertEqual(status["active_environments"], [])
+            self.assertEqual(
+                [issue["code"] for issue in status["issues"]],
+                ["external_codex_source"],
+            )
+            self.assertEqual(snapshot_tree(target), before_target)
+            self.assertEqual(snapshot_tree(codex_home), before_user)
+
     def test_update_project_keeps_active_qa_and_applies_current_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
