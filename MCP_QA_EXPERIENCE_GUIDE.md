@@ -68,10 +68,15 @@ prune 或重写目标，也不会打印配置内容或摘要。
 仓库 `master` 更新后，已经安装的 plugin cache 不会自动被替换。旧版安装尚未携带更新 checker，
 需要先按下面对应路径手动升级一次；此后才会在会话中感知新版本。
 
-新版插件在每个 session 的首次相关 `PreToolUse`（`Grep`、`Glob` 或 `Bash`）才延迟检查版本。
-同一 session 后续不重复检查或提示；宿主没有 session id 时，用当前环境、规范化项目路径与一小时
-时间桶做有界 throttle。严格验证的远端版本结果缓存 24 小时，因此新 session 可以复用缓存，
-而不是每个 session 都访问 GitHub。检查失败完全 fail-open，原工具照常执行。
+新版插件在每个 session 的首次相关 `PreToolUse`（`Grep`、`Glob` 或 `Bash`）只读取本地版本
+缓存。缓存新鲜时直接比较；缓存缺失或过期时只抢占刷新锁并启动隐藏的后台刷新，
+当前工具调用不等待网络。后台 worker 仍使用固定 GitHub URL、1.5 秒超时、严格 schema 与原子缓存写入；
+刷新成功后，同一 session 的下一次相关 `PreToolUse` 即可提示，如果没有后续调用则由下一个
+session 感知。
+
+同一 session 在消费过新鲜缓存后不重复检查或提示；宿主没有 session id 时，用当前环境、
+规范化项目路径与一小时时间桶做有界 throttle。严格验证的结果缓存 24 小时。网络、schema、
+process launch、lock 或 cache 异常全部静默 fail-open，原工具照常执行。
 
 更新提示只是 advisory：AI 必须先询问用户，不能自动调用 installer 或宿主 CLI。普通 marketplace 用户
 应优先使用以下原生命令；它们可在任意目录执行，不要求本仓库 checkout：

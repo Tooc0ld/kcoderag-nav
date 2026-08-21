@@ -54,10 +54,14 @@ python scripts/manage_project_install.py status --target PATH --json
 checker，因此必须先手动刷新一次；完成这次升级后，插件才具备后续的低打扰更新感知。
 
 新版 QA/Dev 插件只在每个会话首次相关 `PreToolUse`（`Grep`、`Glob` 或 `Bash`）到来时
-延迟检查。相同 session 后续不再检查或提示；缺少 session id 时，按环境、项目和一小时时间桶
-做有界 throttle。已验证的远端版本结果缓存 24 小时，所以新 session 可以复用缓存而不重复
-访问 GitHub，但每个新 session 最多仍会收到一次可用更新提示。网络、schema、lock 或 cache
-异常全部静默 fail-open，不影响原工具。
+读取本地版本缓存。缓存新鲜时直接比较；缓存缺失或过期时只抢占刷新锁并启动隐藏的后台刷新，
+当前工具调用不等待网络。后台 worker 仍使用固定 GitHub URL、1.5 秒超时、严格 schema 与原子
+缓存写入；刷新成功后，同一 session 的下一次相关 `PreToolUse` 即可读取新缓存并提示，如果没有
+后续调用则由下一个 session 感知。
+
+同一 session 在消费过新鲜缓存后不重复检查或提示；缺少 session id 时，按环境、项目和一小时
+时间桶做有界 throttle。已验证结果缓存 24 小时，因此新 session 通常只读缓存。网络、schema、
+process launch、lock 或 cache 异常全部静默 fail-open，不影响原工具。
 
 提示只报告当前版本、新版本和固定更新命令，并要求 AI 先取得用户确认；hook 不会自动刷新
 marketplace、重装插件或修改项目。普通 marketplace 用户应优先使用下面的宿主原生命令；这些

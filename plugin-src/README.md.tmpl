@@ -53,11 +53,14 @@ conflicts, so uninstall or disable the other KCodeRag environment before using t
 A push to `master` does not replace an already installed plugin cache. An older install
 without the checker must be manually refreshed once before it can detect later releases.
 
-The checker runs lazily on the first relevant `PreToolUse` (`Grep`, `Glob`, or `Bash`)
-for a session. It consumes that session before bounded I/O, reuses a strict 24-hour
-remote-version cache across sessions, and silently fails open on every network, schema,
-lock, or cache error. A notice is advisory only: it asks for user confirmation and does
-not update automatically.
+The checker reads only local cache state on the first relevant `PreToolUse` (`Grep`,
+`Glob`, or `Bash`) for a session. A fresh cache is compared immediately. A missing or
+stale cache starts a detached background refresh, so the current tool call never waits for network
+I/O. The worker keeps the fixed URL, 1.5-second timeout, strict schema, and
+atomic cache write; the next relevant `PreToolUse` in the same session can consume the
+result, or a later session will. The strict 24-hour cache is reused across sessions. Network,
+process-launch, schema, lock, and cache errors silently fail open. A notice is advisory
+only: it asks for user confirmation and does not update automatically.
 
 The primary path for ordinary marketplace users is the native host CLI. These commands
 run from any directory and do not require a repository checkout:
