@@ -56,6 +56,95 @@ def _load_module(path: Path, name: str):
 
 
 class UpdateCheckTests(unittest.TestCase):
+    def test_stale_cache_schedules_background_refresh_without_foreground_network(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_async_foreground_check",
+        )
+        current_version = json.loads(
+            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
+        )["versions"]["qa"]
+        stale_version = "0.1.1+codex.1212121212121212"
+        payload = {
+            "session_id": "async-stale-session",
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "GetLevel"},
+        }
+        launches: list[tuple[list[str], dict[str, object]]] = []
+        network_calls: list[bool] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            (cache_root / "remote-cache.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "checked_at": 1.0,
+                        "versions": {
+                            "qa": stale_version,
+                            "dev": "0.1.1+codex.3434343434343434",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            notice = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 100_000.0,
+                opener=lambda *_args, **_kwargs: network_calls.append(True),
+                launcher=lambda command, **options: launches.append((command, options)),
+            )
+
+            self.assertTrue((cache_root / "refresh.lock").is_file())
+
+        self.assertIn(stale_version, notice or "")
+        self.assertEqual(network_calls, [])
+        self.assertEqual(len(launches), 1)
+        self.assertIn("--refresh-cache", launches[0][0])
+
+    def test_background_worker_validates_writes_cache_and_releases_owned_lock(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_async_worker_check",
+        )
+        document = {
+            "schema_version": 1,
+            "repository": "Tooc0ld/kcoderag-nav",
+            "channel": "master",
+            "versions": {
+                "qa": "0.1.1+codex.5656565656565656",
+                "dev": "0.1.1+codex.7878787878787878",
+            },
+        }
+        calls: list[tuple[str, float]] = []
+
+        def opener(request: object, *, timeout: float):
+            calls.append((request.full_url, timeout))
+            return _Response(document)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            claim = checker._claim_refresh_lock(cache_root, 200_000.0)
+            self.assertIsNotNone(claim)
+            checker._refresh_cache_worker(
+                cache_root,
+                claim,
+                now=lambda: 200_001.0,
+                opener=opener,
+            )
+            cached = json.loads(
+                (cache_root / "remote-cache.json").read_text(encoding="utf-8")
+            )
+
+            self.assertFalse((cache_root / "refresh.lock").exists())
+
+        self.assertEqual(calls, [(TRUSTED_URL, 1.5)])
+        self.assertEqual(cached["checked_at"], 200_001.0)
+        self.assertEqual(cached["versions"], document["versions"])
+
     def test_remote_and_cache_failures_are_silent_and_credential_safe(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_failure_matrix_check"
