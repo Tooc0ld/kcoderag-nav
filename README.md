@@ -147,7 +147,8 @@ Cursor 分发只提供一个 `kcoderag-nav` 插件，位于生成目录 `kcodera
 QA 与 Dev 同时启用；内置默认配置选择 QA。免费安装使用 Cursor 官方本地插件目录，
 **不需要 Cursor Team**、Dashboard 或团队管理员。
 
-保留一个本仓库 checkout，在仓库根目录运行：
+安装管理命令需要 Python 3.10+，只使用标准库、无需 pip 依赖。保留一个本仓库 checkout，
+在仓库根目录运行：
 
 ```powershell
 git clone https://github.com/Tooc0ld/kcoderag-nav.git

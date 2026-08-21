@@ -7,7 +7,8 @@ QA and Dev must never be configured at the same time.
 ## Free local installation
 
 This path uses Cursor's official local plugin directory and does not require Cursor Team,
-a dashboard, or a team administrator. Keep a checkout of this repository and run from its root:
+a dashboard, or a team administrator. The manager needs Python 3.10+ and uses only the standard
+library, with no pip dependencies. Keep a checkout of this repository and run from its root:
 
 ```powershell
 git clone https://github.com/Tooc0ld/kcoderag-nav.git
@@ -67,4 +68,4 @@ advisory context before it runs. The always-on rule supplies the navigation remi
 without blocking local search. Local search remains valid for exact strings, uncommitted
 edits, and explicit fallback when the index is unavailable or stale.
 
-Generated package version: `0.1.2+cursor.2cc50c8bb50b6af1`.
+Generated package version: `0.1.2+cursor.50574b25e5db7d6f`.
