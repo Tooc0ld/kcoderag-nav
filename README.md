@@ -51,7 +51,8 @@ python scripts/manage_project_install.py status --target PATH --json
 
 安装器还会只读扫描当前 `CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）里的
 KCodeRag MCP section 名和启用的 marketplace plugin section。它不会解析或打印 URL、Header
-或 Bearer。若项目安装将与同环境的用户级来源重复，install/update 在任何写入前以
+或任何 credential value。若项目安装将与同环境的用户级来源重复，install/update 在任何写入
+前以
 `duplicate_same_environment` 硬停止；若发现 QA/Dev 跨来源并存，则以
 `environment_conflict` 硬停止。先按 status 报告的来源显式卸载或禁用用户级配置，再重试。
 同一项目安装器拥有的同环境重复 install 仍然幂等，uninstall 也始终保留为清理通道。
