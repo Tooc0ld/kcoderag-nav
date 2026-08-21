@@ -1,4 +1,4 @@
-"""Behavior tests for the lazy first-PreToolUse update checker."""
+"""Behavior tests for the asynchronous first-PreToolUse update checker."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -55,15 +56,46 @@ def _load_module(path: Path, name: str):
     return module
 
 
+def _current_version(environment: str) -> str:
+    return json.loads((ROOT / "kcoderag-update.json").read_text(encoding="utf-8"))[
+        "versions"
+    ][environment]
+
+
+def _versions(qa: str, dev: str) -> dict[str, str]:
+    return {"qa": qa, "dev": dev}
+
+
+def _remote_document(qa: str, dev: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "repository": "Tooc0ld/kcoderag-nav",
+        "channel": "master",
+        "versions": _versions(qa, dev),
+    }
+
+
+def _write_cache(cache_root: Path, checked_at: float, versions: dict[str, str]) -> None:
+    cache_root.mkdir(parents=True, exist_ok=True)
+    (cache_root / "remote-cache.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "checked_at": checked_at,
+                "versions": versions,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 class UpdateCheckTests(unittest.TestCase):
     def test_stale_cache_schedules_background_refresh_without_foreground_network(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
             "qa_async_foreground_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         stale_version = "0.1.1+codex.1212121212121212"
         payload = {
             "session_id": "async-stale-session",
@@ -75,18 +107,10 @@ class UpdateCheckTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
-            (cache_root / "remote-cache.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "checked_at": 1.0,
-                        "versions": {
-                            "qa": stale_version,
-                            "dev": "0.1.1+codex.3434343434343434",
-                        },
-                    }
-                ),
-                encoding="utf-8",
+            _write_cache(
+                cache_root,
+                1.0,
+                _versions(stale_version, "0.1.1+codex.3434343434343434"),
             )
             notice = checker.maybe_update_notice(
                 payload,
@@ -100,7 +124,7 @@ class UpdateCheckTests(unittest.TestCase):
 
             self.assertTrue((cache_root / "refresh.lock").is_file())
 
-        self.assertIn(stale_version, notice or "")
+        self.assertIsNone(notice)
         self.assertEqual(network_calls, [])
         self.assertEqual(len(launches), 1)
         self.assertIn("--refresh-cache", launches[0][0])
@@ -110,15 +134,10 @@ class UpdateCheckTests(unittest.TestCase):
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
             "qa_async_worker_check",
         )
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.5656565656565656",
-                "dev": "0.1.1+codex.7878787878787878",
-            },
-        }
+        document = _remote_document(
+            "0.1.1+codex.5656565656565656",
+            "0.1.1+codex.7878787878787878",
+        )
         calls: list[tuple[str, float]] = []
 
         def opener(request: object, *, timeout: float):
@@ -138,146 +157,155 @@ class UpdateCheckTests(unittest.TestCase):
             cached = json.loads(
                 (cache_root / "remote-cache.json").read_text(encoding="utf-8")
             )
-
             self.assertFalse((cache_root / "refresh.lock").exists())
 
         self.assertEqual(calls, [(TRUSTED_URL, 1.5)])
         self.assertEqual(cached["checked_at"], 200_001.0)
         self.assertEqual(cached["versions"], document["versions"])
 
-    def test_remote_and_cache_failures_are_silent_and_credential_safe(self) -> None:
+    def test_refreshed_cache_is_visible_on_the_next_pretooluse_in_the_same_session(self) -> None:
         checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_failure_matrix_check"
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_async_next_pretooluse_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
-        valid_document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.bbbbbbbbbbbbbbbb",
-                "dev": "0.1.1+codex.cccccccccccccccc",
-            },
-        }
+        current_version = _current_version("qa")
+        remote_version = "0.1.1+codex.9090909090909090"
+        document = _remote_document(
+            remote_version,
+            "0.1.1+codex.9191919191919191",
+        )
         payload = {
+            "session_id": "async-next-call-session",
             "tool_name": "Grep",
             "tool_input": {"pattern": "GetLevel"},
         }
+        launches: list[list[str]] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            first = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 700_000.0,
+                launcher=lambda command, **_options: launches.append(command),
+            )
+            claim = (cache_root / "refresh.lock", launches[0][-1])
+            checker._refresh_cache_worker(
+                cache_root,
+                claim,
+                now=lambda: 700_001.0,
+                opener=lambda *_args, **_kwargs: _Response(document),
+            )
+            second = checker.maybe_update_notice(
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 700_002.0,
+            )
+
+        self.assertIsNone(first)
+        self.assertIn(remote_version, second or "")
+        self.assertEqual(len(launches), 1)
+
+    def test_worker_remote_and_cache_failures_are_silent_and_credential_safe(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_async_failure_matrix",
+        )
+        valid = _remote_document(
+            "0.1.1+codex.bbbbbbbbbbbbbbbb",
+            "0.1.1+codex.cccccccccccccccc",
+        )
         cases = {
-            "redirect": lambda: _Response(valid_document, url="https://example.invalid/secret"),
-            "http_status": lambda: _Response(valid_document, status=503),
+            "redirect": lambda: _Response(valid, url="https://example.invalid/secret"),
+            "http_status": lambda: _Response(valid, status=503),
             "oversize": lambda: _Response(body=b"x" * (8 * 1024 + 1)),
             "malformed": lambda: _Response(body=b'{"secret-token":"prompt injection"}'),
+            "timeout": lambda: (_ for _ in ()).throw(TimeoutError("secret-token")),
         }
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            for index, (label, response_factory) in enumerate(cases.items()):
+            for label, response_factory in cases.items():
                 with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
-                    notice = checker.maybe_update_notice(
-                        dict(payload, session_id=f"failure-{index}"),
-                        "qa",
-                        current_version,
-                        cache_root=Path(directory),
+                    cache_root = Path(directory)
+                    claim = checker._claim_refresh_lock(cache_root, 300_000.0)
+                    checker._refresh_cache_worker(
+                        cache_root,
+                        claim,
+                        now=lambda: 300_001.0,
                         opener=lambda *_args, factory=response_factory, **_kwargs: factory(),
                     )
-                    self.assertIsNone(notice)
+                    self.assertFalse((cache_root / "refresh.lock").exists())
+                    self.assertFalse((cache_root / "remote-cache.json").exists())
 
             with tempfile.TemporaryDirectory() as directory:
                 cache_root = Path(directory)
-                cache_root.joinpath("remote-cache.json").write_text(
-                    "corrupt secret-token", encoding="utf-8"
-                )
-                notice = checker.maybe_update_notice(
-                    dict(payload, session_id="corrupt-cache"),
-                    "qa",
-                    current_version,
-                    cache_root=cache_root,
-                    opener=lambda *_args, **_kwargs: _Response(valid_document),
-                )
-                self.assertIsNotNone(notice)
-                self.assertNotIn("secret-token", notice or "")
+                claim = checker._claim_refresh_lock(cache_root, 300_000.0)
+                with mock.patch.object(
+                    checker.os, "replace", side_effect=OSError("secret-token replace failure")
+                ):
+                    checker._refresh_cache_worker(
+                        cache_root,
+                        claim,
+                        now=lambda: 300_001.0,
+                        opener=lambda *_args, **_kwargs: _Response(valid),
+                    )
+                self.assertFalse((cache_root / "refresh.lock").exists())
+                self.assertFalse((cache_root / "remote-cache.json").exists())
 
             with tempfile.TemporaryDirectory() as directory:
                 cache_root = Path(directory) / "not-a-directory"
                 cache_root.write_bytes(b"secret-token")
-                called: list[bool] = []
+                launches: list[object] = []
                 notice = checker.maybe_update_notice(
-                    dict(payload, session_id="unwritable-cache"),
+                    {
+                        "session_id": "unwritable-cache",
+                        "tool_name": "Grep",
+                        "tool_input": {"pattern": "GetLevel"},
+                    },
                     "qa",
-                    current_version,
+                    _current_version("qa"),
                     cache_root=cache_root,
-                    opener=lambda *_args, **_kwargs: called.append(True),
+                    launcher=lambda *args, **kwargs: launches.append((args, kwargs)),
                 )
                 self.assertIsNone(notice)
-                self.assertEqual(called, [])
-
-            with tempfile.TemporaryDirectory() as directory:
-                with mock.patch.object(
-                    checker.os, "replace", side_effect=OSError("secret-token replace failure")
-                ):
-                    notice = checker.maybe_update_notice(
-                        dict(payload, session_id="replace-failure"),
-                        "qa",
-                        current_version,
-                        cache_root=Path(directory),
-                        opener=lambda *_args, **_kwargs: _Response(valid_document),
-                    )
-                self.assertIsNone(notice)
-                self.assertFalse((Path(directory) / "refresh.lock").exists())
+                self.assertEqual(launches, [])
 
         self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(stderr.getvalue(), "")
 
-    def test_refresh_lock_loser_uses_stale_cache_and_old_lock_is_recovered(self) -> None:
+    def test_refresh_lock_loser_uses_stale_cache_and_stale_lock_is_recovered(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_lock_state_check"
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         stale_version = "0.1.1+codex.dddddddddddddddd"
-        valid_document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.eeeeeeeeeeeeeeee",
-                "dev": "0.1.1+codex.ffffffffffffffff",
-            },
-        }
         payload = {"tool_name": "Glob", "tool_input": {"pattern": "*.txt"}}
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
-            (cache_root / "remote-cache.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "checked_at": 10.0,
-                        "versions": {
-                            "qa": stale_version,
-                            "dev": "0.1.1+codex.1111111111111111",
-                        },
-                    }
-                ),
-                encoding="utf-8",
+            _write_cache(
+                cache_root,
+                10.0,
+                _versions(stale_version, "0.1.1+codex.1111111111111111"),
             )
             lock = cache_root / "refresh.lock"
-            lock.write_bytes(b"")
+            lock.write_text("0" * 32, encoding="ascii")
             os.utime(lock, (100_000.0, 100_000.0))
-            calls: list[bool] = []
+            launches: list[list[str]] = []
             loser_notice = checker.maybe_update_notice(
                 dict(payload, session_id="lock-loser"),
                 "qa",
                 current_version,
                 cache_root=cache_root,
                 now=lambda: 100_005.0,
-                opener=lambda *_args, **_kwargs: calls.append(True),
+                launcher=lambda command, **_options: launches.append(command),
             )
-            self.assertIn(stale_version, loser_notice or "")
-            self.assertEqual(calls, [])
+            self.assertIsNone(loser_notice)
+            self.assertEqual(launches, [])
 
             os.utime(lock, (90_000.0, 90_000.0))
             recovered_notice = checker.maybe_update_notice(
@@ -286,35 +314,61 @@ class UpdateCheckTests(unittest.TestCase):
                 current_version,
                 cache_root=cache_root,
                 now=lambda: 100_020.0,
-                opener=lambda *_args, **_kwargs: _Response(valid_document),
+                launcher=lambda command, **_options: launches.append(command),
             )
-            self.assertIn(valid_document["versions"]["qa"], recovered_notice or "")
-            self.assertFalse(lock.exists())
+            self.assertIsNone(recovered_notice)
+            self.assertEqual(len(launches), 1)
+            self.assertRegex(lock.read_text(encoding="ascii"), r"^[0-9a-f]{32}$")
+
+    def test_concurrent_stale_sessions_schedule_only_one_worker(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_concurrent_async_refresh",
+        )
+        current_version = _current_version("qa")
+        stale_version = "0.1.1+codex.1919191919191919"
+        launches: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                1.0,
+                _versions(stale_version, "0.1.1+codex.2020202020202020"),
+            )
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                notices = list(
+                    executor.map(
+                        lambda index: checker.maybe_update_notice(
+                            {
+                                "session_id": f"stale-concurrent-{index}",
+                                "tool_name": "Grep",
+                                "tool_input": {"pattern": "GetLevel"},
+                            },
+                            "qa",
+                            current_version,
+                            cache_root=cache_root,
+                            now=lambda: 400_000.0,
+                            launcher=lambda command, **_options: launches.append(command),
+                        ),
+                        range(8),
+                    )
+                )
+
+        self.assertEqual(len(launches), 1)
+        self.assertTrue(all(notice is None for notice in notices))
 
     def test_session_marker_state_is_pruned_to_a_fixed_bound(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_bounded_marker_check"
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.9999999999999999",
-                "dev": "0.1.1+codex.aaaaaaaaaaaaaaaa",
-            },
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            return _Response(document)
-
+        current_version = _current_version("qa")
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                1_500_000_000.0,
+                _versions(current_version, _current_version("dev")),
+            )
             for index in range(140):
                 checker.maybe_update_notice(
                     {
@@ -326,35 +380,19 @@ class UpdateCheckTests(unittest.TestCase):
                     current_version,
                     cache_root=cache_root,
                     now=lambda: 1_500_000_000.0,
-                    opener=opener,
+                    launcher=lambda *_args, **_kwargs: self.fail("fresh cache launched worker"),
                 )
             markers = list((cache_root / "sessions").glob("session-*.seen"))
 
         self.assertLessEqual(len(markers), 128)
-        self.assertEqual(calls, [TRUSTED_URL])
 
-    def test_concurrent_calls_for_one_session_have_one_winner(self) -> None:
+    def test_concurrent_calls_for_one_session_have_one_notice_winner(self) -> None:
         checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_concurrent_update_check"
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_concurrent_update_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.1111111111111111",
-                "dev": "0.1.1+codex.2222222222222222",
-            },
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            return _Response(document)
-
+        current_version = _current_version("qa")
+        remote_version = "0.1.1+codex.2121212121212121"
         payload = {
             "session_id": "concurrent-session",
             "tool_name": "Grep",
@@ -362,6 +400,11 @@ class UpdateCheckTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                500_000.0,
+                _versions(remote_version, "0.1.1+codex.2222222222222222"),
+            )
             with ThreadPoolExecutor(max_workers=8) as executor:
                 notices = list(
                     executor.map(
@@ -370,37 +413,20 @@ class UpdateCheckTests(unittest.TestCase):
                             "qa",
                             current_version,
                             cache_root=cache_root,
-                            opener=opener,
+                            now=lambda: 500_000.0,
                         ),
                         range(8),
                     )
                 )
 
         self.assertEqual(sum(notice is not None for notice in notices), 1)
-        self.assertEqual(calls, [TRUSTED_URL])
 
     def test_explicit_session_is_consumed_before_a_second_pretooluse(self) -> None:
         checker = _load_module(
             ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_session_update_check"
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": "0.1.1+codex.aaaaaaaaaaaaaaaa",
-                "dev": "0.1.1+codex.bbbbbbbbbbbbbbbb",
-            },
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            return _Response(document)
-
+        current_version = _current_version("qa")
+        remote_version = "0.1.1+codex.2323232323232323"
         payload = {
             "session_id": "repeat-session",
             "tool_name": "Glob",
@@ -408,53 +434,44 @@ class UpdateCheckTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                600_000.0,
+                _versions(remote_version, "0.1.1+codex.2424242424242424"),
+            )
             first = checker.maybe_update_notice(
-                payload, "qa", current_version, cache_root=cache_root, opener=opener
+                payload, "qa", current_version, cache_root=cache_root, now=lambda: 600_000.0
             )
             second = checker.maybe_update_notice(
-                payload, "qa", current_version, cache_root=cache_root, opener=opener
+                payload, "qa", current_version, cache_root=cache_root, now=lambda: 600_001.0
             )
 
-        self.assertIsNotNone(first)
+        self.assertIn(remote_version, first or "")
         self.assertIsNone(second)
-        self.assertEqual(calls, [TRUSTED_URL])
 
-    def test_fresh_valid_cache_serves_a_new_session_without_network(self) -> None:
+    def test_fresh_valid_cache_serves_each_new_session_without_network(self) -> None:
         checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_fresh_cache_update_check"
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_fresh_cache_update_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         remote_version = "0.1.1+codex.3333333333333333"
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": remote_version,
-                "dev": "0.1.1+codex.4444444444444444",
-            },
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            return _Response(document)
-
-        common = {
-            "tool_name": "Grep",
-            "tool_input": {"pattern": "GetLevel"},
-        }
+        common = {"tool_name": "Grep", "tool_input": {"pattern": "GetLevel"}}
+        launches: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                2_000_000_000.0,
+                _versions(remote_version, "0.1.1+codex.4444444444444444"),
+            )
             first = checker.maybe_update_notice(
                 dict(common, session_id="cache-session-a"),
                 "qa",
                 current_version,
                 cache_root=cache_root,
                 now=lambda: 2_000_000_000.0,
-                opener=opener,
+                launcher=lambda *args, **kwargs: launches.append((args, kwargs)),
             )
             second = checker.maybe_update_notice(
                 dict(common, session_id="cache-session-b"),
@@ -462,114 +479,62 @@ class UpdateCheckTests(unittest.TestCase):
                 current_version,
                 cache_root=cache_root,
                 now=lambda: 2_000_000_100.0,
-                opener=opener,
+                launcher=lambda *args, **kwargs: launches.append((args, kwargs)),
             )
 
         self.assertIn(remote_version, first or "")
         self.assertIn(remote_version, second or "")
-        self.assertEqual(calls, [TRUSTED_URL])
+        self.assertEqual(launches, [])
 
-    def test_stale_available_cache_survives_refresh_failure(self) -> None:
+    def test_spawn_failure_uses_stale_cache_releases_lock_and_consumes_session(self) -> None:
         checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_stale_cache_update_check"
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_spawn_failure_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         stale_version = "0.1.1+codex.5555555555555555"
         payload = {
-            "session_id": "stale-cache-session",
+            "session_id": "spawn-failure-session",
             "tool_name": "Bash",
             "tool_input": {"command": "rg GetLevel src"},
         }
-        calls: list[str] = []
-
-        def failing_opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            raise OSError("synthetic network failure with secret-token")
-
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
-            (cache_root / "remote-cache.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "checked_at": 1_000_000_000.0,
-                        "versions": {
-                            "qa": stale_version,
-                            "dev": "0.1.1+codex.6666666666666666",
-                        },
-                    }
-                ),
-                encoding="utf-8",
+            _write_cache(
+                cache_root,
+                1.0,
+                _versions(stale_version, "0.1.1+codex.6666666666666666"),
             )
-            notice = checker.maybe_update_notice(
+            first = checker.maybe_update_notice(
                 payload,
                 "qa",
                 current_version,
                 cache_root=cache_root,
                 now=lambda: 1_000_100_000.0,
-                opener=failing_opener,
-            )
-
-        self.assertIn(stale_version, notice or "")
-        self.assertNotIn("secret-token", notice or "")
-        self.assertEqual(calls, [TRUSTED_URL])
-
-    def test_failed_refresh_is_still_consumed_for_the_session(self) -> None:
-        checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_failure_consumed_check"
-        )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
-        calls: list[str] = []
-
-        def failing_opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            raise TimeoutError("synthetic timeout secret-token")
-
-        payload = {
-            "session_id": "failed-refresh-session",
-            "tool_name": "Grep",
-            "tool_input": {"pattern": "GetLevel"},
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            cache_root = Path(directory)
-            first = checker.maybe_update_notice(
-                payload, "qa", current_version, cache_root=cache_root, opener=failing_opener
+                launcher=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    OSError("secret-token spawn failure")
+                ),
             )
             second = checker.maybe_update_notice(
-                payload, "qa", current_version, cache_root=cache_root, opener=failing_opener
+                payload,
+                "qa",
+                current_version,
+                cache_root=cache_root,
+                now=lambda: 1_000_100_001.0,
+                launcher=lambda *_args, **_kwargs: self.fail("session retried refresh"),
             )
+            self.assertFalse((cache_root / "refresh.lock").exists())
 
         self.assertIsNone(first)
         self.assertIsNone(second)
-        self.assertEqual(calls, [TRUSTED_URL])
 
     def test_missing_session_uses_project_hour_bucket_without_raw_path_state(self) -> None:
         checker = _load_module(
-            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_fallback_session_check"
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_fallback_session_check",
         )
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         remote_version = "0.1.1+codex.7777777777777777"
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": remote_version,
-                "dev": "0.1.1+codex.8888888888888888",
-            },
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append(request.full_url)
-            return _Response(document)
-
         raw_cwd = "D:/secret-customer/project"
         payload = {
             "cwd": raw_cwd,
@@ -578,29 +543,19 @@ class UpdateCheckTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                7_200_000.0,
+                _versions(remote_version, "0.1.1+codex.8888888888888888"),
+            )
             first = checker.maybe_update_notice(
-                payload,
-                "qa",
-                current_version,
-                cache_root=cache_root,
-                now=lambda: 7_200_100.0,
-                opener=opener,
+                payload, "qa", current_version, cache_root=cache_root, now=lambda: 7_200_100.0
             )
             same_bucket = checker.maybe_update_notice(
-                payload,
-                "qa",
-                current_version,
-                cache_root=cache_root,
-                now=lambda: 7_200_200.0,
-                opener=opener,
+                payload, "qa", current_version, cache_root=cache_root, now=lambda: 7_200_200.0
             )
             next_bucket = checker.maybe_update_notice(
-                payload,
-                "qa",
-                current_version,
-                cache_root=cache_root,
-                now=lambda: 7_203_700.0,
-                opener=opener,
+                payload, "qa", current_version, cache_root=cache_root, now=lambda: 7_203_700.0
             )
             state_paths = [path.relative_to(cache_root).as_posix() for path in cache_root.rglob("*")]
             state_bytes = b"".join(
@@ -610,51 +565,37 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertIn(remote_version, first or "")
         self.assertIsNone(same_bucket)
         self.assertIn(remote_version, next_bucket or "")
-        self.assertEqual(calls, [TRUSTED_URL])
         self.assertNotIn(raw_cwd, "\n".join(state_paths))
         self.assertNotIn(raw_cwd.encode("utf-8"), state_bytes)
 
-    def test_newer_qa_document_adds_notice_to_first_claude_pretooluse(self) -> None:
-        checker_path = ROOT / "kcoderag-qa" / "hooks" / "update_check.py"
-        self.assertTrue(checker_path.is_file(), "QA package lacks its update checker")
-        checker = _load_module(checker_path, "qa_update_check")
+    def test_newer_qa_cache_adds_notice_to_first_claude_pretooluse(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py", "qa_update_check"
+        )
         hook = _load_module(ROOT / "kcoderag-qa" / "hooks" / "grep_nudge.py", "qa_hook")
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["qa"]
+        current_version = _current_version("qa")
         remote_version = "0.1.1+codex.ffffffffffffffff"
-        remote_document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {
-                "qa": remote_version,
-                "dev": "0.1.1+codex.eeeeeeeeeeeeeeee",
-            },
-        }
-        calls: list[tuple[str, float]] = []
-
-        def opener(request: object, *, timeout: float):
-            calls.append((request.full_url, timeout))
-            return _Response(remote_document)
-
         payload = {
             "session_id": "claude-session",
             "tool_name": "Grep",
             "tool_input": {"pattern": "exact mechanical text"},
         }
         with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                1_800_000_000.0,
+                _versions(remote_version, "0.1.1+codex.eeeeeeeeeeeeeeee"),
+            )
             notice = checker.maybe_update_notice(
                 payload,
                 "qa",
                 current_version,
-                cache_root=Path(directory),
+                cache_root=cache_root,
                 now=lambda: 1_800_000_000.0,
-                opener=opener,
             )
 
         output = hook.hook_output(payload, update_notice=notice)
-        self.assertEqual(calls, [(TRUSTED_URL, 1.5)])
         self.assertIsNotNone(output)
         context = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn(current_version, context)
@@ -667,7 +608,6 @@ class UpdateCheckTests(unittest.TestCase):
             "claude plugin update kcoderag-qa@kcoderag-nav --scope project",
         ):
             self.assertIn(command, context)
-        self.assertNotIn("python scripts/update_plugin.py", context)
         self.assertLessEqual(len(context), 600)
         self.assertNotIn("Tooc0ld", context)
 
@@ -676,72 +616,106 @@ class UpdateCheckTests(unittest.TestCase):
             ROOT / "kcoderag-dev" / "hooks" / "update_check.py", "dev_update_check"
         )
         hook = _load_module(ROOT / "kcoderag-dev" / "hooks" / "grep_nudge.py", "dev_hook")
-        current_version = json.loads(
-            (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-        )["versions"]["dev"]
+        current_version = _current_version("dev")
         remote_version = "0.1.1+codex.dddddddddddddddd"
-        document = {
-            "schema_version": 1,
-            "repository": "Tooc0ld/kcoderag-nav",
-            "channel": "master",
-            "versions": {"qa": "0.1.1+codex.cccccccccccccccc", "dev": remote_version},
-        }
-        calls: list[str] = []
-
-        def opener(request: object, *, timeout: float):
-            self.assertEqual(timeout, 1.5)
-            calls.append(request.full_url)
-            return _Response(document)
-
         payload = {
             "thread_id": "codex-thread",
             "tool_name": "Bash",
             "tool_input": {"command": "rg GetLevel src"},
         }
         with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                800_000.0,
+                _versions("0.1.1+codex.cccccccccccccccc", remote_version),
+            )
             notice = checker.maybe_update_notice(
                 payload,
                 "dev",
                 current_version,
-                cache_root=Path(directory),
-                opener=opener,
+                cache_root=cache_root,
+                now=lambda: 800_000.0,
             )
         output = hook.hook_output(payload, update_notice=notice)
-        self.assertEqual(calls, [TRUSTED_URL])
         self.assertIsNotNone(output)
         context = output["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(len(context), 600)
         self.assertLess(context.index(hook.NUDGE), context.index(remote_version))
-        for command in (
-            "codex plugin marketplace upgrade kcoderag-nav --json",
-            "codex plugin add kcoderag-dev@kcoderag-nav --json",
-            "claude plugin marketplace update kcoderag-nav",
-            "claude plugin update kcoderag-dev@kcoderag-nav --scope project",
-        ):
-            self.assertIn(command, context)
-        self.assertNotIn("python scripts/update_plugin.py", context)
+        self.assertIn("codex plugin add kcoderag-dev@kcoderag-nav --json", context)
+        self.assertIn(
+            "claude plugin update kcoderag-dev@kcoderag-nav --scope project", context
+        )
 
-        same_document = dict(document)
-        same_document["versions"] = dict(document["versions"], dev=current_version)
         with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            _write_cache(
+                cache_root,
+                900_000.0,
+                _versions("0.1.1+codex.cccccccccccccccc", current_version),
+            )
             same = checker.maybe_update_notice(
-                payload,
+                dict(payload, thread_id="same-version-thread"),
                 "dev",
                 current_version,
-                cache_root=Path(directory),
-                opener=lambda *_args, **_kwargs: _Response(same_document),
+                cache_root=cache_root,
+                now=lambda: 900_000.0,
             )
         self.assertIsNone(same)
 
-        irrelevant_calls: list[object] = []
+        launches: list[object] = []
         irrelevant = checker.maybe_update_notice(
             {"tool_name": "Read", "tool_input": {"path": "README.md"}},
             "dev",
             current_version,
-            opener=lambda *args, **_kwargs: irrelevant_calls.append((args, _kwargs)),
+            launcher=lambda *args, **kwargs: launches.append((args, kwargs)),
         )
         self.assertIsNone(irrelevant)
-        self.assertEqual(irrelevant_calls, [])
+        self.assertEqual(launches, [])
+
+    def test_launcher_is_hidden_detached_and_spawn_failure_releases_owned_lock(self) -> None:
+        checker = _load_module(
+            ROOT / "kcoderag-qa" / "hooks" / "update_check.py",
+            "qa_launcher_contract_check",
+        )
+        captured: list[tuple[list[str], dict[str, object]]] = []
+        with tempfile.TemporaryDirectory() as directory:
+            cache_root = Path(directory)
+            claim = checker._claim_refresh_lock(cache_root, 1_000_000.0)
+            self.assertTrue(
+                checker._schedule_background_refresh(
+                    cache_root,
+                    claim,
+                    launcher=lambda command, **options: captured.append((command, options)),
+                )
+            )
+            checker._release_refresh_lock(claim)
+
+            failed_claim = checker._claim_refresh_lock(cache_root, 1_000_001.0)
+            self.assertFalse(
+                checker._schedule_background_refresh(
+                    cache_root,
+                    failed_claim,
+                    launcher=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                        OSError("synthetic spawn failure")
+                    ),
+                )
+            )
+            self.assertFalse((cache_root / "refresh.lock").exists())
+
+        command, options = captured[0]
+        self.assertEqual(command[0], checker.sys.executable)
+        self.assertEqual(command[2], "--refresh-cache")
+        self.assertIs(options["stdin"], subprocess.DEVNULL)
+        self.assertIs(options["stdout"], subprocess.DEVNULL)
+        self.assertIs(options["stderr"], subprocess.DEVNULL)
+        self.assertTrue(options["close_fds"])
+        if os.name == "nt":
+            self.assertGreater(options["creationflags"], 0)
+            self.assertNotIn("start_new_session", options)
+        else:
+            self.assertTrue(options["start_new_session"])
+            self.assertNotIn("creationflags", options)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Bounded, fail-open update lookup for the first relevant PreToolUse event."""
+"""Bounded, fail-open update lookup for the first relevant PreToolUse event.
+
+The hook-facing path never performs network I/O.  A stale or missing cache only
+starts a detached worker; validated cached data remains the sole foreground input.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,9 @@ import math
 import os
 import posixpath
 import re
+import secrets
+import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -26,6 +33,7 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 REFRESH_LOCK_STALE_SECONDS = 10
 MAX_SESSION_MARKERS = 128
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\+codex\.[0-9a-f]{16}$")
+LOCK_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 RELEVANT_TOOLS = {"Grep", "Glob", "Bash"}
 
 
@@ -119,10 +127,30 @@ def _session_key(
     return hashlib.sha256(material).hexdigest()
 
 
+def _session_marker(cache_root: Path, session_key: str, state: str) -> Path:
+    return cache_root / "sessions" / f"session-{session_key}.{state}"
+
+
 def _claim_session(cache_root: Path, session_key: str) -> bool:
     directory = cache_root / "sessions"
     directory.mkdir(parents=True, exist_ok=True)
-    marker = directory / f"session-{session_key}.seen"
+    marker = _session_marker(cache_root, session_key, "seen")
+    try:
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    _prune_session_markers(directory, marker)
+    return True
+
+
+def _claim_pending_session(cache_root: Path, session_key: str) -> bool:
+    """Claim the one refresh attempt allowed before this session sees fresh cache."""
+    directory = cache_root / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    if _session_marker(cache_root, session_key, "seen").exists():
+        return False
+    marker = _session_marker(cache_root, session_key, "pending")
     try:
         descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
@@ -134,7 +162,7 @@ def _claim_session(cache_root: Path, session_key: str) -> bool:
 
 def _prune_session_markers(directory: Path, keep: Path) -> None:
     try:
-        markers = [path for path in directory.glob("session-*.seen") if path.is_file()]
+        markers = [path for path in directory.glob("session-*.*") if path.is_file()]
         if len(markers) <= MAX_SESSION_MARKERS:
             return
         removable = sorted(
@@ -215,32 +243,119 @@ def _now(clock: Callable[[], float] | None) -> float:
     return value
 
 
-def _claim_refresh_lock(cache_root: Path, checked_at: float) -> Path | None:
+def _claim_refresh_lock(cache_root: Path, checked_at: float) -> tuple[Path, str] | None:
     cache_root.mkdir(parents=True, exist_ok=True)
     lock = cache_root / "refresh.lock"
     for attempt in range(2):
+        token = secrets.token_hex(16)
         try:
             descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
-            if attempt or checked_at - lock.stat().st_mtime <= REFRESH_LOCK_STALE_SECONDS:
+            try:
+                age = checked_at - lock.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if attempt or age <= REFRESH_LOCK_STALE_SECONDS:
                 return None
-            lock.unlink()
+            try:
+                lock.unlink()
+            except FileNotFoundError:
+                continue
             continue
-        os.close(descriptor)
         try:
+            with os.fdopen(descriptor, "w", encoding="ascii", newline="") as handle:
+                handle.write(token)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.utime(lock, (checked_at, checked_at))
         except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
             lock.unlink(missing_ok=True)
             raise
-        return lock
+        return lock, token
     return None
 
 
-def _release_refresh_lock(lock: Path) -> None:
+def _owns_refresh_lock(claim: tuple[Path, str]) -> bool:
+    lock, token = claim
     try:
-        lock.unlink(missing_ok=True)
+        return lock.read_text(encoding="ascii") == token
+    except (OSError, UnicodeError):
+        return False
+
+
+def _release_refresh_lock(claim: tuple[Path, str]) -> None:
+    lock, _token = claim
+    try:
+        if _owns_refresh_lock(claim):
+            lock.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _refresh_cache_worker(
+    cache_root: Path,
+    claim: tuple[Path, str],
+    *,
+    now: Callable[[], float] | None = None,
+    opener: Callable[..., Any] | None = None,
+) -> None:
+    """Refresh a cache for one owned lock; never emit output or raise."""
+    try:
+        if not _owns_refresh_lock(claim):
+            return
+        try:
+            refreshed = _fetch_versions(opener)
+        except Exception:
+            refreshed = None
+        if refreshed is not None and _owns_refresh_lock(claim):
+            _write_cache(cache_root, _now(now), refreshed)
+    except Exception:
+        pass
+    finally:
+        _release_refresh_lock(claim)
+
+
+def _launcher_options() -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        options["creationflags"] = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        )
+    else:
+        options["start_new_session"] = True
+    return options
+
+
+def _schedule_background_refresh(
+    cache_root: Path,
+    claim: tuple[Path, str],
+    launcher: Callable[..., Any] | None = None,
+) -> bool:
+    """Start the bounded refresh worker without waiting for it."""
+    lock, token = claim
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--refresh-cache",
+        str(cache_root.resolve()),
+        token,
+    ]
+    try:
+        (launcher or subprocess.Popen)(command, **_launcher_options())
+        return True
+    except Exception:
+        _release_refresh_lock((lock, token))
+        return False
 
 
 def maybe_update_notice(
@@ -251,8 +366,13 @@ def maybe_update_notice(
     cache_root: Path | None = None,
     now: Callable[[], float] | None = None,
     opener: Callable[..., Any] | None = None,
+    launcher: Callable[..., Any] | None = None,
 ) -> str | None:
-    """Return a locally rendered advisory for a validated different version; never raise."""
+    """Use only cached data for an advisory and schedule stale refresh; never raise.
+
+    ``opener`` is retained as a compatibility-only test seam and is deliberately
+    never called here: network access belongs exclusively to the worker.
+    """
     try:
         if os.environ.get("KCODERAG_NAV_UPDATE_CHECK") == "0":
             return None
@@ -265,31 +385,41 @@ def maybe_update_notice(
         root = cache_root or _default_cache_root()
         checked_at = _now(now)
         session_key = _session_key(data, environment, checked_at)
-        if not _claim_session(root, session_key):
-            return None
         cached = _read_cache(root)
         if cached is not None and 0 <= checked_at - cached[0] < CACHE_TTL_SECONDS:
+            if not _claim_session(root, session_key):
+                return None
+            _session_marker(root, session_key, "pending").unlink(missing_ok=True)
             versions = cached[1]
         else:
-            lock = _claim_refresh_lock(root, checked_at)
-            if lock is None:
-                versions = cached[1] if cached is not None else None
-            else:
-                try:
-                    try:
-                        refreshed = _fetch_versions(opener)
-                    except Exception:
-                        refreshed = None
-                    if refreshed is not None:
-                        _write_cache(root, checked_at, refreshed)
-                        versions = refreshed
-                    else:
-                        versions = cached[1] if cached is not None else None
-                finally:
-                    _release_refresh_lock(lock)
+            if _claim_pending_session(root, session_key):
+                lock = _claim_refresh_lock(root, checked_at)
+                if lock is not None:
+                    _schedule_background_refresh(root, lock, launcher)
+            return None
         remote_version = versions.get(environment) if versions is not None else None
         if remote_version is None or remote_version == current_version:
             return None
         return _notice(environment, current_version, remote_version)
     except Exception:
         return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run only the private detached refresh mode; all invalid input is silent."""
+    try:
+        arguments = list(sys.argv[1:] if argv is None else argv)
+        if len(arguments) != 3 or arguments[0] != "--refresh-cache":
+            return 0
+        cache_root = Path(arguments[1])
+        token = arguments[2]
+        if LOCK_TOKEN_RE.fullmatch(token) is None:
+            return 0
+        _refresh_cache_worker(cache_root, (cache_root / "refresh.lock", token))
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
