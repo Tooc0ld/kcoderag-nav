@@ -5,8 +5,9 @@
 Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径；另生成一个互斥环境的
 Cursor 私有插件 `kcoderag-nav`。
 
-面向 QA 使用者的完整安装、状态诊断和 smoke 流程见
-[MCP_QA_EXPERIENCE_GUIDE.md](MCP_QA_EXPERIENCE_GUIDE.md)。
+面向 QA 使用者的完整接入与体验指南由 KCodeRag 服务仓库独占维护，见
+[MCP_QA_EXPERIENCE_GUIDE.md](https://github.com/Tooc0ld/KCodeRag/blob/main/MCP_QA_EXPERIENCE_GUIDE.md)；
+本分发仓库不保留副本。
 
 ## 推荐：项目级安装（默认 QA）
 

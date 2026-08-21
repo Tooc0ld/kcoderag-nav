@@ -323,10 +323,9 @@ class WorkflowAndDocumentationTests(unittest.TestCase):
             self.assertIn(token, workflow)
         self.assertNotRegex(workflow, r"(?i)(pip|npm|cargo)\s+install")
 
-    def test_readme_and_experience_guide_document_safe_operational_boundaries(self) -> None:
+    def test_readme_documents_safe_operational_boundaries(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        guide = (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8")
-        combined = "\n".join((readme, guide))
+        combined = readme
         for token in (
             "Python 3.10+",
             "python3",
@@ -338,7 +337,7 @@ class WorkflowAndDocumentationTests(unittest.TestCase):
             "--dangerously-bypass-hook-trust",
         ):
             self.assertIn(token, combined)
-        for document in (readme, guide):
+        for document in (readme,):
             for command in (
                 "claude plugin marketplace add Tooc0ld/kcoderag-nav --scope project",
                 "claude plugin install kcoderag-qa@kcoderag-nav --scope project",
@@ -372,7 +371,6 @@ class WorkflowAndDocumentationTests(unittest.TestCase):
             any(value and value in artifacts for value in sensitive_values),
             "public smoke artifacts contain a canonical sensitive value",
         )
-        self.assertIsNone(re.search(r"https?://[^\s)>]+", guide))
 
 
 if __name__ == "__main__":

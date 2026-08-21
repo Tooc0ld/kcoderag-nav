@@ -445,28 +445,6 @@ class GenerationTests(unittest.TestCase):
             self.assertIn(update_contract, root_readme)
         self.assertNotIn("SessionStart", root_readme)
 
-        qa_guide = (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8")
-        for update_contract in (
-            "首次相关 `PreToolUse`",
-            "24 小时",
-            "后台刷新",
-            "当前工具调用不等待网络",
-            "下一次相关 `PreToolUse`",
-            "旧版安装",
-            "git pull --ff-only",
-            "python scripts/manage_project_install.py update --target PATH",
-            "普通 marketplace 用户",
-            "可选安全封装",
-            "项目级 update 仍要求本仓库 checkout",
-            "codex plugin marketplace upgrade kcoderag-nav --json",
-            "codex plugin add kcoderag-qa@kcoderag-nav --json",
-            "claude plugin marketplace update kcoderag-nav",
-            "claude plugin update kcoderag-qa@kcoderag-nav --scope project",
-            "python scripts/update_plugin.py --host codex --environment qa",
-            "python scripts/update_plugin.py --host claude --environment qa",
-        ):
-            self.assertIn(update_contract, qa_guide)
-        self.assertNotIn("SessionStart", qa_guide)
         self.assertIn("Cursor 私有插件", root_readme)
         self.assertIn("~/.cursor/plugins/local/kcoderag-nav", root_readme)
         self.assertIn("Default Off", root_readme)
@@ -481,43 +459,14 @@ class GenerationTests(unittest.TestCase):
             "重新复制 `kcoderag-cursor/`",
         )
         for cursor_update_contract in cursor_update_contracts:
-            for operational_doc in (root_readme, qa_guide):
-                self.assertIn(cursor_update_contract, operational_doc)
+            self.assertIn(cursor_update_contract, root_readme)
 
-        cursor_onboarding_contracts = (
-            "### 管理员：接入 Team Marketplace",
-            "Teams 或 Enterprise",
-            "Dashboard → Integrations",
-            "Selected repositories",
-            "Dashboard → Plugins → Team Marketplaces → Add Marketplace",
-            "Tooc0ld/kcoderag-nav",
-            "`.cursor-plugin/marketplace.json`",
-            "Marketplace Access",
-            "### 开发者：按项目安装 QA",
-            "选择 **Install → project scope**",
-            "接受内置 QA 默认配置",
-            "通用 MCP server `kcoderag`",
-            "`list_indexes`",
-            "`search_code`",
-            "### 切换 Dev、卸载与本地 fallback",
-            "`KCODERAG_MCP_URL`",
-            "`KCODERAG_BEARER_TOKEN`",
-            "必须成对",
-            "QA 与 Dev 不能共存",
-            "**Uninstall**",
-            "%USERPROFILE%\\.cursor\\plugins\\local\\kcoderag-nav",
-            "https://cursor.com/docs/plugins",
-        )
-        for cursor_onboarding_contract in cursor_onboarding_contracts:
-            self.assertIn(cursor_onboarding_contract, qa_guide)
-
-        guide_sync_policy = "影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更"
-        self.assertIn(guide_sync_policy, qa_guide)
+        guide_owner_policy = "由 KCodeRag 服务仓库独占维护"
         self.assertIn(
-            guide_sync_policy,
+            guide_owner_policy,
             (ROOT / ".planning" / "PROJECT.md").read_text(encoding="utf-8"),
         )
-        self.assertIn(guide_sync_policy, (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn(guide_owner_policy, (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
 
         for environment in environments:
             package = ROOT / environment["plugin_name"]

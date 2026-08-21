@@ -26,7 +26,7 @@ Cursor 通过私有 Team Marketplace 的 project scope 或本地插件目录分�
 - **项目边界**: 默认安装与卸载只能修改目标仓库内由安装器管理的文件 — 不污染用户配置或无关项目文件
 - **Hook**: 仅提供 advisory context，任何异常都必须 fail-open — 不阻断 `grep`、`glob` 或 shell
 - **兼容性**: 支持 Codex、Claude Code 与 Cursor；Cursor 使用 Rule，不声称 hook 行为等价
-- **体验指南同步**: 任何影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更，必须在同一变更中同步 `MCP_QA_EXPERIENCE_GUIDE.md`
+- **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
 - **凭据**: 当前 QA/Dev 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 

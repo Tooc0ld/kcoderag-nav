@@ -31,10 +31,7 @@ def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 class PreCommitGenerationTests(unittest.TestCase):
     def test_maintainer_docs_define_generation_and_cursor_update_boundaries(self) -> None:
-        documents = (
-            (ROOT / "README.md").read_text(encoding="utf-8"),
-            (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8"),
-        )
+        documents = ((ROOT / "README.md").read_text(encoding="utf-8"),)
 
         for document in documents:
             self.assertIn("git config core.hooksPath .githooks", document)
