@@ -457,6 +457,7 @@ class GenerationTests(unittest.TestCase):
             "Developer: Reload Window",
             "git pull --ff-only",
             "Team Marketplace 只是付费可选路径",
+            "Python 3.10+",
         )
         for cursor_update_contract in cursor_update_contracts:
             self.assertIn(cursor_update_contract, root_readme)
@@ -596,6 +597,7 @@ class GenerationTests(unittest.TestCase):
             "python scripts/manage_cursor_local_install.py uninstall",
             "Developer: Reload Window",
             "Paid Team Marketplace",
+            "Python 3.10+",
         ):
             self.assertIn(cursor_update_contract, package_readme)
 
