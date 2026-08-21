@@ -4,41 +4,54 @@ This private Cursor plugin provides one configured KCodeRag MCP server, a graph-
 navigation skill, and a compact always-on Cursor Rule. The bundled defaults select QA.
 QA and Dev must never be configured at the same time.
 
-## Private team marketplace
+## Free local installation
 
-1. In the Cursor Dashboard, open **Plugins** and import the `Tooc0ld/kcoderag-nav`
-   repository as a Team Marketplace.
-2. Add `kcoderag-nav`, restrict Marketplace Access to the intended internal group, and
-   set its installation mode to **Default Off**.
-3. Developers install it from **Customize** using **project scope**.
+This path uses Cursor's official local plugin directory and does not require Cursor Team,
+a dashboard, or a team administrator. Keep a checkout of this repository and run from its root:
+
+```powershell
+git clone https://github.com/Tooc0ld/kcoderag-nav.git
+Set-Location kcoderag-nav
+python scripts/manage_cursor_local_install.py install
+python scripts/manage_cursor_local_install.py status --json
+```
+
+The manager copies this generated package to:
+
+```text
+~/.cursor/plugins/local/kcoderag-nav
+```
+
+On Windows, `~` is `%USERPROFILE%`. Restart Cursor or run
+**Developer: Reload Window**, then confirm that the `kcoderag` MCP server, rule, and skill
+are loaded in a new Agent session.
 
 Do not install this plugin in the `kcoderag-nav` distribution repository itself; doing so
 would bias maintenance and verification searches toward its own packaged MCP client.
 
 ## Updates
 
-Install the **Cursor GitHub App** for the repository and turn on **Enable Auto Refresh**
-in Team Marketplace settings. After a push to the tracked branch, Cursor automatically
-refreshes and updates marketplace plugins. Cursor re-indexes at most once every 10 minutes,
-batching rapid pushes to the latest commit. If Auto Refresh is disabled, a team administrator
-must manually select **Refresh** in the Marketplace dashboard.
+The local manager does not contact the network. Update the checkout, inspect the installation,
+and replace only an unchanged manager-owned package:
 
-**Default Off controls initial installation**; automatic updates are controlled separately
-by **Enable Auto Refresh**. After an update, run **Developer: Reload Window** or start a new
-Agent session so the current workspace loads the new rule, skill, and MCP configuration.
-
-## Local development
-
-Copy or link the generated `kcoderag-cursor` directory to:
-
-```text
-~/.cursor/plugins/local/kcoderag-nav
+```powershell
+git pull --ff-only
+python scripts/manage_cursor_local_install.py status --json
+python scripts/manage_cursor_local_install.py update
 ```
 
-A local plugin is not managed by Team Marketplace Auto Refresh. With a symlink, update the
-source checkout and regenerate the package. With a copied install, copy `kcoderag-cursor/` again.
-Then restart Cursor or run **Developer: Reload Window**. Keep this local development install
-out of the distribution repository.
+After an update, run **Developer: Reload Window**. Repeating `install` is idempotent and also
+applies a source update when the managed target has not drifted. To remove it:
+
+```powershell
+python scripts/manage_cursor_local_install.py uninstall
+```
+
+The manager refuses an unmanaged target and refuses update or uninstall after local drift.
+Diagnostics expose paths and reason codes, never MCP values or file contents.
+
+Paid Team Marketplace remains an optional organization distribution path; it is not required
+for this free local installation.
 
 ## Switch to Dev
 
@@ -54,4 +67,4 @@ advisory context before it runs. The always-on rule supplies the navigation remi
 without blocking local search. Local search remains valid for exact strings, uncommitted
 edits, and explicit fallback when the index is unavailable or stale.
 
-Generated package version: `0.1.2+cursor.fd9b7360f6ddfabc`.
+Generated package version: `0.1.2+cursor.2cc50c8bb50b6af1`.

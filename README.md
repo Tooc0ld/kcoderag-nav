@@ -3,7 +3,7 @@
 本仓库从一份规范源生成两个可独立安装、但互斥使用的 KCodeRag 导航插件：普通用户使用
 `kcoderag-qa`，开发与环境验证使用 `kcoderag-dev`。两个环境包都支持 Codex，并保留
 Claude Code marketplace、MCP、skill 与 `PreToolUse` hook 兼容路径；另生成一个互斥环境的
-Cursor 私有插件 `kcoderag-nav`。
+Cursor 免费本地插件 `kcoderag-nav`。
 
 面向 QA 使用者的完整接入与体验指南由 KCodeRag 服务仓库独占维护，见
 [MCP_QA_EXPERIENCE_GUIDE.md](https://github.com/Tooc0ld/KCodeRag/blob/main/MCP_QA_EXPERIENCE_GUIDE.md)；
@@ -140,37 +140,54 @@ claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project
 否则需要把 `mcp__plugin_kcoderag-qa_kcoderag-qa__*`（dev 同理）自行加入 settings 的
 `permissions.allow`。
 
-## Cursor 私有插件
+## Cursor 免费本地插件
 
 Cursor 分发只提供一个 `kcoderag-nav` 插件，位于生成目录 `kcoderag-cursor/`，仓库根清单为
 `.cursor-plugin/marketplace.json`。插件只声明一个通用 `kcoderag` MCP server，因此不会出现
-QA 与 Dev 同时启用；内置默认配置选择 QA。
+QA 与 Dev 同时启用；内置默认配置选择 QA。免费安装使用 Cursor 官方本地插件目录，
+**不需要 Cursor Team**、Dashboard 或团队管理员。
 
-团队分发使用 Cursor Dashboard 的 **Plugins → Team Marketplaces → Import from Repo** 导入本
-仓库，然后把 `kcoderag-nav` 的安装模式设为 **Default Off**。开发者从 Cursor 的
-**Customize** 页面安装并选择 **project scope**。不要在本仓库中安装这个插件，否则会让维护
-和验收搜索被本项目自己的 KCodeRag 配置影响。
+保留一个本仓库 checkout，在仓库根目录运行：
 
-### Cursor 更新
+```powershell
+git clone https://github.com/Tooc0ld/kcoderag-nav.git
+Set-Location kcoderag-nav
+python scripts/manage_cursor_local_install.py install
+python scripts/manage_cursor_local_install.py status --json
+```
 
-推荐在 Team Marketplace 的设置中安装 **Cursor GitHub App** 并开启
-**Enable Auto Refresh**。跟踪分支 push 新提交后，Cursor 会自动刷新并更新 marketplace
-插件；官方说明重新索引最多每 10 分钟进行一次，会把短时间内的连续 push 合并到最新提交。
-若未开启自动刷新，团队管理员需要在 Dashboard 的 Marketplace 中手动点击 **Refresh**。
-
-**Default Off 只控制是否默认安装**；是否自动更新由 Marketplace Settings 中的
-**Enable Auto Refresh** 单独控制。为确保新 Rule、Skill 和 MCP 配置进入当前工作区，更新后
-建议执行 **Developer: Reload Window** 或开启新的 Agent 会话。
-
-本地开发时，可把生成目录复制或链接到：
+安装器把自包含生成包复制到：
 
 ```text
 ~/.cursor/plugins/local/kcoderag-nav
 ```
 
-本地目录不受 Team Marketplace Auto Refresh 管理：使用符号链接时先更新源 checkout 并重新
-生成；使用复制方式时需重新复制 `kcoderag-cursor/`，然后重启 Cursor 或执行
-**Developer: Reload Window**。需要测试 Dev 时，在插件的
+Windows 中 `~` 是 `%USERPROFILE%`。安装后重启 Cursor 或执行
+**Developer: Reload Window**，再在新 Agent 会话确认 `kcoderag` MCP server、Rule 和 skill
+已加载。不要在本仓库中安装或打开它作为查询目标，否则维护搜索会被自己的插件配置影响。
+
+安装器只拥有 `kcoderag-nav` 目录及其相邻状态文件；不会覆盖未托管目录。若安装内容被手工
+修改，`status` 返回 `drifted`，`update` 和 `uninstall` 会在删除任何内容前拒绝。
+
+### Cursor 更新与卸载
+
+本地安装器不会自动联网。先更新 checkout，再安全覆盖未漂移的旧安装：
+
+```powershell
+git pull --ff-only
+python scripts/manage_cursor_local_install.py status --json
+python scripts/manage_cursor_local_install.py update
+```
+
+更新后执行 **Developer: Reload Window**。重复执行 `install` 也是幂等的：当前版本不写入，
+checkout 包更新时等价于安全更新。卸载命令为：
+
+```powershell
+python scripts/manage_cursor_local_install.py uninstall
+```
+
+Team Marketplace 只是付费可选路径，不是普通用户安装 KCodeRag 的前置条件。需要测试 Dev 时，
+在插件的
 **Configure** 中成对替换 `KCODERAG_MCP_URL` 与 `KCODERAG_BEARER_TOKEN`；测试结束后也应成对
 恢复 QA 配置。
 
@@ -196,9 +213,9 @@ git config core.hooksPath .githooks
 `plugin-src/version.txt` 的基础 SemVer；需要发布新的基础版本时仍由维护者显式修改。CI 继续
 只运行 `--check`，不会替开发者生成、提交或 push 文件。
 
-Cursor 的本地内容哈希也由同一个生成器维护；Team Marketplace 中已安装插件的用户仍通过
-**Team Marketplace Auto Refresh**（或管理员手动 **Refresh**）感知 push 后的新版本，
-不需要自定义运行时更新 hook。本地复制安装则仍需重新复制 `kcoderag-cursor/` 并 reload。
+Cursor 的本地内容哈希也由同一个生成器维护；免费本地安装用户在 checkout 执行
+`git pull --ff-only`，再运行 `python scripts/manage_cursor_local_install.py update` 并 reload。
+Cursor 包不增加运行时更新 hook，也不把网络检查放进 Agent 工具调用路径。
 
 ## 纯 MCP 安装
 
@@ -207,10 +224,10 @@ Cursor 的本地内容哈希也由同一个生成器维护；Team Marketplace �
 
 ## 内部连接边界
 
-当前 QA/Dev 内部测试包及 Cursor 私有插件默认变量携带受控连接配置和认证材料。本仓库不会
+当前 QA/Dev 内部测试包及 Cursor 本地插件默认变量携带受控连接配置和认证材料。本仓库不会
 在生成器、安装器、status、测试输出或公开指南中打印这些值。Cursor 包只能进入受限的私有
-Team Marketplace，不能提交公共 Cursor Marketplace。生产级身份、传输升级、团队后台注入
-凭据与轮换不属于当前版本范围。
+本地目录或付费私有 Team Marketplace，不能提交公共 Cursor Marketplace。生产级身份、传输
+升级、团队后台注入凭据与轮换不属于当前版本范围。
 
 ## CI 分层
 

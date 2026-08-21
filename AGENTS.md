@@ -6,15 +6,16 @@
 
 KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓库，面向 Codex、
 Claude Code 与 Cursor。仓库发布 `kcoderag-qa` 与 `kcoderag-dev` 两个可独立安装、独立卸载、
-单独完整工作的 Codex/Claude 插件，并生成一个只配置单环境的 Cursor 私有插件，使代码代理
+单独完整工作的 Codex/Claude 插件，并生成一个只配置单环境的 Cursor 本地插件，使代码代理
 在结构化代码检索时优先使用知识图谱，精确文本和未提交改动仍使用本地搜索。
 
 普通用户只需要安装 QA 插件；Dev 插件主要用于开发和测试。QA 与 Dev 互斥，切换环境时
 必须先卸载当前环境，再安装另一个环境。
 默认分发路径采用项目级安装器，将 Codex hook、skill 与 MCP 配置部署到目标仓库自己的
 `.codex/` 和 `.agents/`；用户级 `codex plugin add` 仅作为显式可选路径。
-Cursor 通过私有 Team Marketplace 的 project scope 或本地插件目录分发，默认 QA，Dev 通过
-成对替换 URL 与 Bearer 配置切换。
+Cursor 默认通过免费本地插件目录分发，不要求 Team 订阅；安装器管理 install/status/update/
+uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付费 Team Marketplace 仅为
+可选的组织分发路径。
 
 **Core Value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
 
