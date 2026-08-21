@@ -350,6 +350,7 @@ def _replace_install(local_root: Path, source: Path, record: PackageRecord, *, f
     staged_target = stage_root / PLUGIN_NAME
     staged_state = stage_root / STATE_NAME
     backup = stage_root / "previous-install"
+    cleanup_stage = True
     try:
         shutil.copytree(source_resolved, staged_target)
         if _tree_files(staged_target, "copy_failed") != record["files"]:
@@ -370,20 +371,26 @@ def _replace_install(local_root: Path, source: Path, record: PackageRecord, *, f
             try:
                 os.replace(staged_target, target)
                 os.replace(staged_state, state_path)
-            except OSError:
-                if target.exists():
-                    _remove_exact_target(local_root, target)
-                os.replace(backup, target)
-                raise
+            except OSError as install_error:
+                try:
+                    if target.exists():
+                        _remove_exact_target(local_root, target)
+                    os.replace(backup, target)
+                except OSError as rollback_error:
+                    cleanup_stage = False
+                    recovery_path = f"{stage_root.name}/previous-install"
+                    raise CursorInstallError("rollback_failed", recovery_path) from rollback_error
+                raise install_error
     except CursorInstallError:
         raise
     except OSError as exc:
         raise CursorInstallError("install_failed", PLUGIN_NAME) from exc
     finally:
-        try:
-            shutil.rmtree(stage_root)
-        except OSError:
-            pass
+        if cleanup_stage:
+            try:
+                shutil.rmtree(stage_root)
+            except OSError:
+                pass
 
 
 def install(raw_local_root: Path, raw_source: Path) -> str:
