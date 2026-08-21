@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-21 - Completed quick task 260821-ebz: add a safe generated plugin pre-commit hook
+Last activity: 2026-08-21 - Completed quick task 260821-eku: move the QA experience guide to KCodeRag and add Cursor onboarding
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -84,6 +84,7 @@ None yet.
 | 260821-0r6 | 将 Cursor 更新说明同步到 QA 体验指南，并建立同次更新约束 | 2026-08-21 | d711b1a | [260821-0r6-synchronize-cursor-update-guidance-into-](./quick/260821-0r6-synchronize-cursor-update-guidance-into-/) |
 | 260821-dlq | 将首次 PreToolUse 更新检查改为后台异步刷新 | 2026-08-21 | 1b30aae, be7994c | [260821-dlq-make-the-kcoderag-first-pretooluse-updat](./quick/260821-dlq-make-the-kcoderag-first-pretooluse-updat/) |
 | 260821-ebz | 安全地在 pre-commit 生成 QA/Dev/Cursor 包并拒绝错配暂存 | 2026-08-21 | bbe8810, 57ac336 | [260821-ebz-add-a-safe-repository-pre-commit-hook-th](./quick/260821-ebz-add-a-safe-repository-pre-commit-hook-th/) |
+| 260821-eku | 删除本仓库指南副本，并在 KCodeRag 权威指南补齐 Cursor 接入与当前更新流程 | 2026-08-21 | e05aaa5 | [260821-eku-document-the-complete-cursor-onboarding-](./quick/260821-eku-document-the-complete-cursor-onboarding-/) |
 
 ## Deferred Items
 
