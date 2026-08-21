@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -u
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "Cannot locate the Git worktree for plugin generation." >&2
+  exit 1
+}
+helper="$repo_root/scripts/pre_commit_generate.py"
+
+if command -v python3 >/dev/null 2>&1 \
+  && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  exec python3 "$helper"
+fi
+
+if command -v python >/dev/null 2>&1 \
+  && python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  exec python "$helper"
+fi
+
+if command -v py >/dev/null 2>&1 \
+  && py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  exec py -3 "$helper"
+fi
+
+echo "KCodeRag plugin generation requires Python 3.10 or newer." >&2
+exit 1
