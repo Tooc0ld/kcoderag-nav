@@ -11,7 +11,7 @@
       "name": "kcoderag-nav",
       "source": "kcoderag-cursor",
       "description": "Graph-first navigation through one configured internal KCodeRag environment.",
-      "version": "0.1.3+cursor.2af4cc56a09a4036",
+      "version": "0.1.4+cursor.b142549ea49d4c96",
       "category": "Developer Tools",
       "keywords": [
         "code-navigation",
