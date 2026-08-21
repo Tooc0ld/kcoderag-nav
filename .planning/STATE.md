@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-21 - Completed quick task 260821-flg: add a free Cursor local-plugin lifecycle
+Last activity: 2026-08-21 - Completed quick task 260821-g07: release QA, Dev, and Cursor plugins as 0.1.3
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -86,6 +86,7 @@ None yet.
 | 260821-ebz | 安全地在 pre-commit 生成 QA/Dev/Cursor 包并拒绝错配暂存 | 2026-08-21 | bbe8810, 57ac336 | [260821-ebz-add-a-safe-repository-pre-commit-hook-th](./quick/260821-ebz-add-a-safe-repository-pre-commit-hook-th/) |
 | 260821-eku | 删除本仓库指南副本，并在 KCodeRag 权威指南补齐 Cursor 接入与当前更新流程 | 2026-08-21 | e05aaa5 | [260821-eku-document-the-complete-cursor-onboarding-](./quick/260821-eku-document-the-complete-cursor-onboarding-/) |
 | 260821-flg | 为免费 Cursor 用户增加 local 插件 install/status/update/uninstall，并更新权威指南 | 2026-08-21 | b284819 | [260821-flg-add-a-free-cursor-local-plugin-installer](./quick/260821-flg-add-a-free-cursor-local-plugin-installer/) |
+| 260821-g07 | 将 QA/Dev/Cursor 基础版本升级到 0.1.3，验证并推送累计本地改动 | 2026-08-21 | 71f6778 | [260821-g07-bump-plugin-base-version-to-0-1-3-regene](./quick/260821-g07-bump-plugin-base-version-to-0-1-3-regene/) |
 
 ## Deferred Items
 
