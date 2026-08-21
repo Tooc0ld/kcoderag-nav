@@ -472,6 +472,33 @@ class GenerationTests(unittest.TestCase):
             for operational_doc in (root_readme, qa_guide):
                 self.assertIn(cursor_update_contract, operational_doc)
 
+        cursor_onboarding_contracts = (
+            "### 管理员：接入 Team Marketplace",
+            "Teams 或 Enterprise",
+            "Dashboard → Integrations",
+            "Selected repositories",
+            "Dashboard → Plugins → Team Marketplaces → Add Marketplace",
+            "Tooc0ld/kcoderag-nav",
+            "`.cursor-plugin/marketplace.json`",
+            "Marketplace Access",
+            "### 开发者：按项目安装 QA",
+            "选择 **Install → project scope**",
+            "接受内置 QA 默认配置",
+            "通用 MCP server `kcoderag`",
+            "`list_indexes`",
+            "`search_code`",
+            "### 切换 Dev、卸载与本地 fallback",
+            "`KCODERAG_MCP_URL`",
+            "`KCODERAG_BEARER_TOKEN`",
+            "必须成对",
+            "QA 与 Dev 不能共存",
+            "**Uninstall**",
+            "%USERPROFILE%\\.cursor\\plugins\\local\\kcoderag-nav",
+            "https://cursor.com/docs/plugins",
+        )
+        for cursor_onboarding_contract in cursor_onboarding_contracts:
+            self.assertIn(cursor_onboarding_contract, qa_guide)
+
         guide_sync_policy = "影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更"
         self.assertIn(guide_sync_policy, qa_guide)
         self.assertIn(
