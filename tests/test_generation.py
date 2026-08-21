@@ -414,6 +414,9 @@ class GenerationTests(unittest.TestCase):
         for update_contract in (
             "首次相关 `PreToolUse`",
             "24 小时",
+            "后台刷新",
+            "当前工具调用不等待网络",
+            "下一次相关 `PreToolUse`",
             "旧版安装",
             "git pull --ff-only",
             "python scripts/manage_project_install.py update --target PATH",
@@ -434,6 +437,9 @@ class GenerationTests(unittest.TestCase):
         for update_contract in (
             "首次相关 `PreToolUse`",
             "24 小时",
+            "后台刷新",
+            "当前工具调用不等待网络",
+            "下一次相关 `PreToolUse`",
             "旧版安装",
             "git pull --ff-only",
             "python scripts/manage_project_install.py update --target PATH",
@@ -488,6 +494,9 @@ class GenerationTests(unittest.TestCase):
             package_readme = (package / "README.md").read_text(encoding="utf-8")
             self.assertIn("first relevant `PreToolUse`", package_readme)
             self.assertIn("24-hour", package_readme)
+            self.assertIn("detached background refresh", package_readme)
+            self.assertIn("never waits for network", package_readme)
+            self.assertIn("next relevant `PreToolUse`", package_readme)
             self.assertIn("ordinary marketplace users", package_readme)
             self.assertIn("optional repository-checkout safety wrapper", package_readme)
             self.assertIn(
