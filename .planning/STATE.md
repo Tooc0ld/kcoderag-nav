@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 1 of 3 (QA 优先的可重复插件包)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-08-21 - Completed quick task 260821-eku: move the QA experience guide to KCodeRag and add Cursor onboarding
+Last activity: 2026-08-21 - Completed quick task 260821-flg: add a free Cursor local-plugin lifecycle
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -55,7 +55,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 1]: 一份规范源生成两个自包含环境包；只读检查负责发现产物漂移。
 - [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，QA/Dev 互斥，切换前必须显式卸载。
 - [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；hook 不创建 marker。
-- [Cursor]: 只发布一个可配置环境的 `kcoderag-nav`，使用单 MCP server、共享 skill 与 always-on Rule；私有 project scope 且 Default Off。
+- [Cursor]: 只发布一个可配置环境的 `kcoderag-nav`，使用单 MCP server、共享 skill 与 always-on Rule；默认通过免费 local 目录安装器分发，付费 Team Marketplace 仅为可选路径。
 
 ### Pending Todos
 
@@ -65,7 +65,7 @@ None yet.
 
 - 现有插件文件存在未提交修改；后续工作必须保留并适配这些修改。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
-- Cursor 扩大分发前应把内置 Bearer 默认值迁移到 Team Marketplace 管理员配置；Cloud Agent 还需单独确认内部网络可达性。
+- Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
 
 ### Quick Tasks Completed
 
@@ -85,6 +85,7 @@ None yet.
 | 260821-dlq | 将首次 PreToolUse 更新检查改为后台异步刷新 | 2026-08-21 | 1b30aae, be7994c | [260821-dlq-make-the-kcoderag-first-pretooluse-updat](./quick/260821-dlq-make-the-kcoderag-first-pretooluse-updat/) |
 | 260821-ebz | 安全地在 pre-commit 生成 QA/Dev/Cursor 包并拒绝错配暂存 | 2026-08-21 | bbe8810, 57ac336 | [260821-ebz-add-a-safe-repository-pre-commit-hook-th](./quick/260821-ebz-add-a-safe-repository-pre-commit-hook-th/) |
 | 260821-eku | 删除本仓库指南副本，并在 KCodeRag 权威指南补齐 Cursor 接入与当前更新流程 | 2026-08-21 | e05aaa5 | [260821-eku-document-the-complete-cursor-onboarding-](./quick/260821-eku-document-the-complete-cursor-onboarding-/) |
+| 260821-flg | 为免费 Cursor 用户增加 local 插件 install/status/update/uninstall，并更新权威指南 | 2026-08-21 | b284819 | [260821-flg-add-a-free-cursor-local-plugin-installer](./quick/260821-flg-add-a-free-cursor-local-plugin-installer/) |
 
 ## Deferred Items
 
