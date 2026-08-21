@@ -128,6 +128,24 @@ Cursor 只分发一个配置单一环境的 `kcoderag-nav` 私有插件。团队
 符号链接时更新源 checkout 并重新生成；使用复制方式时需重新复制 `kcoderag-cursor/`，然后
 重启 Cursor 或执行 **Developer: Reload Window**。
 
+### 维护者提交与 Cursor 版本生成
+
+仓库维护者在每个 clone 中执行一次：
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+此后 `git commit` 会先运行等价于 `python scripts/generate_plugins.py --write` 的流程，统一
+刷新 QA、Dev 与 Cursor 的确定性内容哈希。生成物变化时提交会中止，hook 不会自动执行 `git add`；
+检查并暂存生成物后再提交。规范源若同时包含已暂存和未暂存改动，也会在生成前
+被拒绝，避免提交错配。
+
+基础 SemVer 仍由维护者显式修改 `plugin-src/version.txt`，pre-commit 不自动升级它。Cursor
+本地包由上述生成器刷新；已安装用户通过 **Team Marketplace Auto Refresh** 或管理员手动
+**Refresh** 获取 push 后的更新，不需要自定义运行时更新 hook。使用本地复制目录时仍须重新
+复制并 reload。
+
 ## 查询与环境选择
 
 QA 插件提供 `search_code`、`context`、`get_call_chain`、`list_indexes`、`cypher` 与

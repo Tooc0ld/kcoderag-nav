@@ -177,6 +177,28 @@ Cursor 的 `preToolUse` hook 不能在工具执行前注入 advisory context，�
 现有 hook，而使用精简的 always-on Rule 加共享 skill。该 Rule 仍明确允许精确字符串、未提交
 改动，以及索引不可用或陈旧时的本地搜索回退。
 
+## 维护者提交前生成
+
+本仓库提供版本化的 `.githooks/pre-commit`。每个新 clone 需要显式启用一次：
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+之后每次 `git commit` 都会先运行等价于
+`python scripts/generate_plugins.py --write` 的确定性生成流程，同时刷新 QA、Dev 与 Cursor
+的内容哈希版本。若生成物发生变化，本次提交会中止；hook 不会自动执行 `git add`。请检查
+差异、暂存生成物，再重新提交。若规范源存在“部分已暂存、部分未暂存”的状态，hook 会在
+生成前拒绝，避免规范源与提交中的包不一致。
+
+这个 hook 只刷新 `+codex.<hash>` / `+cursor.<hash>`，不会自动修改
+`plugin-src/version.txt` 的基础 SemVer；需要发布新的基础版本时仍由维护者显式修改。CI 继续
+只运行 `--check`，不会替开发者生成、提交或 push 文件。
+
+Cursor 的本地内容哈希也由同一个生成器维护；Team Marketplace 中已安装插件的用户仍通过
+**Team Marketplace Auto Refresh**（或管理员手动 **Refresh**）感知 push 后的新版本，
+不需要自定义运行时更新 hook。本地复制安装则仍需重新复制 `kcoderag-cursor/` 并 reload。
+
 ## 纯 MCP 安装
 
 纯 MCP 安装只连接 MCP server，不包含 plugin hook、skill 或 agent 行为。它适合只需要协议工具
