@@ -247,6 +247,37 @@ class CursorLocalInstallTests(unittest.TestCase):
 
             self.assertEqual(snapshot_tree(local_root), before)
 
+    def test_rollback_failure_keeps_previous_tree_for_manual_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            local_root = base / "local"
+            source = copy_source(base)
+            installer.install(local_root, source)
+            source_readme = source / "README.md"
+            source_readme.write_bytes(source_readme.read_bytes() + b"\nnew source\n")
+
+            real_replace = os.replace
+            calls = 0
+
+            def fail_install_and_rollback(source_path: object, target_path: object) -> None:
+                nonlocal calls
+                calls += 1
+                if calls in {2, 3}:
+                    raise OSError("synthetic replace failure")
+                real_replace(source_path, target_path)
+
+            with mock.patch.object(
+                installer.os, "replace", side_effect=fail_install_and_rollback
+            ):
+                with self.assertRaisesRegex(installer.CursorInstallError, "rollback_failed"):
+                    installer.update(local_root, source)
+
+            recovery_trees = list(local_root.glob(".kcoderag-nav-stage-*/previous-install"))
+            self.assertEqual(len(recovery_trees), 1)
+            self.assertTrue(
+                recovery_trees[0].joinpath(*installer.MANIFEST_RELATIVE.split("/")).is_file()
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
