@@ -30,6 +30,21 @@ def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 class PreCommitGenerationTests(unittest.TestCase):
+    def test_maintainer_docs_define_generation_and_cursor_update_boundaries(self) -> None:
+        documents = (
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            (ROOT / "MCP_QA_EXPERIENCE_GUIDE.md").read_text(encoding="utf-8"),
+        )
+
+        for document in documents:
+            self.assertIn("git config core.hooksPath .githooks", document)
+            self.assertIn("scripts/generate_plugins.py --write", document)
+            self.assertIn("plugin-src/version.txt", document)
+            self.assertIn("不会自动执行 `git add`", document)
+            self.assertIn("QA、Dev 与 Cursor", document)
+            self.assertIn("Team Marketplace Auto Refresh", document)
+            self.assertIn("不需要自定义运行时更新 hook", document)
+
     def test_versioned_hook_invokes_helper_without_auto_staging(self) -> None:
         hook = HOOK.read_text(encoding="utf-8")
         lowered = hook.lower()
