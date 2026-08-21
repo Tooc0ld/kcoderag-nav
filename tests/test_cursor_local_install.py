@@ -142,7 +142,7 @@ class CursorLocalInstallTests(unittest.TestCase):
             self.assertIn("managed_content_changed", refused.stderr)
             self.assertEqual(snapshot_tree(local_root), before)
 
-    def test_unmanaged_target_and_symlink_are_never_overwritten_or_removed(self) -> None:
+    def test_unmanaged_target_is_never_overwritten_or_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             source = copy_source(base)
@@ -158,11 +158,15 @@ class CursorLocalInstallTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2)
                     self.assertEqual(snapshot_tree(unmanaged_root), before)
 
+    def test_symlink_target_is_never_followed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = copy_source(base)
+            link_root = base / "symlink-root"
+            outside = base / "outside"
+            outside.mkdir()
+            link_root.mkdir()
             if hasattr(os, "symlink"):
-                link_root = base / "symlink-root"
-                outside = base / "outside"
-                outside.mkdir()
-                link_root.mkdir()
                 try:
                     os.symlink(outside, link_root / "kcoderag-nav", target_is_directory=True)
                 except OSError:
@@ -171,6 +175,8 @@ class CursorLocalInstallTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("symlink_target", result.stderr)
                 self.assertEqual(snapshot_tree(outside), {})
+            else:
+                self.skipTest("symlinks are unavailable on this host")
 
     def test_uninstall_requires_unchanged_owned_tree_and_removes_exact_install(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
