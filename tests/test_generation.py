@@ -351,8 +351,13 @@ class GenerationTests(unittest.TestCase):
                     by_id[environment]["server_name"]
                 ]
                 codex_mcp = json.loads((package / ".codex.mcp.json").read_text(encoding="utf-8"))
-                self.assertEqual(set(codex_mcp), {"mcp_servers"}, "Codex MCP must use the mcp_servers wrapper")
-                codex_entry = codex_mcp["mcp_servers"][by_id[environment]["server_name"]]
+                server_name = by_id[environment]["server_name"]
+                self.assertEqual(
+                    set(codex_mcp),
+                    {server_name},
+                    "Codex MCP must use a direct server map for older host compatibility",
+                )
+                codex_entry = codex_mcp[server_name]
                 self.assertEqual(set(codex_entry), {"url", "http_headers"})
                 self.assertEqual(codex_entry["url"], source_entry["url"])
                 self.assertEqual(codex_entry["http_headers"], source_entry["http_headers"])
