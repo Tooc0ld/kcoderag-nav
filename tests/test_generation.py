@@ -445,18 +445,18 @@ class GenerationTests(unittest.TestCase):
             self.assertIn(update_contract, root_readme)
         self.assertNotIn("SessionStart", root_readme)
 
-        self.assertIn("Cursor 私有插件", root_readme)
+        self.assertIn("Cursor 免费本地插件", root_readme)
         self.assertIn("~/.cursor/plugins/local/kcoderag-nav", root_readme)
-        self.assertIn("Default Off", root_readme)
-        self.assertIn("project scope", root_readme)
         self.assertIn("不要在本仓库中安装", root_readme)
         cursor_update_contracts = (
-            "Enable Auto Refresh",
-            "Cursor GitHub App",
-            "最多每 10 分钟",
-            "手动点击 **Refresh**",
-            "Default Off 只控制是否默认安装",
-            "重新复制 `kcoderag-cursor/`",
+            "不需要 Cursor Team",
+            "python scripts/manage_cursor_local_install.py install",
+            "python scripts/manage_cursor_local_install.py status --json",
+            "python scripts/manage_cursor_local_install.py update",
+            "python scripts/manage_cursor_local_install.py uninstall",
+            "Developer: Reload Window",
+            "git pull --ff-only",
+            "Team Marketplace 只是付费可选路径",
         )
         for cursor_update_contract in cursor_update_contracts:
             self.assertIn(cursor_update_contract, root_readme)
@@ -588,12 +588,14 @@ class GenerationTests(unittest.TestCase):
 
         package_readme = (package / "README.md").read_text(encoding="utf-8")
         for cursor_update_contract in (
-            "Enable Auto Refresh",
-            "Cursor GitHub App",
-            "at most once every 10 minutes",
-            "manually select **Refresh**",
-            "Default Off controls initial installation",
-            "copy `kcoderag-cursor/` again",
+            "Free local installation",
+            "does not require Cursor Team",
+            "python scripts/manage_cursor_local_install.py install",
+            "python scripts/manage_cursor_local_install.py status --json",
+            "python scripts/manage_cursor_local_install.py update",
+            "python scripts/manage_cursor_local_install.py uninstall",
+            "Developer: Reload Window",
+            "Paid Team Marketplace",
         ):
             self.assertIn(cursor_update_contract, package_readme)
 

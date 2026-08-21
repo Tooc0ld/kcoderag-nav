@@ -39,8 +39,8 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertIn("plugin-src/version.txt", document)
             self.assertIn("不会自动执行 `git add`", document)
             self.assertIn("QA、Dev 与 Cursor", document)
-            self.assertIn("Team Marketplace Auto Refresh", document)
-            self.assertIn("不需要自定义运行时更新 hook", document)
+            self.assertIn("scripts/manage_cursor_local_install.py update", document)
+            self.assertIn("不需要 Cursor Team", document)
 
     def test_versioned_hook_invokes_helper_without_auto_staging(self) -> None:
         hook = HOOK.read_text(encoding="utf-8")
