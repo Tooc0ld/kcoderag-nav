@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-26-PLAN.md
-last_updated: "2026-08-23T14:59:58.114Z"
+stopped_at: Completed 03.1-07-PLAN.md
+last_updated: "2026-08-23T15:18:19.695Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: e64a1a3db53a393d6dd01c0b4776ec881a35e635
+state_head: 4631652094f648e5f62bece67e2520e33d75c657
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 10
+  completed_plans: 11
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 8 of 27
+Plan: 9 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -67,6 +67,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P22 | 8min | 3 tasks | 4 files |
 | Phase 03.1 P08 | 9min | 2 tasks | 4 files |
 | Phase 03.1 P26 | 12min | 2 tasks | 5 files |
+| Phase 03.1 P07 | 9min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: HostAdapter methods remain read/render-only; executeCommand is the sole adapter-to-applyTransaction bridge.
 - [Phase 03.1]: JSON mutations require explicit host and --yes, while status and doctor remain read-only and report runtime issues.
 - [Phase 03.1]: Cursor legacy user-removal authority is independent from --yes and is forwarded only to Cursor mutations.
+- [Phase 03.1]: Codex current state uses exact environment-specific ownership sets; ambiguous or partial ownership is invalid. — Exact ownership is required before safe update, uninstall, or legacy replacement.
+- [Phase 03.1]: Legacy parsing is host-neutral and receives allowed and required paths from the Codex adapter. — This rejects unknown owners without leaking Codex paths into the shared transaction core.
+- [Phase 03.1]: Legacy migration deletes only digest-confirmed Python runtime files and preserves unowned local files. — Deletion authority comes solely from verified installer state.
 
 ### Pending Todos
 
@@ -160,6 +164,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T14:59:57.945Z
-Stopped at: Completed 03.1-26-PLAN.md
+Last session: 2026-08-23T15:18:19.538Z
+Stopped at: Completed 03.1-07-PLAN.md
 Resume file: None
