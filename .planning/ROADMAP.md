@@ -78,24 +78,24 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal:** 用户可在 Node.js 22+ 环境中通过统一 npx CLI，将无 Python 运行时依赖的 KCodeRag Nav 项目集成安全地安装、诊断、更新或卸载到 Codex、Claude Code 与 Cursor。
 **Requirements**: JS-01, JS-02, JS-03, JS-04, JS-05, JS-06, JS-07, JS-08
 **Depends on:** Phase 3
-**Plans:** 28 plans across 21 waves
+**Plans:** 28 plans across 25 waves
 
 Plans:
 
 - [ ] 03.1-01-PLAN.md — 人工接受 exact npm 图与包名契约，建立机器审计并跑通 Codex QA tracer
 - [ ] 03.1-02-PLAN.md — 提炼宿主无关路径、状态与原子事务核心
 - [ ] 03.1-03-PLAN.md — 行为等价迁移 advisory hook 与双平台 fail-open launcher
-- [ ] 03.1-04-PLAN.md — 完成 Claude Code、Cursor adapter 与跨宿主隔离
-- [ ] 03.1-05-PLAN.md — 迁移 pre-commit、真实 pack 审计与四 lane required CI
+- [ ] 03.1-04-PLAN.md — 完成 Claude/Cursor adapter、授权式 Cursor legacy 迁移与跨宿主隔离
+- [ ] 03.1-05-PLAN.md — 迁移 index-byte-preserving pre-commit、真实 pack 审计与四 lane required CI
 - [ ] 03.1-06-PLAN.md — 迁移诚实三态 host smoke 与 loopback MCP 收据
 - [ ] 03.1-07-PLAN.md — 完成 Codex 生命周期与旧 Python install-state 安全迁移
 - [ ] 03.1-08-PLAN.md — 实现前台零网络、后台有界的 npm latest 检查
-- [ ] 03.1-09-PLAN.md — 实现按产品运行的确定性 Node generator
+- [ ] 03.1-09-PLAN.md — 实现按产品与 exact asset group 运行的确定性 Node generator
 - [ ] 03.1-10-PLAN.md — 生成自包含 QA CJS hook/runtime 树
 - [ ] 03.1-11-PLAN.md — 生成独立 Dev CJS hook/runtime 树
 - [ ] 03.1-12-PLAN.md — 生成 Cursor Rule/skill/MCP 项目资产
 - [ ] 03.1-13-PLAN.md — 建立 release helper 与 matching-tag npm publish workflow
-- [ ] 03.1-14-PLAN.md — 最终人工授权并以 receipt 验证首次公共 npm 发布
+- [ ] 03.1-14-PLAN.md — 最终人工授权 exact seven-path bump 并以 receipt 验证首次公共 npm 发布
 - [ ] 03.1-15-PLAN.md — 建立退役状态机并持久化不可跳过的 pre-parity receipt
 - [ ] 03.1-16-PLAN.md — 复验 receipt 后退役规范源与 QA Python runtime
 - [ ] 03.1-17-PLAN.md — 分组退役 Python maintainer scripts
