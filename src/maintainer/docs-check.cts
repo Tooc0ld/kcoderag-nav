@@ -211,7 +211,9 @@ function inspectFile(
     }
 
     const fence = /^\s*(```+|~~~+)/.test(line);
-    const inspectAsCommand = inFence || (activeSection && !historySection);
+    // Planning artifacts describe both sides of a migration. Only executable fences are active there;
+    // user and project documentation additionally treat installation prose as active instructions.
+    const inspectAsCommand = inFence || (policy !== "planning" && activeSection && !historySection);
     if (fence) inFence = !inFence;
     if (line === "") continue;
 
@@ -243,7 +245,8 @@ function inspectFile(
       addDiagnostic(diagnostics, "invalid_npx_command", displayPath, lineNumber);
     }
     for (const host of line.matchAll(/--host(?:=|\s+)([^\s`"']+)/gi)) {
-      if (!new Set(["codex", "claude", "cursor"]).has((host[1] ?? "").toLowerCase())) {
+      const values = (host[1] ?? "").toLowerCase().split("|");
+      if (values.length === 0 || values.some((value) => !new Set(["codex", "claude", "cursor"]).has(value))) {
         addDiagnostic(diagnostics, "invalid_host_flag", displayPath, lineNumber);
       }
     }

@@ -3,6 +3,7 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 
 type Policy = "user-docs" | "project-instructions" | "planning" | "sibling-guide";
 
@@ -40,6 +41,27 @@ function errorCode(error: unknown): string | undefined {
   return error instanceof Error && "code" in error
     ? String((error as Error & { code: unknown }).code)
     : undefined;
+}
+
+interface CliResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function runCli(args: readonly string[]): CliResult {
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [path.resolve("dist/maintainer/docs-check.cjs"), ...args],
+    { cwd: path.resolve("."), encoding: "utf8" },
+  );
+  assert.equal(result.error, undefined);
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+function cliPayload(result: CliResult): Record<string, unknown> {
+  const raw = result.stdout.trim() || result.stderr.trim();
+  return JSON.parse(raw) as Record<string, unknown>;
 }
 
 test("accepts valid scoped user documentation and local Markdown links", () => {
@@ -187,5 +209,58 @@ test("rejects empty scope, traversal, absolute repo paths, and symlink input bef
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("compiled CLI accepts every repository policy with explicit scoped paths", () => {
+  const repositoryRoot = path.resolve(".");
+  const fixtureRoot = fs.mkdtempSync(path.join(repositoryRoot, ".docs-check-cli-"));
+  const relativeRoot = path.relative(repositoryRoot, fixtureRoot).replace(/\\/g, "/");
+  try {
+    write(fixtureRoot, "user.md", "# Install\n\nRequires Node.js 22+.\n```sh\nnpx kcoderag-nav@latest status --host codex\n```\n");
+    write(fixtureRoot, "instructions.md", "# Project rules\n\nCursor uses a Rule, not a hook.\n");
+    write(fixtureRoot, "planning.md", "# Migration history\n\nThe former Python path is historical.\n");
+
+    for (const [policy, file] of [
+      ["user-docs", "user.md"],
+      ["project-instructions", "instructions.md"],
+      ["planning", "planning.md"],
+    ] as const) {
+      const result = runCli(["--policy", policy, `${relativeRoot}/${file}`]);
+      assert.equal(result.status, 0, `${policy}: ${result.stderr}`);
+      assert.deepEqual(cliPayload(result), { ok: true, checkedFiles: 1 });
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("compiled CLI rejects unknown arguments, empty scope, and absolute repository paths", () => {
+  const cases: readonly [readonly string[], string][] = [
+    [["--policy", "planning"], "empty_scope"],
+    [["--policy", "unknown", "README.md"], "unknown_policy"],
+    [["--wat", "README.md"], "unknown_flag"],
+    [["--policy", "planning", path.resolve("README.md")], "absolute_path_not_allowed"],
+  ];
+  for (const [args, expectedCode] of cases) {
+    const result = runCli(args);
+    assert.equal(result.status, 2);
+    assert.equal(cliPayload(result).code, expectedCode);
+  }
+});
+
+test("sibling policy accepts only the one authoritative guide path", () => {
+  const authoritative = path.resolve("../KCodeRag/MCP_QA_EXPERIENCE_GUIDE.md");
+  const accepted = runCli(["--policy", "sibling-guide", authoritative]);
+  assert.notEqual(accepted.status, 2, accepted.stderr);
+  assert.notEqual(cliPayload(accepted).code, "invalid_sibling_scope");
+
+  for (const args of [
+    ["--policy", "sibling-guide", path.resolve("README.md")],
+    ["--policy", "sibling-guide", authoritative, path.resolve("README.md")],
+  ]) {
+    const rejected = runCli(args);
+    assert.equal(rejected.status, 2);
+    assert.equal(cliPayload(rejected).code, "invalid_sibling_scope");
   }
 });
