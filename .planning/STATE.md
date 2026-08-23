@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-03-PLAN.md
-last_updated: "2026-08-23T14:21:58.604Z"
+stopped_at: Completed 03.1-22-PLAN.md
+last_updated: "2026-08-23T14:33:33.892Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: a9e1fe8e2dcb0b2e81656bfa17ef128d482cd1e6
+state_head: d184b9f202e927071b76dd0bd25d9682451dd4fd
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 7
-  percent: 23
+  completed_plans: 8
+  percent: 27
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 5 of 27
+Plan: 6 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [██░░░░░░░░] 23%
+Progress: [███░░░░░░░] 27%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [██░░░░░░░░] 23%
 | Phase 03.1 P01 | 19min | 3 tasks | 9 files |
 | Phase 03.1 P02 | 12min | 2 tasks | 6 files |
 | Phase 03.1 P03 | 12min | 2 tasks | 7 files |
+| Phase 03.1 P22 | 8min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Phase 03.1 Plan 03 preserves the Python hook heuristic exactly in TypeScript/CJS; precision policy remains deferred to Phase 5.
 - [Phase 03.1]: Windows combines the Node 22 probe and hook invocation in one process so cmd.exe cannot consume redirected hook stdin before main runs.
 - [Phase 03.1]: Legacy Python generation defers only within the ordered CJS launcher migration and still hard-gates unrelated canonical or partial-staging changes.
+- [Phase 03.1]: Planning docs scan only fenced commands as active instructions; user/project docs also scan active install/update sections.
+- [Phase 03.1]: Sibling-guide scans accept exactly the authoritative KCodeRag guide; repository policies accept explicit relative paths only.
+- [Phase 03.1]: Sibling receipts bind the guide-only commit parent to baseline HEAD and verify a reproducible baseline evidence digest.
 
 ### Pending Todos
 
@@ -148,6 +152,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T14:21:58.449Z
-Stopped at: Completed 03.1-03-PLAN.md
+Last session: 2026-08-23T14:33:33.743Z
+Stopped at: Completed 03.1-22-PLAN.md
 Resume file: None
