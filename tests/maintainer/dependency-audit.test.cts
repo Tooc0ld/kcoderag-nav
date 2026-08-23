@@ -114,6 +114,25 @@ test("rejects public package, runtime engine, bin, and compiled-script policy dr
     input.packageJson.scripts["unexpected"] = command;
     expectAuditError(input, "script_policy_drift");
   }
+
+  for (const mutate of [
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.scripts["ci:local"] =
+        "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit";
+    },
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.scripts["smoke:required"] =
+        "node dist/smoke/host-smoke.cjs --mode optional-live";
+    },
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.scripts["smoke:live"] =
+        "node dist/smoke/host-smoke.cjs --mode required-contract";
+    },
+  ]) {
+    const input = actualGraph();
+    mutate(input);
+    expectAuditError(input, "script_policy_drift");
+  }
 });
 
 test("rejects parent-edge, exact version, resolution, and integrity drift", () => {

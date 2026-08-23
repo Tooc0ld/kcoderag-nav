@@ -29,6 +29,7 @@ test("every required lane installs the lock without scripts and runs all gates",
     "npm test",
     "npm run generate:check",
     "npm run pack:audit",
+    "npm run smoke:required",
   ];
   let previous = -1;
   for (const command of commands) {
@@ -37,6 +38,18 @@ test("every required lane installs the lock without scripts and runs all gates",
     previous = index;
   }
   assert.doesNotMatch(source, /continue-on-error|\|\|\s*true|allow_failure/iu);
+  assert.equal(source.match(/run:\s*npm run smoke:required/gu)?.length, 1);
+});
+
+test("optional live smoke is isolated behind an explicit self-hosted workflow-dispatch gate", () => {
+  const source = workflow();
+  assert.match(
+    source,
+    /authenticated-live:[\s\S]*?if:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && vars\.KCODERAG_LIVE_SMOKE == 'enabled' \}\}/u,
+  );
+  assert.match(source, /runs-on:\s*\[self-hosted, kcoderag-live\]/u);
+  assert.match(source, /authenticated-live:[\s\S]*?run:\s*npm run smoke:live/u);
+  assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer/iu);
 });
 
 test("workflow is test-only on push and pull request with minimal authority", () => {
@@ -60,7 +73,15 @@ test("third-party actions are immutable pins and no CI script can publish", () =
   };
   assert.equal(
     packageJson.scripts["ci:local"],
-    "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit",
+    "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit && npm run smoke:required",
+  );
+  assert.equal(
+    packageJson.scripts["smoke:required"],
+    "node dist/smoke/host-smoke.cjs --mode required-contract",
+  );
+  assert.equal(
+    packageJson.scripts["smoke:live"],
+    "node dist/smoke/host-smoke.cjs --mode optional-live",
   );
   assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
   assert.doesNotMatch(packageJson.scripts["ci:local"] ?? "", /publish|release/iu);

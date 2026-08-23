@@ -134,7 +134,14 @@ function assertPackageAndScriptPolicy(packageJson: JsonMap): void {
   );
   throwUnless(
     packageJson.scripts["ci:local"] ===
-      "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit",
+      "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit && npm run smoke:required",
+    "script_policy_drift",
+  );
+  throwUnless(
+    packageJson.scripts["smoke:required"] ===
+      "node dist/smoke/host-smoke.cjs --mode required-contract" &&
+      packageJson.scripts["smoke:live"] ===
+        "node dist/smoke/host-smoke.cjs --mode optional-live",
     "script_policy_drift",
   );
 }
