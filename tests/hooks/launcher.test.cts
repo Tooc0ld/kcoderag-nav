@@ -49,7 +49,7 @@ function runWindows(
   return childProcess.spawnSync(
     comspec,
     ["/d", "/c", "call", path.join(fixture.hooks, "run_hook.cmd")],
-    { cwd: fixture.cwd, input, encoding: "utf8", timeout: 5_000, env },
+    { cwd: fixture.cwd, input: `${input}\n`, encoding: "utf8", timeout: 5_000, env },
   );
 }
 
@@ -111,8 +111,10 @@ test("hook registration is limited to the required PreToolUse tools and launcher
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
     assert.match(source, /grep-nudge\.cjs/);
+    assert.match(source, />= 22/);
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
+    assert.doesNotMatch(source, /%CD%|\$PWD/iu);
   }
 });
 
@@ -121,6 +123,11 @@ if (process.platform === "win32") {
     const fixture = deployment();
     try {
       assertProtocolResult(runWindows(fixture));
+      assertSilentSuccess(runWindows(fixture, "not-json"));
+      assertSilentSuccess(runWindows(fixture, JSON.stringify({
+        tool_name: "Bash",
+        tool_input: { command: "rg TODO logs" },
+      })));
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -150,6 +157,11 @@ if (shell !== undefined) {
     const fixture = deployment();
     try {
       assertProtocolResult(runPosix(shell, fixture));
+      assertSilentSuccess(runPosix(shell, fixture, "not-json"));
+      assertSilentSuccess(runPosix(shell, fixture, JSON.stringify({
+        tool_name: "Bash",
+        tool_input: { command: "rg TODO logs" },
+      })));
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }

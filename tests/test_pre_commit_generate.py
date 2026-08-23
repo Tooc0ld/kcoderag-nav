@@ -129,6 +129,44 @@ class PreCommitGenerationTests(unittest.TestCase):
                 generated_before,
             )
 
+    def test_legacy_generator_defers_only_the_ordered_node_launcher_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            isolated = Path(directory) / "repository"
+            shutil.copytree(
+                ROOT,
+                isolated,
+                ignore=shutil.ignore_patterns(".git", ".planning", "__pycache__", "*.pyc"),
+            )
+            self._initialize_repository(isolated)
+
+            launcher = isolated / "plugin-src" / "hooks" / "run_hook.sh"
+            launcher.write_text(
+                launcher.read_text(encoding="utf-8") + "\n# staged migration probe\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(run(["git", "add", launcher.as_posix()], cwd=isolated).returncode, 0)
+            generated = isolated / "kcoderag-qa" / "hooks" / "run_hook.sh"
+            generated_before = generated.read_bytes()
+
+            deferred = self._run_helper(isolated)
+
+            self.assertEqual(deferred.returncode, 0, deferred.stderr)
+            self.assertEqual(deferred.stdout, "")
+            self.assertEqual(generated.read_bytes(), generated_before)
+
+            canonical = isolated / "plugin-src" / "cursor" / "rules" / "kcoderag-navigation.mdc"
+            canonical.write_text(
+                canonical.read_text(encoding="utf-8") + "\nnon-launcher probe\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(run(["git", "add", canonical.as_posix()], cwd=isolated).returncode, 0)
+            not_deferred = self._run_helper(isolated)
+            self.assertEqual(not_deferred.returncode, 1)
+            self.assertEqual(
+                not_deferred.stderr.strip(),
+                "Generated plugin files changed. Review and git add them, then commit again.",
+            )
+
     def _initialize_repository(self, root: Path) -> None:
         commands = (
             ["git", "init", "-q"],

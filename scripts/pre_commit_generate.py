@@ -7,6 +7,7 @@ credentials, so subprocess output and file contents must never be relayed here.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,10 @@ GENERATED_PATHS = (
     "kcoderag-cursor",
     "kcoderag-update.json",
 )
+NODE_LAUNCHER_PATHS = {
+    "plugin-src/hooks/run_hook.cmd",
+    "plugin-src/hooks/run_hook.sh",
+}
 
 
 def _run(
@@ -71,6 +76,35 @@ def _path_state(root: Path, paths: tuple[str, ...]) -> bool | None:
     return tracked or untracked
 
 
+def _staged_canonical_paths(root: Path) -> set[str] | None:
+    result = _git(root, "diff", "--cached", "--name-only", "--", *CANONICAL_PATHS)
+    if result.returncode != 0:
+        return None
+    return {
+        line.replace(os.sep, "/")
+        for line in result.stdout.decode("utf-8", errors="surrogateescape").splitlines()
+        if line
+    }
+
+
+def _legacy_generation_is_deferred(root: Path) -> bool | None:
+    """Keep the Python generator dormant during the ordered Node runtime migration."""
+    if not (root / "scripts" / "generate_plugins.py").is_file():
+        return False
+    for relative_path in NODE_LAUNCHER_PATHS:
+        launcher = root / relative_path
+        try:
+            source = launcher.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return False
+        if "grep-nudge.cjs" not in source or "grep_nudge.py" in source:
+            return False
+    staged = _staged_canonical_paths(root)
+    if staged is None:
+        return None
+    return not staged or staged <= NODE_LAUNCHER_PATHS
+
+
 def _fail(message: str) -> int:
     print(message, file=sys.stderr)
     return 1
@@ -89,6 +123,12 @@ def main() -> int:
         return _fail(
             "Canonical generator inputs have unstaged changes. Stage or restore them first."
         )
+
+    generation_deferred = _legacy_generation_is_deferred(root)
+    if generation_deferred is None:
+        return _fail("Cannot inspect staged canonical generator inputs with Git.")
+    if generation_deferred:
+        return 0
 
     generator = root / "scripts" / "generate_plugins.py"
     generated = _run([sys.executable, str(generator), "--write"], root=root)
