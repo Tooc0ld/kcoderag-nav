@@ -1,24 +1,67 @@
-# KCodeRag Dev navigation plugin
+# KCodeRag Dev navigation assets
 
-KCodeRag Dev packages its internal MCP endpoint, a graph-first code-navigation
-skill, and a non-blocking lookup hook for both Claude Code and Codex.
+This generated tree contains the self-contained DEV assets consumed by the
+public `kcoderag-nav` project installer. It is not a standalone marketplace or checkout install
+source. Use Node.js 22 or newer and the public npm CLI.
 
-## Credentials
+## Install
 
-The shared DEV Bearer credential is bundled in this internal plugin,
-so installation requires no additional credential setup. Rotate the bundled value and
-bump the plugin version together when the credential changes.
-
-## Recommended project install
-
-From the marketplace repository, install into a trusted target project:
+Ordinary users omit `--environment` and receive QA. Dev is only for development and testing and
+must be selected explicitly. This tree represents DEV; install that environment
+into one selected host with:
 
 ```powershell
-python scripts/manage_project_install.py install --target PATH --environment dev
+npx kcoderag-nav@latest install --host codex --environment dev
+npx kcoderag-nav@latest install --host claude --environment dev
+npx kcoderag-nav@latest install --host cursor --environment dev
 ```
 
-The project installer writes only managed files under the target project's `.codex/`
-and `.agents/` directories.
+Without `--host`, the CLI interactively offers Codex, Claude Code, and Cursor. Automation should
+pass `--host codex|claude|cursor` and `--yes`. The target defaults to the current directory; use
+`--target PATH` to choose another project. Every mutation displays the normalized absolute target
+before confirmation and manages only the selected host.
+
+The hosts use their native project locations:
+
+- Codex: `.codex/` and `.agents/skills/`.
+- Claude Code: `.claude/settings.json`, `.claude/skills/`, and the KCodeRag section in root
+  `.mcp.json`.
+- Cursor: `.cursor/rules/`, `.cursor/skills/`, and the KCodeRag section in `.cursor/mcp.json`.
+
+QA and Dev are mutually exclusive only within one host. The installer never switches environments
+or uninstalls another host automatically. To switch, explicitly uninstall the current environment
+for that host, then install the other one. Independent installations for different hosts can
+coexist in the same project.
+
+## Lifecycle
+
+Use the same public `@latest` entry for every lifecycle command:
+
+```powershell
+npx kcoderag-nav@latest install --host codex --environment dev
+npx kcoderag-nav@latest status --host codex
+npx kcoderag-nav@latest doctor --host codex
+npx kcoderag-nav@latest update --host codex --environment dev
+npx kcoderag-nav@latest uninstall --host codex --environment dev
+```
+
+`status` and `doctor` are read-only. `update` preserves the selected environment. Update and
+uninstall refuse drift, symlinks, special files, and ambiguous ownership before any project write;
+failed transactions restore the selected host without touching the other hosts.
+
+After install or update, open a new Codex thread or Claude Code session, or reload the Cursor
+window. A first `npx` acquisition failure cannot write the project because the CLI has not started.
+
+## Behavior
+
+- `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and `submit_feedback` come
+  from the selected MCP server.
+- Structural symbol and call-relation searches are nudged toward KCodeRag.
+- Exact-string replacement and verification of uncommitted edits stay local.
+- Codex and Claude Code use an advisory, fail-open `PreToolUse` hook. Hook failures never block the
+  original command.
+- Cursor uses an always-on Rule, shared skill, and MCP configuration; it does not claim an
+  equivalent `PreToolUse` hook.
 
 ## Environment selection
 
@@ -33,76 +76,19 @@ If the installed KCodeRag environment is unreachable, report it instead of query
 the other environment. Local search remains an explicit fallback when the index is
 unavailable or stale.
 
-## Optional user-level Codex install
+## Update awareness
+
+The installed Codex and Claude Code hooks run offline. On the first eligible event in a session,
+the foreground path reads only bounded local update state and may schedule a detached npm Registry
+refresh. It never waits for network I/O. Network, cache, lock, schema, or worker failures silently
+fail open. An available update is advisory and points to:
 
 ```powershell
-codex plugin marketplace add Tooc0ld/kcoderag-nav
-codex plugin add kcoderag-dev@kcoderag-nav
+npx kcoderag-nav@latest update
 ```
 
-This optional path is user-level. Codex does not currently provide a native
-project-scoped plugin installation command. Current plugin manifests do not enforce
-conflicts, so uninstall or disable the other KCodeRag environment before using this path.
+## Internal profile boundary
 
-## Install in Claude Code
-
-```text
-/plugin marketplace add Tooc0ld/kcoderag-nav
-/plugin install kcoderag-dev@kcoderag-nav
-```
-
-## Behavior
-
-- `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and
-  `submit_feedback` come from the selected MCP server.
-- Structural symbol and call-relation searches are nudged toward KCodeRag.
-- Exact-string replacement and verification of uncommitted edits stay local.
-- Hook failures are advisory and fail open; they never block a command.
-
-## Update awareness and application
-
-A push to `master` does not replace an already installed plugin cache. An older install
-without the checker must be manually refreshed once before it can detect later releases.
-
-The checker reads only local cache state on the first relevant `PreToolUse` (`Grep`,
-`Glob`, or `Bash`) for a session. A fresh cache is compared immediately. A missing or
-stale cache starts a detached background refresh, so the current tool call never waits for network
-I/O. The worker keeps the fixed URL, 1.5-second timeout, strict schema, and
-atomic cache write; the next relevant `PreToolUse` in the same session can consume the
-result, or a later session will. The strict 24-hour cache is reused across sessions. Network,
-process-launch, schema, lock, and cache errors silently fail open. A notice is advisory
-only: it asks for user confirmation and does not update automatically.
-
-The primary path for ordinary marketplace users is the native host CLI. These commands
-run from any directory and do not require a repository checkout:
-
-```powershell
-codex plugin marketplace upgrade kcoderag-nav --json
-codex plugin add kcoderag-dev@kcoderag-nav --json
-
-claude plugin marketplace update kcoderag-nav
-claude plugin update kcoderag-dev@kcoderag-nav --scope project
-```
-
-With a checkout of this repository, the optional repository-checkout safety wrapper
-provides the same ordered operations with stable failure output:
-
-```powershell
-python scripts/update_plugin.py --host codex --environment dev
-python scripts/update_plugin.py --host claude --environment dev
-```
-
-Project-installed updates still require a repository checkout. Update it and then
-refresh the managed files without changing environments:
-
-```powershell
-git pull --ff-only
-python scripts/manage_project_install.py update --target PATH
-```
-
-Start a new Codex thread or Claude session after a successful update. QA and Dev remain
-mutually exclusive; switching environments still requires uninstalling the current one.
-
-The endpoint currently uses internal HTTP plus the bundled shared Bearer credential and
-is intended for the current DEV network only. The credential value is
-not printed by the generator or installer.
+The internal DEV connection profile includes its shared Bearer credential, so
+QA/Dev testing requires no additional credential setup. The value remains opaque: generation,
+installation, status, diagnostics, tests, and documentation must never print it.
