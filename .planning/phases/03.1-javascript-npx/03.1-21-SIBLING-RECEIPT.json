@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "siblingRepo": "D:/AIProgram/KCodeRag",
+  "guide": "MCP_QA_EXPERIENCE_GUIDE.md",
+  "baselineDigest": "e3774f277187b7026a535f28ffd99b79f9bcf795d94731369928a4fdbaa3fa3b",
+  "baselineHead": "695cfc53b867c6863457b764638f498b498779e0",
+  "commitParent": "695cfc53b867c6863457b764638f498b498779e0",
+  "beforeUnrelatedStatusDigest": "8b8304a1dbb4cdb85bdcb2323fd7b0117f8601466cd322b5cfec08bfdd492cc4",
+  "afterUnrelatedStatusDigest": "8b8304a1dbb4cdb85bdcb2323fd7b0117f8601466cd322b5cfec08bfdd492cc4",
+  "kcoderag_head": "9d1772d8c5c95948b1719e8a95cd9b374da7a290",
+  "kcoderag_nav_head": "aa2704ab7b20f392b9725e0dbf16ce4c6f762e9f",
+  "commitFiles": [
+    "MCP_QA_EXPERIENCE_GUIDE.md"
+  ],
+  "secret_scan": true
+}
