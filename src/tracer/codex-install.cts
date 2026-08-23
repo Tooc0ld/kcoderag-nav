@@ -1,57 +1,59 @@
+/** Codex QA tracer adapter retained until the full Codex adapter lands in Plan 07. */
+
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 const readline = require("node:readline/promises") as typeof import("node:readline/promises");
 
-type JsonMap = Record<string, any>;
+import { executeCommand, type CommandDependencies } from "../cli/commands.cjs";
+import {
+  InstallError,
+  type DesiredState,
+  type InstallState,
+  type OriginalRecord,
+  type ProjectTarget,
+  type StatusIssue,
+} from "../core/contracts.cjs";
+import { resolveProjectTarget, validateManagedPath } from "../core/project-target.cjs";
+import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
+import { applyTransaction } from "../core/transaction.cjs";
+import type {
+  HostAdapter,
+  HostInstallContext,
+  HostObservation,
+  HostStatusContext,
+  HostUninstallContext,
+} from "../hosts/host-adapter.cjs";
+
+type JsonMap = Record<string, unknown>;
 
 interface InstallOptions {
-  target: string;
-  packageRoot: string;
-  failAtStage?: number;
-  failAtCommit?: number;
-  onCommit?: (relativePath: string) => void;
+  readonly target: string;
+  readonly packageRoot: string;
+  readonly failAtStage?: number;
+  readonly failAtCommit?: number;
+  readonly onCommit?: (relativePath: string) => void;
 }
 
 interface InstallResult {
-  host: "codex";
-  environment: "qa";
-  target: string;
-  version: string;
-  managedFiles: string[];
+  readonly host: "codex";
+  readonly environment: "qa";
+  readonly target: string;
+  readonly version: string;
+  readonly managedFiles: string[];
 }
 
-interface CliDependencies {
-  cwd?: string;
-  packageRoot?: string;
-  nodeVersion?: string;
-  stdout?: (text: string) => void;
-  stderr?: (text: string) => void;
-  confirm?: (prompt: string) => boolean | Promise<boolean>;
+interface LegacyCliDependencies {
+  readonly cwd?: string;
+  readonly packageRoot?: string;
+  readonly nodeVersion?: string;
+  readonly stdout?: (text: string) => void;
+  readonly stderr?: (text: string) => void;
+  readonly confirm?: (prompt: string) => boolean | Promise<boolean>;
 }
 
-interface ParsedArgs {
-  command: "install";
-  host: "codex";
-  environment: "qa";
-  target?: string;
-  yes: boolean;
-  json: boolean;
-}
-
-interface OriginalRecord {
-  kind: "absent" | "base64";
-  data?: string;
-}
-
-interface InstallState {
-  schemaVersion: 1;
-  packageVersion: string;
-  host: "codex";
-  environment: "qa";
-  managedFiles: string[];
-  originals: Record<string, OriginalRecord>;
-  digests: Record<string, string>;
+interface TracerObservationDetails {
+  readonly stateBytes?: Buffer;
 }
 
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
@@ -59,6 +61,7 @@ const CONFIG_PATH = ".codex/config.toml";
 const HOOKS_PATH = ".codex/hooks.json";
 const SKILL_PATH = ".agents/skills/kcoderag-nav/SKILL.md";
 const HOOK_PREFIX = ".codex/kcoderag-nav/qa/hooks";
+const MANAGED_ROOTS = Object.freeze([".agents", ".codex"] as const);
 const HOOK_ASSETS = Object.freeze([
   "grep-nudge.cjs",
   "run_hook.cmd",
@@ -79,23 +82,12 @@ const MANAGED_PATHS = Object.freeze(
     return left.localeCompare(right);
   }),
 );
+const OWNED_PATHS = MANAGED_PATHS.filter((relativePath) => relativePath !== STATE_PATH);
 const EXCLUSIVE_PATHS = new Set(
   MANAGED_PATHS.filter((relativePath) => ![CONFIG_PATH, HOOKS_PATH, STATE_PATH].includes(relativePath)),
 );
 const CONFIG_BEGIN = "# BEGIN KCODERAG-NAV qa";
 const CONFIG_END = "# END KCODERAG-NAV qa";
-
-class InstallError extends Error {
-  readonly code: string;
-  readonly safePath?: string;
-
-  constructor(code: string, safePath?: string) {
-    super(code);
-    this.name = "InstallError";
-    this.code = code;
-    if (safePath !== undefined) this.safePath = safePath;
-  }
-}
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -107,53 +99,25 @@ function sha256(bytes: Buffer): string {
 
 function readOptional(filePath: string): Buffer | undefined {
   try {
+    const metadata = fs.lstatSync(filePath);
+    if (metadata.isSymbolicLink()) throw new InstallError("symlink_escape");
+    if (!metadata.isFile()) throw new InstallError("special_file");
     return fs.readFileSync(filePath);
   } catch (error) {
+    if (error instanceof InstallError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new InstallError("unreadable");
+  }
+}
+
+function readManagedOptional(target: ProjectTarget, relativePath: string): Buffer | undefined {
+  const validated = validateManagedPath(target, relativePath, MANAGED_ROOTS);
+  try {
+    return readOptional(validated.absolutePath);
+  } catch (error) {
+    if (error instanceof InstallError) throw new InstallError(error.code, relativePath);
     throw error;
   }
-}
-
-function assertSafeTarget(rawTarget: string): string {
-  const resolved = path.resolve(rawTarget);
-  let metadata: import("node:fs").Stats;
-  try {
-    metadata = fs.lstatSync(resolved);
-  } catch {
-    throw new InstallError("invalid_target", resolved);
-  }
-  if (!metadata.isDirectory()) throw new InstallError("invalid_target", resolved);
-  if (metadata.isSymbolicLink()) throw new InstallError("symlink_escape", resolved);
-  const canonical = fs.realpathSync(resolved);
-  if (canonical === path.parse(canonical).root) throw new InstallError("unsafe_target", canonical);
-  return canonical;
-}
-
-function assertManagedPath(target: string, relativePath: string): string {
-  if (
-    !(relativePath.startsWith(".codex/") || relativePath.startsWith(".agents/")) ||
-    relativePath.includes("\\")
-  ) {
-    throw new InstallError("outside_managed_roots", relativePath);
-  }
-  const candidate = path.resolve(target, ...relativePath.split("/"));
-  const relation = path.relative(target, candidate);
-  if (relation === "" || relation.startsWith("..") || path.isAbsolute(relation)) {
-    throw new InstallError("path_escape", relativePath);
-  }
-  let current = target;
-  for (const part of relativePath.split("/")) {
-    current = path.join(current, part);
-    try {
-      if (fs.lstatSync(current).isSymbolicLink()) {
-        throw new InstallError("symlink_escape", relativePath);
-      }
-    } catch (error) {
-      if (error instanceof InstallError) throw error;
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  return candidate;
 }
 
 function parseJsonBytes(bytes: Buffer, code: string, safePath: string): JsonMap {
@@ -166,16 +130,23 @@ function parseJsonBytes(bytes: Buffer, code: string, safePath: string): JsonMap 
   }
 }
 
-function packageVersion(packageRoot: string): string {
-  const packagePath = path.join(packageRoot, "package.json");
-  const document = parseJsonBytes(fs.readFileSync(packagePath), "invalid_package", "package.json");
+function readPackageVersion(packageRoot: string): string {
+  const document = parseJsonBytes(
+    fs.readFileSync(path.join(packageRoot, "package.json")),
+    "invalid_package",
+    "package.json",
+  );
   if (document.name !== "kcoderag-nav" || typeof document.version !== "string") {
     throw new InstallError("invalid_package", "package.json");
   }
   return document.version;
 }
 
-function readMcpEntry(packageRoot: string): { name: string; url: string; headers: Record<string, string> } {
+function readMcpEntry(packageRoot: string): {
+  readonly name: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+} {
   const relativePath = "kcoderag-qa/.codex.mcp.json";
   const source = parseJsonBytes(
     fs.readFileSync(path.join(packageRoot, ...relativePath.split("/"))),
@@ -194,7 +165,7 @@ function readMcpEntry(packageRoot: string): { name: string; url: string; headers
       ? entry.headers
       : undefined;
   if (
-    !headerValue ||
+    headerValue === undefined ||
     !Object.entries(headerValue).every(
       ([key, value]) => typeof key === "string" && typeof value === "string",
     )
@@ -270,67 +241,78 @@ function encodeOriginal(bytes: Buffer | undefined): OriginalRecord {
   return bytes === undefined ? { kind: "absent" } : { kind: "base64", data: bytes.toString("base64") };
 }
 
-function decodeOriginal(record: unknown, relativePath: string): Buffer | undefined {
-  if (!isRecord(record) || (record.kind !== "absent" && record.kind !== "base64")) {
-    throw new InstallError("invalid_state", STATE_PATH);
-  }
-  if (record.kind === "absent") {
-    if (record.data !== undefined) throw new InstallError("invalid_state", STATE_PATH);
-    return undefined;
-  }
-  if (typeof record.data !== "string") throw new InstallError("invalid_state", STATE_PATH);
-  try {
-    return Buffer.from(record.data, "base64");
-  } catch {
-    throw new InstallError("invalid_state", relativePath);
-  }
+function decodeOriginal(record: OriginalRecord | undefined, relativePath: string): Buffer | null {
+  if (record === undefined) throw new InstallError("invalid_state", STATE_PATH);
+  if (record.kind === "absent") return null;
+  if (typeof record.data !== "string") throw new InstallError("invalid_state", relativePath);
+  return Buffer.from(record.data, "base64");
 }
 
-function validateState(value: JsonMap): InstallState {
-  const ownedPaths = MANAGED_PATHS.filter((relativePath) => relativePath !== STATE_PATH);
+function validateTracerState(state: InstallState): InstallState {
   if (
-    value.schemaVersion !== 1 ||
-    value.host !== "codex" ||
-    (value.environment !== "qa" && value.environment !== "dev") ||
-    typeof value.packageVersion !== "string" ||
-    !Array.isArray(value.managedFiles) ||
-    value.managedFiles.join("\0") !== MANAGED_PATHS.join("\0") ||
-    !isRecord(value.originals) ||
-    !isRecord(value.digests) ||
-    Object.keys(value.originals).sort().join("\0") !== [...ownedPaths].sort().join("\0") ||
-    Object.keys(value.digests).sort().join("\0") !== [...ownedPaths].sort().join("\0")
+    state.host !== "codex" ||
+    state.managedFiles.join("\0") !== MANAGED_PATHS.join("\0") ||
+    Object.keys(state.originals).sort().join("\0") !== [...OWNED_PATHS].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !== [...OWNED_PATHS].sort().join("\0")
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
-  }
-  for (const relativePath of ownedPaths) {
-    decodeOriginal(value.originals[relativePath], relativePath);
-    if (typeof value.digests[relativePath] !== "string") {
-      throw new InstallError("invalid_state", STATE_PATH);
-    }
-  }
-  return value as InstallState;
-}
-
-function loadState(target: string): InstallState | undefined {
-  const statePath = assertManagedPath(target, STATE_PATH);
-  const bytes = readOptional(statePath);
-  if (bytes === undefined) return undefined;
-  const state = validateState(parseJsonBytes(bytes, "invalid_state", STATE_PATH));
-  if (state.environment !== "qa") throw new InstallError("environment_conflict", STATE_PATH);
-  for (const [relativePath, digest] of Object.entries(state.digests)) {
-    const current = readOptional(assertManagedPath(target, relativePath));
-    if (current === undefined || sha256(current) !== digest) {
-      throw new InstallError("managed_content_changed", relativePath);
-    }
   }
   return state;
 }
 
-function captureOriginals(target: string): Record<string, OriginalRecord> {
+function issueFrom(error: unknown): StatusIssue {
+  if (error instanceof InstallError) {
+    return { code: error.code, path: error.safePath ?? "." };
+  }
+  return { code: "invalid", path: "." };
+}
+
+function detectCodex(context: { target: ProjectTarget }): HostObservation {
+  const stateBytes = readManagedOptional(context.target, STATE_PATH);
+  if (stateBytes === undefined) {
+    return Object.freeze({
+      host: "codex" as const,
+      target: context.target,
+      details: Object.freeze({} satisfies TracerObservationDetails),
+    });
+  }
+  try {
+    const state = validateTracerState(parseInstallState(stateBytes));
+    for (const [relativePath, digest] of Object.entries(state.digests)) {
+      const current = readManagedOptional(context.target, relativePath);
+      if (current === undefined || sha256(current) !== digest) {
+        throw new InstallError("managed_content_changed", relativePath);
+      }
+    }
+    return Object.freeze({
+      host: "codex" as const,
+      target: context.target,
+      currentState: state,
+      details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies TracerObservationDetails),
+    });
+  } catch (error) {
+    return Object.freeze({
+      host: "codex" as const,
+      target: context.target,
+      issues: Object.freeze([issueFrom(error)]),
+      details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies TracerObservationDetails),
+    });
+  }
+}
+
+function details(observation: HostObservation): TracerObservationDetails {
+  return (observation.details ?? {}) as TracerObservationDetails;
+}
+
+function refuseObservationIssues(observation: HostObservation): void {
+  const issue = observation.issues?.[0];
+  if (issue !== undefined) throw new InstallError(issue.code, issue.path);
+}
+
+function captureOriginals(target: ProjectTarget): Record<string, OriginalRecord> {
   const originals: Record<string, OriginalRecord> = {};
-  for (const relativePath of MANAGED_PATHS) {
-    if (relativePath === STATE_PATH) continue;
-    const current = readOptional(assertManagedPath(target, relativePath));
+  for (const relativePath of OWNED_PATHS) {
+    const current = readManagedOptional(target, relativePath);
     if (EXCLUSIVE_PATHS.has(relativePath) && current !== undefined) {
       throw new InstallError("unmanaged_name_conflict", relativePath);
     }
@@ -347,27 +329,48 @@ function sourceAsset(packageRoot: string, relativePath: string): Buffer {
   }
 }
 
-function desiredInstall(
-  target: string,
-  packageRoot: string,
-  version: string,
-  existingState: InstallState | undefined,
-): Map<string, Buffer> {
-  const originals = existingState?.originals ?? captureOriginals(target);
-  const originalConfig = decodeOriginal(originals[CONFIG_PATH], CONFIG_PATH);
-  const originalHooks = decodeOriginal(originals[HOOKS_PATH], HOOKS_PATH);
-  const desired = new Map<string, Buffer>();
-  desired.set(CONFIG_PATH, renderConfig(originalConfig, packageRoot));
-  desired.set(HOOKS_PATH, renderHooks(originalHooks));
-  desired.set(
+function expectedDigest(
+  target: ProjectTarget,
+  relativePath: string,
+  state: InstallState | undefined,
+  stateBytes: Buffer | undefined,
+): string | null {
+  if (relativePath === STATE_PATH) return stateBytes === undefined ? null : sha256(stateBytes);
+  if (state !== undefined) return state.digests[relativePath] ?? null;
+  const current = readManagedOptional(target, relativePath);
+  return current === undefined ? null : sha256(current);
+}
+
+function renderInstall(context: HostInstallContext): DesiredState {
+  refuseObservationIssues(context.observation);
+  if (context.environment !== "qa") throw new InstallError("unsupported_selection");
+  const existing = context.observation.currentState;
+  if (context.command === "update" && existing === undefined) {
+    throw new InstallError("not_installed", STATE_PATH);
+  }
+  if (existing !== undefined && existing.environment !== "qa") {
+    throw new InstallError("environment_conflict", STATE_PATH);
+  }
+
+  const version = readPackageVersion(context.packageRoot);
+  const originals = existing?.originals ?? captureOriginals(context.target);
+  const originalConfig = decodeOriginal(originals[CONFIG_PATH], CONFIG_PATH) ?? undefined;
+  const originalHooks = decodeOriginal(originals[HOOKS_PATH], HOOKS_PATH) ?? undefined;
+  const desiredBytes = new Map<string, Buffer>();
+  desiredBytes.set(CONFIG_PATH, renderConfig(originalConfig, context.packageRoot));
+  desiredBytes.set(HOOKS_PATH, renderHooks(originalHooks));
+  desiredBytes.set(
     SKILL_PATH,
-    sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"),
+    sourceAsset(context.packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"),
   );
   for (const asset of HOOK_ASSETS) {
-    desired.set(`${HOOK_PREFIX}/${asset}`, sourceAsset(packageRoot, `kcoderag-qa/hooks/${asset}`));
+    desiredBytes.set(
+      `${HOOK_PREFIX}/${asset}`,
+      sourceAsset(context.packageRoot, `kcoderag-qa/hooks/${asset}`),
+    );
   }
   const digests: Record<string, string> = {};
-  for (const [relativePath, bytes] of desired) digests[relativePath] = sha256(bytes);
+  for (const [relativePath, bytes] of desiredBytes) digests[relativePath] = sha256(bytes);
   const state: InstallState = {
     schemaVersion: 1,
     packageVersion: version,
@@ -377,202 +380,133 @@ function desiredInstall(
     originals,
     digests,
   };
-  desired.set(STATE_PATH, Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8"));
-  return desired;
+  desiredBytes.set(STATE_PATH, Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8"));
+  const stateBytes = details(context.observation).stateBytes;
+  return createDesiredState({
+    host: "codex",
+    target: context.target,
+    managedRoots: MANAGED_ROOTS,
+    statePath: STATE_PATH,
+    entries: MANAGED_PATHS.map((relativePath) => ({
+      relativePath,
+      expectedDigest: expectedDigest(context.target, relativePath, existing, stateBytes),
+      content: desiredBytes.get(relativePath) ?? null,
+    })),
+  });
 }
 
-function snapshotDirectories(root: string): Set<string> {
-  const result = new Set<string>([root]);
-  function visit(directory: string): void {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const absolute = path.join(directory, entry.name);
-      result.add(absolute);
-      visit(absolute);
-    }
+function renderUninstall(context: HostUninstallContext): DesiredState {
+  refuseObservationIssues(context.observation);
+  const state = context.observation.currentState;
+  const stateBytes = details(context.observation).stateBytes;
+  if (state === undefined || stateBytes === undefined) {
+    throw new InstallError("not_installed", STATE_PATH);
   }
-  visit(root);
-  return result;
+  return createDesiredState({
+    host: "codex",
+    target: context.target,
+    managedRoots: MANAGED_ROOTS,
+    statePath: STATE_PATH,
+    entries: MANAGED_PATHS.map((relativePath) => ({
+      relativePath,
+      expectedDigest: relativePath === STATE_PATH
+        ? sha256(stateBytes)
+        : state.digests[relativePath] ?? null,
+      content: relativePath === STATE_PATH
+        ? null
+        : decodeOriginal(state.originals[relativePath], relativePath),
+    })),
+  });
 }
 
-function pruneNewDirectories(target: string, before: Set<string>): boolean {
-  let restored = true;
-  const current = [...snapshotDirectories(target)]
-    .filter((directory) => !before.has(directory))
-    .sort((left, right) => right.length - left.length);
-  for (const directory of current) {
-    try {
-      if (fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
-      else restored = false;
-    } catch {
-      restored = false;
-    }
+function tracerStatus(context: HostStatusContext) {
+  const issue = context.observation.issues?.[0];
+  if (issue !== undefined) {
+    return createStatusResult({
+      status: issue.code === "managed_content_changed" ? "drifted" : "invalid",
+      host: "codex",
+      issues: [issue],
+    });
   }
-  return restored;
-}
-
-function writeTemporary(destination: string, bytes: Buffer): string {
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const temporary = path.join(path.dirname(destination), `.kcoderag-stage-${crypto.randomUUID()}`);
-  const descriptor = fs.openSync(temporary, "wx", 0o600);
+  const state = context.observation.currentState;
+  if (state === undefined) return createStatusResult({ host: "codex" });
+  let status: "healthy" | "update_available" = "healthy";
   try {
-    fs.writeFileSync(descriptor, bytes);
-    fs.fsyncSync(descriptor);
-  } finally {
-    fs.closeSync(descriptor);
-  }
-  return temporary;
-}
-
-function restorePath(destination: string, original: Buffer | undefined): void {
-  if (original === undefined) {
-    fs.rmSync(destination, { force: true });
-    return;
-  }
-  const temporary = writeTemporary(destination, original);
-  try {
-    fs.renameSync(temporary, destination);
-  } catch (error) {
-    fs.rmSync(temporary, { force: true });
-    throw error;
-  }
-}
-
-function applyTransaction(
-  target: string,
-  desired: Map<string, Buffer>,
-  options: Pick<InstallOptions, "failAtStage" | "failAtCommit" | "onCommit">,
-): void {
-  const destinations = new Map(
-    [...desired.keys()].map((relativePath) => [relativePath, assertManagedPath(target, relativePath)]),
-  );
-  const originals = new Map(
-    [...destinations].map(([relativePath, destination]) => [relativePath, readOptional(destination)]),
-  );
-  const directoriesBefore = snapshotDirectories(target);
-  const staged = new Map<string, string>();
-  try {
-    let stageIndex = 0;
-    for (const [relativePath, bytes] of desired) {
-      if (options.failAtStage === stageIndex) throw new Error("injected staging failure");
-      staged.set(relativePath, writeTemporary(destinations.get(relativePath) as string, bytes));
-      stageIndex += 1;
-    }
-    for (const [index, relativePath] of MANAGED_PATHS.entries()) {
-      if (options.failAtCommit === index) throw new Error("injected transaction failure");
-      fs.renameSync(staged.get(relativePath) as string, destinations.get(relativePath) as string);
-      staged.delete(relativePath);
-      options.onCommit?.(relativePath);
-    }
-    return;
+    if (state.packageVersion !== readPackageVersion(context.packageRoot)) status = "update_available";
   } catch {
-    // Cleanup and full rollback happen below.
+    return createStatusResult({
+      status: "invalid",
+      host: "codex",
+      environment: state.environment,
+      issues: [{ code: "invalid_package", path: "package.json" }],
+    });
   }
-
-  let rollbackFailed = false;
-  for (const temporary of staged.values()) {
-    try {
-      fs.rmSync(temporary, { force: true });
-    } catch {
-      rollbackFailed = true;
-    }
-  }
-  for (const relativePath of MANAGED_PATHS) {
-    try {
-      restorePath(destinations.get(relativePath) as string, originals.get(relativePath));
-    } catch {
-      rollbackFailed = true;
-    }
-  }
-  if (!pruneNewDirectories(target, directoriesBefore)) rollbackFailed = true;
-  throw new InstallError(rollbackFailed ? "rollback_failed" : "transaction_failed");
+  return createStatusResult({
+    status,
+    host: "codex",
+    environment: state.environment,
+  });
 }
 
-function installCodexQa(options: InstallOptions): InstallResult {
-  const target = assertSafeTarget(options.target);
-  for (const relativePath of MANAGED_PATHS) assertManagedPath(target, relativePath);
-  const version = packageVersion(options.packageRoot);
-  const state = loadState(target);
-  const desired = desiredInstall(target, options.packageRoot, version, state);
-  applyTransaction(target, desired, options);
+export const codexTracerAdapter: HostAdapter = Object.freeze({
+  id: "codex",
+  managedRoots: MANAGED_ROOTS,
+  detect: detectCodex,
+  renderInstall,
+  renderUninstall,
+  status: tracerStatus,
+});
+
+export function installCodexQa(options: InstallOptions): InstallResult {
+  const target = resolveProjectTarget(options.target);
+  const observation = codexTracerAdapter.detect({ target, packageRoot: options.packageRoot });
+  const desired = codexTracerAdapter.renderInstall({
+    target,
+    packageRoot: options.packageRoot,
+    command: "install",
+    environment: "qa",
+    observation,
+    allowLegacyUserRemoval: false,
+  });
+  const transactionOptions: {
+    failAtStage?: number;
+    failAtCommit?: number;
+    onCommit?: (relativePath: string) => void;
+  } = {};
+  if (options.failAtStage !== undefined) transactionOptions.failAtStage = options.failAtStage;
+  if (options.failAtCommit !== undefined) transactionOptions.failAtCommit = options.failAtCommit;
+  if (options.onCommit !== undefined) transactionOptions.onCommit = options.onCommit;
+  applyTransaction(desired, transactionOptions);
   return {
     host: "codex",
     environment: "qa",
-    target,
-    version,
+    target: target.root,
+    version: readPackageVersion(options.packageRoot),
     managedFiles: [...MANAGED_PATHS],
   };
 }
 
-function requireFlagValue(argv: string[], index: number): string {
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) throw new InstallError("invalid_arguments");
-  return value;
-}
-
-function parseArgs(argv: string[]): ParsedArgs {
-  if (argv[0] !== "install") throw new InstallError("invalid_arguments");
-  let host: string | undefined;
-  let environment = "qa";
-  let target: string | undefined;
-  let yes = false;
-  let json = false;
-  for (let index = 1; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--yes") yes = true;
-    else if (argument === "--json") json = true;
-    else if (argument === "--host") host = requireFlagValue(argv, index++);
-    else if (argument === "--environment") environment = requireFlagValue(argv, index++);
-    else if (argument === "--target") target = requireFlagValue(argv, index++);
-    else throw new InstallError("invalid_arguments");
-  }
-  if (host !== "codex" || environment !== "qa") throw new InstallError("unsupported_selection");
-  const result: ParsedArgs = { command: "install", host, environment, yes, json };
-  if (target !== undefined) result.target = target;
-  return result;
-}
-
-function nodeMajor(version: string): number | undefined {
-  const match = /^(?:v)?(\d+)(?:\.|$)/.exec(version);
-  return match ? Number.parseInt(match[1] as string, 10) : undefined;
-}
-
-function safeError(error: unknown): { code: string; path?: string } {
-  if (error instanceof InstallError) {
-    return error.safePath === undefined ? { code: error.code } : { code: error.code, path: error.safePath };
-  }
-  return { code: "install_failed" };
-}
-
-async function runCli(argv: string[], dependencies: CliDependencies = {}): Promise<number> {
-  const stdout = dependencies.stdout ?? ((text: string) => process.stdout.write(`${text}\n`));
-  const stderr = dependencies.stderr ?? ((text: string) => process.stderr.write(`${text}\n`));
-  let json = argv.includes("--json");
-  try {
-    const args = parseArgs(argv);
-    json = args.json;
-    const major = nodeMajor(dependencies.nodeVersion ?? process.versions.node);
-    if (major === undefined || major < 22) throw new InstallError("unsupported_node");
-    const target = assertSafeTarget(path.resolve(dependencies.cwd ?? process.cwd(), args.target ?? "."));
-    if (!args.yes) {
-      if (args.json) throw new InstallError("confirmation_required", target);
-      const confirmed = await (dependencies.confirm?.(`Install KCodeRag Nav into ${target}?`) ?? false);
-      if (!confirmed) throw new InstallError("cancelled", target);
-    }
-    const result = installCodexQa({
-      target,
-      packageRoot: dependencies.packageRoot ?? path.resolve(__dirname, "../.."),
-    });
-    if (args.json) stdout(JSON.stringify({ ok: true, command: args.command, ...result }));
-    else stdout(`installed: codex/qa at ${result.target}`);
-    return 0;
-  } catch (error) {
-    const safe = safeError(error);
-    const payload = JSON.stringify({ ok: false, ...safe });
-    if (json) stdout(payload);
-    else stderr(payload);
-    return safe.code === "cancelled" || safe.code === "invalid_arguments" ? 2 : 1;
-  }
+export async function runCli(
+  argv: string[],
+  dependencies: LegacyCliDependencies = {},
+): Promise<number> {
+  const commandDependencies: CommandDependencies = {
+    cwd: dependencies.cwd ?? process.cwd(),
+    packageRoot: dependencies.packageRoot ?? path.resolve(__dirname, "../.."),
+    nodeVersion: dependencies.nodeVersion ?? process.versions.node,
+    stdout: dependencies.stdout ?? ((text) => process.stdout.write(`${text}\n`)),
+    stderr: dependencies.stderr ?? ((text) => process.stderr.write(`${text}\n`)),
+    selectHost: () => "codex",
+    confirmTarget: (request) => dependencies.confirm?.(
+      `${request.command} KCodeRag Nav in ${request.target}?`,
+    ) ?? false,
+    confirmLegacyUserRemoval: () => false,
+    getAdapter: (host) => {
+      if (host !== "codex") throw new InstallError("unsupported_host");
+      return codexTracerAdapter;
+    },
+  };
+  return executeCommand(argv, commandDependencies);
 }
 
 async function defaultConfirm(prompt: string): Promise<boolean> {
@@ -585,18 +519,9 @@ async function defaultConfirm(prompt: string): Promise<boolean> {
   }
 }
 
-async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
-  return runCli(argv, {
-    cwd: process.cwd(),
-    packageRoot: path.resolve(__dirname, "../.."),
-    stdout: (text) => process.stdout.write(`${text}\n`),
-    stderr: (text) => process.stderr.write(`${text}\n`),
-    confirm: defaultConfirm,
-  });
+export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  return runCli(argv, { confirm: defaultConfirm });
 }
 
 exports.InstallError = InstallError;
 exports.MANAGED_PATHS = MANAGED_PATHS;
-exports.installCodexQa = installCodexQa;
-exports.runCli = runCli;
-exports.main = main;
