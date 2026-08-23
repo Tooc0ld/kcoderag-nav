@@ -62,6 +62,24 @@ const contracts = require("../../dist/core/contracts.cjs") as ContractsModule;
 const projectTarget = require("../../dist/core/project-target.cjs") as ProjectTargetModule;
 const state = require("../../dist/core/state.cjs") as StateModule;
 
+interface TransactionModule {
+  applyTransaction(
+    desired: ReturnType<StateModule["createDesiredState"]>,
+    options?: {
+      failAtStage?: number;
+      failAtCommit?: number;
+      failAtRollback?: number;
+      onCommit?: (relativePath: string) => void;
+    },
+  ): {
+    readonly schemaVersion: number;
+    readonly host: string;
+    readonly changedPaths: readonly string[];
+  };
+}
+
+const transaction = require("../../dist/core/transaction.cjs") as TransactionModule;
+
 function temporaryDirectory(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -216,6 +234,202 @@ test("desired state validates and snapshots one host without writing", () => {
       }),
       (error: unknown) => errorCode(error) === "invalid_desired_state",
     );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+function sha256(bytes: Buffer): string {
+  const crypto = require("node:crypto") as typeof import("node:crypto");
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function write(root: string, relativePath: string, bytes: Buffer | string): void {
+  const destination = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, bytes);
+}
+
+function snapshotTree(root: string): readonly string[] {
+  const crypto = require("node:crypto") as typeof import("node:crypto");
+  const records: string[] = [];
+  function visit(directory: string): void {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(root, absolute).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        records.push(`d:${relative}`);
+        visit(absolute);
+      } else if (entry.isSymbolicLink()) {
+        records.push(`l:${relative}`);
+      } else {
+        records.push(`f:${relative}:${crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")}`);
+      }
+    }
+  }
+  visit(root);
+  return records;
+}
+
+function transactionFixture(base: string) {
+  const targetRoot = path.join(base, "target");
+  fs.mkdirSync(targetRoot);
+  const currentConfig = Buffer.from("current-config");
+  const currentRemove = Buffer.from("remove-me");
+  write(targetRoot, "owned/config.txt", currentConfig);
+  write(targetRoot, "owned/remove.txt", currentRemove);
+  write(targetRoot, "other-host/keep.bin", Buffer.from([0, 1, 2, 3]));
+  const target = projectTarget.resolveProjectTarget(targetRoot);
+  const desired = state.createDesiredState({
+    host: "codex",
+    target,
+    managedRoots: ["owned"],
+    statePath: "owned/install-state.json",
+    entries: [
+      {
+        relativePath: "owned/config.txt",
+        expectedDigest: sha256(currentConfig),
+        content: Buffer.from("next-config"),
+      },
+      {
+        relativePath: "owned/remove.txt",
+        expectedDigest: sha256(currentRemove),
+        content: null,
+      },
+      {
+        relativePath: "owned/sub/payload.bin",
+        expectedDigest: null,
+        content: Buffer.from("new-payload"),
+      },
+      {
+        relativePath: "owned/install-state.json",
+        expectedDigest: null,
+        content: Buffer.from("next-state"),
+      },
+    ],
+  });
+  return { targetRoot, target, desired };
+}
+
+test("transaction refuses unvalidated input and digest drift before any write", () => {
+  const base = temporaryDirectory("kcoderag-core-preflight-");
+  try {
+    const fixture = transactionFixture(base);
+    const before = snapshotTree(fixture.targetRoot);
+    assert.throws(
+      () => transaction.applyTransaction({} as ReturnType<StateModule["createDesiredState"]>),
+      (error: unknown) => errorCode(error) === "invalid_desired_state",
+    );
+    write(fixture.targetRoot, "owned/config.txt", "drifted");
+    const drifted = snapshotTree(fixture.targetRoot);
+    assert.throws(
+      () => transaction.applyTransaction(fixture.desired),
+      (error: unknown) => errorCode(error) === "managed_content_changed",
+    );
+    assert.deepEqual(snapshotTree(fixture.targetRoot), drifted);
+    assert.notDeepEqual(drifted, before);
+    assert.equal(
+      fs.readdirSync(fixture.targetRoot).some((name) => name.startsWith(".kcoderag-")),
+      false,
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("transaction stages all entries, atomically replaces them, and commits state last", () => {
+  const base = temporaryDirectory("kcoderag-core-success-");
+  try {
+    const fixture = transactionFixture(base);
+    const order: string[] = [];
+    const result = transaction.applyTransaction(fixture.desired, {
+      onCommit: (relativePath) => order.push(relativePath),
+    });
+
+    assert.equal(result.schemaVersion, 1);
+    assert.equal(result.host, "codex");
+    assert.equal(order.at(-1), "owned/install-state.json");
+    assert.deepEqual([...result.changedPaths].sort(), [...order].sort());
+    assert.equal(fs.readFileSync(path.join(fixture.targetRoot, "owned/config.txt"), "utf8"), "next-config");
+    assert.equal(fs.existsSync(path.join(fixture.targetRoot, "owned/remove.txt")), false);
+    assert.equal(fs.readFileSync(path.join(fixture.targetRoot, "owned/sub/payload.bin"), "utf8"), "new-payload");
+    assert.equal(fs.readFileSync(path.join(fixture.targetRoot, "owned/install-state.json"), "utf8"), "next-state");
+    assert.deepEqual(fs.readFileSync(path.join(fixture.targetRoot, "other-host/keep.bin")), Buffer.from([0, 1, 2, 3]));
+    assert.equal(
+      snapshotTree(fixture.targetRoot).some((record) => record.includes(".kcoderag-")),
+      false,
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("every staged and committed failure restores the complete one-host tree", () => {
+  const probeBase = temporaryDirectory("kcoderag-core-probe-");
+  let entryCount = 0;
+  try {
+    const probe = transactionFixture(probeBase);
+    entryCount = probe.desired.entries.length;
+  } finally {
+    fs.rmSync(probeBase, { recursive: true, force: true });
+  }
+
+  for (const kind of ["stage", "commit"] as const) {
+    for (let failureIndex = 0; failureIndex < entryCount; failureIndex += 1) {
+      const base = temporaryDirectory(`kcoderag-core-${kind}-`);
+      try {
+        const fixture = transactionFixture(base);
+        const before = snapshotTree(fixture.targetRoot);
+        const options = kind === "stage"
+          ? { failAtStage: failureIndex }
+          : { failAtCommit: failureIndex };
+        assert.throws(
+          () => transaction.applyTransaction(fixture.desired, options),
+          (error: unknown) => errorCode(error) === "transaction_failed",
+        );
+        assert.deepEqual(snapshotTree(fixture.targetRoot), before, `${kind}:${failureIndex}`);
+      } finally {
+        fs.rmSync(base, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test("rollback failure retains a private recovery directory without payload diagnostics", () => {
+  const base = temporaryDirectory("kcoderag-core-recovery-");
+  try {
+    const fixture = transactionFixture(base);
+    let caught: unknown;
+    try {
+      transaction.applyTransaction(fixture.desired, { failAtCommit: 2, failAtRollback: 0 });
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(errorCode(caught), "rollback_failed");
+    assert.ok(caught instanceof Error && "safePath" in caught);
+    const safePath = String((caught as Error & { safePath: string }).safePath);
+    assert.match(safePath, /^\.kcoderag-nav-recovery-[0-9a-f-]+$/);
+    const recovery = path.join(fixture.targetRoot, safePath);
+    assert.equal(fs.statSync(recovery).isDirectory(), true);
+    const manifestText = fs.readFileSync(path.join(recovery, "manifest.json"), "utf8");
+    const manifest = JSON.parse(manifestText) as {
+      schemaVersion: number;
+      host: string;
+      entries: readonly { relativePath: string; backup?: string }[];
+    };
+    assert.equal(manifest.schemaVersion, 1);
+    assert.equal(manifest.host, "codex");
+    assert.deepEqual(
+      manifest.entries.map((entry) => entry.relativePath).sort(),
+      fixture.desired.entries.map((entry) => entry.path.relativePath).sort(),
+    );
+    assert.equal(manifestText.includes("current-config"), false);
+    for (const entry of manifest.entries) {
+      if (entry.backup !== undefined) assert.equal(fs.statSync(path.join(recovery, entry.backup)).isFile(), true);
+    }
+    assert.deepEqual(fs.readFileSync(path.join(fixture.targetRoot, "other-host/keep.bin")), Buffer.from([0, 1, 2, 3]));
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
