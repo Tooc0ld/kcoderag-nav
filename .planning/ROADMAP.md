@@ -1,4 +1,4 @@
-# Roadmap: KCodeRag Nav Plugins
+# Roadmap: KCodeRag Nav
 
 ## Overview
 
@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
 - [ ] **Phase 4: 已部署项目与安装来源可靠性** - 更新实际 Head 安装、稳定项目 hook 根路径，并为原生用户级误装提供安全诊断。
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
-- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在 Codex、Claude Code 与 Cursor 真宿主上固化安装、工具注册和 hook 证据。
+- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code 与 Cursor 真宿主上固化生命周期、工具注册和 hook/Rule 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
 - [ ] **Phase 8: 生产安全与自动化发布** - 交付身份、HTTPS、凭据轮换、版本化制品和宿主兼容矩阵。
 
@@ -219,16 +219,16 @@ Plans:
 
 ### Phase 6: 真实宿主兼容与发布证据
 
-**Goal:** 用户安装到实际 Codex、Claude Code 或 Cursor 后，可用可审计证据确认 MCP 工具名、hook/Rule 和更新路径真实工作。
+**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code 或 Cursor 后，可用可审计证据确认 MCP 工具名、hook/Rule 和完整项目生命周期真实工作。
 **Mode:** mvp
 **Requirements**: TEST-07, TEST-08, TEST-09
 **Depends on:** Phase 5
 **Success Criteria** (what must be TRUE):
 
-  1. 干净 `CODEX_HOME` 上真实执行 marketplace/plugin 安装，验证 direct server map 注册 `kcoderag-qa` 工具并观察 hook advisory；不依赖开发者现有全局配置。
-  2. Claude Code 以 project scope 真实安装 QA，验证工具注册名、Grep/Glob/Bash hook 出参、更新及卸载。
-  3. Cursor 免费 local 插件真实完成 install、Reload Window、MCP/Rule/skill 可见性、update 和 uninstall。
-  4. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher 和受支持宿主版本，不把 skipped 记作 PASS。
+  1. 在干净临时项目和隔离的 Codex 配置中，用已发布的 exact `kcoderag-nav` npx 版本真实执行 install/status/update/uninstall，验证 direct server map 工具注册和 hook advisory；不依赖开发者现有全局配置或 marketplace。
+  2. Claude Code 在干净项目中通过同一 exact npx 包完成 project install/status/update/uninstall，验证 MCP 工具注册名与 Grep/Glob/Bash hook 出参。
+  3. Cursor 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，并在必要的项目 reload 后验证 MCP、Rule 与 skill 可见性；不依赖 user-local plugin 或 Team 订阅。
+  4. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
   5. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
 
 **Plans**: TBD
@@ -258,9 +258,9 @@ Plans:
 
   1. 用户通过个人或组织身份取得短期凭据，公开或长期分发包不再包含共享 Bearer。
   2. MCP 使用 HTTPS 并验证服务身份，凭据可独立轮换而无需重新发布整个插件代码树。
-  3. CI 从规范源生成、验证并发布版本化制品，发布与 GitHub `master` marketplace 安装路径的关系有清晰说明。
-  4. 支持的 Codex、Claude Code、Python 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略。
-  5. Cursor 免费本地插件、Codex 项目安装器和 Claude project-scope 仍保留低门槛安装与显式更新路径。
+  3. `package.json` 版本与 matching `vX.Y.Z` 标签触发 GitHub Actions 重新测试、构建、审计并发布公共 npm 包；普通 `master` push 只测试、不发布。
+  4. 支持的 Codex、Claude Code、Cursor、Node.js 22/24 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略。
+  5. 三个宿主继续通过统一 npx 项目集成保留低门槛安装、只读诊断、显式更新和安全卸载路径。
 
 **Plans**: TBD
 

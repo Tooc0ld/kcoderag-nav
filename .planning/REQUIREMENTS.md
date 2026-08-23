@@ -1,4 +1,4 @@
-# Requirements: KCodeRag Nav Plugins
+# Requirements: KCodeRag Nav
 
 **Defined:** 2026-08-20
 **Core Value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
@@ -74,9 +74,9 @@
 
 ### 真实宿主验证
 
-- [ ] **TEST-07**: 干净 Codex 配置真实验证 marketplace 安装、direct MCP 工具注册、hook 出参、更新与卸载
-- [ ] **TEST-08**: Claude Code project scope 真实验证 MCP、Grep/Glob/Bash hook、更新与卸载
-- [ ] **TEST-09**: Cursor 免费 local 插件真实验证 install/reload、MCP/Rule/skill、update 与 uninstall
+- [ ] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
+- [ ] **TEST-08**: 在干净 Claude Code 项目中，通过同一 exact npx 包真实验证 install/status、MCP、Grep/Glob/Bash hook、update 与 uninstall
+- [ ] **TEST-09**: 在干净 Cursor 项目中，通过同一 exact npx 包真实验证 install/status、必要 reload 后的 MCP/Rule/skill、update 与 uninstall
 
 ### GSD 运行时与 Hook
 
@@ -93,8 +93,8 @@
 
 ### 发布自动化
 
-- [ ] **REL-01**: CI 自动生成、验证并发布版本化插件产物
-- [ ] **REL-02**: 支持的 Codex 与 Claude Code 版本具有自动兼容矩阵
+- [ ] **REL-01**: 只有与根 `package.json` 版本匹配的 `vX.Y.Z` 标签可触发 CI 重新生成、验证并发布公共 `kcoderag-nav` npm 包；普通 `master` push 只测试
+- [ ] **REL-02**: 支持的 Codex、Claude Code、Cursor、Node.js 22/24 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略
 
 ## Out of Scope
 
@@ -105,7 +105,7 @@
 | 强制安装第三个公共 core 插件 | QA 与 Dev 都必须能够单独完整工作 |
 | QA 不可达时自动回退 Dev | 会隐藏环境故障并可能返回错误环境的数据 |
 | 修改 KCodeRag MCP 服务或图数据 | 本仓库只负责插件分发和导航策略 |
-| Codex 原生 project-scope plugin install | 当前 CLI 与官方文档没有该能力，使用项目级兼容安装器 |
+| 宿主 marketplace 的 project-scope plugin install | 用户入口统一为 npx 管理宿主原生项目配置，不依赖 marketplace scope |
 
 ## Traceability
 
@@ -174,4 +174,4 @@
 
 ---
 *Requirements defined: 2026-08-20*
-*Last updated: 2026-08-23 after deployment, hook-precision, real-host, GSD, and production hardening roadmap expansion*
+*Last updated: 2026-08-24 after aligning real-host evidence and production release with the npx project integration*
