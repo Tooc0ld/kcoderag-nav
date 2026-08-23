@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 0
 waived_count: 0
-fixed_count: 6
-total_count: 6
-last_updated: 2026-08-23T16:32:04.424Z
+fixed_count: 7
+total_count: 7
+last_updated: 2026-08-23T17:25:21.540Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-08-23T16:32:04.424Z
 | 4 | 03.1 | deviation | src/core/project-target.cts |  | Allowed only exact explicitly declared root files so Claude project .mcp.json can enter validated desired state. | fixed |  | 2026-08-23T16:31:58.053Z | 2026-08-23T16:32:03.896Z |
 | 5 | 03.1 | deviation | src/bin/kcoderag-nav.cts |  | Routed the public npx bin through the completed three-host registry. | fixed |  | 2026-08-23T16:31:58.317Z | 2026-08-23T16:32:04.151Z |
 | 6 | 03.1 | deviation | src/hosts/cursor.cts |  | Added private journal and byte backup for strict cross-boundary Cursor migration compensation. | fixed |  | 2026-08-23T16:31:58.570Z | 2026-08-23T16:32:04.424Z |
+| 7 | 03.1 | deviation | .github/workflows/release.yml |  | Build precedes the compiled dependency audit so the clean-runner release gate is executable. | fixed |  | 2026-08-23T17:24:51.785Z | 2026-08-23T17:25:21.540Z |
 
 ````json
 [
@@ -95,6 +96,18 @@ last_updated: 2026-08-23T16:32:04.424Z
     "reason": "",
     "recorded_at": "2026-08-23T16:31:58.570Z",
     "resolved_at": "2026-08-23T16:32:04.424Z"
+  },
+  {
+    "id": 7,
+    "kind": "deviation",
+    "phase": "03.1",
+    "file": ".github/workflows/release.yml",
+    "line": null,
+    "description": "Build precedes the compiled dependency audit so the clean-runner release gate is executable.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-23T17:24:51.785Z",
+    "resolved_at": "2026-08-23T17:25:21.540Z"
   }
 ]
 ````

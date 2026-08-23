@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-06-PLAN.md
-last_updated: "2026-08-23T17:10:00.798Z"
+stopped_at: Completed 03.1-13-PLAN.md
+last_updated: "2026-08-23T17:24:55.495Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 57ae43aff643b6263a7abdd9d4c8cca56f751192
+state_head: 7a1e713cb71647c3acb045e8ff17168633a085be
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 18
+  completed_plans: 19
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 16 of 27
+Plan: 17 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -75,6 +75,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P04 | 16min | 3 tasks | 10 files |
 | Phase 03.1 P05 | 15min | 3 tasks | 9 files |
 | Phase 03.1 P06 | 8min | 2 tasks | 8 files |
+| Phase 03.1 P13 | 11min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Required contract smoke acquires and invokes a real temporary npm package, then requires all eleven Codex/Claude/Cursor lifecycle and MCP evidence bits for PASS.
 - [Phase 03.1]: Loopback smoke receipts contain only path, method, tool name, and request id; headers, arguments, configuration, and credentials stay outside evidence output.
 - [Phase 03.1]: Optional authenticated smoke is isolated behind workflow_dispatch and an explicit self-hosted runner gate, and cannot replace required contract smoke.
+- [Phase 03.1]: Release preparation owns exactly seven version paths and independently proves generator, diff, staged, and committed path equality.
+- [Phase 03.1]: Local .planning and .gsd state may be dirty but must remain byte-identical and is never staged by release preparation.
+- [Phase 03.1]: Sanitized publish receipts are closed, offline evidence documents binding tag/version, release/workflow SHA, registry metadata, and complete public host evidence.
+- [Phase 03.1]: Only v*.*.* tag pushes can reach the minimal-permission npm publish workflow, with NPM_TOKEN scoped to the final step.
 
 ### Pending Todos
 
@@ -192,6 +197,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T17:10:00.629Z
-Stopped at: Completed 03.1-06-PLAN.md
+Last session: 2026-08-23T17:24:55.324Z
+Stopped at: Completed 03.1-13-PLAN.md
 Resume file: None
