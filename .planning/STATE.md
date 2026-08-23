@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-29-PLAN.md
-last_updated: "2026-08-23T13:19:37.504Z"
+stopped_at: Completed 03.1-01-PLAN.md
+last_updated: "2026-08-23T13:47:00.635Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: ca581bd79d20b0512b7ab676350b229caf4639b0
+state_head: 2220e740941ef5a4cc59c8007051398ba3f1e5db
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 4
-  percent: 13
+  completed_plans: 5
+  percent: 17
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 2 of 27
+Plan: 3 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [█░░░░░░░░░] 13%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [█░░░░░░░░░] 13%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 03.1 P29 | 2 min | 2 tasks | 1 files |
+| Phase 03.1 P01 | 19min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 7]: KCodeRag hook 与全局 GSD hook 分属不同所有者；GSD runtime 修复需要持久化或上游化。
 - [Phase 8]: 内部内置凭据风险继续被接受到生产安全阶段，不提前声称已解决。
 - [Phase 03.1]: Node dependency and build outputs use only exact root-anchored ignore rules. — This keeps npm/build artifacts out of Git without hiding nested paths, product packages, source, tests, planning, or unrelated work.
+- [Phase 03.1]: Accepted the exact audited TypeScript 6.0.3, @types/node 22.20.1, and undici-types 6.21.0 graph; any graph, integrity, ownership, or lifecycle drift requires re-audit.
+- [Phase 03.1]: Confirmed the public unscoped kcoderag-nav package and npx kcoderag-nav@latest install command.
+- [Phase 03.1]: Codex QA installation uses full preflight/staging, state-last replacement, and complete rollback with secret-safe output.
+- [Phase 03.1]: Clean CI builds compiled CJS before audit/tests and discovers compiled tests with an explicit glob.
 
 ### Pending Todos
 
@@ -139,6 +144,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T13:19:37.342Z
-Stopped at: Completed 03.1-29-PLAN.md
+Last session: 2026-08-23T13:47:00.444Z
+Stopped at: Completed 03.1-01-PLAN.md
 Resume file: None
