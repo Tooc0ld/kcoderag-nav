@@ -1,6 +1,8 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const fs = require("node:fs") as typeof import("node:fs");
+const fsPromises = require("node:fs/promises") as typeof import("node:fs/promises");
+const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 interface UpdateCheckFiles {
@@ -27,6 +29,47 @@ interface UpdateCheckModule {
 }
 
 const update = require("../../dist/hooks/update-check.cjs") as UpdateCheckModule;
+
+interface RegistryResponse {
+  readonly statusCode: number;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly body: Buffer;
+}
+
+interface RegistryRequestOptions {
+  readonly timeoutMs: number;
+  readonly maxBytes: number;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+interface WorkerModule {
+  readonly REGISTRY_URL: string;
+  readonly REQUEST_TIMEOUT_MS: number;
+  readonly MAX_RESPONSE_BYTES: number;
+  refreshLatest(options: {
+    readonly cacheRoot: string;
+    readonly now?: () => number;
+    readonly request?: (url: string, options: RegistryRequestOptions) => Promise<RegistryResponse>;
+    readonly writeCache?: (cacheRoot: string, cache: unknown) => Promise<void>;
+  }): Promise<boolean>;
+  main(argv?: readonly string[]): Promise<number>;
+}
+
+interface HookModule {
+  main(
+    rawInput?: string,
+    writeOutput?: (text: string) => void,
+    updateRuntime?: {
+      readonly installedVersion?: string;
+      readonly readUpdateHint?: (installedVersion: string | undefined) => string | undefined;
+      readonly scheduleRefresh?: (payload: unknown) => boolean;
+    },
+  ): number;
+}
+
+const worker = require("../../dist/hooks/update-worker.cjs") as WorkerModule;
+const hook = require("../../dist/hooks/grep-nudge.cjs") as HookModule;
 
 class MemoryFiles implements UpdateCheckFiles {
   readonly entries = new Map<string, { contents: string; mtimeMs: number }>();
@@ -195,4 +238,127 @@ test("session markers remain bounded and foreground source has no network client
 
   const foregroundSource = fs.readFileSync(path.resolve("src/hooks/update-check.cts"), "utf8");
   assert.doesNotMatch(foregroundSource, /node:https|https:\/\/registry\.npmjs/u);
+});
+
+async function withTempDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
+  const directory = await fsPromises.mkdtemp(path.join(os.tmpdir(), "kcoderag-update-"));
+  try {
+    return await run(directory);
+  } finally {
+    await fsPromises.rm(directory, { recursive: true, force: true });
+  }
+}
+
+function registryResponse(body: unknown, overrides: Partial<RegistryResponse> = {}): RegistryResponse {
+  return {
+    statusCode: 200,
+    url: worker.REGISTRY_URL,
+    headers: { "content-type": "application/json" },
+    body: Buffer.from(typeof body === "string" ? body : JSON.stringify(body), "utf8"),
+    ...overrides,
+  };
+}
+
+test("worker reads only dist-tags.latest with a bounded fixed registry request and atomic cache write", async () => {
+  await withTempDirectory(async (directory) => {
+    const calls: Array<{ url: string; options: RegistryRequestOptions }> = [];
+    const result = await worker.refreshLatest({
+      cacheRoot: directory,
+      now: () => 2_000_000_000_000,
+      request: async (url, options) => {
+        calls.push({ url, options });
+        return registryResponse({ name: "kcoderag-nav", "dist-tags": { latest: "0.1.5" } });
+      },
+    });
+
+    assert.equal(result, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "https://registry.npmjs.org/kcoderag-nav");
+    assert.equal(calls[0]?.options.timeoutMs, 1_500);
+    assert.ok((calls[0]?.options.maxBytes ?? 0) > 0);
+    assert.match(calls[0]?.options.headers.accept ?? "", /json/u);
+    assert.deepEqual(
+      JSON.parse(await fsPromises.readFile(path.join(directory, "remote-cache.json"), "utf8")),
+      { schemaVersion: 1, checkedAt: 2_000_000_000_000, latest: "0.1.5" },
+    );
+    assert.deepEqual((await fsPromises.readdir(directory)).sort(), ["remote-cache.json"]);
+  });
+});
+
+test("worker rejects transport, redirect, body, JSON, semver, and write failures without replacing old cache", async () => {
+  await withTempDirectory(async (directory) => {
+    const cacheFile = path.join(directory, "remote-cache.json");
+    const oldCache = cache(1_999_999_999_000, "0.1.4");
+    const failures: Array<() => Promise<RegistryResponse>> = [
+      async () => { throw new Error("DNS offline"); },
+      async () => registryResponse({}, { statusCode: 302 }),
+      async () => registryResponse({}, { url: "http://registry.npmjs.org/kcoderag-nav" }),
+      async () => registryResponse({}, { headers: { "content-type": "text/html" } }),
+      async () => registryResponse("x".repeat(worker.MAX_RESPONSE_BYTES + 1)),
+      async () => registryResponse("not-json"),
+      async () => registryResponse({ "dist-tags": {} }),
+      async () => registryResponse({ "dist-tags": { latest: "1.0.0-beta.1" } }),
+    ];
+
+    for (const request of failures) {
+      await fsPromises.writeFile(cacheFile, oldCache, "utf8");
+      assert.equal(await worker.refreshLatest({ cacheRoot: directory, request }), false);
+      assert.equal(await fsPromises.readFile(cacheFile, "utf8"), oldCache);
+      assert.deepEqual((await fsPromises.readdir(directory)).sort(), ["remote-cache.json"]);
+    }
+
+    await fsPromises.writeFile(cacheFile, oldCache, "utf8");
+    assert.equal(await worker.refreshLatest({
+      cacheRoot: directory,
+      request: async () => registryResponse({ "dist-tags": { latest: "0.1.5" } }),
+      writeCache: async () => { throw new Error("permission denied"); },
+    }), false);
+    assert.equal(await fsPromises.readFile(cacheFile, "utf8"), oldCache);
+  });
+});
+
+test("worker lock collapses concurrent refreshes and private CLI mode always exits zero", async () => {
+  await withTempDirectory(async (directory) => {
+    let requestCalls = 0;
+    const request = async (): Promise<RegistryResponse> => {
+      requestCalls += 1;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return registryResponse({ "dist-tags": { latest: "0.1.5" } });
+    };
+    const results = await Promise.all([
+      worker.refreshLatest({ cacheRoot: directory, request }),
+      worker.refreshLatest({ cacheRoot: directory, request }),
+    ]);
+    assert.deepEqual(results.sort(), [false, true]);
+    assert.equal(requestCalls, 1);
+    assert.equal(await worker.main(["--refresh", directory]), 0);
+    assert.equal(await worker.main(["--bad", directory]), 0);
+    assert.equal(await worker.main(["--refresh", directory, "extra"]), 0);
+  });
+});
+
+test("hook emits its advisory decision before scheduling refresh and never waits for worker", () => {
+  const order: string[] = [];
+  let output = "";
+  const returnCode = hook.main(
+    JSON.stringify(relevantPayload),
+    (text) => { order.push("output"); output = text; },
+    {
+      installedVersion: "0.1.4",
+      readUpdateHint: () => "Cached update: npx kcoderag-nav@latest update",
+      scheduleRefresh: () => { order.push("spawn"); return true; },
+    },
+  );
+  assert.equal(returnCode, 0);
+  assert.deepEqual(order, ["output", "spawn"]);
+  assert.match(output, /Structural lookup/u);
+  assert.match(output, /npx kcoderag-nav@latest update/u);
+
+  const spawnFailure = hook.main(
+    JSON.stringify(relevantPayload),
+    () => { order.push("second-output"); },
+    { scheduleRefresh: () => { throw new Error("offline"); } },
+  );
+  assert.equal(spawnFailure, 0);
+  assert.equal(order.at(-1), "second-output");
 });
