@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-15-PLAN.md
-last_updated: "2026-08-23T18:09:52.199Z"
+stopped_at: Completed 03.1-30-PLAN.md
+last_updated: "2026-08-23T18:16:15.187Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 7dcb0528f107bbff9417afa0c83a1df976f14e27
+state_head: 7c9f729813c559fa50c83edce2025869acd52422
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 20
+  completed_plans: 21
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 18 of 27
+Plan: 19 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -77,6 +77,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P06 | 8min | 2 tasks | 8 files |
 | Phase 03.1 P13 | 11min | 3 tasks | 6 files |
 | Phase 03.1 P15 | 37min | 3 tasks | 14 files |
+| Phase 03.1 P30 | 4min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Plan 30 exclusively owns removal of the exact 26 authorized cache files and five empty roots; Plan 15 performs no live deletion.
 - [Phase 03.1]: The successful five-suite receipt is the final Python invocation; all later retirement and verification work is Node-only.
 - [Phase 03.1]: Retained Python parity tests validate current Node products until their ordered retirement rather than preserving obsolete Python runtime expectations.
+- [Phase 03.1]: Plan 30 invoked only the compiled, freshly tested cleanup CLI; no independent receipt, path, or deletion implementation was introduced.
+- [Phase 03.1]: The exact five cache roots were untracked generated state; Git records no tracked deletion, while canonical receipts preserve path-and-hash evidence.
 
 ### Pending Todos
 
@@ -202,6 +205,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:09:52.028Z
-Stopped at: Completed 03.1-15-PLAN.md
+Last session: 2026-08-23T18:16:15.009Z
+Stopped at: Completed 03.1-30-PLAN.md
 Resume file: None
