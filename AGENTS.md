@@ -2,33 +2,36 @@
 
 ## Project
 
-**KCodeRag Nav Plugins**
+**KCodeRag Nav**
 
-KCodeRag Nav Plugins 是 KCodeRag MCP 查询服务的代理导航插件分发仓库，面向 Codex、
-Claude Code 与 Cursor。仓库发布 `kcoderag-qa` 与 `kcoderag-dev` 两个可独立安装、独立卸载、
-单独完整工作的 Codex/Claude 插件，并生成一个只配置单环境的 Cursor 本地插件，使代码代理
-在结构化代码检索时优先使用知识图谱，精确文本和未提交改动仍使用本地搜索。
+KCodeRag Nav 是 KCodeRag MCP 查询服务的 Node.js 项目集成，面向 Codex、Claude Code 与
+Cursor。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、导航 skill、MCP 配置和宿主资产
+部署到目标项目的原生目录；它不是 marketplace plugin，也不依赖 Python、Git checkout 或
+运行时 TypeScript 编译。标准入口是 `npx kcoderag-nav@latest install`。
 
-普通用户只需要安装 QA 插件；Dev 插件主要用于开发和测试。QA 与 Dev 互斥，切换环境时
-必须先卸载当前环境，再安装另一个环境。
-默认分发路径采用项目级安装器，将 Codex hook、skill 与 MCP 配置部署到目标仓库自己的
-`.codex/` 和 `.agents/`；用户级 `codex plugin add` 仅作为显式可选路径。
-Cursor 默认通过免费本地插件目录分发，不要求 Team 订阅；安装器管理 install/status/update/
-uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付费 Team Marketplace 仅为
-可选的组织分发路径。
+未指定宿主时交互选择 Codex、Claude Code 或 Cursor；自动化使用
+`--host codex|claude|cursor`，一次调用只管理一个宿主。QA 是默认环境，Dev 仅用于开发和测试
+并需显式选择；QA/Dev 在同一宿主内互斥且切换前必须显式卸载，跨宿主安装可以共存。
 
-**Core Value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
+Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
+和共享 skill，不声称 hook 行为等价。install/update/uninstall 只修改 adapter 声明的受管
+项目文件和 section，遇到漂移时写前硬停止，并按单宿主事务完整回滚。
+
+**Core Value:** 用户通过统一 npx CLI 即可为所选宿主获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
 
 ### Constraints
 
-- **独立性**: 两个环境插件必须分别安装、卸载和运行 — Dev 不能只是依赖 QA 的附加包
-- **环境互斥**: QA 与 Dev 不能同时安装 — 默认 QA，Dev 仅通过显式选择安装
-- **分发**: 安装产物必须自包含 — 插件缓存不会可靠保留仓库级共享父目录
-- **项目边界**: 默认安装与卸载只能修改目标仓库内由安装器管理的文件 — 不污染用户配置或无关项目文件
-- **Hook**: 仅提供 advisory context，任何异常都必须 fail-open — 不阻断 `grep`、`glob` 或 shell
-- **兼容性**: 支持 Codex、Claude Code 与 Cursor；Cursor 使用 Rule，不声称 hook 行为等价
+- **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
+- **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`，根 marketplace catalog 不得恢复
+- **宿主边界**: 一次命令只管理 Codex、Claude Code 或 Cursor 中的一个；跨宿主安装可以共存
+- **环境互斥**: QA/Dev 仅在同一宿主内互斥 — 默认 QA，Dev 需显式选择，切换前显式卸载
+- **项目边界**: 默认只修改目标项目内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
+- **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
+- **Hook**: Codex/Claude 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
+- **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
 - **凭据**: 当前 QA/Dev 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
+- **OpenCode**: 仅保留 adapter 扩展能力；实现与真实宿主验证延后
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
 <!-- GSD:project-end -->
@@ -39,44 +42,43 @@ uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付
 
 ## Languages
 
-- Python 3 - `kcoderag-dev/hooks/grep_nudge.py` and `kcoderag-qa/hooks/grep_nudge.py` implement the cross-host lookup hook and use only the standard library.
-- JSON - plugin manifests, marketplace metadata, permissions, and hook registration in `.claude-plugin/marketplace.json`, `kcoderag-dev/.codex-plugin/plugin.json`, `kcoderag-qa/.codex-plugin/plugin.json`, `kcoderag-dev/settings.json`, and `kcoderag-qa/settings.json`.
-- Markdown - human-facing plugin documentation and skill instructions in `kcoderag-dev/` and `kcoderag-qa/`.
+- TypeScript (`.cts`) - canonical CLI, transaction, host adapters, hooks, generator, maintainer tools, smoke harness, and tests.
+- CommonJS (`.cjs`) - compiled user and maintainer runtime in `dist/` plus self-contained generated hook payloads.
+- JSON/TOML/Markdown/shell - host-native MCP/settings, generated compatibility manifests, skills/Rules, launchers, and workflow configuration.
 
 ## Runtime
 
-- Python 3.x; the hook is launched by Claude Code/Codex through the configured `python` command. No Python version pin is present.
-- Claude Code and Codex plugin hosts provide the lifecycle, tool payload, and MCP execution environment.
-- Not detected; no `pyproject.toml`, `requirements*.txt`, `uv.lock`, `package.json`, or other application package manifest is present.
-- Lockfile: missing/not applicable.
+- Node.js 22+ is the only user runtime. Node 22 and 24 are the required CI lines.
+- TypeScript compiles `.cts` to directly executable `.cjs`; no `ts-node`, runtime compilation, or Python fallback is allowed.
+- The public executable is `dist/bin/kcoderag-nav.cjs`, exposed as the `kcoderag-nav` npm bin.
+- Root `package.json` is the single version and script source; `package-lock.json` pins the audited dev-only dependency graph.
 
 ## Frameworks
 
-- Model Context Protocol (MCP) - external KCodeRag Dev/QA servers are registered by each plugin's `.mcp.json` (file existence noted; contents are not read because it may contain credentials).
-- Claude Code/Codex plugin interfaces - manifests in `kcoderag-dev/.codex-plugin/plugin.json`, `kcoderag-qa/.codex-plugin/plugin.json`, and `.claude-plugin/marketplace.json`.
-- Python standard-library test scripts in `kcoderag-dev/hooks/test_grep_nudge.py` and `kcoderag-qa/hooks/test_grep_nudge.py`; no pytest configuration or dependency was detected.
-- None detected. Installation is performed with `codex plugin marketplace add` / `codex plugin add` or Claude Code marketplace commands documented in the READMEs.
+- Model Context Protocol (MCP) - external KCodeRag QA/Dev services are projected into each selected host's native project configuration.
+- Host adapters - Codex, Claude Code, and Cursor render host-specific desired state behind a shared read/render-only interface.
+- Node built-in test runner - compiled `dist-tests/**/*.test.cjs` provides unit, integration, pack, lifecycle, smoke, and release coverage.
+- npm/npx - package acquisition and the five-command project lifecycle; marketplace catalogs are not a distribution surface.
 
 ## Key Dependencies
 
-- Python standard library (`json`, `re`, `subprocess`, `typing`, and related modules) - implements parsing, heuristic classification, JSON hook output, and self-tests without third-party packages (`kcoderag-dev/hooks/grep_nudge.py`).
-- KCodeRag MCP service - supplies `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and `submit_feedback` as described in `kcoderag-dev/README.md` and `kcoderag-qa/README.md`.
-- Claude Code/Codex hook runtime - invokes `PreToolUse` handlers configured in `kcoderag-dev/hooks/hooks.json` and `kcoderag-qa/hooks/hooks.json`.
+- Runtime dependencies: none beyond Node.js built-ins.
+- Dev dependencies: audited TypeScript and Node 22 declarations only; dependency graph or integrity drift requires re-audit.
+- KCodeRag MCP service - provides graph lookup tools; endpoint and authorization values remain opaque sensitive inputs.
+- Codex/Claude hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, and MCP configuration instead.
 
 ## Configuration
 
-- Plugin-local MCP connection/auth configuration is declared in `kcoderag-dev/.mcp.json` and `kcoderag-qa/.mcp.json` (contents intentionally not inspected).
-- Host permissions allow the plugin MCP namespace through `kcoderag-dev/settings.json` and `kcoderag-qa/settings.json`.
-- Hook launch uses `CLAUDE_PLUGIN_ROOT` on Unix-like hosts and `PLUGIN_ROOT` in the Windows command in both `hooks.json` files.
-- Marketplace metadata: `.claude-plugin/marketplace.json`.
-- Codex plugin manifests: `kcoderag-dev/.codex-plugin/plugin.json`, `kcoderag-qa/.codex-plugin/plugin.json`.
-- No compile or bundling configuration detected.
+- `src/hosts/` declares Codex, Claude Code, and Cursor project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
+- `plugin-src/` is the deterministic template/config source; generated QA/Dev/Cursor assets remain self-contained and version-aligned.
+- Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, and `.cursor/mcp.json`.
+- MCP configuration files may contain credentials. Never inspect, print, snapshot, or include their values in diagnostics.
 
 ## Platform Requirements
 
-- A Claude Code or Codex installation with plugin marketplace support.
-- Python available as `python` for hook execution.
-- Access to the internal Dev or QA network and its corresponding KCodeRag MCP endpoint; README states the endpoints are intended for their respective internal networks (`kcoderag-dev/README.md`, `kcoderag-qa/README.md`).
+- Node.js 22+ and npm/npx on Windows or Linux.
+- At least one selected host: Codex, Claude Code, or Cursor; OpenCode remains deferred.
+- Network access for initial npm acquisition and the selected internal QA/Dev MCP service. Installed hooks run offline and update checks fail open.
 
 <!-- GSD:stack-end -->
 
@@ -86,45 +88,52 @@ uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付
 
 ## Naming Patterns
 
-- Python modules use lowercase `snake_case`, for example `kcoderag-dev/hooks/grep_nudge.py`.
-- Tests use the `test_*.py` naming form, for example `kcoderag-dev/hooks/test_grep_nudge.py`.
-- Functions use lowercase `snake_case` (`looks_like_symbol_lookup`, `shell_lookup_patterns`, and `hook_output` in `kcoderag-dev/hooks/grep_nudge.py`).
-- Private implementation helpers use a leading underscore (`_unquote`, `_is_single_file_scope`, and `_is_local_only_scope`).
-- Module constants use uppercase `SCREAMING_SNAKE_CASE` (`NUDGE`, `SILENT_RES`, `MAX_COMMAND_CHARS`).
-- Local collections and flags use descriptive lowercase `snake_case` names.
-- Type annotations use built-in generics and union syntax compatible with modern Python (`list[str]`, `dict[str, Any]`, and `dict[...] | None`).
-- Mapping-shaped inputs are typed with `collections.abc.Mapping`; heterogeneous hook payloads use `Any` at the boundary (`kcoderag-dev/hooks/grep_nudge.py`).
+- Canonical modules use kebab-case `.cts` names such as `grep-nudge.cts`, `host-adapter.cts`, and `pack-audit.cts`.
+- Tests use `*.test.cts`; compiled paths preserve the same structure under `dist-tests/`.
+- Functions and locals use descriptive `camelCase`; interfaces and exported type names use `PascalCase`.
+- Module constants use `SCREAMING_SNAKE_CASE`; stable command/host collections are frozen and readonly.
+- Generated assets keep host-native names and paths; do not rename compatibility manifests or MCP keys independently of the generator.
 
 ## Code Style
 
-- No formatter configuration (`pyproject.toml`, `.prettierrc`, or equivalent) is present. Preserve the existing readable PEP 8-style layout and approximately 100-character lines.
-- Use a shebang and module docstring for executable Python scripts, as in `kcoderag-dev/hooks/grep_nudge.py`.
-- No lint configuration or enforced lint command is detected. Keep imports standard-library-only where possible and avoid unused imports.
+- TypeScript is strict with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`; preserve explicit readonly contracts and narrow unknown values at boundaries.
+- Runtime code uses Node built-ins only. Do not add a production dependency, runtime transpiler, or new package without the dependency audit gate.
+- Executable sources use a Node shebang and a concise module docstring; compiled CJS is the runnable artifact.
+- Preserve readable two-space indentation, semicolons, LF-normalized deterministic generated bytes, and path-only diagnostics.
 
 ## Import Organization
 
-- Not detected. Tests load the adjacent implementation explicitly with `importlib.util.spec_from_file_location` (`kcoderag-dev/hooks/test_grep_nudge.py`).
+- Node built-ins are loaded with `node:` specifiers. TypeScript modules import sibling compiled names with `.cjs` suffixes so emitted CJS resolves directly.
+- Keep host-specific imports out of `src/core/`; the CLI reaches hosts through `src/hosts/index.cts` and `HostAdapter`.
 
 ## Error Handling
 
-- Hook boundaries fail open: `main()` catches malformed JSON and unexpected exceptions, returns exit code `0`, and emits no output (`kcoderag-dev/hooks/grep_nudge.py`).
-- Classification helpers return neutral empty/false values for invalid input rather than raising.
-- Keep the hook advisory and non-blocking; do not turn lookup nudges into command rejection.
+- Expected refusals use stable `InstallError` codes and safe relative paths; never include file contents, URLs, headers, subprocess bodies, or credentials.
+- Mutating commands validate runtime, ownership, drift, and complete desired state before one `applyTransaction` call; state commits last and rollback is host-local.
+- Hook boundaries catch every malformed/oversized/unsupported/error case, emit empty stdout, and exit 0. Advisory behavior must never reject the original tool call.
+- `status` and `doctor` are read-only; `--json` emits exactly one stable JSON value without diagnostic noise.
 
 ## Logging
 
-- The hook writes only its JSON protocol response to stdout; tests print human-readable pass/fail diagnostics (`kcoderag-dev/hooks/test_grep_nudge.py`).
-- Do not print diagnostics from the hook protocol path, because consumers interpret stdout as JSON.
+- Hook stdout contains only a valid host protocol response and is otherwise empty; launchers suppress runtime failures and stderr.
+- CLI and maintainer diagnostics contain stable codes and safe paths only. Never log MCP values or captured network/subprocess bodies.
+- Machine receipts and smoke evidence contain metadata-only fields; `NOT_RUN` is never converted to required `PASS`.
 
 ## Comments
 
-- Use module and function docstrings to explain host payloads, fail-open behavior, and non-obvious parsing rules (`kcoderag-dev/hooks/grep_nudge.py`).
-- Comments should document policy boundaries such as local-file exceptions and shell normalization, not restate simple expressions.
-- Not applicable; no JavaScript/TypeScript source is present.
+- Use module/function docstrings for ownership, transaction, protocol, and fail-open boundaries.
+- Comments explain non-obvious safety policy, host differences, deterministic ordering, and why values remain opaque; do not restate syntax.
 
 ## Function Design
 
+- Prefer pure read/render functions that return immutable desired state. Filesystem mutation belongs only in the transaction layer.
+- Inject clocks, fetchers, spawners, and failure points where deterministic tests need to prove timing, network, or rollback behavior.
+
 ## Module Design
+
+- `src/core/` is host-neutral; `src/hosts/` owns paths and structured merge rules; `src/cli/` owns orchestration, not writes.
+- `src/generator/` renders sorted bytes from canonical templates; checks are read-only and generators never expose credential inputs.
+- Generated QA/Dev/Cursor trees are products, not independent maintenance sources.
 
 <!-- GSD:conventions-end -->
 
@@ -135,77 +144,90 @@ uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付
 ## System Overview
 
 ```text
+npx kcoderag-nav@latest <command>
+        |
+        v
+CLI policy -> selected HostAdapter (read/render only) -> atomic transaction -> project-native files
+        |                                                        |
+        +-> status/doctor (read-only)                             +-> managed state/digests
 
+Installed Codex/Claude launcher -> CJS advisory hook -> optional detached npm update worker
+Installed Cursor project files  -> Rule + skill + MCP (native capability boundary)
 ```
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| Marketplace manifest | Publishes the two plugin names, local sources, and descriptions | `.claude-plugin/marketplace.json` |
-| Dev package | Dev MCP permission scope and navigation assets | `kcoderag-dev/` |
-| QA package | QA MCP permission scope and navigation assets | `kcoderag-qa/` |
-| MCP permission policy | Allows only the package's environment-qualified MCP namespace | `kcoderag-dev/settings.json`, `kcoderag-qa/settings.json` |
-| Hook registration | Runs the advisory lookup hook before search tools | `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json` |
-| Lookup hook | Detects likely structural searches and emits guidance; fails open | `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py` |
-| Navigation skill | Defines graph-first search/context/call-chain workflow | `kcoderag-dev/skills/code-lookup-discipline/SKILL.md`, `kcoderag-qa/skills/code-lookup-discipline/SKILL.md` |
-| Explorer agent | Provides read-only graph-first exploration instructions (Dev package) | `kcoderag-dev/agents/kcode-explorer.md` |
+| npm CLI | Parses five commands, selects one host/environment, confirms target, and formats stable output | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
+| Core contracts | Defines safe errors, target/state/status types, runtime checks, and managed-path validation | `src/core/` |
+| Atomic transaction | Performs the only installation filesystem commit, state-last ordering, and complete rollback | `src/core/transaction.cts` |
+| Host adapters | Detect and render Codex, Claude Code, or Cursor project-native desired state without writing | `src/hosts/` |
+| Advisory hook | Classifies structural search, emits bounded guidance, and fails open | `src/hooks/grep-nudge.cts` |
+| Update runtime | Reads bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
+| Generator | Produces deterministic self-contained QA/Dev/Cursor assets from one canonical source | `src/generator/index.cts`, `plugin-src/` |
+| Maintainer gates | Enforce dependencies, generation, pre-commit, pack, docs, retirement, and release contracts | `src/maintainer/` |
+| Smoke harness | Acquires a real temporary package and proves lifecycle/MCP evidence against a loopback stub | `src/smoke/` |
 
 ## Pattern Overview
 
-- The marketplace is the composition root; each plugin is independently installable.
-- Dev and QA are parallel packages with separate MCP namespace permissions and endpoint configuration files (`kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`).
-- Hooks are advisory and non-blocking. Structural lookup is redirected toward MCP tools, while exact text/local edit searches remain local.
-- Runtime behavior is implemented by host plugin systems; this repository contains configuration, prompts, and a standard-library Python hook rather than a server runtime.
+- The npm CLI is the composition root. One invocation targets one host; host adapters provide data and the shared transaction owns writes.
+- QA/Dev exclusivity is host-local. A project may contain independent Codex, Claude Code, and Cursor installations.
+- Canonical TypeScript/templates generate version-aligned CJS and host assets; generated trees are never hand-maintained.
+- Codex/Claude hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
+- All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
 
 ## Layers
 
-- Purpose: Declare installable plugin products.
-- Location: `.claude-plugin/marketplace.json`
-- Contains: Owner, marketplace name, plugin source paths, descriptions.
-- Depends on: The two package directories.
-- Purpose: Bind each package to its MCP server and host permissions.
-- Location: `kcoderag-dev/.mcp.json`, `kcoderag-dev/settings.json`, `kcoderag-qa/.mcp.json`, `kcoderag-qa/settings.json`
-- Contains: Environment-specific MCP registration and allow-list namespace.
-- Used by: Claude Code/Codex plugin host.
-- Purpose: Encode graph-first lookup workflow and tool selection.
-- Location: `*/skills/code-lookup-discipline/SKILL.md`, `kcoderag-dev/agents/kcode-explorer.md`
-- Contains: Search decision table, fallback rules, and exploration role instructions.
-- Used by: Agents operating after plugin installation.
-- Purpose: Detect structural search intent and add non-blocking guidance.
-- Location: `*/hooks/hooks.json`, `*/hooks/grep_nudge.py`
-- Contains: PreToolUse matcher and parser/heuristics for Grep, Glob, Bash, and common shell search commands.
-- Used by: Claude Code/Codex hook runner.
+- **Controller:** `src/bin/` and `src/cli/` validate public command policy, target confirmation, host/environment selection, and stable output.
+- **Core:** `src/core/` owns host-neutral path validation, state schemas, runtime checks, and transactional mutation.
+- **Providers:** `src/hosts/` own only host-native detection, managed roots/sections, merge semantics, and desired-state rendering.
+- **Runtime hooks:** `src/hooks/` implement pure lookup classification and optional asynchronous update state with no foreground network access.
+- **Build/distribution:** `src/generator/`, `plugin-src/`, and generated host trees form deterministic, self-contained npm assets.
+- **Assurance:** `src/maintainer/`, `src/smoke/`, tests, and CI prove dependency, pack, lifecycle, release, and secret-safe evidence contracts.
 
 ## Data Flow
 
-### Plugin Installation and Lookup Guidance
+### Project Installation
+
+1. The CLI validates Node.js 22+, command flags, exact target, selected host, and QA/Dev policy.
+2. The selected adapter reads project metadata and reports drift, ambiguity, legacy state, or user-local migration observations without writing.
+3. The adapter renders one complete immutable desired state under declared managed roots.
+4. `applyTransaction` verifies expected digests, stages bytes, commits state last, and restores the selected host on failure.
+5. Human output or one JSON result reports stable codes and paths only.
+
+### Lookup Guidance and Update Awareness
+
+1. Codex/Claude invokes the generated launcher before matched search tools; the launcher resolves sibling CJS and always fails open.
+2. The hook parses bounded input and emits advisory JSON only for eligible structural searches.
+3. A session's first eligible event may schedule a detached npm Registry refresh; foreground execution reads local bounded state only.
+4. Cursor receives equivalent navigation policy through its Rule/skill and uses MCP directly, without a hook event claim.
 
 ## Key Abstractions
 
-- Purpose: Keep Dev and QA MCP permissions, instructions, hooks, and documentation independently installable.
-- Examples: `kcoderag-dev/`, `kcoderag-qa/`
-- Pattern: Parallel directory trees with environment-specific names and MCP namespaces.
-- Purpose: Classify a local search as symbol/navigation-oriented.
-- Examples: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`
-- Pattern: Pure functions normalize command input, apply regex/token rules, then produce optional hook JSON.
+- **HostAdapter:** Declares host identity/roots and pure detect/render/status methods; it cannot commit files.
+- **DesiredState:** Complete immutable single-host mutation plan with expected digests and state path.
+- **InstallState:** Versioned ownership record for host, environment, managed files/sections, digests, and migration provenance.
+- **InstallError:** Stable secret-safe refusal with optional normalized path.
+- **Generated product:** Byte-deterministic QA/Dev/Cursor asset set derived from root package version and canonical templates.
 
 ## Entry Points
 
-- Location: `.claude-plugin/marketplace.json`
-- Triggers: `codex plugin marketplace add` or Claude marketplace installation.
-- Responsibilities: Resolve `kcoderag-dev` and `kcoderag-qa` source directories.
-- Location: `kcoderag-dev/hooks/grep_nudge.py` or `kcoderag-qa/hooks/grep_nudge.py`
-- Triggers: Host `PreToolUse` event for `Grep`, `Glob`, or `Bash`.
-- Responsibilities: Read JSON stdin, classify lookup patterns, write optional JSON stdout, and fail open.
+- `dist/bin/kcoderag-nav.cjs` - npm bin for install/status/doctor/update/uninstall.
+- `kcoderag-qa/hooks/run_hook.{cmd,sh}` and `kcoderag-dev/hooks/run_hook.{cmd,sh}` - generated fail-open launchers for Codex/Claude hook events.
+- `dist/generator/index.cjs` and `dist/maintainer/*.cjs` - deterministic generation, validation, documentation, pack, and release gates.
+- `.githooks/pre-commit` and GitHub Actions - Node-only local/remote assurance entry points.
 
 ## Architectural Constraints
 
-- **Runtime ownership:** MCP servers and graph data are external; do not add parser/database behavior to this package repository.
-- **Environment isolation:** Dev permissions use the Dev-qualified MCP namespace and QA permissions use the QA-qualified namespace (`kcoderag-dev/settings.json`, `kcoderag-qa/settings.json`).
-- **Hook safety:** Hook errors, malformed JSON, and unsupported commands must return success without blocking the user's tool call (`*/hooks/grep_nudge.py`).
-- **Secret boundary:** Environment MCP configuration files exist at `kcoderag-dev/.mcp.json` and `kcoderag-qa/.mcp.json`; treat their contents as sensitive and never expose credentials.
-- **Duplication boundary:** Dev and QA assets intentionally mirror one another; changes to behavior should be synchronized and tested in both package trees.
+- **Mutation ownership:** Only the shared transaction writes installation files; adapters and status paths remain read/render-only.
+- **Project scope:** Every resolved path must stay inside the explicit target and adapter-declared roots; reject traversal, symlinks, special files, and ambiguous ownership.
+- **Environment isolation:** QA/Dev conflict within one host, never across hosts; no implicit uninstall or fallback to another environment.
+- **Hook safety:** All malformed input, runtime failures, missing Node, and update failures exit 0 without blocking or contaminating stdout.
+- **Secret boundary:** MCP connection and authorization values are opaque; never expose them in output, diagnostics, tests, receipts, or documentation.
+- **Distribution boundary:** Root marketplace catalogs stay retired. Compatibility manifests may remain inside generated self-contained assets but are not install sources.
+- **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
+- **Deferred boundary:** Do not add OpenCode behavior or claim authenticated real-host verification in this phase.
 
 ## Anti-Patterns
 
@@ -213,13 +235,23 @@ uninstall，默认 QA，Dev 通过成对替换 URL 与 Bearer 配置切换。付
 
 ### Making the hook blocking or stateful
 
+### Writing host files directly from adapters
+
+### Treating generated trees or compatibility manifests as user installation sources
+
 ## Error Handling
 
-- `main()` catches malformed input and returns exit code 0 in `*/hooks/grep_nudge.py`.
-- `hook_output()` returns `None` for absent or invalid `tool_input`.
-- Advisory output is emitted only when a structural lookup heuristic matches.
+- CLI expected failures return stable secret-safe codes; JSON mode is one parseable document.
+- Transaction failure restores the selected host; rollback failure keeps a private recovery tree and reports only its safe relative location.
+- Hook/worker boundaries swallow operational failures, emit no diagnostics on stdout, and never block the original host tool.
 
 ## Cross-Cutting Concerns
+
+- Deterministic bytes and exact package-version propagation.
+- Narrow ownership and unrelated configuration preservation.
+- Secret-safe diagnostics and metadata-only evidence.
+- Node 22/24 and Windows/Linux parity.
+- Honest separation between loopback contract smoke and future authenticated real-host evidence.
 
 <!-- GSD:architecture-end -->
 
