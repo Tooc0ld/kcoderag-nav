@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "siblingRepo": "D:/AIProgram/KCodeRag",
+  "guide": "MCP_QA_EXPERIENCE_GUIDE.md",
+  "head": "695cfc53b867c6863457b764638f498b498779e0",
+  "status": [
+    {
+      "code": "??",
+      "path": ".planning/milestone.lock"
+    },
+    {
+      "code": "M ",
+      "path": "scripts/run_phase092_windows_gate.py"
+    },
+    {
+      "code": "M ",
+      "path": "src/cli/performance_baseline.py"
+    },
+    {
+      "code": "M ",
+      "path": "src/quality/parser_resolution.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/external_resource_manifest.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/integration/test_qa_candidate_parse_stage4.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/performance/test_parser_measurement_live.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/unit/test_external_resource_manifest.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/unit/test_performance_baseline.py"
+    },
+    {
+      "code": "M ",
+      "path": "tests/unit/test_resolver_shadow_promotion.py"
+    }
+  ],
+  "guideClean": true
+}
