@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-01-PLAN.md
-last_updated: "2026-08-23T13:47:00.635Z"
+stopped_at: Completed 03.1-02-PLAN.md
+last_updated: "2026-08-23T14:04:10.386Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 2220e740941ef5a4cc59c8007051398ba3f1e5db
+state_head: 9b04ecdf3fa96cacca57b94c4f99ec7cfd8d2861
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 5
-  percent: 17
+  completed_plans: 6
+  percent: 20
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 3 of 27
+Plan: 4 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [██░░░░░░░░] 17%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [██░░░░░░░░] 17%
 |------|----------|-------|-------|
 | Phase 03.1 P29 | 2 min | 2 tasks | 1 files |
 | Phase 03.1 P01 | 19min | 3 tasks | 9 files |
+| Phase 03.1 P02 | 12min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Confirmed the public unscoped kcoderag-nav package and npx kcoderag-nav@latest install command.
 - [Phase 03.1]: Codex QA installation uses full preflight/staging, state-last replacement, and complete rollback with secret-safe output.
 - [Phase 03.1]: Clean CI builds compiled CJS before audit/tests and discovers compiled tests with an explicit glob.
+- [Phase 03.1]: Host adapters declare managed roots and create validated desired state; only applyTransaction mutates installation files.
+- [Phase 03.1]: Rollback failure retains a private project-local recovery tree while diagnostics expose only its safe relative path.
 
 ### Pending Todos
 
@@ -122,10 +125,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260821-g07 | 将 QA/Dev/Cursor 基础版本升级到 0.1.3，验证并推送累计本地改动 | 2026-08-21 | 71f6778 | [260821-g07-bump-plugin-base-version-to-0-1-3-regene](./quick/260821-g07-bump-plugin-base-version-to-0-1-3-regene/) |
 | 260821-kqa | 修复 Codex bundled MCP direct map，硬停止重复来源，并发布 QA/Dev/Cursor 0.1.4 | 2026-08-21 | 1602284 | [260821-kqa-fix-codex-bundled-mcp-compatibility-with](./quick/260821-kqa-fix-codex-bundled-mcp-compatibility-with/) |
 
-### Roadmap Evolution
-
-- Phase 03.1 inserted after Phase 3: JavaScript 与 npx 安装运行时迁移 (URGENT)
-
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
@@ -135,6 +134,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Roadmap Evolution
 
+- Phase 03.1 inserted after Phase 3: JavaScript 与 npx 安装运行时迁移 (URGENT)
 - Phase 4 added: 已部署项目与安装来源可靠性。
 - Phase 5 added: 低误报 Hook 与诚实路由。
 - Phase 6 added: 真实宿主兼容与发布证据。
@@ -144,6 +144,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T13:47:00.444Z
-Stopped at: Completed 03.1-01-PLAN.md
+Last session: 2026-08-23T14:04:10.206Z
+Stopped at: Completed 03.1-02-PLAN.md
 Resume file: None
