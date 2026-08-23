@@ -246,7 +246,7 @@ export async function executeCommand(
     const args = parseArguments(argv);
     json = args.json;
     const host = await selectHost(args, dependencies);
-    if (args.allowLegacyUserRemoval && host !== "cursor") {
+    if (args.allowLegacyUserRemoval && (host !== "cursor" || !isMutation(args.command))) {
       throw new InstallError("legacy_removal_authority_invalid");
     }
     if (args.json && isMutation(args.command) && !args.yes) {
@@ -333,7 +333,11 @@ export async function executeCommand(
       throw new InstallError("invalid_host_adapter");
     }
     const transaction = applyTransaction(desired);
-    const verb = args.command === "uninstall" ? "uninstalled" : `${args.command}ed`;
+    const verb = args.command === "install"
+      ? "installed"
+      : args.command === "update"
+        ? "updated"
+        : "uninstalled";
     const version = packageVersion(packageRoot);
     const payload: Record<string, unknown> = {
       schemaVersion: CORE_SCHEMA_VERSION,

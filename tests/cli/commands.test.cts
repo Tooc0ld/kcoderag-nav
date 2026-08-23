@@ -469,3 +469,44 @@ test("machine output and exit codes are stable and redact unexpected adapter fai
     fs.rmSync(item.root, { recursive: true, force: true });
   }
 });
+
+test("human mutation verbs are stable and read-only commands reject removal authority", async () => {
+  const item = fixture();
+  try {
+    fs.mkdirSync(path.join(item.target, ".fixture-codex"));
+    fs.writeFileSync(path.join(item.target, ".fixture-codex/payload.txt"), "before\n");
+    fs.writeFileSync(path.join(item.target, ".fixture-codex/install-state.json"), "before-state\n");
+    const calls: string[] = [];
+    const adapters = {
+      codex: makeAdapter("codex", calls),
+      claude: makeAdapter("claude", calls),
+      cursor: makeAdapter("cursor", calls),
+    };
+    const updated = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["update", "--host", "codex", "--yes"],
+        updated.dependencies,
+      ),
+      0,
+    );
+    assert.match(updated.stdout[0] ?? "", /^updated: codex\/qa at /);
+    assert.equal(updated.stderr.length, 0);
+
+    const readOnly = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["status", "--host", "cursor", "--json", "--allow-legacy-user-removal"],
+        readOnly.dependencies,
+      ),
+      2,
+    );
+    assert.equal(
+      JSON.parse(readOnly.stdout[0] ?? "").error.code,
+      "legacy_removal_authority_invalid",
+    );
+    assert.equal(readOnly.stderr.length, 0);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
