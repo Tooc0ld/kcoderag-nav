@@ -1,5 +1,5 @@
 const { test } = require("node:test") as typeof import("node:test");
-const assert = require("node:assert/strict") as typeof import("node:assert/strict");
+const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const fs = require("node:fs") as typeof import("node:fs");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 
@@ -20,13 +20,16 @@ function clone<T>(value: T): T {
 }
 
 function actualGraph(): { packageJson: JsonMap; packageLock: JsonMap; npmTree: JsonMap } {
+  const executable = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
+  const args = process.platform === "win32"
+    ? ["/d", "/s", "/c", "npm ls --all --json --long"]
+    : ["ls", "--all", "--json", "--long"];
   return {
     packageJson: JSON.parse(fs.readFileSync("package.json", "utf8")),
     packageLock: JSON.parse(fs.readFileSync("package-lock.json", "utf8")),
     npmTree: JSON.parse(
-      childProcess.execFileSync("npm", ["ls", "--all", "--json", "--long"], {
+      childProcess.execFileSync(executable, args, {
         encoding: "utf8",
-        shell: process.platform === "win32",
       }),
     ),
   };
@@ -81,6 +84,36 @@ test("rejects overrides, resolutions, lifecycle scripts, and extra lock nodes", 
     integrity: "sha512-unapproved",
   };
   expectAuditError(extra, "lock_graph_drift");
+});
+
+test("rejects public package, runtime engine, bin, and compiled-script policy drift", () => {
+  for (const mutate of [
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.name = "renamed-package";
+    },
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.engines.node = ">=20";
+    },
+    (input: ReturnType<typeof actualGraph>) => {
+      input.packageJson.bin["kcoderag-nav"] = "src/bin/kcoderag-nav.cts";
+    },
+  ]) {
+    const input = actualGraph();
+    mutate(input);
+    expectAuditError(input, "package_contract_drift");
+  }
+
+  for (const command of [
+    "node src/tool.cts",
+    "python scripts/tool.py",
+    "ts-node src/tool.cts",
+    "tsc -p another.json",
+    "npm run build && node dist/tool.cjs",
+  ]) {
+    const input = actualGraph();
+    input.packageJson.scripts["unexpected"] = command;
+    expectAuditError(input, "script_policy_drift");
+  }
 });
 
 test("rejects parent-edge, exact version, resolution, and integrity drift", () => {

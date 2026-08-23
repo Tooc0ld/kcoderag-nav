@@ -1,5 +1,5 @@
 const { test } = require("node:test") as typeof import("node:test");
-const assert = require("node:assert/strict") as typeof import("node:assert/strict");
+const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -18,6 +18,7 @@ interface TracerModule {
   installCodexQa(options: {
     target: string;
     packageRoot: string;
+    failAtStage?: number;
     failAtCommit?: number;
     onCommit?: (relativePath: string) => void;
   }): InstallResult;
@@ -58,7 +59,16 @@ function write(root: string, relativePath: string, bytes: string | Buffer): void
 function makePackageRoot(base: string): { root: string; secret: string } {
   const root = path.join(base, "package");
   const secret = `sensitive-${crypto.randomUUID()}`;
-  write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
+  write(
+    root,
+    "package.json",
+    `${JSON.stringify({
+      name: "kcoderag-nav",
+      version: "0.1.4",
+      bin: { "kcoderag-nav": "dist/bin/kcoderag-nav.cjs" },
+      engines: { node: ">=22" },
+    })}\n`,
+  );
   write(
     root,
     "kcoderag-qa/.codex.mcp.json",
@@ -116,21 +126,33 @@ function capturedIo(cwd: string, packageRoot: string, overrides: Partial<{
   const stdout: string[] = [];
   const stderr: string[] = [];
   const prompts: string[] = [];
+  const dependencies: {
+    cwd: string;
+    packageRoot: string;
+    nodeVersion?: string;
+    stdout: (text: string) => void;
+    stderr: (text: string) => void;
+    confirm: (prompt: string) => boolean;
+  } = {
+    cwd,
+    packageRoot,
+    stdout: (text: string) => {
+      stdout.push(text);
+    },
+    stderr: (text: string) => {
+      stderr.push(text);
+    },
+    confirm: (prompt: string) => {
+      prompts.push(prompt);
+      return overrides.confirm ? overrides.confirm(prompt) : true;
+    },
+  };
+  if (overrides.nodeVersion !== undefined) dependencies.nodeVersion = overrides.nodeVersion;
   return {
     stdout,
     stderr,
     prompts,
-    dependencies: {
-      cwd,
-      packageRoot,
-      nodeVersion: overrides.nodeVersion,
-      stdout: (text: string) => stdout.push(text),
-      stderr: (text: string) => stderr.push(text),
-      confirm: (prompt: string) => {
-        prompts.push(prompt);
-        return overrides.confirm ? overrides.confirm(prompt) : true;
-      },
-    },
+    dependencies,
   };
 }
 
@@ -138,12 +160,30 @@ test("compiled CLI installs the Codex QA project slice with one safe JSON value"
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-tracer-cli-"));
   try {
     const fixture = makePackageRoot(base);
+    const compiledBin = fs.readFileSync(path.resolve("dist/bin/kcoderag-nav.cjs"), "utf8");
+    assert.ok(compiledBin.startsWith("#!/usr/bin/env node\n"));
+    assert.doesNotMatch(compiledBin, /\.cts|python/i);
     fs.cpSync(path.resolve("dist"), path.join(fixture.root, "dist"), { recursive: true });
     const target = makeTarget(base);
+    const npmCli = [
+      process.env.npm_execpath,
+      path.join(path.dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+      path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js"),
+    ].find((candidate): candidate is string =>
+      typeof candidate === "string" && fs.existsSync(candidate),
+    );
+    assert.equal(typeof npmCli, "string");
     const result = childProcess.spawnSync(
       process.execPath,
       [
-        path.join(fixture.root, "dist/bin/kcoderag-nav.cjs"),
+        npmCli as string,
+        "exec",
+        "--yes",
+        "--offline",
+        "--ignore-scripts",
+        `--package=${fixture.root}`,
+        "--",
+        "kcoderag-nav",
         "install",
         "--host",
         "codex",
@@ -228,6 +268,9 @@ test("unmanaged conflicts, managed drift, and unsafe targets refuse before write
 
     const drift = makeTarget(base, "drift");
     tracerModule.installCodexQa({ target: drift, packageRoot: fixture.root });
+    const installed = snapshotTree(drift);
+    tracerModule.installCodexQa({ target: drift, packageRoot: fixture.root });
+    assert.deepEqual(snapshotTree(drift), installed);
     write(drift, ".codex/kcoderag-nav/qa/hooks/grep-nudge.cjs", "locally changed\n");
     const beforeDrift = snapshotTree(drift);
     assert.throws(
@@ -291,7 +334,24 @@ test("every transaction commit failure restores the complete pre-install tree an
       onCommit: (relativePath) => order.push(relativePath),
     });
     assert.equal(order.at(-1), STATE_PATH);
-    assert.deepEqual([...order].sort(), EXPECTED_MANAGED);
+    assert.deepEqual([...order].sort(), [...EXPECTED_MANAGED].sort());
+
+    for (let failAtStage = 0; failAtStage < order.length; failAtStage += 1) {
+      const target = makeTarget(base, `stage-failure-${failAtStage}`);
+      const before = snapshotTree(target);
+      assert.throws(
+        () =>
+          tracerModule.installCodexQa({
+            target,
+            packageRoot: fixture.root,
+            failAtStage,
+          }),
+        (error: unknown) =>
+          error instanceof Error && "code" in error &&
+          (error as Error & { code: string }).code === "transaction_failed",
+      );
+      assert.deepEqual(snapshotTree(target), before, `failed stage ${failAtStage}`);
+    }
 
     for (let failAtCommit = 0; failAtCommit < order.length; failAtCommit += 1) {
       const target = makeTarget(base, `failure-${failAtCommit}`);
