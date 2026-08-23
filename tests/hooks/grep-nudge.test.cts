@@ -90,6 +90,31 @@ test("Python shell corpus retains Grep, Glob, Bash, Windows, and POSIX normaliza
   assert.deepEqual(hook.lookupPatterns({ pattern: "KPlayer::GetLevel", command: "rg ignored" }), ["KPlayer::GetLevel"]);
 });
 
+test("compound-command scope and escaped separators retain exact Python extraction", () => {
+  const extractionCases: Readonly<Record<string, readonly string[]>> = {
+    "rg KPlayer one.cpp | head -1": [],
+    "rg KPlayer src | head -1": ["KPlayer"],
+    "rg KPlayer one.cpp && echo done": [],
+    "rg KPlayer one.cpp; echo done": [],
+    "rg KPlayer one.cpp\necho done": [],
+    "rg KPlayer one.cpp\r\necho done": [],
+    "echo ready && rg KPlayer src": ["KPlayer"],
+    "rg TODO src; rg KPlayer src": ["TODO", "KPlayer"],
+    "rg 'KPlayer|GetLevel' src": ["KPlayer|GetLevel"],
+    "rg KPlayer\\|GetLevel src": ["KPlayer\\|GetLevel"],
+    'rg "KPlayer;GetLevel" src': ["KPlayer;GetLevel"],
+    "rg KPlayer^|GetLevel src": ["KPlayer^|GetLevel"],
+    "rg KPlayer`|GetLevel src": ["KPlayer`|GetLevel"],
+    'pwsh -Command "rg KPlayer one.cpp | head -1"': [],
+    'cmd /c "rg KPlayer src | more"': ["KPlayer"],
+    "rg 'KPlayer src | head -1": [],
+  };
+  for (const [command, expected] of Object.entries(extractionCases)) {
+    assert.deepEqual(hook.shellLookupPatterns(command), expected, command);
+  }
+  assert.deepEqual(hook.shellLookupPatterns(Array(65).fill("rg KPlayer src").join(";")), []);
+});
+
 test("hook protocol emits only bounded advisory JSON and stays silent otherwise", () => {
   const claude = hook.hookOutput({ tool_name: "Grep", tool_input: { pattern: "GetLevel" } });
   const codex = hook.hookOutput({ tool_name: "Bash", tool_input: { command: "rg -n GetLevel src" } });
