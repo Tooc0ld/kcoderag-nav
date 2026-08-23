@@ -316,7 +316,7 @@ test("legacy Cursor migration requires independent authority and preserves envir
 });
 
 test("legacy drift, extra files, unknown environment, and delete failure preserve both trees", async () => {
-  const cases = ["invalid-state", "digest-drift", "extra-file", "unknown-environment"] as const;
+  const cases = ["invalid-state", "digest-drift", "extra-file", "extra-directory", "unknown-environment"] as const;
   for (const kind of cases) {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-cursor-${kind}-`));
     try {
@@ -326,6 +326,7 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
       if (kind === "invalid-state") write(legacy.localRoot, LEGACY_STATE, "{broken\n");
       if (kind === "digest-drift") write(legacy.pluginRoot, "rules/kcoderag-navigation.mdc", "edited\n");
       if (kind === "extra-file") write(legacy.pluginRoot, "extra.txt", "extra\n");
+      if (kind === "extra-directory") fs.mkdirSync(path.join(legacy.pluginRoot, "extra-empty"));
       if (kind === "unknown-environment") {
         const manifestPath = path.join(legacy.pluginRoot, ".cursor-plugin/plugin.json");
         const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));

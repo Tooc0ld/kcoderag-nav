@@ -275,7 +275,7 @@ function parseLegacyState(bytes: Buffer): {
   return { digests: Object.freeze(digests), treeDigest: value.tree_digest };
 }
 
-function readLegacyTree(pluginRoot: string): ReadonlyMap<string, Buffer> {
+function readLegacyTree(pluginRoot: string, directories?: Set<string>): ReadonlyMap<string, Buffer> {
   const files = new Map<string, Buffer>();
   const visit = (directory: string): void => {
     let entries: import("node:fs").Dirent[];
@@ -289,13 +289,28 @@ function readLegacyTree(pluginRoot: string): ReadonlyMap<string, Buffer> {
       const relativePath = path.relative(pluginRoot, absolute).split(path.sep).join("/");
       const metadata = fs.lstatSync(absolute);
       if (metadata.isSymbolicLink()) throw new InstallError("legacy_symlink_present", relativePath);
-      if (metadata.isDirectory()) visit(absolute);
+      if (metadata.isDirectory()) {
+        directories?.add(relativePath);
+        visit(absolute);
+      }
       else if (metadata.isFile()) files.set(relativePath, fs.readFileSync(absolute));
       else throw new InstallError("legacy_special_path", relativePath);
     }
   };
   visit(pluginRoot);
   return files;
+}
+
+function expectedLegacyDirectories(relativePaths: Iterable<string>): ReadonlySet<string> {
+  const directories = new Set<string>();
+  for (const relativePath of relativePaths) {
+    let parent = path.posix.dirname(relativePath);
+    while (parent !== ".") {
+      directories.add(parent);
+      parent = path.posix.dirname(parent);
+    }
+  }
+  return directories;
 }
 
 function legacyEnvironment(
@@ -355,10 +370,15 @@ export function inspectCursorLegacyInstall(
   }
   const stateBytes = fs.readFileSync(statePath);
   const state = parseLegacyState(stateBytes);
-  const files = readLegacyTree(pluginRoot);
+  const directories = new Set<string>();
+  const files = readLegacyTree(pluginRoot, directories);
   const actualPaths = [...files.keys()].sort((left, right) => left.localeCompare(right));
   const expectedPaths = Object.keys(state.digests).sort((left, right) => left.localeCompare(right));
   if (actualPaths.join("\0") !== expectedPaths.join("\0")) {
+    throw new InstallError("unmanaged_legacy_path", LEGACY_PLUGIN_NAME);
+  }
+  const expectedDirectories = expectedLegacyDirectories(expectedPaths);
+  if ([...directories].sort().join("\0") !== [...expectedDirectories].sort().join("\0")) {
     throw new InstallError("unmanaged_legacy_path", LEGACY_PLUGIN_NAME);
   }
   for (const [relativePath, expected] of Object.entries(state.digests)) {
@@ -591,8 +611,13 @@ function verifyLegacySnapshot(snapshot: LegacyCursorSnapshot): void {
   if (currentState === undefined || !currentState.equals(snapshot.stateBytes)) {
     throw new InstallError("managed_content_changed", LEGACY_STATE_NAME);
   }
-  const currentFiles = readLegacyTree(snapshot.pluginRoot);
+  const directories = new Set<string>();
+  const currentFiles = readLegacyTree(snapshot.pluginRoot, directories);
   if ([...currentFiles.keys()].sort().join("\0") !== [...snapshot.files.keys()].sort().join("\0")) {
+    throw new InstallError("unmanaged_legacy_path", LEGACY_PLUGIN_NAME);
+  }
+  const expectedDirectories = expectedLegacyDirectories(snapshot.files.keys());
+  if ([...directories].sort().join("\0") !== [...expectedDirectories].sort().join("\0")) {
     throw new InstallError("unmanaged_legacy_path", LEGACY_PLUGIN_NAME);
   }
   for (const [relativePath, bytes] of snapshot.files) {
@@ -673,6 +698,64 @@ function pruneEmptyProjectDirectories(desired: DesiredState): void {
   }
 }
 
+interface MigrationBackup {
+  readonly root: string;
+  readonly relativePath: string;
+}
+
+function writePrivateFile(destination: string, bytes: Buffer): void {
+  const descriptor = fs.openSync(destination, "wx", 0o600);
+  try {
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function createMigrationBackup(
+  desired: DesiredState,
+  snapshot: LegacyCursorSnapshot,
+): MigrationBackup {
+  const name = `.legacy-migration-${crypto.randomUUID()}`;
+  const relativePath = `.cursor/kcoderag-nav/${name}`;
+  const root = path.join(desired.target.root, ".cursor", "kcoderag-nav", name);
+  try {
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    const filesRoot = path.join(root, "files");
+    fs.mkdirSync(filesRoot, { mode: 0o700 });
+    const records: { readonly path: string; readonly digest: string; readonly backup: string }[] = [];
+    for (const [index, [relativePathEntry, bytes]] of [...snapshot.files.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .entries()) {
+      const backup = `${index.toString().padStart(4, "0")}.bin`;
+      writePrivateFile(path.join(filesRoot, backup), bytes);
+      records.push({ path: relativePathEntry, digest: sha256(bytes), backup });
+    }
+    writePrivateFile(path.join(root, "legacy-state.bin"), snapshot.stateBytes);
+    writePrivateFile(path.join(root, "journal.json"), canonicalJson({
+      schemaVersion: CORE_SCHEMA_VERSION,
+      operation: "cursor-legacy-migration",
+      environment: snapshot.environment,
+      legacyPath: snapshot.pluginRoot,
+      stateDigest: sha256(snapshot.stateBytes),
+      files: records,
+    }));
+    return { root, relativePath };
+  } catch {
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+    } catch {
+      // No project or user installation bytes have changed yet.
+    }
+    throw new InstallError("transaction_failed");
+  }
+}
+
+function removeMigrationBackup(backup: MigrationBackup): void {
+  fs.rmSync(backup.root, { recursive: true });
+}
+
 export function migrateCursorLegacyInstall(
   desired: DesiredState,
   observation: HostObservation,
@@ -683,7 +766,19 @@ export function migrateCursorLegacyInstall(
     throw new InstallError("invalid_legacy_migration");
   }
   verifyLegacySnapshot(snapshot);
-  const projectResult = applyTransaction(desired);
+  const backup = createMigrationBackup(desired, snapshot);
+  let projectResult: TransactionResult;
+  try {
+    projectResult = applyTransaction(desired);
+  } catch (error) {
+    try {
+      removeMigrationBackup(backup);
+      pruneEmptyProjectDirectories(desired);
+    } catch {
+      throw new InstallError("rollback_failed", backup.relativePath);
+    }
+    throw error;
+  }
   let deletionIndex = 0;
   try {
     for (const relativePath of [...snapshot.files.keys()].sort((left, right) => left.localeCompare(right))) {
@@ -693,6 +788,7 @@ export function migrateCursorLegacyInstall(
     if (options.failAtLegacyDelete === deletionIndex) throw new Error("injected_legacy_delete_failure");
     fs.unlinkSync(snapshot.statePath);
     pruneLegacyDirectories(snapshot);
+    removeMigrationBackup(backup);
     return projectResult;
   } catch {
     let rollbackFailed = false;
@@ -703,11 +799,12 @@ export function migrateCursorLegacyInstall(
     }
     try {
       applyTransaction(projectRollbackState(desired));
+      removeMigrationBackup(backup);
       pruneEmptyProjectDirectories(desired);
     } catch {
       rollbackFailed = true;
     }
-    if (rollbackFailed) throw new InstallError("rollback_failed", ".cursor/kcoderag-nav");
+    if (rollbackFailed) throw new InstallError("rollback_failed", backup.relativePath);
     throw new InstallError("transaction_failed");
   }
 }
