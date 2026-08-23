@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-16-PLAN.md
-last_updated: "2026-08-23T18:23:29.813Z"
+stopped_at: Completed 03.1-24-PLAN.md
+last_updated: "2026-08-23T18:30:18.949Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 3ed0fef62d0b35d487349ca1fd9a548dd477c702
+state_head: d025b582be5774b0c7485953fad9ec2d576138ce
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 22
+  completed_plans: 23
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 20 of 27
+Plan: 21 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -79,6 +79,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P15 | 37min | 3 tasks | 14 files |
 | Phase 03.1 P30 | 4min | 2 tasks | 7 files |
 | Phase 03.1 P16 | 6 min | 3 tasks | 7 files |
+| Phase 03.1 P24 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Plan 16 verifies the frozen pre-retirement receipt only before its exact tracked deletions and never reruns it after frozen inventory changes.
 - [Phase 03.1]: Plan 16 owns exactly four plugin-src and three QA deletions; Dev, scripts, and remaining tests stay intact for their ordered retirement plans.
 - [Phase 03.1]: Partial source retirement uses targeted Node evidence and defers repository-wide generation until Plan 24 completes the matching Dev stage.
+- [Phase 03.1]: Plan 24 owns exactly the three Dev Python hook paths and root GitHub-raw update index; later scripts and tests remain intact for ordered retirement. — This preserves the receipt-backed deletion boundary and keeps recovery to a single Git revert.
+- [Phase 03.1]: Post-source completion requires source_remaining zero and a mutation-free all-product generate check. — The monotonic audit and read-only generation evidence jointly prevent partial retirement from being treated as complete.
 
 ### Pending Todos
 
@@ -209,6 +212,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:23:29.637Z
-Stopped at: Completed 03.1-16-PLAN.md
+Last session: 2026-08-23T18:30:18.766Z
+Stopped at: Completed 03.1-24-PLAN.md
 Resume file: None
