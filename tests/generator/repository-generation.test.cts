@@ -1,0 +1,216 @@
+const { test } = require("node:test") as typeof import("node:test");
+const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const crypto = require("node:crypto") as typeof import("node:crypto");
+const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
+const path = require("node:path") as typeof import("node:path");
+
+type Product = "qa" | "dev" | "cursor";
+type AssetGroup =
+  | "runtime-cjs"
+  | "runtime-launcher"
+  | "runtime-registration"
+  | "runtime-code"
+  | "runtime"
+  | "metadata-config"
+  | "metadata-guidance"
+  | "metadata"
+  | "docs"
+  | "version"
+  | "all";
+
+interface GenerationResult {
+  readonly ok: boolean;
+  readonly changedPaths: readonly string[];
+  readonly writtenPaths: readonly string[];
+}
+
+interface GeneratorModule {
+  readonly ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>>;
+  checkGenerated(options: {
+    readonly package: Product | "all";
+    readonly group: AssetGroup;
+    readonly sourceRoot: string;
+    readonly outputRoot: string;
+  }): GenerationResult;
+}
+
+interface FileEvidence {
+  readonly digest: string;
+  readonly mtimeMs: number;
+  readonly size: number;
+}
+
+const repositoryRoot = path.resolve(__dirname, "..", "..");
+const generator = require(path.join(repositoryRoot, "dist", "generator", "index.cjs")) as GeneratorModule;
+const products = ["qa", "dev", "cursor"] as const;
+
+function productPath(product: Product, relativePath: string): string {
+  return path.join(repositoryRoot, `kcoderag-${product}`, ...relativePath.split("/"));
+}
+
+function readJson(relativePath: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(path.join(repositoryRoot, ...relativePath.split("/")), "utf8")) as Record<
+    string,
+    unknown
+  >;
+}
+
+function sortedKeys(value: unknown): readonly string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  return Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+}
+
+function normalizeText(bytes: Buffer): Buffer {
+  return Buffer.from(`${bytes.toString("utf8").replace(/\r\n?/gu, "\n").replace(/\n*$/u, "")}\n`, "utf8");
+}
+
+function evidenceForSelectedAssets(): Readonly<Record<string, FileEvidence>> {
+  const evidence: Record<string, FileEvidence> = {};
+  for (const product of products) {
+    for (const relativePath of generator.ASSET_GROUP_PATHS[product].all) {
+      const absolute = productPath(product, relativePath);
+      const bytes = fs.readFileSync(absolute);
+      const stat = fs.statSync(absolute);
+      evidence[`kcoderag-${product}/${relativePath}`] = {
+        digest: crypto.createHash("sha256").update(bytes).digest("hex"),
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+      };
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(evidence).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
+  );
+}
+
+function assertNoTemplateTokens(): void {
+  for (const product of products) {
+    for (const relativePath of generator.ASSET_GROUP_PATHS[product].all) {
+      const bytes = fs.readFileSync(productPath(product, relativePath));
+      assert.equal(/\{\{[^{}]*\}\}/u.test(bytes.toString("utf8")), false, `${product}/${relativePath}`);
+    }
+  }
+}
+
+function assertEnvironmentStructure(product: "qa" | "dev", version: string): void {
+  const expectedName = `kcoderag-${product}`;
+  const codexManifest = readJson(`kcoderag-${product}/.codex-plugin/plugin.json`);
+  const claudeManifest = readJson(`kcoderag-${product}/.claude-plugin/plugin.json`);
+  assert.equal(codexManifest.name === expectedName && codexManifest.version === version, true, `${product}:codex`);
+  assert.equal(claudeManifest.name === expectedName && claudeManifest.version === version, true, `${product}:claude`);
+
+  const codexMcp = readJson(`kcoderag-${product}/.codex.mcp.json`);
+  const claudeMcp = readJson(`kcoderag-${product}/.mcp.json`);
+  assert.deepEqual(sortedKeys(codexMcp), [expectedName], `${product}:codex-mcp-namespace`);
+  const claudeServers = claudeMcp.mcpServers;
+  assert.deepEqual(sortedKeys(claudeServers), [expectedName], `${product}:claude-mcp-namespace`);
+
+  for (const runtime of ["grep-nudge.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
+    assert.equal(
+      fs.readFileSync(productPath(product, `hooks/${runtime}`)).equals(
+        fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
+      ),
+      true,
+      `${product}:${runtime}`,
+    );
+  }
+  for (const launcher of ["run_hook.cmd", "run_hook.sh"] as const) {
+    assert.equal(
+      fs.readFileSync(productPath(product, `hooks/${launcher}`)).equals(
+        normalizeText(fs.readFileSync(path.join(repositoryRoot, "plugin-src", "hooks", launcher))),
+      ),
+      true,
+      `${product}:${launcher}`,
+    );
+  }
+
+  const registration = readJson(`kcoderag-${product}/hooks/hooks.json`);
+  const hooks = registration.hooks;
+  assert.equal(typeof hooks === "object" && hooks !== null && !Array.isArray(hooks), true, `${product}:hooks`);
+  const preToolUse = (hooks as Record<string, unknown>).PreToolUse;
+  assert.equal(Array.isArray(preToolUse) && preToolUse.length === 1, true, `${product}:pre-tool-use`);
+
+  for (const relativePath of [
+    "agents/kcode-explorer.md",
+    "skills/code-lookup-discipline/SKILL.md",
+    "README.md",
+  ]) {
+    assert.equal(fs.statSync(productPath(product, relativePath)).size > 0, true, `${product}:${relativePath}`);
+  }
+}
+
+test("compiled repository gate proves all generated products canonical without repository writes", () => {
+  assert.equal(path.extname(__filename), ".cjs");
+  const packageDocument = readJson("package.json");
+  const version = packageDocument.version;
+  assert.equal(typeof version === "string" && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(version), true);
+
+  const before = evidenceForSelectedAssets();
+  const checked = generator.checkGenerated({
+    package: "all",
+    group: "all",
+    sourceRoot: repositoryRoot,
+    outputRoot: repositoryRoot,
+  });
+  const after = evidenceForSelectedAssets();
+
+  assert.equal(checked.ok, true, `repository drift: ${checked.changedPaths.join(",")}`);
+  assert.deepEqual(checked.changedPaths, []);
+  assert.deepEqual(checked.writtenPaths, []);
+  assert.deepEqual(after, before);
+
+  assertEnvironmentStructure("qa", version as string);
+  assertEnvironmentStructure("dev", version as string);
+
+  const cursorManifest = readJson("kcoderag-cursor/.cursor-plugin/plugin.json");
+  assert.equal(cursorManifest.name === "kcoderag-nav" && cursorManifest.version === version, true, "cursor:manifest");
+  const cursorMcp = readJson("kcoderag-cursor/mcp.json");
+  assert.deepEqual(sortedKeys(cursorMcp.mcpServers), ["kcoderag"], "cursor:mcp-namespace");
+  for (const relativePath of [
+    "rules/kcoderag-navigation.mdc",
+    "skills/code-lookup-discipline/SKILL.md",
+    "README.md",
+  ]) {
+    assert.equal(fs.statSync(productPath("cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
+  }
+  assertNoTemplateTokens();
+  assert.deepEqual(evidenceForSelectedAssets(), before);
+});
+
+test("missing and stale generated asset fixtures fail closed while check mode remains read-only", () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-repository-check-"));
+  try {
+    const missingBefore = evidenceForSelectedAssets();
+    const missing = generator.checkGenerated({
+      package: "qa",
+      group: "runtime-registration",
+      sourceRoot: repositoryRoot,
+      outputRoot: fixtureRoot,
+    });
+    assert.equal(missing.ok, false);
+    assert.deepEqual(missing.changedPaths, ["kcoderag-qa/hooks/hooks.json"]);
+    assert.deepEqual(missing.writtenPaths, []);
+    assert.deepEqual(evidenceForSelectedAssets(), missingBefore);
+
+    const stalePath = path.join(fixtureRoot, "kcoderag-qa", "hooks", "hooks.json");
+    fs.mkdirSync(path.dirname(stalePath), { recursive: true });
+    fs.writeFileSync(stalePath, "{}\n", { mode: 0o600 });
+    const staleBefore = fs.readFileSync(stalePath);
+    const staleMtime = fs.statSync(stalePath).mtimeMs;
+    const stale = generator.checkGenerated({
+      package: "qa",
+      group: "runtime-registration",
+      sourceRoot: repositoryRoot,
+      outputRoot: fixtureRoot,
+    });
+    assert.equal(stale.ok, false);
+    assert.deepEqual(stale.changedPaths, ["kcoderag-qa/hooks/hooks.json"]);
+    assert.deepEqual(stale.writtenPaths, []);
+    assert.equal(fs.readFileSync(stalePath).equals(staleBefore), true);
+    assert.equal(fs.statSync(stalePath).mtimeMs, staleMtime);
+    assert.deepEqual(evidenceForSelectedAssets(), missingBefore);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
