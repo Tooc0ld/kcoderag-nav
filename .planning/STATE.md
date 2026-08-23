@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-05-PLAN.md
-last_updated: "2026-08-23T16:51:48.749Z"
+stopped_at: Completed 03.1-06-PLAN.md
+last_updated: "2026-08-23T17:10:00.798Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 1eecb5f3edcbaa090bcc1ddbd6f6dd33939906be
+state_head: 57ae43aff643b6263a7abdd9d4c8cca56f751192
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 17
+  completed_plans: 18
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 15 of 27
+Plan: 16 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -74,6 +74,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P23 | 23min | 3 tasks | 13 files |
 | Phase 03.1 P04 | 16min | 3 tasks | 10 files |
 | Phase 03.1 P05 | 15min | 3 tasks | 9 files |
+| Phase 03.1 P06 | 8min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: The pack gate compares one real temporary tgz with the exact expanded allow-list and validates rendered assets without exposing configuration values.
 - [Phase 03.1]: Required CI is test-only on Windows/Linux and Node 22/24; build precedes the compiled dependency audit and publication remains separate.
 - [Phase 03.1]: The aggregate Node test suite is serialized so repository immutability evidence cannot race root-level test fixtures.
+- [Phase 03.1]: Required contract smoke acquires and invokes a real temporary npm package, then requires all eleven Codex/Claude/Cursor lifecycle and MCP evidence bits for PASS.
+- [Phase 03.1]: Loopback smoke receipts contain only path, method, tool name, and request id; headers, arguments, configuration, and credentials stay outside evidence output.
+- [Phase 03.1]: Optional authenticated smoke is isolated behind workflow_dispatch and an explicit self-hosted runner gate, and cannot replace required contract smoke.
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T16:51:48.571Z
-Stopped at: Completed 03.1-05-PLAN.md
+Last session: 2026-08-23T17:10:00.629Z
+Stopped at: Completed 03.1-06-PLAN.md
 Resume file: None
