@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-22-PLAN.md
-last_updated: "2026-08-23T14:33:33.892Z"
+stopped_at: Completed 03.1-08-PLAN.md
+last_updated: "2026-08-23T14:44:40.112Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: d184b9f202e927071b76dd0bd25d9682451dd4fd
+state_head: d467528d61effe112d3af82c1ea56f698387ae6f
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 8
-  percent: 27
+  completed_plans: 9
+  percent: 30
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 6 of 27
+Plan: 7 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [███░░░░░░░] 27%
+Progress: [███░░░░░░░] 30%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [███░░░░░░░] 27%
 | Phase 03.1 P02 | 12min | 2 tasks | 6 files |
 | Phase 03.1 P03 | 12min | 2 tasks | 7 files |
 | Phase 03.1 P22 | 8min | 3 tasks | 4 files |
+| Phase 03.1 P08 | 9min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Planning docs scan only fenced commands as active instructions; user/project docs also scan active install/update sections.
 - [Phase 03.1]: Sibling-guide scans accept exactly the authoritative KCodeRag guide; repository policies accept explicit relative paths only.
 - [Phase 03.1]: Sibling receipts bind the guide-only commit parent to baseline HEAD and verify a reproducible baseline evidence digest.
+- [Phase 03.1]: A single hashed session marker owns both fresh-cache notice deduplication and stale-cache refresh scheduling; it contains no query, credential, or MCP data. — This enforces one-per-session behavior with one bounded local ownership mechanism.
+- [Phase 03.1]: The foreground hook reads only validated local state/cache and loads update support as optional fail-open capability; only the detached worker imports HTTPS. — Registry latency and optional update-runtime failures must never enter or disable the tool-call advisory path.
+- [Phase 03.1]: Registry refresh accepts only the fixed kcoderag-nav metadata endpoint, expected JSON content types, matching package name, and strict X.Y.Z dist-tags.latest. — The update cache must not trust redirects, arbitrary package responses, malformed metadata, or prerelease values.
 
 ### Pending Todos
 
@@ -152,6 +156,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T14:33:33.743Z
-Stopped at: Completed 03.1-22-PLAN.md
+Last session: 2026-08-23T14:44:39.959Z
+Stopped at: Completed 03.1-08-PLAN.md
 Resume file: None
