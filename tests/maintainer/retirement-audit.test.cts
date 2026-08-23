@@ -188,13 +188,17 @@ test("pre receipt exact schema, hashes, cache inventory, status, and external ev
     ["invalid_suite", (value) => { value.suites[0].status = "NOT_RUN"; }],
     ["invalid_suite", (value) => { value.suites[0].selected = 0; }],
     ["invalid_cache_inventory", (value) => { value.pre_cache_inventory.total = 24; }],
-    ["invalid_cache_inventory", (value) => { value.pre_cache_inventory.files.reverse(); }],
+    ["invalid_path_list", (value) => { value.pre_cache_inventory.files.reverse(); }],
     ["unrelated_status_changed", (value) => { value.unrelated_status_before.sha256 = "0".repeat(64); }],
     ["root_external_changed", (value) => { value.root_external_digests_before[0].sha256 = "0".repeat(64); }],
   ];
   for (const [code, mutate] of mutations) {
     const value = clone(receipt);
     mutate(value);
+    if (code !== "invalid_receipt_hash" && code !== "invalid_receipt_schema") {
+      const withoutSelf = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "receipt_sha256"));
+      value.receipt_sha256 = retirement.hashCanonical(withoutSelf);
+    }
     expectCode(() => retirement.verifyPreReceipt(value, root), code);
   }
 
