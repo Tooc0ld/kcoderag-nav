@@ -78,7 +78,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal:** 用户可在 Node.js 22+ 环境中通过统一 npx CLI，将无 Python 运行时依赖的 KCodeRag Nav 项目集成安全地安装、诊断、更新或卸载到 Codex、Claude Code 与 Cursor。
 **Requirements**: JS-01, JS-02, JS-03, JS-04, JS-05, JS-06, JS-07, JS-08
 **Depends on:** Phase 3
-**Plans:** 10/27 plans executed across 26 waves
+**Plans:** 11/27 plans executed across 26 waves
 
 Plans:
 **Wave 1**
@@ -120,7 +120,7 @@ Plans:
 **Wave 10** *(blocked on Wave 9 completion)*
 
 - [x] 03.1-10-PLAN.md — 只生成保证变化的 QA CJS 与 Node launcher 路径
-- [ ] 03.1-11-PLAN.md — 只生成保证变化的 Dev CJS 与 Node launcher 路径
+- [x] 03.1-11-PLAN.md — 只生成保证变化的 Dev CJS 与 Node launcher 路径
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
@@ -274,7 +274,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 1. QA 优先的可重复插件包 | 1/1 | Complete    | 2026-08-23 |
 | 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
-| 03.1. JavaScript 与 npx 安装运行时迁移 | 10/27 | In Progress|  |
+| 03.1. JavaScript 与 npx 安装运行时迁移 | 11/27 | In Progress|  |
 | 4. 已部署项目与安装来源可靠性 | 0/TBD | Not planned | - |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |

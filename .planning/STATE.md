@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-10-PLAN.md
-last_updated: "2026-08-23T15:36:30.679Z"
+stopped_at: Completed 03.1-11-PLAN.md
+last_updated: "2026-08-23T15:42:09.768Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 9f8d861f4e6144c6077a859b05435c953fef9892
+state_head: 0e111afbaaddf2caa901abdf9dc38d246941f3cc
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 13
+  completed_plans: 14
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 11 of 27
+Plan: 12 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -70,6 +70,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P07 | 9min | 2 tasks | 5 files |
 | Phase 03.1 P09 | 8min | 2 tasks | 2 files |
 | Phase 03.1 P10 | 3min | 2 tasks | 5 files |
+| Phase 03.1 P11 | 3min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Phase 03.1 repository-default generated-tree verification remains deferred to Plan 23 after package migration.
 - [Phase 03.1]: QA runtime migration is limited to the five guaranteed-changing runtime-code paths; hook registration and metadata remain read-only for Plan 23. — This preserves the ordered generator migration and makes every write attributable to an exact asset group.
 - [Phase 03.1]: Generated QA CJS bytes match dist exactly and launchers match the canonical plugin-src sources exactly. — Byte identity provides deterministic ownership and prevents hand-edited deployment drift.
+- [Phase 03.1]: Dev runtime migration is limited to the five guaranteed-changing runtime-code paths; registration and metadata remain read-only for Plan 23. — This keeps the generated write set exact and auditable.
+- [Phase 03.1]: Dev and QA share canonical bytes but remain runtime-independent. — A Dev-only temporary fixture proved all modules and both launchers operate without a QA tree.
 
 ### Pending Todos
 
@@ -172,6 +175,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T15:36:30.486Z
-Stopped at: Completed 03.1-10-PLAN.md
+Last session: 2026-08-23T15:42:09.601Z
+Stopped at: Completed 03.1-11-PLAN.md
 Resume file: None
