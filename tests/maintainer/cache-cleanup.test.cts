@@ -256,7 +256,8 @@ test("every execute preflight refusal records zero unlink/rmdir calls and no suc
     const { root, producer } = fixture();
     const authorizationPath = path.join(root, ".planning", "authorization.json");
     const cleanupPath = path.join(root, ".planning", "cleanup.json");
-    const authorization = cleanup.authorizeCleanup({ root, producer, authorizationPath });
+    const persistedAuthorization = cleanup.authorizeCleanup({ root, producer, authorizationPath });
+    const authorization = structuredClone(persistedAuthorization) as JsonMap;
     mutate(authorization, root);
     const before = treeManifest(root);
     let unlinkCount = 0;
