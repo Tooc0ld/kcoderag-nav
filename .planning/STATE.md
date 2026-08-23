@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-07-PLAN.md
-last_updated: "2026-08-23T15:18:19.695Z"
+stopped_at: Completed 03.1-09-PLAN.md
+last_updated: "2026-08-23T15:30:51.702Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 4631652094f648e5f62bece67e2520e33d75c657
+state_head: a8e3cdb25878d92b202f8dcb774458b26b3e082b
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 11
+  completed_plans: 12
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 9 of 27
+Plan: 10 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -68,6 +68,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P08 | 9min | 2 tasks | 4 files |
 | Phase 03.1 P26 | 12min | 2 tasks | 5 files |
 | Phase 03.1 P07 | 9min | 2 tasks | 5 files |
+| Phase 03.1 P09 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Codex current state uses exact environment-specific ownership sets; ambiguous or partial ownership is invalid. — Exact ownership is required before safe update, uninstall, or legacy replacement.
 - [Phase 03.1]: Legacy parsing is host-neutral and receives allowed and required paths from the Codex adapter. — This rejects unknown owners without leaking Codex paths into the shared transaction core.
 - [Phase 03.1]: Legacy migration deletes only digest-confirmed Python runtime files and preserves unowned local files. — Deletion authority comes solely from verified installer state.
+- [Phase 03.1]: Phase 03.1 generator ordering uses explicit code-unit comparison instead of locale-sensitive sorting.
+- [Phase 03.1]: Phase 03.1 all-product runtime groups target QA and Dev; explicit Cursor runtime generation is incompatible.
+- [Phase 03.1]: Phase 03.1 generator diagnostics expose only stable codes and safe relative paths while connection inputs remain opaque outside mechanical host projection.
+- [Phase 03.1]: Phase 03.1 repository-default generated-tree verification remains deferred to Plan 23 after package migration.
 
 ### Pending Todos
 
@@ -164,6 +169,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T15:18:19.538Z
-Stopped at: Completed 03.1-07-PLAN.md
+Last session: 2026-08-23T15:30:51.525Z
+Stopped at: Completed 03.1-09-PLAN.md
 Resume file: None

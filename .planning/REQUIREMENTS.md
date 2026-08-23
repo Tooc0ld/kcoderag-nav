@@ -55,7 +55,7 @@
 - [x] **JS-03**: Codex、Claude Code 与 Cursor 使用各自原生项目配置和可扩展 host adapter，一次命令只修改一个所选宿主
 - [x] **JS-04**: 旧 Python 安装在无漂移时安全迁移；所有变更遵守受管所有权、写前校验和单宿主原子回滚
 - [x] **JS-05**: CJS hook 保持 advisory/fail-open，更新检查只在后台查询 npm Registry latest，具备 24 小时缓存且已安装路径可离线运行
-- [ ] **JS-06**: Node 生成器、pre-commit 与 npm pack 检查能证明生成确定性、版本一致、自包含和无 Python/未解析占位符
+- [x] **JS-06**: Node 生成器、pre-commit 与 npm pack 检查能证明生成确定性、版本一致、自包含和无 Python/未解析占位符
 - [ ] **JS-07**: CI 覆盖 Windows/Linux 与 Node.js 22/24；只有匹配 package 版本的 `vX.Y.Z` 标签可触发 npm 发布，普通 master push 只测试
 - [ ] **JS-08**: Node 测试与 loopback smoke 覆盖三宿主生命周期、hook/Rule、MCP 证据、离线行为和诚实 PASS/FAIL/NOT_RUN，README 与唯一权威体验指南同步 npx 流程
 
@@ -144,7 +144,7 @@
 | JS-03 | Phase 03.1 | Complete |
 | JS-04 | Phase 03.1 | Complete |
 | JS-05 | Phase 03.1 | Complete |
-| JS-06 | Phase 03.1 | Pending |
+| JS-06 | Phase 03.1 | Complete |
 | JS-07 | Phase 03.1 | Pending |
 | JS-08 | Phase 03.1 | Pending |
 | DEP-01 | Phase 4 | Pending |
