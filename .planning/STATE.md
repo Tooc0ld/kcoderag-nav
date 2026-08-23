@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-04-PLAN.md
-last_updated: "2026-08-23T16:32:23.054Z"
+stopped_at: Completed 03.1-05-PLAN.md
+last_updated: "2026-08-23T16:51:48.749Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 2567655defec4d468e759268f0ffd29eb242f6f8
+state_head: 1eecb5f3edcbaa090bcc1ddbd6f6dd33939906be
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 16
+  completed_plans: 17
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 14 of 27
+Plan: 15 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -73,6 +73,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P11 | 3min | 2 tasks | 5 files |
 | Phase 03.1 P23 | 23min | 3 tasks | 13 files |
 | Phase 03.1 P04 | 16min | 3 tasks | 10 files |
+| Phase 03.1 P05 | 15min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Cursor legacy deletion uses independent authority and private migration evidence. — Exact tree/profile preflight plus journaled backup and compensation protect both project and user-local trees.
 - [Phase 03.1]: Cursor remains a Rule, skill, and MCP integration without hook emulation. — Cursor host semantics are intentionally distinct from Codex and Claude Code PreToolUse hooks.
 - [Phase 03.1]: Public host dispatch uses one fixed Codex, Claude Code, and Cursor registry. — One selected adapter owns each command, and OpenCode remains deferred without core transaction changes.
+- [Phase 03.1]: The Node pre-commit gate snapshots index bytes and staged blob OIDs, refuses partial canonical staging, and never stages or resets files.
+- [Phase 03.1]: The pack gate compares one real temporary tgz with the exact expanded allow-list and validates rendered assets without exposing configuration values.
+- [Phase 03.1]: Required CI is test-only on Windows/Linux and Node 22/24; build precedes the compiled dependency audit and publication remains separate.
+- [Phase 03.1]: The aggregate Node test suite is serialized so repository immutability evidence cannot race root-level test fixtures.
 
 ### Pending Todos
 
@@ -183,6 +188,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T16:32:22.854Z
-Stopped at: Completed 03.1-04-PLAN.md
+Last session: 2026-08-23T16:51:48.571Z
+Stopped at: Completed 03.1-05-PLAN.md
 Resume file: None

@@ -23,6 +23,8 @@ kcoderag-nav/
 │   ├── hosts/                      # Per-host lifecycle and cross-host isolation tests
 │   ├── maintainer/                 # Compiled supply-chain contract tests
 │   └── tracer/                     # Compiled npx tracer tests
+├── .github/workflows/ci.yml        # Required Windows/Linux × Node 22/24 test matrix
+├── .githooks/pre-commit            # Node 22 launcher for the index-safe generation gate
 ├── .claude-plugin/                 # Marketplace metadata
 │   └── marketplace.json
 ├── kcoderag-dev/                   # Dev environment plugin
@@ -63,7 +65,8 @@ evidence when rollback itself fails.
 
 **`kcoderag-qa/`:** Installable QA plugin. It mirrors the Dev package while targeting QA MCP configuration and permissions.
 
-**`*/hooks/`:** Host hook declarations and Python implementation. `hooks.json` registers `grep_nudge.py`; `test_grep_nudge.py` verifies behavior.
+**`*/hooks/`:** Generated Codex/Claude hook declarations, self-relative Node launchers, and
+self-contained CJS hook/update runtime. Cursor intentionally uses Rule/skill/MCP assets instead.
 
 **`*/skills/code-lookup-discipline/`:** Host-discoverable `SKILL.md` instructions for selecting graph tools over local search.
 
@@ -74,9 +77,11 @@ evidence when rollback itself fails.
 **Entry Points:**
 - `src/bin/kcoderag-nav.cts`: TypeScript maintenance source for the public compiled CJS bin.
 - `src/hosts/index.cts`: Registry seam for `--host codex|claude|cursor` and interactive selection.
+- `src/maintainer/pre-commit.cts`: Read-only index/generator commit gate.
+- `src/maintainer/pack-audit.cts`: Exact real npm tarball allow-list audit.
 - `.claude-plugin/marketplace.json`: Marketplace and plugin source entry point.
-- `kcoderag-dev/hooks/grep_nudge.py`: Dev hook process entry point.
-- `kcoderag-qa/hooks/grep_nudge.py`: QA hook process entry point.
+- `kcoderag-dev/hooks/grep-nudge.cjs`: Dev hook process entry point.
+- `kcoderag-qa/hooks/grep-nudge.cjs`: QA hook process entry point.
 
 **Configuration:**
 - `kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`: Environment MCP registration; contents are sensitive.
@@ -86,15 +91,16 @@ evidence when rollback itself fails.
 **Core Logic:**
 - `src/core/contracts.cts`, `src/core/project-target.cts`, `src/core/state.cts`, and
   `src/core/transaction.cts`: Shared host-neutral installation boundary and sole write engine.
-- `kcoderag-dev/hooks/grep_nudge.py` and `kcoderag-qa/hooks/grep_nudge.py`: Search command tokenization, local-scope suppression, symbol heuristics, and advisory JSON generation.
+- `src/hooks/grep-nudge.cts` and generated QA/Dev CJS: Search command tokenization,
+  local-scope suppression, symbol heuristics, and advisory JSON generation.
 - `*/skills/code-lookup-discipline/SKILL.md`: Agent-facing lookup policy.
 
 **Testing:**
 - `tests/core/transaction.test.cts`
 - `tests/hosts/codex.test.cts`, `tests/hosts/claude.test.cts`, `tests/hosts/cursor.test.cts`
 - `tests/hosts/cross-host.test.cts`
-- `kcoderag-dev/hooks/test_grep_nudge.py`
-- `kcoderag-qa/hooks/test_grep_nudge.py`
+- `tests/maintainer/pre-commit.test.cts`, `tests/maintainer/pack-audit.test.cts`
+- `tests/maintainer/ci-contract.test.cts`
 
 ## Naming Conventions
 
@@ -124,9 +130,9 @@ evidence when rollback itself fails.
 - Provide its own `.mcp.json`, `settings.json`, `README.md`, `hooks/`, and `skills/` as needed.
 
 **New hook behavior:**
-- Implement in both environment hook files when behavior is shared: `kcoderag-dev/hooks/grep_nudge.py` and `kcoderag-qa/hooks/grep_nudge.py`.
-- Update both registrations only when event/matcher behavior changes: `*/hooks/hooks.json`.
-- Add mirrored tests in `kcoderag-dev/hooks/test_grep_nudge.py` and `kcoderag-qa/hooks/test_grep_nudge.py`.
+- Implement once in `src/hooks/grep-nudge.cts` and regenerate both QA/Dev CJS products.
+- Update canonical registration/launchers under `plugin-src/hooks/` only when the host contract changes.
+- Add table and real launcher coverage under `tests/hooks/`.
 
 **New agent guidance:**
 - Add a host skill under `*/skills/<kebab-case-name>/SKILL.md`.
@@ -150,4 +156,4 @@ evidence when rollback itself fails.
 
 ---
 
-*Structure analysis: 2026-08-23*
+*Structure analysis: 2026-08-24*
