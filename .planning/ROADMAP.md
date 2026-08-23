@@ -81,34 +81,110 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 27 plans across 26 waves
 
 Plans:
+**Wave 1**
+
+- [ ] 03.1-29-PLAN.md — 在首次 npm install/build 前固定 root-only Node ignore policy
+
+**Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 03.1-01-PLAN.md — 人工接受 exact npm 图与包名契约，建立机器审计并跑通 Codex QA tracer
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 03.1-02-PLAN.md — 提炼宿主无关路径、状态与原子事务核心
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 03.1-03-PLAN.md — 行为等价迁移 advisory hook 与双平台 fail-open launcher
-- [ ] 03.1-04-PLAN.md — 完成 Claude/Cursor adapter、授权式 Cursor legacy 迁移与跨宿主隔离
-- [ ] 03.1-05-PLAN.md — 迁移 index-byte-preserving pre-commit、真实 pack 审计与四 lane required CI
-- [ ] 03.1-06-PLAN.md — 迁移诚实三态 host smoke 与 loopback MCP 收据
-- [ ] 03.1-07-PLAN.md — 完成 Codex 生命周期与旧 Python install-state 安全迁移
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 03.1-22-PLAN.md — 实现 compiled docs 与 sibling evidence 检查器
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 03.1-08-PLAN.md — 实现前台零网络、后台有界的 npm latest 检查
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 03.1-26-PLAN.md — 接线 HostAdapter/五命令 CLI 与 compiled CLI tests
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 03.1-07-PLAN.md — 完成 Codex 生命周期与旧 Python install-state 安全迁移
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 03.1-09-PLAN.md — 实现按产品与 exact asset group 运行的确定性 Node generator
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
 - [ ] 03.1-10-PLAN.md — 只生成保证变化的 QA CJS 与 Node launcher 路径
 - [ ] 03.1-11-PLAN.md — 只生成保证变化的 Dev CJS 与 Node launcher 路径
-- [ ] 03.1-13-PLAN.md — 建立 release helper 与 matching-tag npm publish workflow
-- [ ] 03.1-14-PLAN.md — 最终人工授权 exact seven-path bump 并以 receipt 验证首次公共 npm 发布
-- [ ] 03.1-15-PLAN.md — 建立退役状态机并持久化不可跳过的 pre-parity receipt
-- [ ] 03.1-16-PLAN.md — 复验 receipt 后退役规范源与 QA Python runtime
-- [ ] 03.1-17-PLAN.md — 分组退役 Python maintainer scripts
-- [ ] 03.1-18-PLAN.md — 退役安装/生成/hook/update Python tests
-- [ ] 03.1-19-PLAN.md — 在项目说明协调后更新 README 并运行唯一最终扫描
-- [ ] 03.1-20-PLAN.md — 先清理 marketplace 并协调 PROJECT/AGENTS/后续路线
-- [ ] 03.1-21-PLAN.md — 用 baseline/receipt 隔离提交 KCodeRag 权威指南
-- [ ] 03.1-22-PLAN.md — 实现 compiled docs 与 sibling evidence 检查器
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
 - [ ] 03.1-23-PLAN.md — 只读验证 byte-equal 资产并运行真实 repository generation gate
-- [ ] 03.1-24-PLAN.md — 退役 Dev Python 与 GitHub-raw update index并验证 post-source
-- [ ] 03.1-25-PLAN.md — 退役剩余 Python tests/stub并验证 post-tests
-- [ ] 03.1-26-PLAN.md — 接线 HostAdapter/五命令 CLI 与 compiled CLI tests
-- [ ] 03.1-29-PLAN.md — 在首次 npm install/build 前固定 root-only Node ignore policy
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 03.1-04-PLAN.md — 完成 Claude/Cursor adapter、授权式 Cursor legacy 迁移与跨宿主隔离
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 03.1-05-PLAN.md — 迁移 index-byte-preserving pre-commit、真实 pack 审计与四 lane required CI
+
+**Wave 14** *(blocked on Wave 13 completion)*
+
+- [ ] 03.1-06-PLAN.md — 迁移诚实三态 host smoke 与 loopback MCP 收据
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [ ] 03.1-13-PLAN.md — 建立 release helper 与 matching-tag npm publish workflow
+
+**Wave 16** *(blocked on Wave 15 completion)*
+
+- [ ] 03.1-15-PLAN.md — 建立退役状态机并持久化不可跳过的 pre-parity receipt
+
+**Wave 17** *(blocked on Wave 16 completion)*
+
 - [ ] 03.1-30-PLAN.md — 在最后一次 Python parity 后精确清理五个 owned cache roots
+
+**Wave 18** *(blocked on Wave 17 completion)*
+
+- [ ] 03.1-16-PLAN.md — 复验 receipt 后退役规范源与 QA Python runtime
+
+**Wave 19** *(blocked on Wave 18 completion)*
+
+- [ ] 03.1-24-PLAN.md — 退役 Dev Python 与 GitHub-raw update index并验证 post-source
+
+**Wave 20** *(blocked on Wave 19 completion)*
+
+- [ ] 03.1-17-PLAN.md — 分组退役 Python maintainer scripts
+
+**Wave 21** *(blocked on Wave 20 completion)*
+
+- [ ] 03.1-18-PLAN.md — 退役安装/生成/hook/update Python tests
+
+**Wave 22** *(blocked on Wave 21 completion)*
+
+- [ ] 03.1-25-PLAN.md — 退役剩余 Python tests/stub并验证 post-tests
+
+**Wave 23** *(blocked on Wave 22 completion)*
+
+- [ ] 03.1-20-PLAN.md — 先清理 marketplace 并协调 PROJECT/AGENTS/后续路线
+
+**Wave 24** *(blocked on Wave 23 completion)*
+
+- [ ] 03.1-19-PLAN.md — 在项目说明协调后更新 README 并运行唯一最终扫描
+
+**Wave 25** *(blocked on Wave 24 completion)*
+
+- [ ] 03.1-21-PLAN.md — 用 baseline/receipt 隔离提交 KCodeRag 权威指南
+
+**Wave 26** *(blocked on Wave 25 completion)*
+
+- [ ] 03.1-14-PLAN.md — 最终人工授权 exact seven-path bump 并以 receipt 验证首次公共 npm 发布
 
 ### Phase 4: 已部署项目与安装来源可靠性
 
