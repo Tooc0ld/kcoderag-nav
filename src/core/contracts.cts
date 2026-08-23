@@ -104,4 +104,3 @@ export class InstallError extends Error {
     if (normalized !== undefined) this.safePath = normalized;
   }
 }
-

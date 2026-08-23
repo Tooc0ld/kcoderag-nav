@@ -172,4 +172,3 @@ export function parseInstallState(bytes: Buffer): InstallState {
   }
   return value as unknown as InstallState;
 }
-

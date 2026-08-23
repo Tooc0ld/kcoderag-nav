@@ -102,4 +102,3 @@ export function validateManagedPath(
 
   return Object.freeze({ relativePath, absolutePath });
 }
-
