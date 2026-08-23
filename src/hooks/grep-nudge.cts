@@ -2,11 +2,23 @@
 /** Advisory, host-neutral KCodeRag lookup hook. Every boundary fails open. */
 
 const fs = require("node:fs") as typeof import("node:fs");
-const updateCheck = require("./update-check.cjs") as {
+interface UpdateCheckModule {
   readInstalledVersion(): string | undefined;
   readUpdateHint(installedVersion: string | undefined, options?: { readonly hookPayload?: unknown }): string | undefined;
   scheduleRefresh(hookPayload: unknown): boolean;
-};
+}
+
+const updateCheck: UpdateCheckModule = (() => {
+  try {
+    return require("./update-check.cjs") as UpdateCheckModule;
+  } catch {
+    return {
+      readInstalledVersion: () => undefined,
+      readUpdateHint: () => undefined,
+      scheduleRefresh: () => false,
+    };
+  }
+})();
 
 export const NUDGE =
   "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. " +

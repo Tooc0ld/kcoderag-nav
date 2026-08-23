@@ -27,6 +27,7 @@ interface UpdateCheckModule {
   readonly MAX_SESSION_MARKERS: number;
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
+  readInstalledVersion(statePath?: string): string | undefined;
 }
 
 const update = require("../../dist/hooks/update-check.cjs") as UpdateCheckModule;
@@ -252,6 +253,19 @@ test("session markers remain bounded and foreground source has no network client
 
   const foregroundSource = fs.readFileSync(path.resolve("src/hooks/update-check.cts"), "utf8");
   assert.doesNotMatch(foregroundSource, /node:https|https:\/\/registry\.npmjs/u);
+});
+
+test("installed package version is read only from a bounded validated state document", async () => {
+  await withTempDirectory(async (directory) => {
+    const statePath = path.join(directory, "install-state.json");
+    await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", unrelated: true }), "utf8");
+    assert.equal(update.readInstalledVersion(statePath), "0.1.4");
+    await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4-beta.1" }), "utf8");
+    assert.equal(update.readInstalledVersion(statePath), undefined);
+    await fsPromises.writeFile(statePath, "not-json", "utf8");
+    assert.equal(update.readInstalledVersion(statePath), undefined);
+    assert.equal(update.readInstalledVersion(path.join(directory, "missing.json")), undefined);
+  });
 });
 
 async function withTempDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {

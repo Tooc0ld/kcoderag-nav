@@ -206,7 +206,7 @@ function claimSession(
   files.ensureDirectory(sessionsRoot);
   const markerName = `session-${sessionKey(hookPayload, now)}.seen`;
   if (!files.createExclusive(path.join(sessionsRoot, markerName), "")) return false;
-  try { pruneSessionMarkers(files, sessionsRoot, markerName); } catch { /* fail open */ }
+  try { pruneSessionMarkers(files, sessionsRoot, markerName); } catch { return false; }
   return true;
 }
 
