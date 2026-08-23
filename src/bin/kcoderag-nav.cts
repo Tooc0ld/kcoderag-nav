@@ -7,8 +7,8 @@ import {
   type LegacyRemovalConfirmation,
   type TargetConfirmation,
 } from "../cli/commands.cjs";
-import { InstallError, type HostId } from "../core/contracts.cjs";
-import { codexAdapter } from "../hosts/codex.cjs";
+import { type HostId } from "../core/contracts.cjs";
+import { getHostAdapter } from "../hosts/index.cjs";
 
 async function question(prompt: string): Promise<string> {
   const interfaceInstance = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -55,10 +55,7 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
     selectHost,
     confirmTarget,
     confirmLegacyUserRemoval,
-    getAdapter: (host) => {
-      if (host !== "codex") throw new InstallError("unsupported_host");
-      return codexAdapter;
-    },
+    getAdapter: getHostAdapter,
   });
 }
 

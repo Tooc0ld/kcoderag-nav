@@ -19,6 +19,7 @@ import {
   type HostAdapter,
   type HostObservation,
 } from "../hosts/host-adapter.cjs";
+import { getHostAdapter, HOST_ADAPTERS } from "../hosts/index.cjs";
 
 interface LegacyMigrationAdapter extends HostAdapter {
   migrateLegacy(desired: ReturnType<HostAdapter["renderInstall"]>, observation: HostObservation): ReturnType<typeof applyTransaction>;
@@ -31,7 +32,9 @@ export const COMMANDS = Object.freeze([
   "update",
   "uninstall",
 ] as const);
-export const HOST_CHOICES = Object.freeze(["codex", "claude", "cursor"] as const);
+export const HOST_CHOICES: readonly HostId[] = Object.freeze(
+  HOST_ADAPTERS.map((adapter) => adapter.id),
+);
 
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -277,10 +280,7 @@ export async function executeCommand(
       if (!confirmed) throw new InstallError("cancelled");
     }
 
-    const adapter = assertHostAdapter(
-      dependencies.getAdapter?.(host),
-      host,
-    );
+    const adapter = assertHostAdapter(dependencies.getAdapter?.(host) ?? getHostAdapter(host), host);
     const packageRoot = path.resolve(dependencies.packageRoot ?? path.resolve(__dirname, "../.."));
     const observation = adapter.detect({ target, packageRoot });
     if (observation.host !== host || observation.target !== target) {
