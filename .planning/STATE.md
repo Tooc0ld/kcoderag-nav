@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-19-PLAN.md
-last_updated: "2026-08-23T19:14:32.527Z"
+stopped_at: Completed 03.1-21-PLAN.md
+last_updated: "2026-08-23T19:33:29.324Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: b329f98e0d186762605b0dd29fb84b866e07d644
+state_head: 8d1cd887e2b6a8ae8272e36cb4f065aa3c58e3dd
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 28
+  completed_plans: 29
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 26 of 27
+Plan: 27 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -85,6 +85,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P25 | 4min | 2 tasks | 5 files |
 | Phase 03.1 P20 | 15min | 3 tasks | 7 files |
 | Phase 03.1 P19 | 5min | 3 tasks | 6 files |
+| Phase 03.1 P21 | 18min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Public documentation treats kcoderag-nav as a Node.js 22+ npx project integration, not a marketplace plugin or repository-checkout installer.
 - [Phase 03.1]: Cursor documentation exposes Rule, skill, and MCP semantics without claiming Codex/Claude Code PreToolUse hook equivalence.
 - [Phase 03.1]: Canonical README templates and all three generated README assets commit together under the versioned pre-commit gate.
+- [Phase 03.1]: KCodeRag remains the sole owner of MCP_QA_EXPERIENCE_GUIDE.md; kcoderag-nav stores only sanitized cross-repository provenance.
+- [Phase 03.1]: Codex, Claude Code, and Cursor share the Node.js 22+ npx lifecycle while Cursor uses Rule, skill, and MCP rather than an equivalent PreToolUse hook.
+- [Phase 03.1]: Guide-only sibling commits on a dirty staged index use a normal-hook temporary clone and exact fast-forward, preserving the original index and baseline.
 
 ### Pending Todos
 
@@ -230,6 +234,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T19:14:32.344Z
-Stopped at: Completed 03.1-19-PLAN.md
+Last session: 2026-08-23T19:33:29.122Z
+Stopped at: Completed 03.1-21-PLAN.md
 Resume file: None
