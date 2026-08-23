@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-13-PLAN.md
-last_updated: "2026-08-23T17:24:55.495Z"
+stopped_at: Completed 03.1-15-PLAN.md
+last_updated: "2026-08-23T18:09:52.199Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 7a1e713cb71647c3acb045e8ff17168633a085be
+state_head: 7dcb0528f107bbff9417afa0c83a1df976f14e27
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 19
+  completed_plans: 20
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 17 of 27
+Plan: 18 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -76,6 +76,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P05 | 15min | 3 tasks | 9 files |
 | Phase 03.1 P06 | 8min | 2 tasks | 8 files |
 | Phase 03.1 P13 | 11min | 3 tasks | 6 files |
+| Phase 03.1 P15 | 37min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Local .planning and .gsd state may be dirty but must remain byte-identical and is never staged by release preparation.
 - [Phase 03.1]: Sanitized publish receipts are closed, offline evidence documents binding tag/version, release/workflow SHA, registry metadata, and complete public host evidence.
 - [Phase 03.1]: Only v*.*.* tag pushes can reach the minimal-permission npm publish workflow, with NPM_TOKEN scoped to the final step.
+- [Phase 03.1]: Plan 15 freezes production at 9819a12; planning-only descendants remain valid but any production-tree drift revokes cleanup authority.
+- [Phase 03.1]: Plan 30 exclusively owns removal of the exact 26 authorized cache files and five empty roots; Plan 15 performs no live deletion.
+- [Phase 03.1]: The successful five-suite receipt is the final Python invocation; all later retirement and verification work is Node-only.
+- [Phase 03.1]: Retained Python parity tests validate current Node products until their ordered retirement rather than preserving obsolete Python runtime expectations.
 
 ### Pending Todos
 
@@ -197,6 +202,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T17:24:55.324Z
-Stopped at: Completed 03.1-13-PLAN.md
+Last session: 2026-08-23T18:09:52.028Z
+Stopped at: Completed 03.1-15-PLAN.md
 Resume file: None
