@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-25-PLAN.md
-last_updated: "2026-08-23T18:53:34.847Z"
+stopped_at: Completed 03.1-20-PLAN.md
+last_updated: "2026-08-23T19:05:11.178Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 1695af57a54fd39fe8c961f833ceacb08a9f0455
+state_head: a030d83ad4c167c8b9fad8660b80df84ec022ce7
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 26
+  completed_plans: 27
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 24 of 27
+Plan: 25 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -83,6 +83,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P17 | 5min | 3 tasks | 7 files |
 | Phase 03.1 P18 | 6min | 2 tasks | 6 files |
 | Phase 03.1 P25 | 4min | 2 tasks | 5 files |
+| Phase 03.1 P20 | 15min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Plan 25 removes exactly the five paths preserved by Plan 18; documentation and marketplace assets remain outside this retirement boundary. — This keeps destructive ownership narrow and recovery to one ordinary revert.
 - [Phase 03.1]: The post-tests transition is valid only after all eleven legacy test paths are absent and the compiled Node suite remains fully green. — The audit and 140-case suite jointly prevent file absence from being mistaken for verified retirement.
 - [Phase 03.1]: Required-contract NOT_RUN or missing evidence remains a failure; only optional live smoke may remain explicitly NOT_RUN. — Required CI must never convert skipped host evidence into PASS.
+- [Phase 03.1]: Root marketplace catalogs are retired; generated compatibility manifests remain package assets rather than user install sources.
+- [Phase 03.1]: The product contract is Node.js 22+ CJS deployed by public npx into one selected host native project boundary.
+- [Phase 03.1]: Phase 6 pins exact public npx lifecycle evidence; Phase 8 publishes only from package-version-matching vX.Y.Z tags.
 
 ### Pending Todos
 
@@ -222,6 +226,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:53:34.660Z
-Stopped at: Completed 03.1-25-PLAN.md
+Last session: 2026-08-23T19:05:10.999Z
+Stopped at: Completed 03.1-20-PLAN.md
 Resume file: None
