@@ -586,10 +586,10 @@ function runCommand(root: string, name: string, command: string, args: readonly 
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
   });
-  failUnless(result.status === 0, "parity_suite_failed");
+  failUnless(result.status === 0, `parity_suite_failed_${name}`);
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   const match = selectedPattern.exec(output);
-  failUnless(match !== null && Number(match[1]) > 0, "parity_suite_empty");
+  failUnless(match !== null && Number(match[1]) > 0, `parity_suite_empty_${name}`);
   return Object.freeze({ name, status: "PASS", selected: Number(match[1]), sha256: hashBytes(output) });
 }
 
@@ -619,11 +619,13 @@ function runParity(root: string, receiptPath: string): JsonMap {
   const generation = childProcess.spawnSync(process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
     process.platform === "win32" ? ["/d", "/s", "/c", "npm run generate:check"] : ["run", "generate:check"],
     { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  failUnless(generation.status === 0 && /"ok"\s*:\s*true/u.test(generation.stdout ?? ""), "parity_suite_failed");
+  failUnless(generation.status === 0 && /"ok"\s*:\s*true/u.test(generation.stdout ?? ""),
+    "parity_suite_failed_generation");
   const pack = childProcess.spawnSync(process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
     process.platform === "win32" ? ["/d", "/s", "/c", "npm run pack:audit"] : ["run", "pack:audit"],
     { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  failUnless(pack.status === 0 && /"ok"\s*:\s*true/u.test(pack.stdout ?? ""), "parity_suite_failed");
+  failUnless(pack.status === 0 && /"ok"\s*:\s*true/u.test(pack.stdout ?? ""),
+    "parity_suite_failed_pack");
   const receipt = buildPreReceipt({
     root,
     repoHead: gitText(root, ["rev-parse", "HEAD"]),
