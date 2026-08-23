@@ -1,5 +1,6 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -423,6 +424,163 @@ test("rolls back every changed path when an atomic commit fails", () => {
         },
       }),
       /transaction_failed/u,
+    );
+    assert.deepEqual(snapshot(fixture.outputRoot), before);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+function expectedSelected(product: ProductSelection, group: AssetGroup): readonly string[] {
+  const products = product === "all"
+    ? (["qa", "dev", "cursor"] as const).filter((candidate) => expectedGroups[candidate][group].length > 0)
+    : [product];
+  return products.flatMap((candidate) =>
+    expectedGroups[candidate][group].map((asset) => `kcoderag-${candidate}/${asset}`)
+  ).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+}
+
+test("every legal product and group reports the exact changed subset", () => {
+  const packages: readonly ProductSelection[] = ["qa", "dev", "cursor", "all"];
+  const groups = Object.keys(expectedGroups.qa) as AssetGroup[];
+  for (const selectedPackage of packages) {
+    for (const group of groups) {
+      if (selectedPackage === "cursor" && expectedGroups.cursor[group].length === 0) continue;
+      const fixture = createFixture();
+      try {
+        const expected = expectedSelected(selectedPackage, group);
+        const first = generator.generatePackage({
+          package: selectedPackage,
+          group,
+          sourceRoot: fixture.sourceRoot,
+          outputRoot: fixture.outputRoot,
+        });
+        assert.deepEqual(first.selectedPaths, expected, `${selectedPackage}:${group}:selected`);
+        assert.deepEqual(first.changedPaths, expected, `${selectedPackage}:${group}:changed`);
+        assert.deepEqual(first.writtenPaths, expected, `${selectedPackage}:${group}:written`);
+
+        const drifted = expected[0]!;
+        write(fixture.outputRoot, drifted, "one changed byte set\n");
+        const repaired = generator.generatePackage({
+          package: selectedPackage,
+          group,
+          sourceRoot: fixture.sourceRoot,
+          outputRoot: fixture.outputRoot,
+        });
+        assert.deepEqual(repaired.changedPaths, [drifted], `${selectedPackage}:${group}:partial changed`);
+        assert.deepEqual(repaired.writtenPaths, [drifted], `${selectedPackage}:${group}:partial written`);
+
+        const noOp = generator.generatePackage({
+          package: selectedPackage,
+          group,
+          sourceRoot: fixture.sourceRoot,
+          outputRoot: fixture.outputRoot,
+        });
+        assert.deepEqual(noOp.writtenPaths, [], `${selectedPackage}:${group}:no-op`);
+      } finally {
+        cleanup(fixture);
+      }
+    }
+  }
+});
+
+interface CliResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function runGeneratorCli(fixture: Fixture, args: readonly string[]): CliResult {
+  const executable = path.resolve(__dirname, "..", "..", "dist", "generator", "index.cjs");
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [executable, ...args, "--source-root", fixture.sourceRoot, "--output-root", fixture.outputRoot],
+    { encoding: "utf8", cwd: fixture.root },
+  );
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+test("CLI writes and checks one requested product without touching repository packages", () => {
+  const fixture = createFixture();
+  const repositoryRoot = path.resolve(__dirname, "..", "..");
+  const repositoryBefore = Object.fromEntries(
+    ["kcoderag-qa", "kcoderag-dev", "kcoderag-cursor"].map((directory) => [
+      directory,
+      snapshot(path.join(repositoryRoot, directory)),
+    ]),
+  );
+  try {
+    const generated = runGeneratorCli(fixture, ["--package", "cursor", "--group", "docs"]);
+    assert.equal(generated.status, 0, generated.stderr);
+    const generatedResult = JSON.parse(generated.stdout) as GenerationResult;
+    assert.deepEqual(generatedResult.writtenPaths, ["kcoderag-cursor/README.md"]);
+    assert.equal(`${generated.stdout}${generated.stderr}`.includes(fixture.secret), false);
+
+    const cleanCheck = runGeneratorCli(fixture, ["--package", "cursor", "--group", "docs", "--check"]);
+    assert.equal(cleanCheck.status, 0, cleanCheck.stderr);
+    assert.deepEqual((JSON.parse(cleanCheck.stdout) as GenerationResult).writtenPaths, []);
+
+    write(fixture.outputRoot, "kcoderag-cursor/README.md", "drift\n");
+    const driftCheck = runGeneratorCli(fixture, ["--package", "cursor", "--group", "docs", "--check"]);
+    assert.equal(driftCheck.status, 1, driftCheck.stderr);
+    const driftResult = JSON.parse(driftCheck.stdout) as GenerationResult;
+    assert.equal(driftResult.ok, false);
+    assert.deepEqual(driftResult.changedPaths, ["kcoderag-cursor/README.md"]);
+    assert.deepEqual(driftResult.writtenPaths, []);
+    assert.equal(`${driftCheck.stdout}${driftCheck.stderr}`.includes(fixture.secret), false);
+
+    assert.deepEqual(
+      Object.fromEntries(
+        ["kcoderag-qa", "kcoderag-dev", "kcoderag-cursor"].map((directory) => [
+          directory,
+          snapshot(path.join(repositoryRoot, directory)),
+        ]),
+      ),
+      repositoryBefore,
+    );
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("CLI rejects unknown, empty, and incompatible selections without writes", () => {
+  const fixture = createFixture();
+  try {
+    write(fixture.outputRoot, "unrelated/keep.txt", "keep\n");
+    const before = snapshot(fixture.outputRoot);
+    const invalidArguments = [
+      ["--package", "unknown", "--group", "docs"],
+      ["--package", "qa", "--group", "unknown"],
+      ["--package", "qa", "--group", ""],
+      ["--package", "cursor", "--group", "runtime-cjs"],
+      ["--package", "qa"],
+      ["--group", "docs"],
+    ];
+    for (const args of invalidArguments) {
+      const rejected = runGeneratorCli(fixture, args);
+      assert.equal(rejected.status, 2, args.join(" "));
+      assert.equal(`${rejected.stdout}${rejected.stderr}`.includes(fixture.secret), false);
+      assert.deepEqual(snapshot(fixture.outputRoot), before, args.join(" "));
+    }
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("all-product rendering validates every product before committing any result", () => {
+  const fixture = createFixture();
+  try {
+    write(fixture.outputRoot, "unrelated/keep.txt", "keep\n");
+    const before = snapshot(fixture.outputRoot);
+    fs.rmSync(path.join(fixture.sourceRoot, "plugin-src", "environments", "dev.mcp.json"));
+    assert.throws(
+      () => generator.generatePackage({
+        package: "all",
+        group: "metadata-config",
+        sourceRoot: fixture.sourceRoot,
+        outputRoot: fixture.outputRoot,
+      }),
+      /missing_input/u,
     );
     assert.deepEqual(snapshot(fixture.outputRoot), before);
   } finally {
