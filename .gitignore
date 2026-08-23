@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
 
+/node_modules/
+/dist/
+/dist-tests/
+
 # Project-level install outputs contain plaintext MCP credentials.
 /.codex/
 /.agents/skills/
