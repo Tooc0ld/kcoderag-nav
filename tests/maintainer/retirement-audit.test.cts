@@ -36,7 +36,7 @@ interface RetirementModule {
 const retirement = require("../../dist/maintainer/retirement-audit.cjs") as RetirementModule;
 
 const CACHE_LAYOUT: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  "plugin-src/hooks/__pycache__": ["grep_nudge.cpython-314.pyc"],
+  "plugin-src/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "kcoderag-qa/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "kcoderag-dev/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "scripts/__pycache__": [
@@ -174,9 +174,9 @@ test("pre receipt exact schema, hashes, cache inventory, status, and external ev
   const root = initRepository();
   createCaches(root);
   const receipt = validReceipt(root);
-  assert.equal(receipt.pre_cache_inventory.total, 25);
+  assert.equal(receipt.pre_cache_inventory.total, 26);
   assert.deepEqual(receipt.pre_cache_inventory.root_counts, retirement.CACHE_ROOT_COUNTS);
-  assert.equal(receipt.pre_cache_inventory.files.length, 25);
+  assert.equal(receipt.pre_cache_inventory.files.length, 26);
   assert.doesNotThrow(() => retirement.verifyPreReceipt(receipt, root));
 
   const mutations: Array<[string, (value: JsonMap) => void]> = [

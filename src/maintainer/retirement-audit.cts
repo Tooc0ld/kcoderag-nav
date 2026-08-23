@@ -29,7 +29,7 @@ export interface PreCacheInventory {
 }
 
 export const CACHE_ROOT_COUNTS = Object.freeze({
-  "plugin-src/hooks/__pycache__": 1,
+  "plugin-src/hooks/__pycache__": 2,
   "kcoderag-qa/hooks/__pycache__": 2,
   "kcoderag-dev/hooks/__pycache__": 2,
   "scripts/__pycache__": 6,
@@ -329,7 +329,7 @@ export function collectPreCacheInventory(root: string): PreCacheInventory {
 function validateCacheInventory(value: unknown): asserts value is PreCacheInventory {
   failUnless(exactKeys(value, ["roots", "root_counts", "total", "files"]), "invalid_cache_inventory");
   failUnless(Array.isArray(value.roots) && exactKeys(value.root_counts, CACHE_ROOTS)
-    && value.total === 25 && Array.isArray(value.files) && value.files.length === 25,
+    && value.total === 26 && Array.isArray(value.files) && value.files.length === 26,
     "invalid_cache_inventory");
   failUnless(canonicalEqual(value.roots, expectedRootRecords()) && canonicalEqual(value.root_counts, CACHE_ROOT_COUNTS),
     "invalid_cache_inventory");

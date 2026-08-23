@@ -49,7 +49,7 @@ const retirement = require("../../dist/maintainer/retirement-audit.cjs") as Reti
 const cleanup = require("../../dist/maintainer/cache-cleanup.cjs") as CleanupModule;
 
 const CACHE_LAYOUT: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  "plugin-src/hooks/__pycache__": ["grep_nudge.cpython-314.pyc"],
+  "plugin-src/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "kcoderag-qa/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "kcoderag-dev/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
   "scripts/__pycache__": [
@@ -132,13 +132,13 @@ function expectCode(call: () => unknown, code: string): void {
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
 }
 
-test("builds an explicit mutation-free 25-unlink and five-rmdir plan", () => {
+test("builds an explicit mutation-free 26-unlink and five-rmdir plan", () => {
   const { root, producer } = fixture();
   const before = treeManifest(root);
   const plan = cleanup.buildCleanupPlan(root, producer);
-  assert.equal(plan.unlinkTargets.length, 25);
+  assert.equal(plan.unlinkTargets.length, 26);
   assert.equal(plan.rmdirTargets.length, 5);
-  assert.equal(new Set(plan.unlinkTargets.map((item: JsonMap) => item.relativePath)).size, 25);
+  assert.equal(new Set(plan.unlinkTargets.map((item: JsonMap) => item.relativePath)).size, 26);
   assert.deepEqual([...plan.rmdirTargets].sort(), [...retirement.CACHE_ROOTS].sort());
   assert.equal(treeManifest(root), before);
 });
@@ -218,7 +218,7 @@ test("authorization links exact producer fields and rejects unknown, mismatched,
   expectCode(() => cleanup.validateAuthorizationReceipt(authorization, producer, root), "invalid_producer_receipt");
 });
 
-test("successful execution performs exactly 25 unlinks then five nonrecursive rmdirs and writes sanitized evidence", () => {
+test("successful execution performs exactly 26 unlinks then five nonrecursive rmdirs and writes sanitized evidence", () => {
   const { root, producer } = fixture();
   const authorizationPath = path.join(root, ".planning", "authorization.json");
   const cleanupPath = path.join(root, ".planning", "cleanup.json");
@@ -235,12 +235,12 @@ test("successful execution performs exactly 25 unlinks then five nonrecursive rm
     cleanupReceiptPath: cleanupPath,
     mutationAdapter: adapter,
   });
-  assert.equal(calls.filter((call) => call.kind === "unlink").length, 25);
+  assert.equal(calls.filter((call) => call.kind === "unlink").length, 26);
   assert.equal(calls.filter((call) => call.kind === "rmdir").length, 5);
-  assert.ok(calls.slice(0, 25).every((call) => call.kind === "unlink"));
-  assert.ok(calls.slice(25).every((call) => call.kind === "rmdir"));
+  assert.ok(calls.slice(0, 26).every((call) => call.kind === "unlink"));
+  assert.ok(calls.slice(26).every((call) => call.kind === "rmdir"));
   assert.equal(receipt.deletion_set_equal, true);
-  assert.equal(receipt.observed_deletions.length, 25);
+  assert.equal(receipt.observed_deletions.length, 26);
   assert.equal(receipt.removed_roots.length, 5);
   assert.doesNotThrow(() => cleanup.verifyCleanupReceipt(receipt, producer, authorization, root));
   for (const cacheRoot of retirement.CACHE_ROOTS) assert.equal(fs.existsSync(path.join(root, ...cacheRoot.split("/"))), false);

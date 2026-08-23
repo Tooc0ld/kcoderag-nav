@@ -176,7 +176,7 @@ export function buildCleanupPlan(root: string, producer: JsonMap, head?: string)
     absolutePath: assertRegularAuthorizedFile(root, file.path as string, file.sha256 as string),
     sha256: file.sha256 as string,
   }));
-  failUnless(unlinkTargets.length === 25, "invalid_cleanup_plan");
+  failUnless(unlinkTargets.length === 26, "invalid_cleanup_plan");
   const roots = [...retirement.CACHE_ROOTS].sort(retirement.compareCodePointPaths);
   retirement.validateSortedUniquePaths(roots);
   for (const cacheRoot of roots) {
