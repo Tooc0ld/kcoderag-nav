@@ -153,6 +153,9 @@ function errorExitCode(code: string): number {
     "host_required",
     "invalid_arguments",
     "legacy_removal_cancelled",
+    "legacy_removal_authority_invalid",
+    "unsupported_environment",
+    "unsupported_host",
   ]).has(code)
     ? 2
     : 1;
@@ -219,9 +222,9 @@ async function legacyRemovalAuthority(
   if (args.allowLegacyUserRemoval && host !== "cursor") {
     throw new InstallError("legacy_removal_authority_invalid");
   }
+  if (args.allowLegacyUserRemoval) return true;
   if (observation.legacyUserRemoval === undefined) return false;
   if (host !== "cursor") throw new InstallError("invalid_host_adapter");
-  if (args.allowLegacyUserRemoval) return true;
   if (args.json) throw new InstallError("legacy_removal_authority_required");
   const confirmed = await (dependencies.confirmLegacyUserRemoval?.({
     ...request,

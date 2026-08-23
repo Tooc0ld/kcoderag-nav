@@ -405,3 +405,67 @@ test("explicit legacy authority is forwarded only to Cursor and never inferred o
     fs.rmSync(item.root, { recursive: true, force: true });
   }
 });
+
+test("machine output and exit codes are stable and redact unexpected adapter failures", async () => {
+  const item = fixture();
+  try {
+    const calls: string[] = [];
+    const adapters = {
+      codex: makeAdapter("codex", calls),
+      claude: makeAdapter("claude", calls),
+      cursor: makeAdapter("cursor", calls),
+    };
+
+    const invalid = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["install", "--host", "opencode", "--yes", "--json"],
+        invalid.dependencies,
+      ),
+      2,
+    );
+    assert.equal(invalid.stdout.length, 1);
+    assert.equal(invalid.stderr.length, 0);
+    assert.equal(JSON.parse(invalid.stdout[0] ?? "").error.code, "unsupported_host");
+
+    const confirmation = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["install", "--host", "codex", "--json"],
+        confirmation.dependencies,
+      ),
+      2,
+    );
+    assert.equal(confirmation.stdout.length, 1);
+    assert.equal(confirmation.stderr.length, 0);
+    assert.equal(
+      JSON.parse(confirmation.stdout[0] ?? "").error.code,
+      "confirmation_required",
+    );
+
+    const secret = `Bearer-${crypto.randomUUID()}`;
+    const failed = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["status", "--host", "codex", "--json"],
+        {
+          ...failed.dependencies,
+          getAdapter: () => ({
+            ...makeAdapter("codex", calls),
+            detect: () => {
+              throw new Error(secret);
+            },
+          }),
+        },
+      ),
+      1,
+    );
+    assert.equal(failed.stdout.length, 1);
+    assert.equal(failed.stderr.length, 0);
+    assert.equal(JSON.parse(failed.stdout[0] ?? "").error.code, "command_failed");
+    assert.doesNotMatch(failed.stdout[0] ?? "", new RegExp(secret));
+    assert.deepEqual(calls, []);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
