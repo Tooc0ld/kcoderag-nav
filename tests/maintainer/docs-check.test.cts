@@ -168,14 +168,20 @@ test("rejects empty scope, traversal, absolute repo paths, and symlink input bef
       (error: unknown) => errorCode(error) === "absolute_path_not_allowed",
     );
 
+    let linkedInput = "linked.md";
     try {
-      fs.symlinkSync(path.join(outside, "outside.md"), path.join(root, "linked.md"), "file");
-    } catch (error) {
-      context.skip(`symlink unavailable: ${(error as NodeJS.ErrnoException).code ?? "unknown"}`);
-      return;
+      fs.symlinkSync(path.join(outside, "outside.md"), path.join(root, linkedInput), "file");
+    } catch {
+      linkedInput = "linked/outside.md";
+      try {
+        fs.symlinkSync(outside, path.join(root, "linked"), "junction");
+      } catch (error) {
+        context.skip(`symlink unavailable: ${(error as NodeJS.ErrnoException).code ?? "unknown"}`);
+        return;
+      }
     }
     assert.throws(
-      () => docsCheck.checkDocs(["linked.md"], "planning", { repoRoot: root }),
+      () => docsCheck.checkDocs([linkedInput], "planning", { repoRoot: root }),
       (error: unknown) => errorCode(error) === "symlink_not_allowed",
     );
   } finally {
