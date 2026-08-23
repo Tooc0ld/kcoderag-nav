@@ -231,6 +231,7 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
     const pkg = packageFixture(base);
     const invalidHooks = targetFixture(base, "invalid-hooks");
     write(invalidHooks.root, ".codex/hooks.json", `${JSON.stringify({ hooks: "wrong" })}\n`);
+    const invalidBefore = snapshot(invalidHooks.root);
     const invalidTarget = require("../../dist/core/project-target.cjs").resolveProjectTarget(invalidHooks.root);
     const invalidObservation = codex.codexAdapter.detect({ target: invalidTarget, packageRoot: pkg.root });
     assert.throws(
@@ -245,10 +246,11 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
       (error: unknown) => error instanceof Error && "code" in error &&
         (error as Error & { code: string }).code === "invalid_json",
     );
-    assert.deepEqual(snapshot(invalidHooks.root), snapshot(invalidHooks.root));
+    assert.deepEqual(snapshot(invalidHooks.root), invalidBefore);
 
     const ownedName = targetFixture(base, "owned-name");
     write(ownedName.root, ".agents/skills/kcoderag-nav/SKILL.md", "unowned\n");
+    const ownedBefore = snapshot(ownedName.root);
     const ownedTarget = require("../../dist/core/project-target.cjs").resolveProjectTarget(ownedName.root);
     const ownedObservation = codex.codexAdapter.detect({ target: ownedTarget, packageRoot: pkg.root });
     assert.throws(() => codex.codexAdapter.renderInstall({
@@ -259,6 +261,7 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
       observation: ownedObservation,
       allowLegacyUserRemoval: false,
     }), /unmanaged_name_conflict/);
+    assert.deepEqual(snapshot(ownedName.root), ownedBefore);
 
     const rollback = targetFixture(base, "rollback");
     const rollbackTarget = require("../../dist/core/project-target.cjs").resolveProjectTarget(rollback.root);
