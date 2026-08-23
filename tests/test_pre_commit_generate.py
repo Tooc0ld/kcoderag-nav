@@ -5,14 +5,13 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "scripts" / "pre_commit_generate.py"
+HELPER = ROOT / "dist" / "maintainer" / "pre-commit.cjs"
 HOOK = ROOT / ".githooks" / "pre-commit"
 
 
@@ -50,10 +49,10 @@ class PreCommitGenerationTests(unittest.TestCase):
         lowered = hook.lower()
 
         self.assertTrue(hook.startswith("#!/bin/sh"))
-        self.assertIn("scripts/pre_commit_generate.py", hook)
+        self.assertIn("dist/maintainer/pre-commit.cjs", hook)
         self.assertNotIn("git add", lowered)
-        self.assertIn("python3", lowered)
-        self.assertIn("python", lowered)
+        self.assertIn("node", lowered)
+        self.assertNotIn("python", lowered)
 
     def test_real_git_lifecycle_is_safe_and_covers_cursor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -80,15 +79,17 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertEqual(generated.returncode, 1)
             self.assertEqual(
                 generated.stderr.strip(),
-                "Generated plugin files changed. Review and git add them, then commit again.",
+                "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",
             )
             staged = self._git_names(isolated, "--cached")
             unstaged = self._git_names(isolated)
             self.assertIn("plugin-src/cursor/rules/kcoderag-navigation.mdc", staged)
             self.assertNotIn("kcoderag-cursor/.cursor-plugin/plugin.json", staged)
-            self.assertIn("kcoderag-cursor/.cursor-plugin/plugin.json", unstaged)
-            self.assertIn(".cursor-plugin/marketplace.json", unstaged)
+            self.assertNotIn("kcoderag-cursor/.cursor-plugin/plugin.json", unstaged)
+            self.assertNotIn(".cursor-plugin/marketplace.json", unstaged)
 
+            npm = shutil.which("npm") or "npm"
+            self.assertEqual(run([npm, "run", "generate"], cwd=isolated).returncode, 0)
             self.assertEqual(run(["git", "add", "-A"], cwd=isolated).returncode, 0)
             ready = self._run_helper(isolated)
             self.assertEqual(ready.returncode, 0, ready.stderr)
@@ -122,7 +123,7 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(
                 result.stderr.strip(),
-                "Canonical generator inputs have unstaged changes. Stage or restore them first.",
+                "Canonical KCodeRag inputs have unstaged changes. Review and stage them explicitly.",
             )
             self.assertEqual(
                 (isolated / "kcoderag-qa" / ".codex-plugin" / "plugin.json").read_bytes(),
@@ -150,7 +151,11 @@ class PreCommitGenerationTests(unittest.TestCase):
 
             deferred = self._run_helper(isolated)
 
-            self.assertEqual(deferred.returncode, 0, deferred.stderr)
+            self.assertEqual(deferred.returncode, 1)
+            self.assertEqual(
+                deferred.stderr.strip(),
+                "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",
+            )
             self.assertEqual(deferred.stdout, "")
             self.assertEqual(generated.read_bytes(), generated_before)
 
@@ -164,7 +169,7 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertEqual(not_deferred.returncode, 1)
             self.assertEqual(
                 not_deferred.stderr.strip(),
-                "Generated plugin files changed. Review and git add them, then commit again.",
+                "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",
             )
 
     def _initialize_repository(self, root: Path) -> None:
@@ -181,7 +186,7 @@ class PreCommitGenerationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def _run_helper(self, root: Path) -> subprocess.CompletedProcess[str]:
-        return run([sys.executable, "scripts/pre_commit_generate.py"], cwd=root)
+        return run(["node", "dist/maintainer/pre-commit.cjs"], cwd=root)
 
     def _git_names(self, root: Path, *extra: str) -> set[str]:
         result = run(["git", "diff", "--name-only", *extra], cwd=root)

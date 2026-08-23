@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 POSIX_LAUNCHER = ROOT / "plugin-src" / "hooks" / "run_hook.sh"
-WINDOWS_LAUNCHER = ROOT / "plugin-src" / "hooks" / "run_hook.cmd"
+WINDOWS_LAUNCHER = ROOT / "kcoderag-qa" / "hooks" / "run_hook.cmd"
 
 
 def _posix_shell() -> str | None:
@@ -29,7 +30,7 @@ def _write_posix_candidate(path: Path, *, probe_exit: int, run_exit: int = 0) ->
             (
                 "#!/bin/sh",
                 'printf "%s\\n" "$1" >> "$TRACE_FILE"',
-                'if [ "$1" = "-c" ]; then',
+                'if [ "$1" = "-e" ]; then',
                 f"  exit {probe_exit}",
                 "fi",
                 'IFS= read -r payload || :',
@@ -51,8 +52,7 @@ def _write_windows_candidate(path: Path, *, probe_exit: int, run_exit: int = 0) 
             (
                 "@echo off",
                 '>>"%TRACE_FILE%" echo %~1',
-                'if "%~1"=="-3" shift',
-                'if "%~1"=="-c" exit /b ' + str(probe_exit),
+                'if "%~1"=="-e" if not "' + str(probe_exit) + '"=="0" exit /b ' + str(probe_exit),
                 "set /p PAYLOAD=",
                 'if not "%PAYLOAD%"=="%EXPECTED_INPUT%" exit /b 9',
                 '<nul set /p "=%FAKE_OUTPUT%"',
@@ -94,12 +94,11 @@ def _run_posix(fake_bin: Path, payload: str, output: str) -> subprocess.Complete
 
 
 class PosixHookRuntimeTests(unittest.TestCase):
-    def test_uses_first_python_310_candidate_and_preserves_stdin_and_stdout(self) -> None:
+    def test_uses_node_22_candidate_and_preserves_stdin_and_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fake_bin = Path(directory)
             trace = fake_bin / "trace.txt"
-            _write_posix_candidate(fake_bin / "python3", probe_exit=0)
-            _write_posix_candidate(fake_bin / "python", probe_exit=0)
+            _write_posix_candidate(fake_bin / "node", probe_exit=0)
             payload = '{"tool_input":{"pattern":"SyntheticSymbol"}}'
             expected_output = '{"synthetic":true}'
             result = _run_posix(fake_bin, payload, expected_output)
@@ -107,22 +106,21 @@ class PosixHookRuntimeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, expected_output)
             self.assertEqual(result.stderr, "")
-            self.assertEqual(trace.read_text(encoding="utf-8").splitlines(), ["-c", str(ROOT / "plugin-src" / "hooks" / "grep_nudge.py")])
+            self.assertEqual(trace.read_text(encoding="utf-8").splitlines(), ["-e", str(ROOT / "plugin-src" / "hooks" / "grep-nudge.cjs")])
 
-    def test_skips_old_python_and_silently_fails_open(self) -> None:
+    def test_skips_old_node_and_silently_fails_open(self) -> None:
         payload = '{"tool_input":{"pattern":"SyntheticSymbol"}}'
         with tempfile.TemporaryDirectory() as directory:
             fake_bin = Path(directory)
             trace = fake_bin / "trace.txt"
-            _write_posix_candidate(fake_bin / "python3", probe_exit=1)
-            _write_posix_candidate(fake_bin / "python", probe_exit=0)
+            _write_posix_candidate(fake_bin / "node", probe_exit=1)
 
-            fallback = _run_posix(fake_bin, payload, '{"fallback":true}')
-            self.assertEqual((fallback.returncode, fallback.stdout, fallback.stderr), (0, '{"fallback":true}', ""))
-            self.assertEqual(trace.read_text(encoding="utf-8").splitlines()[0:2], ["-c", "-c"])
+            rejected = _run_posix(fake_bin, payload, '{"unused":true}')
+            self.assertEqual((rejected.returncode, rejected.stdout, rejected.stderr), (0, "", ""))
+            self.assertEqual(trace.read_text(encoding="utf-8").splitlines(), ["-e"])
 
             trace.unlink()
-            _write_posix_candidate(fake_bin / "python3", probe_exit=0, run_exit=7)
+            _write_posix_candidate(fake_bin / "node", probe_exit=0, run_exit=7)
             failed = _run_posix(fake_bin, payload, "must-not-leak")
             self.assertEqual((failed.returncode, failed.stdout, failed.stderr), (0, "", ""))
             self.assertEqual(len(trace.read_text(encoding="utf-8").splitlines()), 2)
@@ -134,18 +132,28 @@ class PosixHookRuntimeTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "Windows cmd launcher contract")
 class WindowsHookRuntimeTests(unittest.TestCase):
-    def test_probes_py_then_python3_and_preserves_successful_json(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            fake_bin = Path(directory)
-            trace = fake_bin / "trace.txt"
-            _write_windows_candidate(fake_bin / "py.cmd", probe_exit=1)
-            _write_windows_candidate(fake_bin / "python3.cmd", probe_exit=0)
-            _write_windows_candidate(fake_bin / "python.cmd", probe_exit=0)
-            payload = '{"tool_input":{"pattern":"SyntheticSymbol"}}'
-            expected_output = '{"synthetic":true}'
-            environment = _runtime_environment(fake_bin, trace, payload, expected_output)
-            environment["PATHEXT"] = ".CMD;.EXE"
+    def test_runs_node_and_preserves_successful_json(self) -> None:
+        payload = '{"tool_name":"Grep","tool_input":{"pattern":"SyntheticSymbol"}}'
+        result = subprocess.run(
+            [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "call", str(WINDOWS_LAUNCHER)],
+            input=payload + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+            env=os.environ.copy(),
+            timeout=5,
+        )
 
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertIn("hookSpecificOutput", json.loads(result.stdout))
+
+    def test_missing_node_is_silent(self) -> None:
+        payload = '{"tool_name":"Grep","tool_input":{"pattern":"SyntheticSymbol"}}'
+        with tempfile.TemporaryDirectory() as directory:
+            environment = os.environ.copy()
+            environment["PATH"] = directory
+            environment["PATHEXT"] = ".CMD;.EXE"
             result = subprocess.run(
                 [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "call", str(WINDOWS_LAUNCHER)],
                 input=payload + "\n",
@@ -155,32 +163,7 @@ class WindowsHookRuntimeTests(unittest.TestCase):
                 env=environment,
                 timeout=5,
             )
-
-            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, expected_output, ""))
-            self.assertEqual(trace.read_text(encoding="utf-8").splitlines(), ["-3", "-c", str(ROOT / "plugin-src" / "hooks" / "grep_nudge.py")])
-
-    def test_old_missing_probe_and_launch_failures_are_silent(self) -> None:
-        payload = '{"tool_input":{"pattern":"SyntheticSymbol"}}'
-        for scenario in ("old", "launch"):
-            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
-                fake_bin = Path(directory)
-                trace = fake_bin / "trace.txt"
-                probe_exit = 1 if scenario == "old" else 0
-                run_exit = 0 if scenario == "old" else 7
-                for name in ("py.cmd", "python3.cmd", "python.cmd"):
-                    _write_windows_candidate(fake_bin / name, probe_exit=probe_exit, run_exit=run_exit)
-                environment = _runtime_environment(fake_bin, trace, payload, "must-not-leak")
-                environment["PATHEXT"] = ".CMD;.EXE"
-                result = subprocess.run(
-                    [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "call", str(WINDOWS_LAUNCHER)],
-                    input=payload + "\n",
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    env=environment,
-                    timeout=5,
-                )
-                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
 
 if __name__ == "__main__":

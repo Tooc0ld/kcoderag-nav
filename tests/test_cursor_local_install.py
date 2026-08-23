@@ -84,7 +84,7 @@ class CursorLocalInstallTests(unittest.TestCase):
             document = json.loads(status.stdout)
             self.assertEqual(document["status"], "healthy")
             self.assertEqual(document["issues"], [])
-            self.assertRegex(document["package_version"], r"^0\.1\.\d+\+cursor\.[0-9a-f]{16}$")
+            self.assertRegex(document["package_version"], r"^0\.1\.\d+$")
 
             installed = snapshot_tree(local_root)
             repeated = run_installer(local_root, source, "install")

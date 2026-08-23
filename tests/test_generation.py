@@ -26,12 +26,15 @@ EXPECTED_FILES = {
     ".mcp.json",
     "README.md",
     "agents/kcode-explorer.md",
+    "hooks/grep-nudge.cjs",
     "hooks/grep_nudge.py",
     "hooks/hooks.json",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
     "hooks/test_grep_nudge.py",
+    "hooks/update-check.cjs",
     "hooks/update_check.py",
+    "hooks/update-worker.cjs",
     "skills/code-lookup-discipline/SKILL.md",
 }
 CURSOR_EXPECTED_FILES = {
@@ -151,7 +154,15 @@ class GenerationTests(unittest.TestCase):
 
     def test_generation_check_accepts_tracked_outputs(self) -> None:
         result = subprocess.run(
-            [sys.executable, str(GENERATOR), "--check"],
+            [
+                "node",
+                str(ROOT / "dist" / "generator" / "index.cjs"),
+                "--package",
+                "all",
+                "--group",
+                "all",
+                "--check",
+            ],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -293,10 +304,23 @@ class GenerationTests(unittest.TestCase):
                 ".claude-plugin",
                 ".agents",
                 ".cursor-plugin",
+                "dist",
             ):
                 shutil.copytree(ROOT / relative_path, isolated / relative_path)
+            shutil.copy2(ROOT / "package.json", isolated / "package.json")
 
-            command = [sys.executable, "scripts/generate_plugins.py", "--write"]
+            command = [
+                "node",
+                str(ROOT / "dist" / "generator" / "index.cjs"),
+                "--package",
+                "all",
+                "--group",
+                "all",
+                "--source-root",
+                str(isolated),
+                "--output-root",
+                str(isolated),
+            ]
             first = subprocess.run(command, cwd=isolated, capture_output=True, text=True, check=False)
             self.assertEqual(first.returncode, 0, "first isolated generation failed")
             first_manifest = self._distribution_manifest(isolated)
@@ -308,14 +332,16 @@ class GenerationTests(unittest.TestCase):
             drifted.write_bytes(drifted.read_bytes() + b"synthetic-drift\n")
             before_check = drifted.read_bytes()
             check = subprocess.run(
-                [sys.executable, "scripts/generate_plugins.py", "--check"],
+                [*command, "--check"],
                 cwd=isolated,
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertNotEqual(check.returncode, 0)
-            self.assertEqual(check.stdout, "drift: kcoderag-qa/README.md\n")
+            check_result = json.loads(check.stdout)
+            self.assertEqual(check_result["changedPaths"], ["kcoderag-qa/README.md"])
+            self.assertEqual(check_result["writtenPaths"], [])
             self.assertEqual(drifted.read_bytes(), before_check)
 
     def test_each_package_runs_without_canonical_parent(self) -> None:
@@ -366,16 +392,9 @@ class GenerationTests(unittest.TestCase):
                 base_version = (ROOT / "plugin-src" / "version.txt").read_text(
                     encoding="utf-8"
                 ).strip()
-                published_versions = json.loads(
-                    (ROOT / "kcoderag-update.json").read_text(encoding="utf-8")
-                )["versions"]
                 for manifest_path in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
                     manifest = json.loads((package / manifest_path).read_text(encoding="utf-8"))
-                    self.assertEqual(manifest["version"], published_versions[environment])
-                    self.assertRegex(
-                        manifest["version"],
-                        rf"^{re.escape(base_version)}\+codex\.[0-9a-f]{{16}}$",
-                    )
+                    self.assertEqual(manifest["version"], base_version)
 
     def test_manifest_and_install_documentation_contracts(self) -> None:
         metadata = json.loads((ROOT / "plugin-src" / "environments.json").read_text(encoding="utf-8"))
@@ -545,10 +564,7 @@ class GenerationTests(unittest.TestCase):
         base_version = (ROOT / "plugin-src" / "version.txt").read_text(
             encoding="utf-8"
         ).strip()
-        self.assertRegex(
-            manifest["version"],
-            rf"^{re.escape(base_version)}\+cursor\.[0-9a-f]{{16}}$",
-        )
+        self.assertEqual(manifest["version"], base_version)
 
         variables = manifest["variables"]
         self.assertEqual(variables["type"], "object")

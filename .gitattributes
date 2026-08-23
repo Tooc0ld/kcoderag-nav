@@ -5,5 +5,6 @@
 *.tmpl text eol=lf
 *.txt text eol=lf
 *.py text eol=lf
+*.cjs text eol=lf
 *.sh text eol=lf
 *.cmd text eol=lf

@@ -58,7 +58,7 @@
     "test:update-check": "node --test dist-tests/hooks/update-check.test.cjs",
     "test:generator": "node --test dist-tests/generator/generation.test.cjs",
     "test:generator:repository": "node --test dist-tests/generator/repository-generation.test.cjs",
-    "generate": "node dist/generator/index.cjs",
+    "generate": "node dist/generator/index.cjs --package all --group all",
     "generate:check": "node dist/generator/index.cjs --package all --group all --check",
     "test:precommit": "node --test dist-tests/maintainer/pre-commit.test.cjs",
     "test:pack": "node --test dist-tests/maintainer/pack-audit.test.cjs",
