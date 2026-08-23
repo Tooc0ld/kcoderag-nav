@@ -102,6 +102,7 @@ test("records and verifies guide-only commit evidence with unchanged unrelated s
     const receipt = audit.recordSiblingReceipt(baseline, item);
     assert.deepEqual(audit.verifySiblingReceipt(receipt), receipt);
     assert.equal(receipt.beforeUnrelatedStatusDigest, receipt.afterUnrelatedStatusDigest);
+    assert.equal(receipt.commitParent, receipt.baselineHead);
     assert.deepEqual(receipt.commitFiles, [GUIDE]);
     assert.equal(receipt.secret_scan, true);
     assert.match(receipt.kcoderag_head, /^[0-9a-f]{40}$/);
@@ -115,7 +116,7 @@ test("refuses added, removed, or changed unrelated sibling status", () => {
   for (const mutate of [
     (repo: string) => fs.writeFileSync(path.join(repo, "added.txt"), "added\n"),
     (repo: string) => fs.rmSync(path.join(repo, "untracked.txt")),
-    (repo: string) => fs.writeFileSync(path.join(repo, "unrelated.txt"), "changed again\n"),
+    (repo: string) => { git(repo, ["add", "--", "unrelated.txt"]); },
   ]) {
     const item = fixture();
     try {
@@ -142,6 +143,7 @@ test("receipt verification rejects extra commit files, invalid hashes, digest dr
       [(receipt: JsonMap) => receipt.commitFiles.push("extra.md"), "invalid_commit_files"],
       [(receipt: JsonMap) => { receipt.kcoderag_head = "abc"; }, "invalid_hash"],
       [(receipt: JsonMap) => { receipt.afterUnrelatedStatusDigest = "0".repeat(64); }, "unrelated_status_changed"],
+      [(receipt: JsonMap) => { receipt.baselineDigest = "0".repeat(64); }, "baseline_digest_mismatch"],
       [(receipt: JsonMap) => { receipt.note = "Bearer secret-value-that-must-never-echo"; }, "secret_like_value"],
     ] as const) {
       const receipt = JSON.parse(JSON.stringify(valid)) as JsonMap;
