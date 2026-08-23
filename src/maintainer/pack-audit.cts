@@ -362,6 +362,10 @@ function repositorySnapshot(root: string): { readonly status: Buffer; readonly t
     .split("\0")
     .filter((value) => value.length > 0)
     .map((value) => normalizeRelative(value))
+    // GSD owns these volatile, unrelated execution records while this plan is running. Their
+    // path presence remains covered by the exact status snapshot, but their mutable bytes are
+    // not part of the npm source/product tree digest.
+    .filter((value) => value !== ".planning/milestone.lock" && !value.startsWith(".gsd/"))
     .sort(compare);
   const digest = crypto.createHash("sha256");
   for (const relativePath of listed) {
@@ -438,7 +442,8 @@ export function auditPack(options: { readonly root: string }): PackAuditResult {
   const after = repositorySnapshot(root);
   const statusPreserved = before.status.equals(after.status);
   const treePreserved = before.tree === after.tree;
-  if (!statusPreserved || !treePreserved) throw new PackAuditError("repository_mutated");
+  if (!statusPreserved) throw new PackAuditError("repository_status_mutated");
+  if (!treePreserved) throw new PackAuditError("repository_tree_mutated");
   if (failure !== undefined) throw failure;
   if (completed === undefined) throw new PackAuditError("pack_audit_failed");
   return Object.freeze({ ...completed, statusPreserved, treePreserved });

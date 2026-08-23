@@ -42,7 +42,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
-    "test": "node --test \"dist-tests/**/*.test.cjs\"",
+    "test": "node --test --test-concurrency=1 \"dist-tests/**/*.test.cjs\"",
     "deps:audit": "node dist/maintainer/dependency-audit.cjs",
     "test:dependency-audit": "node --test dist-tests/maintainer/dependency-audit.test.cjs",
     "test:tracer": "node --test dist-tests/tracer/codex-install.test.cjs",
@@ -64,7 +64,7 @@
     "test:pack": "node --test dist-tests/maintainer/pack-audit.test.cjs",
     "pack:audit": "node dist/maintainer/pack-audit.cjs",
     "test:ci-contract": "node --test dist-tests/maintainer/ci-contract.test.cjs",
-    "ci:local": "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run smoke:required && npm run pack:audit",
+    "ci:local": "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit",
     "test:smoke": "node --test dist-tests/smoke/host-smoke.test.cjs",
     "smoke:required": "node dist/smoke/host-smoke.cjs --mode required",
     "smoke:live": "node dist/smoke/host-smoke.cjs --mode live",

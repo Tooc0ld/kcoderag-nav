@@ -62,5 +62,6 @@ test("third-party actions are immutable pins and no CI script can publish", () =
     packageJson.scripts["ci:local"],
     "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit",
   );
+  assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
   assert.doesNotMatch(packageJson.scripts["ci:local"] ?? "", /publish|release/iu);
 });
