@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-02-PLAN.md
-last_updated: "2026-08-23T14:04:10.386Z"
+stopped_at: Completed 03.1-03-PLAN.md
+last_updated: "2026-08-23T14:21:58.604Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 9b04ecdf3fa96cacca57b94c4f99ec7cfd8d2861
+state_head: a9e1fe8e2dcb0b2e81656bfa17ef128d482cd1e6
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 6
-  percent: 20
+  completed_plans: 7
+  percent: 23
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 4 of 27
+Plan: 5 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [██░░░░░░░░] 20%
+Progress: [██░░░░░░░░] 23%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 03.1 P29 | 2 min | 2 tasks | 1 files |
 | Phase 03.1 P01 | 19min | 3 tasks | 9 files |
 | Phase 03.1 P02 | 12min | 2 tasks | 6 files |
+| Phase 03.1 P03 | 12min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Clean CI builds compiled CJS before audit/tests and discovers compiled tests with an explicit glob.
 - [Phase 03.1]: Host adapters declare managed roots and create validated desired state; only applyTransaction mutates installation files.
 - [Phase 03.1]: Rollback failure retains a private project-local recovery tree while diagnostics expose only its safe relative path.
+- [Phase 03.1]: Phase 03.1 Plan 03 preserves the Python hook heuristic exactly in TypeScript/CJS; precision policy remains deferred to Phase 5.
+- [Phase 03.1]: Windows combines the Node 22 probe and hook invocation in one process so cmd.exe cannot consume redirected hook stdin before main runs.
+- [Phase 03.1]: Legacy Python generation defers only within the ordered CJS launcher migration and still hard-gates unrelated canonical or partial-staging changes.
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T14:04:10.206Z
-Stopped at: Completed 03.1-02-PLAN.md
+Last session: 2026-08-23T14:21:58.449Z
+Stopped at: Completed 03.1-03-PLAN.md
 Resume file: None
