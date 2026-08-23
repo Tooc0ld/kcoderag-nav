@@ -43,6 +43,12 @@ function git(root: string, args: readonly string[]): string {
   return childProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" }).trim();
 }
 
+function publicStatus(root: string): readonly string[] {
+  return git(root, ["status", "--short", "--untracked-files=all"])
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0 && !/^.. \.planning(?:\/|$)|^.. \.gsd(?:\/|$)/u.test(line));
+}
+
 function writeJson(root: string, relativePath: string, value: unknown): void {
   const destination = path.join(root, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -127,7 +133,7 @@ test("creates one exact seven-path release commit and matching immutable tag", (
     [...release.RELEASE_OWNED_PATHS].sort(),
   );
   assert.equal(git(root, ["tag", "--points-at", "HEAD"]), "v1.3.0");
-  assert.equal(git(root, ["status", "--short"]), "");
+  assert.deepEqual(publicStatus(root), []);
 });
 
 test("allows only root build ignores and rejects every other dirty source/product path", () => {
@@ -137,7 +143,7 @@ test("allows only root build ignores and rejects every other dirty source/produc
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, "ignored\n", "utf8");
   }
-  assert.equal(git(root, ["status", "--short"]), "");
+  assert.deepEqual(publicStatus(root), []);
 
   const nested = path.join(root, "src", "node_modules", "not-ignored.txt");
   fs.mkdirSync(path.dirname(nested), { recursive: true });
@@ -199,17 +205,25 @@ test("rejects short, extra, cross-group, and ignored-local-state generator write
   }
 });
 
-test("real repository dry-run preserves the exact status baseline", () => {
-  const before = git(repositoryRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
+test("real repository snapshot dry-run tolerates local GSD state and preserves exact status", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-release-real-"));
+  childProcess.execFileSync("git", ["clone", "--quiet", "--no-local", repositoryRoot, root], {
+    stdio: "ignore",
+  });
+  for (const localState of [".planning", ".gsd"]) {
+    const source = path.join(repositoryRoot, localState);
+    if (fs.existsSync(source)) fs.cpSync(source, path.join(root, localState), { recursive: true, force: true });
+  }
+  const before = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
   const result = release.prepareRelease({
-    root: repositoryRoot,
+    root,
     level: "patch",
     dryRun: true,
     yes: false,
     runGates() {},
     runGenerator() { return { ok: true, changedPaths: [], writtenPaths: [] }; },
   });
-  const after = git(repositoryRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  const after = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
   assert.equal(result.tag, "v0.1.5");
   assert.equal(after, before);
 });
