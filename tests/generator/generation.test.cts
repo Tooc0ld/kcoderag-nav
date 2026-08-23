@@ -251,12 +251,15 @@ function snapshot(root: string): Readonly<Record<string, { readonly digest: stri
       if (entry.isDirectory()) visit(absolute);
       if (entry.isFile()) {
         const relative = path.relative(root, absolute).split(path.sep).join("/");
-        result[relative] = { digest: sha256(fs.readFileSync(absolute)), mtimeMs: fs.statSync(absolute).mtimeMs };
+        result[relative] = {
+          digest: sha256(fs.readFileSync(absolute)),
+          mtimeMs: Math.trunc(fs.statSync(absolute).mtimeMs),
+        };
       }
     }
   };
   visit(root);
-  return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left.localeCompare(right)));
+  return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
 }
 
 test("declares exact leaf and union allow-lists for every product", () => {
