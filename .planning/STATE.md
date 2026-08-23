@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Phase 03.1 context gathered
-last_updated: "2026-08-23T13:14:28.164Z"
+stopped_at: Completed 03.1-29-PLAN.md
+last_updated: "2026-08-23T13:19:37.504Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: f3d1defe006971ff045b1df7f3e3a567c723e5d7
+state_head: ca581bd79d20b0512b7ab676350b229caf4639b0
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 3
-  percent: 10
+  completed_plans: 4
+  percent: 13
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 
 ## Current Position
 
-Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — READY TO EXECUTE
-Plan: 1 of ?
+Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
+Plan: 2 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [████░░░░░░] 38%
+Progress: [█░░░░░░░░░] 13%
 
 ## Performance Metrics
 
@@ -56,6 +56,11 @@ Progress: [████░░░░░░] 38%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 03.1 P29 | 2 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -73,6 +78,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 6]: loopback CI 不等于真实宿主 PASS；Codex、Claude Code 与 Cursor 必须分别留下可复跑证据。
 - [Phase 7]: KCodeRag hook 与全局 GSD hook 分属不同所有者；GSD runtime 修复需要持久化或上游化。
 - [Phase 8]: 内部内置凭据风险继续被接受到生产安全阶段，不提前声称已解决。
+- [Phase 03.1]: Node dependency and build outputs use only exact root-anchored ignore rules. — This keeps npm/build artifacts out of Git without hiding nested paths, product packages, source, tests, planning, or unrelated work.
 
 ### Pending Todos
 
@@ -133,6 +139,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T09:44:05.799Z
-Stopped at: Phase 03.1 context gathered
-Resume file: .planning/phases/03.1-javascript-npx/03.1-CONTEXT.md
+Last session: 2026-08-23T13:19:37.342Z
+Stopped at: Completed 03.1-29-PLAN.md
+Resume file: None
