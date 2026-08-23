@@ -1,12 +1,19 @@
 ---
-gsd_state_version: '1.0'
-status: planning
+gsd_state_version: 1.0
+current_phase: 03.1
+current_phase_name: JavaScript 与 npx 安装运行时迁移
+status: executing
+stopped_at: Phase 03.1 context gathered
+last_updated: "2026-08-23T09:44:05.938Z"
+last_activity: 2026-08-23
+last_activity_desc: Phase 03.1 execution started
+state_head: 9e6b41c48033a59ed50f78c5a3993ee0ff3a3d36
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 9
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
+  percent: 33
 ---
 
 # Project State
@@ -16,21 +23,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-20)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 1 — QA 优先的可重复插件包
+**Current focus:** Phase 03.1 — JavaScript 与 npx 安装运行时迁移
 
 ## Current Position
 
-Phase: 1 of 3 (QA 优先的可重复插件包)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-08-21 - Completed quick task 260821-kqa: Codex direct MCP compatibility, duplicate-source hard stops, and plugin 0.1.4
+Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
+Plan: 1 of ?
+Status: Executing Phase 03.1
+Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████░░░░░░] 38%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
+
+- Total plans completed: 3
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -38,9 +46,12 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1 | 1 | - | - |
+| 2 | 1 | - | - |
+| 3 | 1 | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: -
 - Trend: -
 
@@ -54,16 +65,27 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 - [Phase 1]: 一份规范源生成两个自包含环境包；只读检查负责发现产物漂移。
 - [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，QA/Dev 互斥，切换前必须显式卸载。
-- [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；hook 不创建 marker。
+- [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；导航 nudge 不创建跨环境所有权 marker，异步更新检查可使用有界、fail-open 的 cache/session marker。
 - [Cursor]: 只发布一个可配置环境的 `kcoderag-nav`，使用单 MCP server、共享 skill 与 always-on Rule；默认通过免费 local 目录安装器分发，付费 Team Marketplace 仅为可选路径。
+- [Reconciliation]: Phase 1–3 已根据 quick task 实现、当前代码与自动化测试回溯生成 canonical plan/summary/verification/validation，并于 2026-08-23 正式完成；后续强化项留在 Phase 4–8。
+- [Phase 4]: 先更新真实 Head QA、修复子目录 hook 根路径，再扩展 user-level doctor；不得用自动卸载掩盖错误来源。
+- [Phase 5]: fixed-string、本地复核、窄目录与常见 Lua 全局处理器应静默；semantic/hybrid 只能按实际索引能力推荐。
+- [Phase 6]: loopback CI 不等于真实宿主 PASS；Codex、Claude Code 与 Cursor 必须分别留下可复跑证据。
+- [Phase 7]: KCodeRag hook 与全局 GSD hook 分属不同所有者；GSD runtime 修复需要持久化或上游化。
+- [Phase 8]: 内部内置凭据风险继续被接受到生产安全阶段，不提前声称已解决。
 
 ### Pending Todos
 
-None yet.
+- 更新 `I:\JX3_SVN\Head` 的项目级 QA，并在新 Codex 任务中确认状态健康。
+- 在 Phase 5 规划前用 `list_indexes` 复核 QA 当前 semantic/hybrid 实际能力。
 
 ### Blockers/Concerns
 
-- 现有插件文件存在未提交修改；后续工作必须保留并适配这些修改。
+- Phase 1–3 是基于当前代码、quick history 与测试的回溯完成记录；实现提交仍保留在 quick task 历史中。
+- Head 当前项目级 QA 为 `update_available`，差异位于受管 `grep_nudge.py`；全局 QA/Dev 重复来源未检出。
+- Head hook launcher 当前仍使用相对 `.codex/...` 路径，从嵌套子目录启动的稳定性尚未保证。
+- required CI 只证明 loopback/offline 契约；authenticated real-host smoke 尚未运行。
+- GSD runtime 本地补丁当前解析正确，但 GSD 更新可能覆盖，且全局 context monitor 仍注册过宽。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
 - Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
 
@@ -89,15 +111,28 @@ None yet.
 | 260821-g07 | 将 QA/Dev/Cursor 基础版本升级到 0.1.3，验证并推送累计本地改动 | 2026-08-21 | 71f6778 | [260821-g07-bump-plugin-base-version-to-0-1-3-regene](./quick/260821-g07-bump-plugin-base-version-to-0-1-3-regene/) |
 | 260821-kqa | 修复 Codex bundled MCP direct map，硬停止重复来源，并发布 QA/Dev/Cursor 0.1.4 | 2026-08-21 | 1602284 | [260821-kqa-fix-codex-bundled-mcp-compatibility-with](./quick/260821-kqa-fix-codex-bundled-mcp-compatibility-with/) |
 
+### Roadmap Evolution
+
+- Phase 03.1 inserted after Phase 3: JavaScript 与 npx 安装运行时迁移 (URGENT)
+
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Security | 个人/组织身份、HTTPS 与凭据轮换 | v2 (SEC-01 to SEC-03) | 2026-08-20 |
-| Release | CI 发布自动化与宿主版本兼容矩阵 | v2 (REL-01 to REL-02) | 2026-08-20 |
+| Security | 个人/组织身份、HTTPS 与凭据轮换 | Scheduled in Phase 8 (SEC-01 to SEC-03) | 2026-08-23 |
+| Release | CI 发布自动化与宿主版本兼容矩阵 | Scheduled in Phase 8 (REL-01 to REL-02) | 2026-08-23 |
+
+### Roadmap Evolution
+
+- Phase 4 added: 已部署项目与安装来源可靠性。
+- Phase 5 added: 低误报 Hook 与诚实路由。
+- Phase 6 added: 真实宿主兼容与发布证据。
+- Phase 7 added: GSD 运行时与全局 Hook 整理。
+- Phase 8 added: 生产安全与自动化发布。
+- Phase 1–3 completed retrospectively with canonical plan, summary, verification, and validation artifacts on 2026-08-23.
 
 ## Session Continuity
 
-Last session: 2026-08-20
-Stopped at: 初始路线图已创建，下一步为 `$gsd-plan-phase 1`。
-Resume file: None
+Last session: 2026-08-23T09:44:05.799Z
+Stopped at: Phase 03.1 context gathered
+Resume file: .planning/phases/03.1-javascript-npx/03.1-CONTEXT.md
