@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-11-PLAN.md
-last_updated: "2026-08-23T15:42:09.768Z"
+stopped_at: Completed 03.1-23-PLAN.md
+last_updated: "2026-08-23T16:11:11.080Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: 0e111afbaaddf2caa901abdf9dc38d246941f3cc
+state_head: fdd0909b41af3d465f37c61cc828d1170ca35609
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 14
+  completed_plans: 15
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 12 of 27
+Plan: 13 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -71,6 +71,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P09 | 8min | 2 tasks | 2 files |
 | Phase 03.1 P10 | 3min | 2 tasks | 5 files |
 | Phase 03.1 P11 | 3min | 2 tasks | 5 files |
+| Phase 03.1 P23 | 23min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Generated QA CJS bytes match dist exactly and launchers match the canonical plugin-src sources exactly. — Byte identity provides deterministic ownership and prevents hand-edited deployment drift.
 - [Phase 03.1]: Dev runtime migration is limited to the five guaranteed-changing runtime-code paths; registration and metadata remain read-only for Plan 23. — This keeps the generated write set exact and auditable.
 - [Phase 03.1]: Dev and QA share canonical bytes but remain runtime-independent. — A Dev-only temporary fixture proved all modules and both launchers operate without a QA tree.
+- [Phase 03.1]: After a read-only RED gate exposed twelve committed canonical drifts, an explicit user-approved narrow migration restored the repository check-only invariant.
+- [Phase 03.1]: Repository generation evidence uses compiled checks plus SHA-256, size, mtime, and tree digests without emitting connection values.
 
 ### Pending Todos
 
@@ -175,6 +178,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T15:42:09.601Z
-Stopped at: Completed 03.1-11-PLAN.md
+Last session: 2026-08-23T16:11:10.911Z
+Stopped at: Completed 03.1-23-PLAN.md
 Resume file: None
