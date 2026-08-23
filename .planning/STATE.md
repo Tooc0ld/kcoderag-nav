@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-08-PLAN.md
-last_updated: "2026-08-23T14:44:40.112Z"
+stopped_at: Completed 03.1-26-PLAN.md
+last_updated: "2026-08-23T14:59:58.114Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: d467528d61effe112d3af82c1ea56f698387ae6f
+state_head: e64a1a3db53a393d6dd01c0b4776ec881a35e635
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 9
-  percent: 30
+  completed_plans: 10
+  percent: 33
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 7 of 27
+Plan: 8 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
-Progress: [███░░░░░░░] 30%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [███░░░░░░░] 30%
 | Phase 03.1 P03 | 12min | 2 tasks | 7 files |
 | Phase 03.1 P22 | 8min | 3 tasks | 4 files |
 | Phase 03.1 P08 | 9min | 2 tasks | 4 files |
+| Phase 03.1 P26 | 12min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: A single hashed session marker owns both fresh-cache notice deduplication and stale-cache refresh scheduling; it contains no query, credential, or MCP data. — This enforces one-per-session behavior with one bounded local ownership mechanism.
 - [Phase 03.1]: The foreground hook reads only validated local state/cache and loads update support as optional fail-open capability; only the detached worker imports HTTPS. — Registry latency and optional update-runtime failures must never enter or disable the tool-call advisory path.
 - [Phase 03.1]: Registry refresh accepts only the fixed kcoderag-nav metadata endpoint, expected JSON content types, matching package name, and strict X.Y.Z dist-tags.latest. — The update cache must not trust redirects, arbitrary package responses, malformed metadata, or prerelease values.
+- [Phase 03.1]: HostAdapter methods remain read/render-only; executeCommand is the sole adapter-to-applyTransaction bridge.
+- [Phase 03.1]: JSON mutations require explicit host and --yes, while status and doctor remain read-only and report runtime issues.
+- [Phase 03.1]: Cursor legacy user-removal authority is independent from --yes and is forwarded only to Cursor mutations.
 
 ### Pending Todos
 
@@ -156,6 +160,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T14:44:39.959Z
-Stopped at: Completed 03.1-08-PLAN.md
+Last session: 2026-08-23T14:59:57.945Z
+Stopped at: Completed 03.1-26-PLAN.md
 Resume file: None
