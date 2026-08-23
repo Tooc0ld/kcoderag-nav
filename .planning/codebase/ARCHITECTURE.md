@@ -6,6 +6,30 @@
 ## System Overview
 
 ```text
+ npx kcoderag-nav@latest <install|status|doctor|update|uninstall>
+                              |
+                    CLI policy + host registry
+                              |
+        +---------------------+---------------------+
+        |                     |                     |
+  Codex adapter        Claude Code adapter      Cursor adapter
+ .codex/.agents       .claude + root .mcp     .cursor Rule/skill/MCP
+        |                     |                     |
+        +---------------------+---------------------+
+                              |
+                 validated desired state +
+                 single-host atomic transaction
+```
+
+The Node.js project-integration runtime is the primary lifecycle architecture. Each command chooses
+one adapter, adapters only inspect/render/status, and the host-neutral transaction is the normal
+filesystem writer. Cursor's separately authorized legacy user-local migration is the one explicit
+cross-boundary capability; it preflights exact ownership and journals compensation before deletion.
+
+The environment package/marketplace tree below remains during the ordered Phase 03.1 retirement
+and generation migration, but it is no longer the architectural seam for the unified CLI.
+
+```text
                        kcoderag-nav marketplace
                     `.claude-plugin/marketplace.json`
                                   |
@@ -29,6 +53,12 @@ variants that point to internal MCP services and teach agents graph-first naviga
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
+| Public npx CLI | Parses five lifecycle commands, confirmation, target and one host | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
+| Host registry | Resolves exactly Codex, Claude Code, or Cursor | `src/hosts/index.cts` |
+| Codex adapter | Owns project Codex configuration, skill, CJS hook and state | `src/hosts/codex.cts` |
+| Claude Code adapter | Owns project settings hook, root MCP key, skill, payload and state | `src/hosts/claude.cts` |
+| Cursor adapter | Owns project Rule/skill/MCP/state and authorized user-local migration | `src/hosts/cursor.cts` |
+| Atomic transaction | Validates digests, stages all files, commits state last, and rolls back | `src/core/transaction.cts` |
 | Marketplace manifest | Publishes the two plugin names, local sources, and descriptions | `.claude-plugin/marketplace.json` |
 | Dev package | Dev MCP permission scope and navigation assets | `kcoderag-dev/` |
 | QA package | QA MCP permission scope and navigation assets | `kcoderag-qa/` |
@@ -87,6 +117,17 @@ variants that point to internal MCP services and teach agents graph-first naviga
 **State Management:** The repository has no application database or persistent runtime state. Hook state is per invocation; package configuration is static. MCP service state lives outside this repository.
 
 ## Key Abstractions
+
+**Host adapter:**
+- Purpose: Declare a host's managed roots and pure detect/render/status behavior without writing.
+- Examples: `src/hosts/codex.cts`, `src/hosts/claude.cts`, `src/hosts/cursor.cts`.
+- Pattern: Narrow structured-section ownership plus exclusive files, exact state digests, and one
+  registry-selected desired state per CLI invocation.
+
+**Cursor legacy migration:**
+- Purpose: Replace a verified retired user-local plugin with project-native Cursor integration.
+- Pattern: Independent removal authority, exact file/directory/tree/profile preflight, private
+  journal/backup, allow-listed deletion, and compensating restoration of both trees.
 
 **Environment package:**
 - Purpose: Keep Dev and QA MCP permissions, instructions, hooks, and documentation independently installable.

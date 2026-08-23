@@ -9,11 +9,18 @@ kcoderag-nav/
 ├── package.json                    # Node 22+ CJS build, test, and public bin contract
 ├── src/
 │   ├── bin/                        # Compiled CLI entry source
+│   ├── cli/                        # Five-command policy, confirmation, and dispatch
 │   ├── core/                       # Host-neutral target, state, and atomic transaction core
+│   ├── generator/                  # Deterministic QA/Dev/Cursor asset renderer
+│   ├── hooks/                      # TypeScript hook and async update-check sources
+│   ├── hosts/                      # Codex, Claude Code, Cursor adapters and registry
 │   ├── maintainer/                 # Dependency and repository maintenance audits
 │   └── tracer/                     # Proven Codex QA npx vertical slice
 ├── tests/
 │   ├── core/                       # Compiled shared-core and rollback matrix
+│   ├── generator/                  # Determinism and live repository generation gates
+│   ├── hooks/                      # Hook, launcher, and update-check parity tests
+│   ├── hosts/                      # Per-host lifecycle and cross-host isolation tests
 │   ├── maintainer/                 # Compiled supply-chain contract tests
 │   └── tracer/                     # Compiled npx tracer tests
 ├── .claude-plugin/                 # Marketplace metadata
@@ -43,6 +50,11 @@ kcoderag-nav/
 validated desired state without writing, and `transaction.cts` is the only core filesystem
 mutator. All `.cts` maintenance sources compile to directly executable `.cjs`.
 
+**`src/hosts/`:** Pure read/render/status adapters for Codex, Claude Code, and Cursor.
+`index.cts` is the fixed public registry; `commands.cts` selects exactly one adapter and the shared
+transaction applies its desired state. Cursor additionally exposes a separately authorized,
+journaled migration for the retired user-local installation.
+
 **`tests/core/`:** Node built-in tests for target/runtime/status contracts, digest preflight,
 state-last commits, injected staging/commit failures, complete rollback, and retained recovery
 evidence when rollback itself fails.
@@ -61,6 +73,7 @@ evidence when rollback itself fails.
 
 **Entry Points:**
 - `src/bin/kcoderag-nav.cts`: TypeScript maintenance source for the public compiled CJS bin.
+- `src/hosts/index.cts`: Registry seam for `--host codex|claude|cursor` and interactive selection.
 - `.claude-plugin/marketplace.json`: Marketplace and plugin source entry point.
 - `kcoderag-dev/hooks/grep_nudge.py`: Dev hook process entry point.
 - `kcoderag-qa/hooks/grep_nudge.py`: QA hook process entry point.
@@ -78,6 +91,8 @@ evidence when rollback itself fails.
 
 **Testing:**
 - `tests/core/transaction.test.cts`
+- `tests/hosts/codex.test.cts`, `tests/hosts/claude.test.cts`, `tests/hosts/cursor.test.cts`
+- `tests/hosts/cross-host.test.cts`
 - `kcoderag-dev/hooks/test_grep_nudge.py`
 - `kcoderag-qa/hooks/test_grep_nudge.py`
 
@@ -96,6 +111,12 @@ evidence when rollback itself fails.
 - Skill names use kebab-case (`code-lookup-discipline`).
 
 ## Where to Add New Code
+
+**New project host adapter:**
+- Add a pure adapter under `src/hosts/`, register it in `src/hosts/index.cts`, and keep all writes
+  in the shared transaction or an explicitly authorized cross-boundary migration capability.
+- Add lifecycle and cross-host isolation cases under `tests/hosts/`; do not change core state or
+  transaction code merely to add a host.
 
 **New environment plugin:**
 - Add a package directory parallel to `kcoderag-dev/` and `kcoderag-qa/`.

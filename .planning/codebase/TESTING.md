@@ -5,22 +5,28 @@
 ## Test Framework
 
 **Runner:**
-- No pytest/unittest configuration or dependency manifest is present.
-- Tests are executable standard-library Python scripts with `if __name__ == "__main__": sys.exit(run())` (`kcoderag-dev/hooks/test_grep_nudge.py`).
+- The primary suite uses Node's built-in test runner against compiled CommonJS under
+  `dist-tests/`, with TypeScript `.cts` sources in `tests/`.
+- Retired Python parity tests remain temporarily during the ordered migration but are not the
+  primary new-test pattern.
 
 **Assertion Library:**
 - No assertion library is used. A local `check(label, got, expected)` helper prints status and returns a failure count.
 
 **Run Commands:**
 ```bash
-python kcoderag-dev/hooks/test_grep_nudge.py
-python kcoderag-qa/hooks/test_grep_nudge.py
+npm run build
+npm test
+npm run test:host:claude
+npm run test:host:cursor
+npm run test:cross-host
 ```
 
 ## Test File Organization
 
 **Location:**
-- Tests are co-located with the implementation under each plugin environment's `hooks/` directory.
+- Node tests mirror source areas under `tests/core/`, `tests/hooks/`, `tests/hosts/`,
+  `tests/generator/`, and `tests/maintainer/`.
 
 **Naming:**
 - `test_<unit>.py`, matching `test_grep_nudge.py`.
@@ -92,7 +98,9 @@ PATTERN_CASES = [("GetLevel", True), ("TODO.*fixme", False)]
 - Directly exercise regex/classification and shell token parsing helpers in `kcoderag-dev/hooks/test_grep_nudge.py`.
 
 **Integration Tests:**
-- Subprocess checks validate malformed stdin, JSON output, exit status, and host-neutral protocol behavior.
+- Temporary-project fixtures exercise real compiled adapters, structured JSON merges, state-last
+  transactions, injected rollback failures, legacy migration, and cross-host tree snapshots.
+- Subprocess checks validate compiled hook stdin/stdout, launchers, and fail-open exit behavior.
 
 **E2E Tests:**
 - Not detected. Hook configuration is inspected indirectly through protocol expectations; no live Claude/Codex host test exists.
