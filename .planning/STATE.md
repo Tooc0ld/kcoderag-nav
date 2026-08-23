@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-17-PLAN.md
-last_updated: "2026-08-23T18:38:48.793Z"
+stopped_at: Completed 03.1-18-PLAN.md
+last_updated: "2026-08-23T18:46:01.145Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: b48b44ebaeeb7b5f9ccd2720f40d4dafcb86d833
+state_head: 42934539265e9c4037155690b4d8a44dfb78fa2e
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 24
+  completed_plans: 25
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 22 of 27
+Plan: 23 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -81,6 +81,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P16 | 6 min | 3 tasks | 7 files |
 | Phase 03.1 P24 | 3min | 2 tasks | 4 files |
 | Phase 03.1 P17 | 5min | 3 tasks | 7 files |
+| Phase 03.1 P18 | 6min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Plan 17 removes exactly the seven authorized scripts paths after Node replacement evidence; Python tests remain for their ordered Plan 18/25 retirement. — Keeps the destructive boundary receipt-backed, narrow, and recoverable.
 - [Phase 03.1]: Executable package, hook, pre-commit, and CI entrypoints are Node-only before script deletion; historical test and documentation references remain owned by later plans. — Separates live execution retirement from the already-planned test and documentation cleanup.
 - [Phase 03.1]: Each responsibility group has its own revertable commit, while the post-scripts audit is the monotonic completion gate. — Preserves focused recovery and machine-verifiable retirement progress.
+- [Phase 03.1]: Plan 18 retires exactly six mapped Python tests but advances no retirement audit mode; Plan 25 exclusively owns the remaining five paths and the first post-tests transition.
 
 ### Pending Todos
 
@@ -216,6 +218,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T18:38:48.615Z
-Stopped at: Completed 03.1-17-PLAN.md
+Last session: 2026-08-23T18:46:00.957Z
+Stopped at: Completed 03.1-18-PLAN.md
 Resume file: None
