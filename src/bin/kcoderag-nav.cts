@@ -8,7 +8,7 @@ import {
   type TargetConfirmation,
 } from "../cli/commands.cjs";
 import { InstallError, type HostId } from "../core/contracts.cjs";
-import { codexTracerAdapter } from "../tracer/codex-install.cjs";
+import { codexAdapter } from "../hosts/codex.cjs";
 
 async function question(prompt: string): Promise<string> {
   const interfaceInstance = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -57,7 +57,7 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
     confirmLegacyUserRemoval,
     getAdapter: (host) => {
       if (host !== "codex") throw new InstallError("unsupported_host");
-      return codexTracerAdapter;
+      return codexAdapter;
     },
   });
 }
