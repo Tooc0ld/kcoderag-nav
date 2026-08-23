@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 03.1
 current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
-stopped_at: Completed 03.1-20-PLAN.md
-last_updated: "2026-08-23T19:05:11.178Z"
+stopped_at: Completed 03.1-19-PLAN.md
+last_updated: "2026-08-23T19:14:32.527Z"
 last_activity: 2026-08-23
 last_activity_desc: Phase 03.1 execution started
-state_head: a030d83ad4c167c8b9fad8660b80df84ec022ce7
+state_head: b329f98e0d186762605b0dd29fb84b866e07d644
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 30
-  completed_plans: 27
+  completed_plans: 28
   percent: 33
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
-Plan: 25 of 27
+Plan: 26 of 27
 Status: Ready to execute
 Last activity: 2026-08-23 — Phase 03.1 execution started
 
@@ -84,6 +84,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 03.1 P18 | 6min | 2 tasks | 6 files |
 | Phase 03.1 P25 | 4min | 2 tasks | 5 files |
 | Phase 03.1 P20 | 15min | 3 tasks | 7 files |
+| Phase 03.1 P19 | 5min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Root marketplace catalogs are retired; generated compatibility manifests remain package assets rather than user install sources.
 - [Phase 03.1]: The product contract is Node.js 22+ CJS deployed by public npx into one selected host native project boundary.
 - [Phase 03.1]: Phase 6 pins exact public npx lifecycle evidence; Phase 8 publishes only from package-version-matching vX.Y.Z tags.
+- [Phase 03.1]: Public documentation treats kcoderag-nav as a Node.js 22+ npx project integration, not a marketplace plugin or repository-checkout installer.
+- [Phase 03.1]: Cursor documentation exposes Rule, skill, and MCP semantics without claiming Codex/Claude Code PreToolUse hook equivalence.
+- [Phase 03.1]: Canonical README templates and all three generated README assets commit together under the versioned pre-commit gate.
 
 ### Pending Todos
 
@@ -226,6 +230,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-23T19:05:10.999Z
-Stopped at: Completed 03.1-20-PLAN.md
+Last session: 2026-08-23T19:14:32.344Z
+Stopped at: Completed 03.1-19-PLAN.md
 Resume file: None
