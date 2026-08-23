@@ -6,22 +6,21 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "Cannot locate the Git worktree for plugin generation." >&2
   exit 1
 }
-helper="$repo_root/scripts/pre_commit_generate.py"
+helper="$repo_root/dist/maintainer/pre-commit.cjs"
 
-if command -v python3 >/dev/null 2>&1 \
-  && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  exec python3 "$helper"
+if ! command -v node >/dev/null 2>&1; then
+  echo "KCodeRag pre-commit verification requires Node.js 22 or newer." >&2
+  exit 1
 fi
 
-if command -v python >/dev/null 2>&1 \
-  && python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  exec python "$helper"
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' >/dev/null 2>&1; then
+  echo "KCodeRag pre-commit verification requires Node.js 22 or newer." >&2
+  exit 1
 fi
 
-if command -v py >/dev/null 2>&1 \
-  && py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  exec py -3 "$helper"
+if [ ! -f "$helper" ]; then
+  echo "KCodeRag pre-commit helper is missing. Run npm run build." >&2
+  exit 1
 fi
 
-echo "KCodeRag plugin generation requires Python 3.10 or newer." >&2
-exit 1
+exec node "$helper"
