@@ -20,6 +20,10 @@ import {
   type HostObservation,
 } from "../hosts/host-adapter.cjs";
 
+interface LegacyMigrationAdapter extends HostAdapter {
+  migrateLegacy(desired: ReturnType<HostAdapter["renderInstall"]>, observation: HostObservation): ReturnType<typeof applyTransaction>;
+}
+
 export const COMMANDS = Object.freeze([
   "install",
   "status",
@@ -153,12 +157,17 @@ function errorExitCode(code: string): number {
     "host_required",
     "invalid_arguments",
     "legacy_removal_cancelled",
+    "legacy_removal_authority_required",
     "legacy_removal_authority_invalid",
     "unsupported_environment",
     "unsupported_host",
   ]).has(code)
     ? 2
     : 1;
+}
+
+function hasLegacyMigration(adapter: HostAdapter): adapter is LegacyMigrationAdapter {
+  return typeof (adapter as Partial<LegacyMigrationAdapter>).migrateLegacy === "function";
 }
 
 function writeJson(
@@ -332,7 +341,11 @@ export async function executeCommand(
     if (desired.host !== host || desired.target !== target) {
       throw new InstallError("invalid_host_adapter");
     }
-    const transaction = applyTransaction(desired);
+    const transaction = observation.legacyUserRemoval !== undefined && allowLegacyUserRemoval
+      ? hasLegacyMigration(adapter)
+        ? adapter.migrateLegacy(desired, observation)
+        : (() => { throw new InstallError("invalid_host_adapter"); })()
+      : applyTransaction(desired);
     const verb = args.command === "install"
       ? "installed"
       : args.command === "update"
