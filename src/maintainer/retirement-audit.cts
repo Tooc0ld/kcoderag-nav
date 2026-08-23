@@ -611,10 +611,10 @@ function runParity(root: string, receiptPath: string): JsonMap {
   const suites = [
     runCommand(root, "node", process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
       process.platform === "win32" ? ["/d", "/s", "/c", "npm test"] : ["test"], /(?:ℹ|#)\s*tests\s+(\d+)/u),
-    runCommand(root, "python-dev-hook", "python", ["kcoderag-dev/hooks/test_grep_nudge.py"], /(\d+)\s+cases?\s+passed/iu),
+    runCommand(root, "python-dev-hook", "python", ["kcoderag-dev/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
     runCommand(root, "python-legacy", "python", ["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], /Ran\s+(\d+)\s+tests?/iu),
-    runCommand(root, "python-plugin-hook", "python", ["plugin-src/hooks/test_grep_nudge.py"], /(\d+)\s+cases?\s+passed/iu),
-    runCommand(root, "python-qa-hook", "python", ["kcoderag-qa/hooks/test_grep_nudge.py"], /(\d+)\s+cases?\s+passed/iu),
+    runCommand(root, "python-plugin-hook", "python", ["plugin-src/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
+    runCommand(root, "python-qa-hook", "python", ["kcoderag-qa/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
   ].sort((left, right) => compareCodePointPaths(left.name, right.name));
   const generation = childProcess.spawnSync(process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
     process.platform === "win32" ? ["/d", "/s", "/c", "npm run generate:check"] : ["run", "generate:check"],
