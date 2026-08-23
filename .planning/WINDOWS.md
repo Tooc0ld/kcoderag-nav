@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 0
 waived_count: 0
-fixed_count: 2
-total_count: 2
-last_updated: 2026-08-23T14:59:43.424Z
+fixed_count: 3
+total_count: 3
+last_updated: 2026-08-23T16:11:53.110Z
 ---
 
 # Broken Windows Ledger
@@ -17,6 +17,7 @@ last_updated: 2026-08-23T14:59:43.424Z
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 03.1 | deviation | src/core/transaction.cts |  | Hardened partial temporary and recovery cleanup so rollback evidence is not lost. | fixed |  | 2026-08-23T14:05:16.172Z | 2026-08-23T14:05:31.900Z |
 | 2 | 03.1 | deviation | src/cli/commands.cts |  | Stabilized human update output and bounded legacy removal authority to Cursor mutations | fixed |  | 2026-08-23T14:59:12.127Z | 2026-08-23T14:59:43.424Z |
+| 3 | 03.1 | deviation | kcoderag-cursor/README.md |  | Plan 23 required an approved twelve-path canonical migration before the repository check-only gate. | fixed |  | 2026-08-23T16:11:29.732Z | 2026-08-23T16:11:53.110Z |
 
 ````json
 [
@@ -43,6 +44,18 @@ last_updated: 2026-08-23T14:59:43.424Z
     "reason": "",
     "recorded_at": "2026-08-23T14:59:12.127Z",
     "resolved_at": "2026-08-23T14:59:43.424Z"
+  },
+  {
+    "id": 3,
+    "kind": "deviation",
+    "phase": "03.1",
+    "file": "kcoderag-cursor/README.md",
+    "line": null,
+    "description": "Plan 23 required an approved twelve-path canonical migration before the repository check-only gate.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-23T16:11:29.732Z",
+    "resolved_at": "2026-08-23T16:11:53.110Z"
   }
 ]
 ````
