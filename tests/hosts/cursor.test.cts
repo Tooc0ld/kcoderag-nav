@@ -260,6 +260,21 @@ test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write"
     const beforeRollback = snapshot(rollback.root);
     assert.throws(() => transaction.applyTransaction(desired, { failAtCommit: 1 }), /transaction_failed/);
     assert.deepEqual(snapshot(rollback.root), beforeRollback);
+
+    const linked = targetFixture(base, "linked");
+    const outside = path.join(base, "outside");
+    fs.mkdirSync(outside);
+    fs.rmSync(path.join(linked.root, ".cursor"), { recursive: true });
+    try {
+      fs.symlinkSync(outside, path.join(linked.root, ".cursor"), "junction");
+      const linkedTarget = targets.resolveProjectTarget(linked.root);
+      assert.throws(
+        () => cursor.cursorAdapter.detect({ target: linkedTarget, packageRoot: pkg.root }),
+        /symlink_escape/,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -273,6 +288,11 @@ test("legacy Cursor migration requires independent authority and preserves envir
       const target = targetFixture(base);
       const legacy = legacyFixture(base, pkg, environment);
       const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
+      const observed = adapter.detect({
+        target: targets.resolveProjectTarget(target.root),
+        packageRoot: pkg.root,
+      });
+      assert.equal(observed.legacyUserRemoval.path, fs.realpathSync(legacy.pluginRoot));
       const projectBefore = snapshot(target.root);
       const userBefore = snapshot(legacy.localRoot);
 
@@ -329,31 +349,33 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
     }
   }
 
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-delete-failure-"));
-  try {
-    const pkg = packageFixture(base);
-    const targetFixtureValue = targetFixture(base);
-    const legacy = legacyFixture(base, pkg, "qa");
-    const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
-    const target = targets.resolveProjectTarget(targetFixtureValue.root);
-    const observation = adapter.detect({ target, packageRoot: pkg.root });
-    const desired = adapter.renderInstall({
-      target,
-      packageRoot: pkg.root,
-      command: "install",
-      environment: "qa",
-      observation,
-      allowLegacyUserRemoval: true,
-    });
-    const projectBefore = snapshot(targetFixtureValue.root);
-    const userBefore = snapshot(legacy.localRoot);
-    assert.throws(
-      () => cursor.migrateCursorLegacyInstall(desired, observation, { failAtLegacyDelete: 1 }),
-      /transaction_failed/,
-    );
-    assert.deepEqual(snapshot(targetFixtureValue.root), projectBefore);
-    assert.deepEqual(snapshot(legacy.localRoot), userBefore);
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+  for (const failAtLegacyDelete of [1, 4]) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-delete-failure-"));
+    try {
+      const pkg = packageFixture(base);
+      const targetFixtureValue = targetFixture(base);
+      const legacy = legacyFixture(base, pkg, "qa");
+      const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
+      const target = targets.resolveProjectTarget(targetFixtureValue.root);
+      const observation = adapter.detect({ target, packageRoot: pkg.root });
+      const desired = adapter.renderInstall({
+        target,
+        packageRoot: pkg.root,
+        command: "install",
+        environment: "qa",
+        observation,
+        allowLegacyUserRemoval: true,
+      });
+      const projectBefore = snapshot(targetFixtureValue.root);
+      const userBefore = snapshot(legacy.localRoot);
+      assert.throws(
+        () => cursor.migrateCursorLegacyInstall(desired, observation, { failAtLegacyDelete }),
+        /transaction_failed/,
+      );
+      assert.deepEqual(snapshot(targetFixtureValue.root), projectBefore);
+      assert.deepEqual(snapshot(legacy.localRoot), userBefore);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   }
 });

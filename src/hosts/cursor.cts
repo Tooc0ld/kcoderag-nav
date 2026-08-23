@@ -413,7 +413,7 @@ function detectCursor(
       }),
     };
     if (currentState !== undefined) result.currentState = currentState;
-    if (legacy !== undefined) result.legacyUserRemoval = { path: legacy.localRoot };
+    if (legacy !== undefined) result.legacyUserRemoval = { path: legacy.pluginRoot };
     return Object.freeze(result);
   } catch (error) {
     return Object.freeze({
