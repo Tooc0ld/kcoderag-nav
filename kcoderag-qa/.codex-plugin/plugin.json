@@ -1,29 +1,29 @@
 {
-  "name": "kcoderag-qa",
-  "version": "0.1.4+codex.f487228683225493",
-  "description": "Graph-first code navigation through the KCodeRag QA MCP server.",
   "author": {
     "name": "KCodeRag"
+  },
+  "description": "Graph-first code navigation through the KCodeRag QA MCP server.",
+  "interface": {
+    "brandColor": "#7C3AED",
+    "capabilities": [
+      "Read"
+    ],
+    "category": "Developer Tools",
+    "defaultPrompt": [
+      "Find a symbol and explain its callers and callees"
+    ],
+    "developerName": "KCodeRag",
+    "displayName": "KCodeRag QA",
+    "longDescription": "Search symbols, inspect context, and trace cross-language call chains through the KCodeRag QA knowledge graph.",
+    "shortDescription": "Graph-first code navigation for QA"
   },
   "keywords": [
     "code-navigation",
     "knowledge-graph",
     "mcp"
   ],
-  "skills": "./skills/",
   "mcpServers": "./.codex.mcp.json",
-  "interface": {
-    "displayName": "KCodeRag QA",
-    "shortDescription": "Graph-first code navigation for QA",
-    "longDescription": "Search symbols, inspect context, and trace cross-language call chains through the KCodeRag QA knowledge graph.",
-    "developerName": "KCodeRag",
-    "category": "Developer Tools",
-    "capabilities": [
-      "Read"
-    ],
-    "defaultPrompt": [
-      "Find a symbol and explain its callers and callees"
-    ],
-    "brandColor": "#7C3AED"
-  }
+  "name": "kcoderag-qa",
+  "skills": "./skills/",
+  "version": "0.1.4"
 }

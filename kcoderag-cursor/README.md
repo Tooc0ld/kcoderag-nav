@@ -68,4 +68,4 @@ advisory context before it runs. The always-on rule supplies the navigation remi
 without blocking local search. Local search remains valid for exact strings, uncommitted
 edits, and explicit fallback when the index is unavailable or stale.
 
-Generated package version: `0.1.4+cursor.b142549ea49d4c96`.
+Generated package version: `0.1.4`.

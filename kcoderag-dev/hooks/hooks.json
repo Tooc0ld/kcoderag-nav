@@ -2,17 +2,17 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(Grep|Glob|Bash)$",
         "hooks": [
           {
-            "type": "command",
+            "additionalContextLimit": 600,
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.sh\"",
             "commandWindows": "call \"%PLUGIN_ROOT%\\hooks\\run_hook.cmd\"",
-            "timeout": 5,
             "statusMessage": "Checking code lookup strategy",
-            "additionalContextLimit": 600
+            "timeout": 5,
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "^(Grep|Glob|Bash)$"
       }
     ]
   }

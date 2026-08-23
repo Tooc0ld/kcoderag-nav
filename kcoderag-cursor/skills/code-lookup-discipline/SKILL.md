@@ -14,12 +14,7 @@ This package supplies the **configured KCodeRag** environment.
 ## Environment selection
 
 This Cursor plugin exposes exactly one configured KCodeRag environment.
-The bundled defaults select QA. To test Dev, replace the MCP URL and bearer
-token together in Cursor's plugin configuration; never configure both environments.
-
-If the configured environment is unreachable, report it instead of querying another
-KCodeRag environment. Local search remains an explicit fallback when the index is
-unavailable or stale.
+Use local search when that environment is unavailable or stale.
 
 ## Choose the right lookup
 
