@@ -15,7 +15,13 @@ import {
   type StatusIssue,
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
-import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
+import {
+  createDesiredState,
+  createStatusResult,
+  parseInstallState,
+  parseLegacyInstallState,
+  type LegacyInstallState,
+} from "../core/state.cjs";
 import type {
   HostAdapter,
   HostInstallContext,
@@ -28,6 +34,7 @@ type JsonMap = Record<string, unknown>;
 
 interface CodexObservationDetails {
   readonly stateBytes?: Buffer;
+  readonly legacyState?: LegacyInstallState;
 }
 
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
@@ -42,6 +49,13 @@ const HOOK_ASSETS = Object.freeze([
   "update-check.cjs",
   "update-worker.cjs",
 ]);
+const LEGACY_HOOK_ASSETS = Object.freeze([
+  "grep_nudge.py",
+  "run_hook.sh",
+  "run_hook.cmd",
+  "update_check.py",
+]);
+const LEGACY_PYTHON_ASSETS = Object.freeze(["grep_nudge.py", "update_check.py"]);
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -69,6 +83,22 @@ function managedPaths(environment: EnvironmentId): readonly string[] {
       return left.localeCompare(right);
     }),
   );
+}
+
+function legacyRequiredPaths(environment: EnvironmentId): readonly string[] {
+  return Object.freeze([
+    CONFIG_PATH,
+    HOOKS_PATH,
+    SKILL_PATH,
+    ...LEGACY_HOOK_ASSETS.map((name) => `${hookPrefix(environment)}/${name}`),
+  ]);
+}
+
+function legacyAllowedPaths(environment: EnvironmentId): readonly string[] {
+  return Object.freeze([
+    ...legacyRequiredPaths(environment),
+    `${hookPrefix(environment)}/hooks.json`,
+  ]);
 }
 
 function readOptional(filePath: string, safePath: string): Buffer | undefined {
@@ -269,6 +299,25 @@ function validateCurrentState(state: InstallState): InstallState {
   return state;
 }
 
+function legacyEnvironment(bytes: Buffer): EnvironmentId | undefined {
+  try {
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    if (
+      isRecord(value) &&
+      value.version === 1 &&
+      !("schemaVersion" in value) &&
+      Array.isArray(value.active_environments) &&
+      value.active_environments.length === 1 &&
+      (value.active_environments[0] === "qa" || value.active_environments[0] === "dev")
+    ) {
+      return value.active_environments[0];
+    }
+  } catch {
+    // The schema parser below produces the stable invalid_state refusal.
+  }
+  return undefined;
+}
+
 function details(observation: HostObservation): CodexObservationDetails {
   return (observation.details ?? {}) as CodexObservationDetails;
 }
@@ -283,6 +332,27 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
     });
   }
   try {
+    const legacyEnvironmentId = legacyEnvironment(stateBytes);
+    if (legacyEnvironmentId !== undefined) {
+      const legacyState = parseLegacyInstallState(stateBytes, {
+        allowedPaths: legacyAllowedPaths(legacyEnvironmentId),
+        requiredPaths: legacyRequiredPaths(legacyEnvironmentId),
+      });
+      for (const [relativePath, digest] of Object.entries(legacyState.digests)) {
+        const current = readManagedOptional(context.target, relativePath);
+        if (current === undefined || sha256(current) !== digest) {
+          throw new InstallError("managed_content_changed", relativePath);
+        }
+      }
+      return Object.freeze({
+        host: "codex" as const,
+        target: context.target,
+        details: Object.freeze({
+          stateBytes: Buffer.from(stateBytes),
+          legacyState,
+        } satisfies CodexObservationDetails),
+      });
+    }
     const state = validateCurrentState(parseInstallState(stateBytes));
     for (const [relativePath, digest] of Object.entries(state.digests)) {
       const current = readManagedOptional(context.target, relativePath);
@@ -363,8 +433,94 @@ function desiredPayloads(
   return payloads;
 }
 
+function migrationOriginals(
+  target: ProjectTarget,
+  environment: EnvironmentId,
+  legacy: LegacyInstallState,
+): Record<string, OriginalRecord> {
+  const originals: Record<string, OriginalRecord> = {};
+  for (const relativePath of managedPaths(environment)) {
+    if (relativePath === STATE_PATH) continue;
+    if ([CONFIG_PATH, HOOKS_PATH, SKILL_PATH].includes(relativePath)) {
+      const legacyOriginal = legacy.originals[relativePath];
+      if (legacyOriginal === undefined) throw new InstallError("invalid_state", STATE_PATH);
+      originals[relativePath] = legacyOriginal;
+      continue;
+    }
+    const fileName = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+    if (fileName === "run_hook.cmd" || fileName === "run_hook.sh") {
+      const legacyOriginal = legacy.originals[relativePath];
+      if (legacyOriginal === undefined) throw new InstallError("invalid_state", STATE_PATH);
+      originals[relativePath] = legacyOriginal;
+      continue;
+    }
+    const current = readManagedOptional(target, relativePath);
+    if (current !== undefined) throw new InstallError("unmanaged_name_conflict", relativePath);
+    originals[relativePath] = encodeOriginal(undefined);
+  }
+  return originals;
+}
+
+function renderLegacyInstall(
+  context: HostInstallContext,
+  legacy: LegacyInstallState,
+  stateBytes: Buffer,
+): DesiredState {
+  if (legacy.environment !== context.environment) {
+    throw new InstallError("environment_conflict", STATE_PATH);
+  }
+  const environment = legacy.environment;
+  const paths = managedPaths(environment);
+  const originals = migrationOriginals(context.target, environment, legacy);
+  const payloads = desiredPayloads(context, originals);
+  const digests: Record<string, string> = {};
+  for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
+  const state: InstallState = {
+    schemaVersion: CORE_SCHEMA_VERSION,
+    packageVersion: readPackageVersion(context.packageRoot),
+    host: "codex",
+    environment,
+    managedFiles: [...paths],
+    originals,
+    digests,
+  };
+  payloads.set(STATE_PATH, Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8"));
+  const legacyPythonPaths = LEGACY_PYTHON_ASSETS.map((name) => `${hookPrefix(environment)}/${name}`);
+  return createDesiredState({
+    host: "codex",
+    target: context.target,
+    managedRoots: MANAGED_ROOTS,
+    statePath: STATE_PATH,
+    entries: [
+      ...paths.map((relativePath) => ({
+        relativePath,
+        expectedDigest: relativePath === STATE_PATH
+          ? sha256(stateBytes)
+          : legacy.digests[relativePath] ?? null,
+        content: payloads.get(relativePath) ?? null,
+      })),
+      ...legacyPythonPaths.map((relativePath) => ({
+        relativePath,
+        expectedDigest: legacy.digests[relativePath] ?? null,
+        content: null,
+      })),
+    ],
+  });
+}
+
 function renderInstall(context: HostInstallContext): DesiredState {
   refuseIssues(context.observation);
+  const observationDetails = details(context.observation);
+  if (observationDetails.legacyState !== undefined) {
+    if (observationDetails.stateBytes === undefined) {
+      throw new InstallError("invalid_state", STATE_PATH);
+    }
+    return renderLegacyInstall(
+      context,
+      observationDetails.legacyState,
+      observationDetails.stateBytes,
+    );
+  }
   const existing = context.observation.currentState;
   if (context.command === "update" && existing === undefined) {
     throw new InstallError("not_installed", STATE_PATH);
@@ -387,7 +543,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
     digests,
   };
   payloads.set(STATE_PATH, Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8"));
-  const stateBytes = details(context.observation).stateBytes;
+  const stateBytes = observationDetails.stateBytes;
   return createDesiredState({
     host: "codex",
     target: context.target,
@@ -403,8 +559,35 @@ function renderInstall(context: HostInstallContext): DesiredState {
 
 function renderUninstall(context: HostUninstallContext): DesiredState {
   refuseIssues(context.observation);
+  const observationDetails = details(context.observation);
+  const legacy = observationDetails.legacyState;
+  if (legacy !== undefined) {
+    const stateBytes = observationDetails.stateBytes;
+    if (stateBytes === undefined) throw new InstallError("invalid_state", STATE_PATH);
+    if (legacy.environment !== context.environment) {
+      throw new InstallError("environment_not_installed", STATE_PATH);
+    }
+    return createDesiredState({
+      host: "codex",
+      target: context.target,
+      managedRoots: MANAGED_ROOTS,
+      statePath: STATE_PATH,
+      entries: [
+        ...legacy.managedFiles.map((relativePath) => ({
+          relativePath,
+          expectedDigest: legacy.digests[relativePath] ?? null,
+          content: decodeOriginal(legacy.originals[relativePath], relativePath),
+        })),
+        {
+          relativePath: STATE_PATH,
+          expectedDigest: sha256(stateBytes),
+          content: null,
+        },
+      ],
+    });
+  }
   const state = context.observation.currentState;
-  const stateBytes = details(context.observation).stateBytes;
+  const stateBytes = observationDetails.stateBytes;
   if (state === undefined || stateBytes === undefined) {
     throw new InstallError("not_installed", STATE_PATH);
   }
@@ -435,6 +618,15 @@ function codexStatus(context: HostStatusContext) {
       status: issue.code === "managed_content_changed" ? "drifted" : "invalid",
       host: "codex",
       issues: [issue],
+    });
+  }
+  const legacy = details(context.observation).legacyState;
+  if (legacy !== undefined) {
+    return createStatusResult({
+      status: "update_available",
+      host: "codex",
+      environment: legacy.environment,
+      issues: [{ code: "legacy_migration_available", path: STATE_PATH }],
     });
   }
   const state = context.observation.currentState;

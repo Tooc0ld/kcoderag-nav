@@ -38,6 +38,19 @@ type StatusInput = {
   readonly issues?: readonly { readonly code: string; readonly path?: string }[];
 };
 
+export interface LegacyInstallState {
+  readonly version: 1;
+  readonly environment: EnvironmentId;
+  readonly managedFiles: readonly string[];
+  readonly originals: Readonly<Record<string, OriginalRecord>>;
+  readonly digests: Readonly<Record<string, string>>;
+}
+
+interface LegacyStateOptions {
+  readonly allowedPaths: readonly string[];
+  readonly requiredPaths: readonly string[];
+}
+
 function nodeMajor(version: string): number | undefined {
   const match = /^(?:v)?(\d+)(?:\.|$)/.exec(version);
   return match === null ? undefined : Number.parseInt(match[1] as string, 10);
@@ -137,6 +150,84 @@ function validateOriginal(value: unknown): value is OriginalRecord {
     return false;
   }
   return Buffer.from(value.data, "base64").toString("base64") === value.data;
+}
+
+function decodeLegacyOriginal(value: unknown): OriginalRecord | undefined {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).sort().join("\0") !== "base64\0existed" ||
+    typeof value.existed !== "boolean" ||
+    typeof value.base64 !== "string"
+  ) {
+    return undefined;
+  }
+  if (!value.existed) return value.base64.length === 0 ? { kind: "absent" } : undefined;
+  if (
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64) ||
+    Buffer.from(value.base64, "base64").toString("base64") !== value.base64
+  ) {
+    return undefined;
+  }
+  return { kind: "base64", data: value.base64 };
+}
+
+/** Parse the retired Python installer schema against adapter-supplied ownership boundaries. */
+export function parseLegacyInstallState(
+  bytes: Buffer,
+  options: LegacyStateOptions,
+): LegacyInstallState {
+  let value: unknown;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new InstallError("invalid_state");
+  }
+  if (
+    !isRecord(value) ||
+    Object.keys(value).sort().join("\0") !==
+      "active_environments\0digests\0originals\0version" ||
+    value.version !== 1 ||
+    !Array.isArray(value.active_environments) ||
+    value.active_environments.length !== 1 ||
+    !isEnvironment(value.active_environments[0]) ||
+    !isRecord(value.originals) ||
+    !isRecord(value.digests)
+  ) {
+    throw new InstallError("invalid_state");
+  }
+  const environment = value.active_environments[0];
+  const allowed = new Set(options.allowedPaths);
+  const required = new Set(options.requiredPaths);
+  const originalPaths = Object.keys(value.originals);
+  const digestPaths = Object.keys(value.digests);
+  if (
+    originalPaths.some((item) => !allowed.has(item)) ||
+    digestPaths.some((item) => !allowed.has(item)) ||
+    [...required].some((item) => !originalPaths.includes(item) || !digestPaths.includes(item)) ||
+    digestPaths.some((item) => !originalPaths.includes(item))
+  ) {
+    throw new InstallError("invalid_state");
+  }
+  const originals: Record<string, OriginalRecord> = {};
+  for (const [relativePath, legacyOriginal] of Object.entries(value.originals)) {
+    const converted = decodeLegacyOriginal(legacyOriginal);
+    if (converted === undefined) throw new InstallError("invalid_state");
+    originals[relativePath] = converted;
+  }
+  const digests: Record<string, string> = {};
+  for (const [relativePath, digest] of Object.entries(value.digests)) {
+    if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
+      throw new InstallError("invalid_state");
+    }
+    digests[relativePath] = digest;
+  }
+  return Object.freeze({
+    version: 1 as const,
+    environment,
+    managedFiles: Object.freeze([...digestPaths].sort((left, right) => left.localeCompare(right))),
+    originals: Object.freeze(originals),
+    digests: Object.freeze(digests),
+  });
 }
 
 /** Parse a current schema without exposing original payload bytes in errors. */
