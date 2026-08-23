@@ -128,13 +128,14 @@ test("managed paths reject absolute, traversal, symlink, special-file, and root 
     const valid = projectTarget.validateManagedPath(target, "owned/nested/file.txt", ["owned"]);
     assert.equal(valid.relativePath, "owned/nested/file.txt");
     assert.equal(valid.absolutePath, path.join(fs.realpathSync(base), "owned", "nested", "file.txt"));
+    const exactFile = projectTarget.validateManagedPath(target, ".mcp.json", [".mcp.json"]);
+    assert.equal(exactFile.absolutePath, path.join(fs.realpathSync(base), ".mcp.json"));
 
     for (const invalid of [
       "/absolute.txt",
       "C:/absolute.txt",
       "owned/../escape.txt",
       "owned\\escape.txt",
-      "owned",
       "other/file.txt",
     ]) {
       assert.throws(

@@ -73,7 +73,7 @@ export function validateManagedPath(
   if (!isProjectTarget(target)) throw new InstallError("invalid_target");
   const parts = validateRelativeSyntax(relativePath);
   const roots = normalizedManagedRoots(managedRoots);
-  if (!roots.some((root) => relativePath.startsWith(`${root}/`))) {
+  if (!roots.some((root) => relativePath === root || relativePath.startsWith(`${root}/`))) {
     throw new InstallError("outside_managed_roots", relativePath);
   }
 

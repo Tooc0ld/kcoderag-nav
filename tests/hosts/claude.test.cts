@@ -169,7 +169,7 @@ test("Claude lifecycle preserves unrelated JSON and restores exact original byte
     assert.deepEqual(fs.readFileSync(path.join(target.root, ".claude/settings.json")), target.settings);
     assert.deepEqual(fs.readFileSync(path.join(target.root, ".mcp.json")), target.mcp);
     assert.equal(fs.existsSync(path.join(target.root, ...STATE_PATH.split("/"))), false);
-    assert.equal(fs.existsSync(path.join(target.root, ".claude/skills/kcoderag-nav")), false);
+    assert.equal(fs.existsSync(path.join(target.root, ".claude/skills/kcoderag-nav/SKILL.md")), false);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
