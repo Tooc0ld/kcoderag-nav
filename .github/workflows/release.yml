@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish matching npm tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout immutable release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Set up Node and npm registry
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      - name: Install audited dependency graph
+        run: npm ci --ignore-scripts
+      - name: Verify tag matches package version
+        run: >-
+          node -e "const packageJson=require('./package.json');
+          const expectedTag='v'+packageJson.version;
+          if(process.env.GITHUB_REF_NAME!==expectedTag){process.exit(1)}"
+      - name: Build CommonJS products and tests
+        run: npm run build
+      - name: Audit exact dependency graph
+        run: npm run deps:audit
+      - name: Run complete Node test suite
+        run: npm test
+      - name: Check deterministic generated products
+        run: npm run generate:check
+      - name: Run required three-host contract smoke
+        run: npm run smoke:required
+      - name: Audit real npm tarball
+        run: npm run pack:audit
+      - name: Publish verified immutable package
+        run: npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
