@@ -78,7 +78,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal:** 用户可在 Node.js 22+ 环境中通过统一 npx CLI，将无 Python 运行时依赖的 KCodeRag Nav 项目集成安全地安装、诊断、更新或卸载到 Codex、Claude Code 与 Cursor。
 **Requirements**: JS-01, JS-02, JS-03, JS-04, JS-05, JS-06, JS-07, JS-08
 **Depends on:** Phase 3
-**Plans:** 28 plans across 25 waves
+**Plans:** 27 plans across 26 waves
 
 Plans:
 
@@ -91,9 +91,8 @@ Plans:
 - [ ] 03.1-07-PLAN.md — 完成 Codex 生命周期与旧 Python install-state 安全迁移
 - [ ] 03.1-08-PLAN.md — 实现前台零网络、后台有界的 npm latest 检查
 - [ ] 03.1-09-PLAN.md — 实现按产品与 exact asset group 运行的确定性 Node generator
-- [ ] 03.1-10-PLAN.md — 生成自包含 QA CJS hook/runtime 树
-- [ ] 03.1-11-PLAN.md — 生成独立 Dev CJS hook/runtime 树
-- [ ] 03.1-12-PLAN.md — 生成 Cursor Rule/skill/MCP 项目资产
+- [ ] 03.1-10-PLAN.md — 只生成保证变化的 QA CJS 与 Node launcher 路径
+- [ ] 03.1-11-PLAN.md — 只生成保证变化的 Dev CJS 与 Node launcher 路径
 - [ ] 03.1-13-PLAN.md — 建立 release helper 与 matching-tag npm publish workflow
 - [ ] 03.1-14-PLAN.md — 最终人工授权 exact seven-path bump 并以 receipt 验证首次公共 npm 发布
 - [ ] 03.1-15-PLAN.md — 建立退役状态机并持久化不可跳过的 pre-parity receipt
@@ -104,12 +103,12 @@ Plans:
 - [ ] 03.1-20-PLAN.md — 先清理 marketplace 并协调 PROJECT/AGENTS/后续路线
 - [ ] 03.1-21-PLAN.md — 用 baseline/receipt 隔离提交 KCodeRag 权威指南
 - [ ] 03.1-22-PLAN.md — 实现 compiled docs 与 sibling evidence 检查器
-- [ ] 03.1-23-PLAN.md — 在三产品生成后运行真实 repository generation gate
+- [ ] 03.1-23-PLAN.md — 只读验证 byte-equal 资产并运行真实 repository generation gate
 - [ ] 03.1-24-PLAN.md — 退役 Dev Python 与 GitHub-raw update index并验证 post-source
 - [ ] 03.1-25-PLAN.md — 退役剩余 Python tests/stub并验证 post-tests
 - [ ] 03.1-26-PLAN.md — 接线 HostAdapter/五命令 CLI 与 compiled CLI tests
-- [ ] 03.1-27-PLAN.md — 生成 QA MCP/manifests/skill/agent
-- [ ] 03.1-28-PLAN.md — 生成 Dev MCP/manifests/skill/agent
+- [ ] 03.1-29-PLAN.md — 在首次 npm install/build 前固定 root-only Node ignore policy
+- [ ] 03.1-30-PLAN.md — 在最后一次 Python parity 后精确清理五个 owned cache roots
 
 ### Phase 4: 已部署项目与安装来源可靠性
 
@@ -199,7 +198,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 1. QA 优先的可重复插件包 | 1/1 | Complete    | 2026-08-23 |
 | 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
-| 03.1. JavaScript 与 npx 安装运行时迁移 | 0/28 | Planned | - |
+| 03.1. JavaScript 与 npx 安装运行时迁移 | 0/27 | Planned | - |
 | 4. 已部署项目与安装来源可靠性 | 0/TBD | Not planned | - |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
