@@ -2,6 +2,11 @@
 /** Advisory, host-neutral KCodeRag lookup hook. Every boundary fails open. */
 
 const fs = require("node:fs") as typeof import("node:fs");
+const updateCheck = require("./update-check.cjs") as {
+  readInstalledVersion(): string | undefined;
+  readUpdateHint(installedVersion: string | undefined, options?: { readonly hookPayload?: unknown }): string | undefined;
+  scheduleRefresh(hookPayload: unknown): boolean;
+};
 
 export const NUDGE =
   "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. " +
@@ -316,15 +321,37 @@ function readBoundedStdin(): string {
   return total > MAX_INPUT_CHARS ? "" : Buffer.concat(chunks, total).toString("utf8");
 }
 
+export interface HookUpdateRuntime {
+  readonly installedVersion?: string;
+  readonly readUpdateHint?: (
+    installedVersion: string | undefined,
+    options?: { readonly hookPayload?: unknown },
+  ) => string | undefined;
+  readonly scheduleRefresh?: (hookPayload: unknown) => boolean;
+}
+
 export function main(
   rawInput?: string,
   writeOutput: (text: string) => void = (text) => { process.stdout.write(text); },
+  updateRuntime: HookUpdateRuntime = {},
 ): number {
   try {
     const raw = rawInput ?? readBoundedStdin();
     if (raw.length === 0 || raw.length > MAX_INPUT_CHARS) return 0;
-    const output = hookOutput(JSON.parse(raw) as unknown);
+    const payload = JSON.parse(raw) as unknown;
+    const relevantForUpdate = isRecord(payload) && typeof payload.tool_name === "string" &&
+      SUPPORTED_TOOLS.has(payload.tool_name) && isRecord(payload.tool_input);
+    const installedVersion = relevantForUpdate
+      ? updateRuntime.installedVersion ?? updateCheck.readInstalledVersion()
+      : undefined;
+    const updateNotice = relevantForUpdate
+      ? (updateRuntime.readUpdateHint ?? updateCheck.readUpdateHint)(installedVersion, { hookPayload: payload })
+      : undefined;
+    const output = hookOutput(payload, updateNotice);
     if (output !== undefined) writeOutput(JSON.stringify(output));
+    if (installedVersion !== undefined) {
+      (updateRuntime.scheduleRefresh ?? updateCheck.scheduleRefresh)(payload);
+    }
   } catch {
     return 0;
   }

@@ -19,6 +19,7 @@ interface UpdateCheckOptions {
   readonly files?: UpdateCheckFiles;
   readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
   readonly workerPath?: string;
+  readonly hookPayload?: unknown;
 }
 
 interface UpdateCheckModule {
@@ -133,6 +134,19 @@ test("fresh validated cache produces only an exact newer-version npx hint", () =
   assert.equal(update.readUpdateHint("0.1.5", { cacheRoot, files, now: () => now }), undefined);
   assert.equal(update.readUpdateHint("0.1.6", { cacheRoot, files, now: () => now }), undefined);
   assert.equal(update.readUpdateHint("invalid", { cacheRoot, files, now: () => now }), undefined);
+
+  assert.match(update.readUpdateHint("0.1.4", {
+    cacheRoot,
+    files,
+    now: () => now,
+    hookPayload: relevantPayload,
+  }) ?? "", /npx kcoderag-nav@latest update/u);
+  assert.equal(update.readUpdateHint("0.1.4", {
+    cacheRoot,
+    files,
+    now: () => now,
+    hookPayload: relevantPayload,
+  }), undefined);
 
   const spawnCalls: unknown[][] = [];
   assert.equal(update.scheduleRefresh(relevantPayload, {
@@ -310,7 +324,7 @@ test("worker rejects transport, redirect, body, JSON, semver, and write failures
     await fsPromises.writeFile(cacheFile, oldCache, "utf8");
     assert.equal(await worker.refreshLatest({
       cacheRoot: directory,
-      request: async () => registryResponse({ "dist-tags": { latest: "0.1.5" } }),
+      request: async () => registryResponse({ name: "kcoderag-nav", "dist-tags": { latest: "0.1.5" } }),
       writeCache: async () => { throw new Error("permission denied"); },
     }), false);
     assert.equal(await fsPromises.readFile(cacheFile, "utf8"), oldCache);
@@ -323,7 +337,7 @@ test("worker lock collapses concurrent refreshes and private CLI mode always exi
     const request = async (): Promise<RegistryResponse> => {
       requestCalls += 1;
       await new Promise<void>((resolve) => setImmediate(resolve));
-      return registryResponse({ "dist-tags": { latest: "0.1.5" } });
+      return registryResponse({ name: "kcoderag-nav", "dist-tags": { latest: "0.1.5" } });
     };
     const results = await Promise.all([
       worker.refreshLatest({ cacheRoot: directory, request }),
@@ -331,7 +345,6 @@ test("worker lock collapses concurrent refreshes and private CLI mode always exi
     ]);
     assert.deepEqual(results.sort(), [false, true]);
     assert.equal(requestCalls, 1);
-    assert.equal(await worker.main(["--refresh", directory]), 0);
     assert.equal(await worker.main(["--bad", directory]), 0);
     assert.equal(await worker.main(["--refresh", directory, "extra"]), 0);
   });

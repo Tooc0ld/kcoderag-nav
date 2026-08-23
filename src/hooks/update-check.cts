@@ -28,6 +28,18 @@ export interface UpdateCheckOptions {
   readonly files?: UpdateCheckFiles;
   readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
   readonly workerPath?: string;
+  readonly hookPayload?: unknown;
+}
+
+export function readInstalledVersion(statePath = path.resolve(__dirname, "..", "install-state.json")): string | undefined {
+  try {
+    const raw = fs.readFileSync(statePath, "utf8");
+    if (raw.length > 256 * 1_024) return undefined;
+    const document: unknown = JSON.parse(raw);
+    return isRecord(document) && isSimpleVersion(document.packageVersion) ? document.packageVersion : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface UpdateCache {
@@ -184,6 +196,20 @@ function pruneSessionMarkers(files: UpdateCheckFiles, directoryPath: string, kee
   }
 }
 
+function claimSession(
+  files: UpdateCheckFiles,
+  cacheRoot: string,
+  hookPayload: Record<string, unknown>,
+  now: number,
+): boolean {
+  const sessionsRoot = path.join(cacheRoot, "sessions");
+  files.ensureDirectory(sessionsRoot);
+  const markerName = `session-${sessionKey(hookPayload, now)}.seen`;
+  if (!files.createExclusive(path.join(sessionsRoot, markerName), "")) return false;
+  try { pruneSessionMarkers(files, sessionsRoot, markerName); } catch { /* fail open */ }
+  return true;
+}
+
 export function readUpdateHint(
   installedVersion: string | undefined,
   options: UpdateCheckOptions = {},
@@ -192,8 +218,16 @@ export function readUpdateHint(
     if (process.env.KCODERAG_NAV_UPDATE_CHECK === "0" || !isSimpleVersion(installedVersion)) return undefined;
     const now = validNow(options.now);
     if (now === undefined) return undefined;
-    const latest = readCache(options.files ?? nodeFiles, path.resolve(options.cacheRoot ?? defaultCacheRoot()));
-    if (!isFresh(latest, now) || !isNewerVersion(installedVersion, latest.latest)) return undefined;
+    const files = options.files ?? nodeFiles;
+    const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
+    const latest = readCache(files, cacheRoot);
+    if (!isFresh(latest, now)) return undefined;
+    if (options.hookPayload !== undefined) {
+      if (!relevantPayload(options.hookPayload) || !claimSession(files, cacheRoot, options.hookPayload, now)) {
+        return undefined;
+      }
+    }
+    if (!isNewerVersion(installedVersion, latest.latest)) return undefined;
     return `KCodeRag Nav update available: ${installedVersion} -> ${latest.latest}. ` +
       "Ask the user first; do not update automatically. Run: npx kcoderag-nav@latest update";
   } catch {
@@ -213,11 +247,7 @@ export function scheduleRefresh(
     const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
     if (isFresh(readCache(files, cacheRoot), now)) return false;
 
-    const sessionsRoot = path.join(cacheRoot, "sessions");
-    files.ensureDirectory(sessionsRoot);
-    const markerName = `session-${sessionKey(hookPayload, now)}.seen`;
-    if (!files.createExclusive(path.join(sessionsRoot, markerName), "")) return false;
-    pruneSessionMarkers(files, sessionsRoot, markerName);
+    if (!claimSession(files, cacheRoot, hookPayload, now)) return false;
 
     const spawn = options.spawn ?? childProcess.spawn;
     const workerPath = path.resolve(options.workerPath ?? path.join(__dirname, "update-worker.cjs"));
