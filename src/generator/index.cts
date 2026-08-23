@@ -862,3 +862,83 @@ export function generatePackage(options: GeneratorOptions): GenerationResult {
   const writtenPaths = commitChanges(rendered.root, rendered.outputs, compared.changedPaths, options.io);
   return result(rendered, compared.changedPaths, writtenPaths, [], true);
 }
+
+interface ParsedArguments {
+  readonly package: string;
+  readonly group: string;
+  readonly sourceRoot?: string;
+  readonly outputRoot?: string;
+  readonly check: boolean;
+}
+
+export interface GeneratorCliIo {
+  readonly stdout: (text: string) => void;
+  readonly stderr: (text: string) => void;
+}
+
+function parseArguments(argv: readonly string[]): ParsedArguments {
+  const values = new Map<string, string>();
+  let check = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === undefined) throw new GenerationError("unknown_option");
+    if (argument === "--check") {
+      if (check) throw new GenerationError("duplicate_option");
+      check = true;
+      continue;
+    }
+    if (!(["--package", "--group", "--source-root", "--output-root"] as const).includes(
+      argument as "--package" | "--group" | "--source-root" | "--output-root",
+    )) {
+      throw new GenerationError("unknown_option");
+    }
+    if (values.has(argument)) throw new GenerationError("duplicate_option");
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) throw new GenerationError("missing_option_value");
+    values.set(argument, value);
+    index += 1;
+  }
+  const selectedPackage = values.get("--package");
+  const group = values.get("--group");
+  if (selectedPackage === undefined) throw new GenerationError("missing_package");
+  if (group === undefined) throw new GenerationError("missing_group");
+  const sourceRoot = values.get("--source-root");
+  const outputRoot = values.get("--output-root");
+  return {
+    package: selectedPackage,
+    group,
+    ...(sourceRoot === undefined ? {} : { sourceRoot }),
+    ...(outputRoot === undefined ? {} : { outputRoot }),
+    check,
+  };
+}
+
+function defaultCliIo(): GeneratorCliIo {
+  return Object.freeze({
+    stdout(text: string) { process.stdout.write(text); },
+    stderr(text: string) { process.stderr.write(text); },
+  });
+}
+
+export function runCli(argv: readonly string[] = process.argv.slice(2), io: GeneratorCliIo = defaultCliIo()): number {
+  try {
+    const parsed = parseArguments(argv);
+    const options: GeneratorOptions = {
+      package: parsed.package as ProductSelection,
+      group: parsed.group as AssetGroup,
+      ...(parsed.sourceRoot === undefined ? {} : { sourceRoot: parsed.sourceRoot }),
+      ...(parsed.outputRoot === undefined ? {} : { outputRoot: parsed.outputRoot }),
+    };
+    const generated = parsed.check ? checkGenerated(options) : generatePackage(options);
+    io.stdout(`${JSON.stringify(generated)}\n`);
+    return generated.ok ? 0 : 1;
+  } catch (error) {
+    const safe = error instanceof GenerationError
+      ? { ok: false, code: error.code, ...(error.safePath === undefined ? {} : { path: error.safePath }) }
+      : { ok: false, code: "generation_failed" };
+    io.stderr(`${JSON.stringify(safe)}\n`);
+    return 2;
+  }
+}
+
+if (require.main === module) process.exitCode = runCli();
