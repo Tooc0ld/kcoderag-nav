@@ -283,13 +283,38 @@ test("Codex Dev is explicit and a managed drift blocks update and uninstall befo
   }
 });
 
+test("Codex refuses every semantic TOML spelling of a managed MCP key before writes", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-toml-conflict-"));
+  try {
+    const pkg = packageFixture(base);
+    const fixtures = [
+      ["spaced-table", "[mcp_servers . \"kcoderag-qa\"]\nurl = \"https://other.invalid\"\n"],
+      ["quoted-keys", "['mcp_servers'.'kcoderag-dev']\nurl = \"https://other.invalid\"\n"],
+      ["dotted-assignment", "\"mcp_servers\" . \"kcoderag-qa\" = { url = \"https://other.invalid\" }\n"],
+      ["inline-table", "mcp_servers = { unrelated = {}, \"kcoderag-dev\" = { url = \"https://other.invalid\" } }\n"],
+      ["parent-table", "[mcp_servers]\n\"kcoderag-qa\" = { url = \"https://other.invalid\" }\n"],
+    ] as const;
+    for (const [name, config] of fixtures) {
+      const target = targetFixture(base, name);
+      write(target.root, ".codex/config.toml", config);
+      const before = snapshot(target.root);
+      const result = await run(target.root, pkg.root, "install");
+      assert.equal(result.output.code, "unmanaged_name_conflict", name);
+      assert.deepEqual(snapshot(target.root), before, name);
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+
 test("Codex rejects malformed UTF-8 in TOML and JSON before any write", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-utf8-"));
   try {
     const pkg = packageFixture(base);
     for (const [name, relativePath, prefix, suffix] of [
-      ["toml", ".codex/config.toml", "[features]\\nvalue = \"", "\"\\n"],
-      ["json", ".codex/hooks.json", "{\"hooks\":{},\"value\":\"", "\"}\\n"],
+      ["toml", ".codex/config.toml", "[features]\nvalue = \"", "\"\n"],
+      ["json", ".codex/hooks.json", "{\"hooks\":{},\"value\":\"", "\"}\n"],
     ] as const) {
       const target = targetFixture(base, name);
       write(target.root, relativePath, Buffer.concat([

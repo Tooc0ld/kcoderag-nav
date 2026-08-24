@@ -236,6 +236,194 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+interface TomlKeyPath {
+  readonly keys: readonly string[];
+  readonly end: number;
+}
+
+function skipTomlWhitespace(input: string, start: number): number {
+  let index = start;
+  while (index < input.length && /[ \t]/.test(input[index] as string)) index += 1;
+  return index;
+}
+
+function parseTomlKey(input: string, start: number): { readonly key: string; readonly end: number } | undefined {
+  let index = skipTomlWhitespace(input, start);
+  const quote = input[index];
+  if (quote === "\"" || quote === "'") {
+    const begin = index;
+    index += 1;
+    let value = "";
+    while (index < input.length) {
+      const character = input[index] as string;
+      if (character === quote) {
+        if (quote === "\"") {
+          try {
+            return { key: JSON.parse(input.slice(begin, index + 1)) as string, end: index + 1 };
+          } catch {
+            return undefined;
+          }
+        }
+        return { key: value, end: index + 1 };
+      }
+      if (quote === "\"" && character === "\\") {
+        index += 2;
+        continue;
+      }
+      value += character;
+      index += 1;
+    }
+    return undefined;
+  }
+  const match = /^[A-Za-z0-9_-]+/.exec(input.slice(index));
+  return match === null ? undefined : { key: match[0], end: index + match[0].length };
+}
+
+function parseTomlKeyPath(input: string, start = 0): TomlKeyPath | undefined {
+  const keys: string[] = [];
+  let index = start;
+  while (true) {
+    const parsed = parseTomlKey(input, index);
+    if (parsed === undefined) return keys.length === 0 ? undefined : { keys, end: index };
+    keys.push(parsed.key);
+    index = skipTomlWhitespace(input, parsed.end);
+    if (input[index] !== ".") return { keys, end: index };
+    index += 1;
+  }
+}
+
+function tomlStatements(text: string): readonly string[] {
+  const statements: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | undefined;
+  let triple = false;
+  let escaped = false;
+  let braces = 0;
+  let brackets = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index] as string;
+    if (quote !== undefined) {
+      current += character;
+      if (triple && text.slice(index, index + 3) === quote.repeat(3)) {
+        current += text.slice(index + 1, index + 3);
+        index += 2;
+        quote = undefined;
+        triple = false;
+        escaped = false;
+      } else if (!triple && !escaped && character === quote) {
+        quote = undefined;
+      } else if (quote === "\"" && !escaped && character === "\\") {
+        escaped = true;
+      } else {
+        escaped = false;
+      }
+      continue;
+    }
+    if (character === "\"" || character === "'") {
+      quote = character;
+      triple = text.slice(index, index + 3) === character.repeat(3);
+      current += triple ? character.repeat(3) : character;
+      if (triple) index += 2;
+      continue;
+    }
+    if (character === "#") {
+      while (index + 1 < text.length && text[index + 1] !== "\n") index += 1;
+      continue;
+    }
+    if (character === "{") braces += 1;
+    if (character === "}") braces = Math.max(0, braces - 1);
+    if (character === "[") brackets += 1;
+    if (character === "]") brackets = Math.max(0, brackets - 1);
+    if (character === "\n" && braces === 0 && brackets === 0) {
+      if (current.trim().length > 0) statements.push(current.trim());
+      current = "";
+    } else {
+      current += character === "\r" ? "" : character;
+    }
+  }
+  if (current.trim().length > 0) statements.push(current.trim());
+  return statements;
+}
+
+function isManagedTomlPath(keys: readonly string[]): boolean {
+  return keys[0] === "mcp_servers" &&
+    (keys[1] === "kcoderag-qa" || keys[1] === "kcoderag-dev");
+}
+
+function inlineTableDefinesManaged(input: string, start: number): boolean {
+  let index = skipTomlWhitespace(input, start);
+  if (input[index] !== "{") return false;
+  index += 1;
+  let depth = 1;
+  let expectingKey = true;
+  let quote: "\"" | "'" | undefined;
+  let escaped = false;
+  while (index < input.length && depth > 0) {
+    index = skipTomlWhitespace(input, index);
+    if (depth === 1 && expectingKey) {
+      if (input[index] === "}") break;
+      const parsed = parseTomlKeyPath(input, index);
+      if (parsed !== undefined) {
+        const equals = skipTomlWhitespace(input, parsed.end);
+        if (input[equals] === "=") {
+          if (parsed.keys[0] === "kcoderag-qa" || parsed.keys[0] === "kcoderag-dev") {
+            return true;
+          }
+          index = equals + 1;
+          expectingKey = false;
+          continue;
+        }
+      }
+    }
+    const character = input[index] as string;
+    if (quote !== undefined) {
+      if (!escaped && character === quote) quote = undefined;
+      escaped = quote === "\"" && !escaped && character === "\\";
+      if (character !== "\\") escaped = false;
+    } else if (character === "\"" || character === "'") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+    } else if (character === "," && depth === 1) {
+      expectingKey = true;
+    }
+    index += 1;
+  }
+  return false;
+}
+
+function hasManagedTomlDefinition(text: string): boolean {
+  let table: readonly string[] = [];
+  for (const statement of tomlStatements(text)) {
+    if (statement.startsWith("[")) {
+      const offset = statement.startsWith("[[") ? 2 : 1;
+      const endOffset = statement.endsWith("]]") ? 2 : 1;
+      const parsed = parseTomlKeyPath(statement.slice(offset, statement.length - endOffset));
+      if (parsed !== undefined) {
+        table = parsed.keys;
+        if (isManagedTomlPath(table)) return true;
+      }
+      continue;
+    }
+    const parsed = parseTomlKeyPath(statement);
+    if (parsed === undefined) continue;
+    const equals = skipTomlWhitespace(statement, parsed.end);
+    if (statement[equals] !== "=") continue;
+    const completePath = [...table, ...parsed.keys];
+    if (isManagedTomlPath(completePath)) return true;
+    if (
+      completePath.length === 1 &&
+      completePath[0] === "mcp_servers" &&
+      inlineTableDefinesManaged(statement, equals + 1)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 interface ConfigRange {
   readonly start: number;
   readonly markerStart: number;
@@ -285,7 +473,7 @@ function renderConfig(
   }
   if (
     originalText.includes("# BEGIN KCODERAG-NAV") ||
-    /\[\s*mcp_servers\.(?:"|')?kcoderag-(?:qa|dev)(?:"|')?\s*\]/m.test(originalText)
+    hasManagedTomlDefinition(originalText)
   ) {
     throw new InstallError("unmanaged_name_conflict", CONFIG_PATH);
   }
