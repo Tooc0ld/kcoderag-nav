@@ -2,7 +2,7 @@
 "use strict";
 /** Foreground-only update cache reader and detached refresh scheduler. */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CACHE_SCHEMA_VERSION = exports.MAX_SESSION_MARKERS = exports.SESSIONLESS_MARKER_TTL_MS = exports.CACHE_TTL_MS = void 0;
+exports.CACHE_SCHEMA_VERSION = exports.MAX_SESSION_MARKERS = exports.RENEWAL_TOKEN_TTL_MS = exports.SESSIONLESS_MARKER_TTL_MS = exports.CACHE_TTL_MS = void 0;
 exports.readInstalledVersion = readInstalledVersion;
 exports.isSimpleVersion = isSimpleVersion;
 exports.readUpdateHint = readUpdateHint;
@@ -14,6 +14,7 @@ const os = require("node:os");
 const path = require("node:path");
 exports.CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 exports.SESSIONLESS_MARKER_TTL_MS = exports.CACHE_TTL_MS;
+exports.RENEWAL_TOKEN_TTL_MS = 5 * 60 * 1_000;
 exports.MAX_SESSION_MARKERS = 128;
 exports.CACHE_SCHEMA_VERSION = 1;
 const MAX_CACHE_CHARS = 8 * 1_024;
@@ -211,7 +212,7 @@ function renewalMarkerName(tokenName) {
     const match = /^renew-([a-f0-9]{64})-[a-f0-9]{64}\.claim$/u.exec(tokenName);
     return match === null ? undefined : `session-${match[1]}.seen`;
 }
-function pruneRenewalTokens(files, directoryPath) {
+function pruneRenewalTokens(files, directoryPath, now) {
     const activeMarkers = new Set();
     const tokens = files.listFiles(directoryPath)
         .filter((entry) => renewalMarkerName(entry.name) !== undefined);
@@ -221,7 +222,9 @@ function pruneRenewalTokens(files, directoryPath) {
             continue;
         const tokenContents = files.readText(path.join(directoryPath, token.name));
         const markerContents = files.readText(path.join(directoryPath, markerName));
-        if (tokenContents !== undefined && markerContents === tokenContents) {
+        const tokenFresh = Number.isFinite(token.mtimeMs) &&
+            (token.mtimeMs > now || now - token.mtimeMs < exports.RENEWAL_TOKEN_TTL_MS);
+        if (tokenContents !== undefined && markerContents === tokenContents && tokenFresh) {
             activeMarkers.add(markerName);
             continue;
         }
@@ -232,8 +235,8 @@ function pruneRenewalTokens(files, directoryPath) {
     }
     return activeMarkers;
 }
-function pruneSessionMarkers(files, directoryPath, keepName) {
-    const activeRenewals = pruneRenewalTokens(files, directoryPath);
+function pruneSessionMarkers(files, directoryPath, keepName, now) {
+    const activeRenewals = pruneRenewalTokens(files, directoryPath, now);
     const markers = files.listFiles(directoryPath)
         .filter((entry) => entry.name.startsWith("session-") && entry.name.endsWith(".seen"));
     if (markers.length <= exports.MAX_SESSION_MARKERS)
@@ -247,7 +250,7 @@ function pruneSessionMarkers(files, directoryPath, keepName) {
         }
         catch { /* fail open */ }
     }
-    pruneRenewalTokens(files, directoryPath);
+    pruneRenewalTokens(files, directoryPath, now);
 }
 function claimSession(files, cacheRoot, hookPayload, now) {
     const sessionsRoot = path.join(cacheRoot, "sessions");
@@ -267,6 +270,7 @@ function claimSession(files, cacheRoot, hookPayload, now) {
         }
         const observedDigest = crypto.createHash("sha256").update(observedContents, "utf8").digest("hex");
         const renewalPath = path.join(sessionsRoot, `renew-${marker.key}-${observedDigest}.claim`);
+        pruneRenewalTokens(files, sessionsRoot, now);
         if (!files.createExclusive(renewalPath, observedContents))
             return false;
         if (files.readText(markerPath) !== observedContents) {
@@ -282,9 +286,25 @@ function claimSession(files, cacheRoot, hookPayload, now) {
             files.replace(markerPath, contents);
         }
         catch {
-            // Preserve the token after an uncertain replacement failure. Pruning removes it only once
-            // the paired marker no longer contains the generation recorded in the token.
-            return false;
+            const markerAfterFailure = files.readText(markerPath);
+            if (markerAfterFailure === contents) {
+                // The atomic replacement completed before the adapter reported failure.
+                try {
+                    files.remove(renewalPath);
+                }
+                catch { /* Mismatched contents make later pruning safe. */ }
+            }
+            else {
+                if (markerAfterFailure === observedContents) {
+                    // Nothing changed, so releasing our exact-generation token makes a later retry possible.
+                    try {
+                        files.remove(renewalPath);
+                    }
+                    catch { /* The bounded token lease recovers later. */ }
+                }
+                // A third state is genuinely ambiguous and keeps the token until marker change or lease expiry.
+                return false;
+            }
         }
         try {
             files.remove(renewalPath);
@@ -292,7 +312,7 @@ function claimSession(files, cacheRoot, hookPayload, now) {
         catch { /* stale token is safely pruned later */ }
     }
     try {
-        pruneSessionMarkers(files, sessionsRoot, markerName);
+        pruneSessionMarkers(files, sessionsRoot, markerName, now);
     }
     catch {
         return false;

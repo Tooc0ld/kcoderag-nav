@@ -26,6 +26,7 @@ interface UpdateCheckOptions {
 interface UpdateCheckModule {
   readonly CACHE_TTL_MS: number;
   readonly SESSIONLESS_MARKER_TTL_MS: number;
+  readonly RENEWAL_TOKEN_TTL_MS: number;
   readonly MAX_SESSION_MARKERS: number;
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
@@ -79,6 +80,8 @@ class MemoryFiles implements UpdateCheckFiles {
   readonly entries = new Map<string, { contents: string; mtimeMs: number }>();
   failReads = false;
   failCreates = false;
+  failRemoves = false;
+  clock = (): number => Date.now();
 
   readText(filePath: string): string | undefined {
     if (this.failReads) throw new Error("permission denied");
@@ -93,13 +96,13 @@ class MemoryFiles implements UpdateCheckFiles {
     if (this.failCreates) throw new Error("permission denied");
     const resolved = path.resolve(filePath);
     if (this.entries.has(resolved)) return false;
-    this.entries.set(resolved, { contents, mtimeMs: Date.now() });
+    this.entries.set(resolved, { contents, mtimeMs: this.clock() });
     return true;
   }
 
   replace(filePath: string, contents: string): void {
     if (this.failCreates) throw new Error("permission denied");
-    this.entries.set(path.resolve(filePath), { contents, mtimeMs: Date.now() });
+    this.entries.set(path.resolve(filePath), { contents, mtimeMs: this.clock() });
   }
 
   listFiles(directoryPath: string): readonly { readonly name: string; readonly mtimeMs: number }[] {
@@ -110,6 +113,7 @@ class MemoryFiles implements UpdateCheckFiles {
   }
 
   remove(filePath: string): void {
+    if (this.failRemoves) throw new Error("permission denied");
     this.entries.delete(path.resolve(filePath));
   }
 
@@ -238,6 +242,7 @@ test("concurrent session-less expiry contenders claim exactly one renewal genera
   };
   const firstClaimAt = 2_000_000_000_000;
   let now = firstClaimAt;
+  files.clock = () => now;
   let spawnCalls = 0;
   const options: UpdateCheckOptions = {
     cacheRoot,
@@ -268,6 +273,118 @@ test("concurrent session-less expiry contenders claim exactly one renewal genera
   assert.equal(nestedResult, true);
   assert.equal(outerResult, false);
   assert.equal(spawnCalls, 2);
+});
+
+test("a transient replacement failure releases its generation token and a later renewal retries", () => {
+  const files = new MemoryFiles();
+  const payload = {
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer src" },
+    cwd: path.resolve("transient-renewal-project"),
+  };
+  let now = 2_000_000_000_000;
+  files.clock = () => now;
+  let spawnCalls = 0;
+  const options: UpdateCheckOptions = {
+    cacheRoot,
+    files,
+    now: () => now,
+    spawn: () => {
+      spawnCalls += 1;
+      return { unref() {} };
+    },
+  };
+
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  now += update.SESSIONLESS_MARKER_TTL_MS;
+  const originalReplace = files.replace.bind(files);
+  let failed = false;
+  files.replace = (filePath, contents) => {
+    if (!failed) {
+      failed = true;
+      throw new Error("transient replace failure");
+    }
+    originalReplace(filePath, contents);
+  };
+  assert.equal(update.scheduleRefresh(payload, options), false);
+  const sessionsRoot = path.join(cacheRoot, "sessions");
+  assert.equal(files.listFiles(sessionsRoot).filter((entry) => entry.name.startsWith("renew-")).length, 0);
+
+  now += update.SESSIONLESS_MARKER_TTL_MS;
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  assert.equal(spawnCalls, 2);
+  assert.equal(files.listFiles(sessionsRoot).filter((entry) => entry.name.startsWith("renew-")).length, 0);
+});
+
+test("replacement completion reported as failure is accepted from the marker contents", () => {
+  const files = new MemoryFiles();
+  const payload = {
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer src" },
+    cwd: path.resolve("completed-renewal-project"),
+  };
+  let now = 2_000_000_000_000;
+  files.clock = () => now;
+  let spawnCalls = 0;
+  const options: UpdateCheckOptions = {
+    cacheRoot,
+    files,
+    now: () => now,
+    spawn: () => {
+      spawnCalls += 1;
+      return { unref() {} };
+    },
+  };
+
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  now += update.SESSIONLESS_MARKER_TTL_MS;
+  const originalReplace = files.replace.bind(files);
+  files.replace = (filePath, contents) => {
+    originalReplace(filePath, contents);
+    throw new Error("reported after replacement");
+  };
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  assert.equal(spawnCalls, 2);
+  assert.equal(
+    files.listFiles(path.join(cacheRoot, "sessions")).filter((entry) => entry.name.startsWith("renew-")).length,
+    0,
+  );
+});
+
+test("an undeletable renewal token expires after a bounded lease", () => {
+  const files = new MemoryFiles();
+  const payload = {
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer src" },
+    cwd: path.resolve("leased-renewal-project"),
+  };
+  let now = 2_000_000_000_000;
+  files.clock = () => now;
+  let spawnCalls = 0;
+  const options: UpdateCheckOptions = {
+    cacheRoot,
+    files,
+    now: () => now,
+    spawn: () => {
+      spawnCalls += 1;
+      return { unref() {} };
+    },
+  };
+
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  now += update.SESSIONLESS_MARKER_TTL_MS;
+  files.replace = () => { throw new Error("replace failed"); };
+  files.failRemoves = true;
+  assert.equal(update.scheduleRefresh(payload, options), false);
+  const sessionsRoot = path.join(cacheRoot, "sessions");
+  assert.equal(files.listFiles(sessionsRoot).filter((entry) => entry.name.startsWith("renew-")).length, 1);
+
+  files.failRemoves = false;
+  files.replace = MemoryFiles.prototype.replace.bind(files);
+  now += update.RENEWAL_TOKEN_TTL_MS;
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  assert.equal(spawnCalls, 2);
+  assert.equal(files.listFiles(sessionsRoot).filter((entry) => entry.name.startsWith("renew-")).length, 0);
 });
 
 test("invalid cache, clock skew, races, permissions, and spawn failures fail open", () => {
