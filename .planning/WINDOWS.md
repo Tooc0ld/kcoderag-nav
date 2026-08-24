@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 0
+open_count: 1
 waived_count: 0
 fixed_count: 9
-total_count: 9
-last_updated: 2026-08-23T19:34:39.951Z
+total_count: 10
+last_updated: 2026-08-24T02:29:02.944Z
 ---
 
 # Broken Windows Ledger
@@ -24,6 +24,7 @@ last_updated: 2026-08-23T19:34:39.951Z
 | 7 | 03.1 | deviation | .github/workflows/release.yml |  | Build precedes the compiled dependency audit so the clean-runner release gate is executable. | fixed |  | 2026-08-23T17:24:51.785Z | 2026-08-23T17:25:21.540Z |
 | 8 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Used a normal-hook temporary clone and exact fast-forward because the sibling dirty staged index rejected a path-only commit. | fixed |  | 2026-08-23T19:34:33.821Z | 2026-08-23T19:34:39.700Z |
 | 9 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Retried the guide-only commit with an isolated temporary environment after shared virtual-environment reuse hit an in-use executable. | fixed |  | 2026-08-23T19:34:34.074Z | 2026-08-23T19:34:39.951Z |
+| 10 | 03.1 | lint-warning | .github/workflows/release.yml |  | Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins. | open |  | 2026-08-24T02:29:02.944Z |  |
 
 ````json
 [
@@ -134,6 +135,18 @@ last_updated: 2026-08-23T19:34:39.951Z
     "reason": "",
     "recorded_at": "2026-08-23T19:34:34.074Z",
     "resolved_at": "2026-08-23T19:34:39.951Z"
+  },
+  {
+    "id": 10,
+    "kind": "lint-warning",
+    "phase": "03.1",
+    "file": ".github/workflows/release.yml",
+    "line": null,
+    "description": "Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T02:29:02.944Z",
+    "resolved_at": null
   }
 ]
 ````
