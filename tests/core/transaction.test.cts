@@ -69,6 +69,7 @@ interface TransactionModule {
       failAtStage?: number;
       failAtCommit?: number;
       failAtRollback?: number;
+      onAfterValidation?: () => void;
       onCommit?: (relativePath: string) => void;
     },
   ): {
@@ -337,6 +338,65 @@ test("transaction refuses unvalidated input and digest drift before any write", 
     );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("transaction rejects an ancestor swap after validation without outside reads or writes", (context) => {
+  const base = temporaryDirectory("kcoderag-core-race-");
+  const outside = temporaryDirectory("kcoderag-core-race-outside-");
+  let linkedPath: string | undefined;
+  let parkedPath: string | undefined;
+  try {
+    const fixture = transactionFixture(base);
+    write(outside, "config.txt", "outside-config");
+    write(outside, "remove.txt", "outside-remove");
+    write(outside, "escape.txt", "outside-keep");
+    const outsideBefore = snapshotTree(outside);
+    linkedPath = path.join(fixture.targetRoot, "owned");
+    parkedPath = path.join(base, "owned-original");
+
+    let linkAvailable = true;
+    const swap = (): void => {
+      fs.renameSync(linkedPath as string, parkedPath as string);
+      try {
+        fs.symlinkSync(
+          outside,
+          linkedPath as string,
+          process.platform === "win32" ? "junction" : "dir",
+        );
+      } catch (error) {
+        fs.renameSync(parkedPath as string, linkedPath as string);
+        linkAvailable = false;
+        if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+      }
+    };
+
+    let caught: unknown;
+    try {
+      transaction.applyTransaction(fixture.desired, { onAfterValidation: swap });
+    } catch (error) {
+      caught = error;
+    }
+    if (!linkAvailable) {
+      context.skip("directory symlink unavailable");
+      return;
+    }
+    assert.ok(["filesystem_race", "symlink_escape"].includes(errorCode(caught) ?? ""));
+    assert.deepEqual(snapshotTree(outside), outsideBefore);
+    assert.equal(fs.existsSync(path.join(outside, "install-state.json")), false);
+  } finally {
+    if (linkedPath !== undefined) {
+      try {
+        if (fs.lstatSync(linkedPath).isSymbolicLink()) fs.unlinkSync(linkedPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    if (linkedPath !== undefined && parkedPath !== undefined && fs.existsSync(parkedPath)) {
+      fs.renameSync(parkedPath, linkedPath);
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 

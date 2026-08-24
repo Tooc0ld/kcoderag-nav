@@ -17,6 +17,8 @@ export interface TransactionOptions {
   readonly failAtStage?: number;
   readonly failAtCommit?: number;
   readonly failAtRollback?: number;
+  /** Test seam fired after identity capture and before the first managed read. */
+  readonly onAfterValidation?: () => void;
   readonly onCommit?: (relativePath: string) => void;
 }
 
@@ -38,11 +40,113 @@ interface RecoveryManifestEntry {
   readonly backup?: string;
 }
 
+interface DirectoryIdentity {
+  readonly dev: number;
+  readonly ino: number;
+  readonly mode: number;
+  readonly realPath: string;
+}
+
+type DirectoryIdentities = Map<string, DirectoryIdentity | null>;
+
 function sha256(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function readOptional(entry: DesiredEntry): Buffer | undefined {
+function parentDirectories(desired: DesiredState, entry: DesiredEntry): readonly string[] {
+  const directories = [desired.target.root];
+  let current = desired.target.root;
+  for (const part of entry.path.relativePath.split("/").slice(0, -1)) {
+    current = path.join(current, part);
+    directories.push(current);
+  }
+  return directories;
+}
+
+function inspectDirectory(
+  desired: DesiredState,
+  directory: string,
+  safePath: string,
+): DirectoryIdentity | null {
+  try {
+    const metadata = fs.lstatSync(directory);
+    if (metadata.isSymbolicLink()) throw new InstallError("symlink_escape", safePath);
+    if (!metadata.isDirectory()) throw new InstallError("special_file", safePath);
+    const realPath = fs.realpathSync(directory);
+    const relation = path.relative(desired.target.root, realPath);
+    if (relation.startsWith("..") || path.isAbsolute(relation)) {
+      throw new InstallError("symlink_escape", safePath);
+    }
+    return {
+      dev: metadata.dev,
+      ino: metadata.ino,
+      mode: metadata.mode,
+      realPath,
+    };
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new InstallError("unreadable", safePath);
+  }
+}
+
+function sameDirectory(left: DirectoryIdentity, right: DirectoryIdentity): boolean {
+  return left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.realPath === right.realPath;
+}
+
+function captureDirectoryIdentities(
+  desired: DesiredState,
+  entries: readonly DesiredEntry[],
+): DirectoryIdentities {
+  const identities: DirectoryIdentities = new Map();
+  for (const entry of entries) {
+    for (const directory of parentDirectories(desired, entry)) {
+      if (!identities.has(directory)) {
+        identities.set(directory, inspectDirectory(desired, directory, entry.path.relativePath));
+      }
+    }
+  }
+  return identities;
+}
+
+function assertParentIdentities(
+  desired: DesiredState,
+  entry: DesiredEntry,
+  identities: DirectoryIdentities,
+): void {
+  for (const directory of parentDirectories(desired, entry)) {
+    const expected = identities.get(directory);
+    if (expected === undefined) throw new InstallError("invalid_desired_state", entry.path.relativePath);
+    const current = inspectDirectory(desired, directory, entry.path.relativePath);
+    if (
+      (expected === null && current !== null) ||
+      (expected !== null && (current === null || !sameDirectory(expected, current)))
+    ) {
+      throw new InstallError("filesystem_race", entry.path.relativePath);
+    }
+  }
+}
+
+function rememberDirectory(
+  desired: DesiredState,
+  entry: DesiredEntry,
+  directory: string,
+  identities: DirectoryIdentities,
+): void {
+  const identity = inspectDirectory(desired, directory, entry.path.relativePath);
+  if (identity === null) throw new InstallError("filesystem_race", entry.path.relativePath);
+  identities.set(directory, identity);
+}
+
+function readOptional(
+  desired: DesiredState,
+  entry: DesiredEntry,
+  identities: DirectoryIdentities,
+): Buffer | undefined {
+  assertParentIdentities(desired, entry, identities);
   try {
     const metadata = fs.lstatSync(entry.path.absolutePath);
     if (metadata.isSymbolicLink()) throw new InstallError("symlink_escape", entry.path.relativePath);
@@ -74,10 +178,12 @@ function ensureParentDirectories(
   desired: DesiredState,
   entry: DesiredEntry,
   createdDirectories: string[],
+  identities: DirectoryIdentities,
 ): void {
   const parts = entry.path.relativePath.split("/").slice(0, -1);
   let current = desired.target.root;
   for (const part of parts) {
+    assertParentIdentities(desired, entry, identities);
     current = path.join(current, part);
     try {
       const metadata = fs.lstatSync(current);
@@ -91,6 +197,7 @@ function ensureParentDirectories(
       try {
         fs.mkdirSync(current, { mode: 0o700 });
         createdDirectories.push(current);
+        rememberDirectory(desired, entry, current, identities);
       } catch {
         throw new InstallError("transaction_failed", entry.path.relativePath);
       }
@@ -116,7 +223,7 @@ function writeTemporary(
     return temporary;
   } catch (error) {
     try {
-      fs.rmSync(temporary, { force: true });
+      removeFileIfPresent(temporary);
     } catch {
       // The outer transaction will report cleanup failure if a tracked file remains.
     }
@@ -135,7 +242,7 @@ function writeSecureFile(destination: string, bytes: Buffer): void {
     }
   } catch (error) {
     try {
-      fs.rmSync(destination, { force: true });
+      removeFileIfPresent(destination);
     } catch {
       // createRecovery removes the private recovery tree on propagation.
     }
@@ -193,19 +300,29 @@ function createRecovery(
 
 function removeFileIfPresent(filePath: string): void {
   try {
+    const metadata = fs.lstatSync(filePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) throw new Error("unsafe_unlink");
     fs.unlinkSync(filePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 
-function restorePath(destination: string, original: Buffer | undefined): void {
+function restorePath(
+  desired: DesiredState,
+  entry: DesiredEntry,
+  identities: DirectoryIdentities,
+  original: Buffer | undefined,
+): void {
+  assertParentIdentities(desired, entry, identities);
+  const destination = entry.path.absolutePath;
   if (original === undefined) {
     removeFileIfPresent(destination);
     return;
   }
   const temporary = writeTemporary(destination, original);
   try {
+    assertParentIdentities(desired, entry, identities);
     fs.renameSync(temporary, destination);
   } catch (error) {
     try {
@@ -253,12 +370,14 @@ export function applyTransaction(
   options: TransactionOptions = {},
 ): TransactionResult {
   const entries = validateTransactionInput(desired);
+  const identities = captureDirectoryIdentities(desired, entries);
+  options.onAfterValidation?.();
   const originals = new Map<string, Buffer | undefined>();
   const payloads = new Map<string, Buffer | null>();
 
   // Complete pre-read and digest validation occurs before the first directory or file write.
   for (const entry of entries) {
-    const current = readOptional(entry);
+    const current = readOptional(desired, entry, identities);
     verifyExpected(entry, current);
     originals.set(entry.path.relativePath, current === undefined ? undefined : Buffer.from(current));
     payloads.set(entry.path.relativePath, entry.content === null ? null : Buffer.from(entry.content));
@@ -266,6 +385,7 @@ export function applyTransaction(
 
   const createdDirectories: string[] = [];
   const staged = new Map<string, string>();
+  const committed = new Set<string>();
   let recovery: RecoveryLocation | undefined;
   let transactionStarted = false;
 
@@ -274,7 +394,8 @@ export function applyTransaction(
       if (options.failAtStage === index) throw new Error("injected_stage_failure");
       const payload = payloads.get(entry.path.relativePath);
       if (payload !== null && payload !== undefined) {
-        ensureParentDirectories(desired, entry, createdDirectories);
+        ensureParentDirectories(desired, entry, createdDirectories, identities);
+        assertParentIdentities(desired, entry, identities);
         writeTemporary(entry.path.absolutePath, payload, (temporary) => {
           staged.set(entry.path.relativePath, temporary);
         });
@@ -287,14 +408,19 @@ export function applyTransaction(
     for (const [index, entry] of entries.entries()) {
       if (options.failAtCommit === index) throw new Error("injected_commit_failure");
       const payload = payloads.get(entry.path.relativePath);
+      const current = readOptional(desired, entry, identities);
+      verifyExpected(entry, current);
       if (payload === null) {
+        assertParentIdentities(desired, entry, identities);
         removeFileIfPresent(entry.path.absolutePath);
       } else {
         const temporary = staged.get(entry.path.relativePath);
         if (temporary === undefined) throw new Error("missing_staged_file");
+        assertParentIdentities(desired, entry, identities);
         fs.renameSync(temporary, entry.path.absolutePath);
         staged.delete(entry.path.relativePath);
       }
+      committed.add(entry.path.relativePath);
       options.onCommit?.(entry.path.relativePath);
     }
     fs.rmSync(recovery.absolutePath, { recursive: true, force: true });
@@ -305,8 +431,11 @@ export function applyTransaction(
     });
   } catch {
     let rollbackFailed = false;
-    for (const temporary of staged.values()) {
+    for (const [relativePath, temporary] of staged) {
       try {
+        const entry = entries.find((candidate) => candidate.path.relativePath === relativePath);
+        if (entry === undefined) throw new Error("missing_staged_entry");
+        assertParentIdentities(desired, entry, identities);
         removeFileIfPresent(temporary);
       } catch {
         rollbackFailed = true;
@@ -315,9 +444,17 @@ export function applyTransaction(
 
     if (transactionStarted) {
       for (const [index, entry] of entries.entries()) {
+        if (!committed.has(entry.path.relativePath)) continue;
         try {
           if (options.failAtRollback === index) throw new Error("injected_rollback_failure");
-          restorePath(entry.path.absolutePath, originals.get(entry.path.relativePath));
+          const current = readOptional(desired, entry, identities);
+          const payload = payloads.get(entry.path.relativePath);
+          const payloadMatches = payload === null
+            ? current === undefined
+            : payload !== undefined && current !== undefined && current.equals(payload);
+          if (!payloadMatches) throw new Error("rollback_destination_changed");
+          assertParentIdentities(desired, entry, identities);
+          restorePath(desired, entry, identities, originals.get(entry.path.relativePath));
         } catch {
           rollbackFailed = true;
         }

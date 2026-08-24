@@ -98,6 +98,19 @@ export function validateManagedPath(
     if ((!isDestination && !metadata.isDirectory()) || (isDestination && !metadata.isFile())) {
       throw new InstallError("special_file", relativePath);
     }
+    let canonicalCurrent: string;
+    try {
+      canonicalCurrent = fs.realpathSync(current);
+    } catch {
+      throw new InstallError("unreadable", relativePath);
+    }
+    const canonicalRelation = path.relative(target.root, canonicalCurrent);
+    if (
+      canonicalRelation.startsWith("..") ||
+      path.isAbsolute(canonicalRelation)
+    ) {
+      throw new InstallError("symlink_escape", relativePath);
+    }
   }
 
   return Object.freeze({ relativePath, absolutePath });
