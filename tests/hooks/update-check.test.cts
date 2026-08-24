@@ -9,6 +9,7 @@ interface UpdateCheckFiles {
   readText(filePath: string): string | undefined;
   ensureDirectory(directoryPath: string): void;
   createExclusive(filePath: string, contents: string): boolean;
+  replace(filePath: string, contents: string): void;
   listFiles(directoryPath: string): readonly { readonly name: string; readonly mtimeMs: number }[];
   remove(filePath: string): void;
 }
@@ -94,6 +95,11 @@ class MemoryFiles implements UpdateCheckFiles {
     if (this.entries.has(resolved)) return false;
     this.entries.set(resolved, { contents, mtimeMs: Date.now() });
     return true;
+  }
+
+  replace(filePath: string, contents: string): void {
+    if (this.failCreates) throw new Error("permission denied");
+    this.entries.set(path.resolve(filePath), { contents, mtimeMs: Date.now() });
   }
 
   listFiles(directoryPath: string): readonly { readonly name: string; readonly mtimeMs: number }[] {
@@ -223,6 +229,47 @@ test("session-less scheduling stays claimed across an hour with an explicit life
   assert.equal(spawnCalls, 2);
 });
 
+test("concurrent session-less expiry contenders claim exactly one renewal generation", () => {
+  const files = new MemoryFiles();
+  const payload = {
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer src" },
+    cwd: path.resolve("project-without-session-id"),
+  };
+  const firstClaimAt = 2_000_000_000_000;
+  let now = firstClaimAt;
+  let spawnCalls = 0;
+  const options: UpdateCheckOptions = {
+    cacheRoot,
+    files,
+    now: () => now,
+    spawn: () => {
+      spawnCalls += 1;
+      return { unref() {} };
+    },
+  };
+
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  now += update.SESSIONLESS_MARKER_TTL_MS;
+
+  const originalReadText = files.readText.bind(files);
+  let nestedResult: boolean | undefined;
+  let interleaved = false;
+  files.readText = (filePath) => {
+    const contents = originalReadText(filePath);
+    if (!interleaved && path.basename(filePath).startsWith("session-") && contents === String(firstClaimAt)) {
+      interleaved = true;
+      nestedResult = update.scheduleRefresh(payload, options);
+    }
+    return contents;
+  };
+
+  const outerResult = update.scheduleRefresh(payload, options);
+  assert.equal(nestedResult, true);
+  assert.equal(outerResult, false);
+  assert.equal(spawnCalls, 2);
+});
+
 test("invalid cache, clock skew, races, permissions, and spawn failures fail open", () => {
   const now = 2_000_000_000_000;
   for (const invalidCache of [
@@ -296,6 +343,37 @@ test("installed package version is read only from a bounded validated state docu
     await fsPromises.writeFile(statePath, "not-json", "utf8");
     assert.equal(update.readInstalledVersion(statePath), undefined);
     assert.equal(update.readInstalledVersion(path.join(directory, "missing.json")), undefined);
+  });
+});
+
+test("the real filesystem atomically replaces an expired session-less marker", async () => {
+  await withTempDirectory(async (directory) => {
+    const payload = {
+      tool_name: "Bash",
+      tool_input: { command: "rg KPlayer src" },
+      cwd: path.resolve("real-filesystem-project-without-session-id"),
+    };
+    let now = 2_000_000_000_000;
+    let spawnCalls = 0;
+    const options: UpdateCheckOptions = {
+      cacheRoot: directory,
+      now: () => now,
+      spawn: () => {
+        spawnCalls += 1;
+        return { unref() {} };
+      },
+    };
+
+    assert.equal(update.scheduleRefresh(payload, options), true);
+    now += update.SESSIONLESS_MARKER_TTL_MS;
+    assert.equal(update.scheduleRefresh(payload, options), true);
+
+    const sessionsRoot = path.join(directory, "sessions");
+    const entries = await fsPromises.readdir(sessionsRoot);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0] ?? "", /^session-[a-f0-9]{64}\.seen$/u);
+    assert.equal(await fsPromises.readFile(path.join(sessionsRoot, entries[0] ?? ""), "utf8"), String(now));
+    assert.equal(spawnCalls, 2);
   });
 });
 

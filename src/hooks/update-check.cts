@@ -19,6 +19,7 @@ export interface UpdateCheckFiles {
   readText(filePath: string): string | undefined;
   ensureDirectory(directoryPath: string): void;
   createExclusive(filePath: string, contents: string): boolean;
+  replace(filePath: string, contents: string): void;
   listFiles(directoryPath: string): readonly { readonly name: string; readonly mtimeMs: number }[];
   remove(filePath: string): void;
 }
@@ -87,6 +88,27 @@ const nodeFiles: UpdateCheckFiles = {
         try { fs.unlinkSync(filePath); } catch { /* fail open */ }
       }
       if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+  },
+  replace(filePath, contents) {
+    const temporaryPath = path.join(
+      path.dirname(filePath),
+      `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    );
+    let descriptor: number | undefined;
+    try {
+      descriptor = fs.openSync(temporaryPath, "wx", 0o600);
+      fs.writeFileSync(descriptor, contents, { encoding: "utf8" });
+      fs.fsyncSync(descriptor);
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      fs.renameSync(temporaryPath, filePath);
+    } catch (error) {
+      if (descriptor !== undefined) {
+        try { fs.closeSync(descriptor); } catch { /* fail open */ }
+      }
+      try { fs.unlinkSync(temporaryPath); } catch { /* fail open */ }
       throw error;
     }
   },
@@ -191,16 +213,41 @@ function sessionMarker(payload: Record<string, unknown>): {
   };
 }
 
+function renewalMarkerName(tokenName: string): string | undefined {
+  const match = /^renew-([a-f0-9]{64})-[a-f0-9]{64}\.claim$/u.exec(tokenName);
+  return match === null ? undefined : `session-${match[1]}.seen`;
+}
+
+function pruneRenewalTokens(files: UpdateCheckFiles, directoryPath: string): ReadonlySet<string> {
+  const activeMarkers = new Set<string>();
+  const tokens = files.listFiles(directoryPath)
+    .filter((entry) => renewalMarkerName(entry.name) !== undefined);
+  for (const token of tokens) {
+    const markerName = renewalMarkerName(token.name);
+    if (markerName === undefined) continue;
+    const tokenContents = files.readText(path.join(directoryPath, token.name));
+    const markerContents = files.readText(path.join(directoryPath, markerName));
+    if (tokenContents !== undefined && markerContents === tokenContents) {
+      activeMarkers.add(markerName);
+      continue;
+    }
+    try { files.remove(path.join(directoryPath, token.name)); } catch { /* fail open */ }
+  }
+  return activeMarkers;
+}
+
 function pruneSessionMarkers(files: UpdateCheckFiles, directoryPath: string, keepName: string): void {
+  const activeRenewals = pruneRenewalTokens(files, directoryPath);
   const markers = files.listFiles(directoryPath)
     .filter((entry) => entry.name.startsWith("session-") && entry.name.endsWith(".seen"));
   if (markers.length <= MAX_SESSION_MARKERS) return;
   const removable = markers
-    .filter((entry) => entry.name !== keepName)
+    .filter((entry) => entry.name !== keepName && !activeRenewals.has(entry.name))
     .sort((left, right) => left.mtimeMs - right.mtimeMs || left.name.localeCompare(right.name));
   for (const entry of removable.slice(0, markers.length - MAX_SESSION_MARKERS)) {
     try { files.remove(path.join(directoryPath, entry.name)); } catch { /* fail open */ }
   }
+  pruneRenewalTokens(files, directoryPath);
 }
 
 function claimSession(
@@ -217,17 +264,31 @@ function claimSession(
   const contents = marker.sessionless ? String(now) : "";
   if (!files.createExclusive(markerPath, contents)) {
     if (!marker.sessionless) return false;
-    const claimedAt = Number(files.readText(markerPath));
+    const observedContents = files.readText(markerPath);
+    const claimedAt = Number(observedContents);
     if (
-      !Number.isFinite(claimedAt) || claimedAt < 0 || now < claimedAt
+      observedContents === undefined || !Number.isFinite(claimedAt) || claimedAt < 0 || now < claimedAt
       || now - claimedAt < SESSIONLESS_MARKER_TTL_MS
     ) {
       return false;
     }
-    // A protocol without a session ID gets a stable project marker. Its lifetime is anchored to
-    // the first claim instead of a wall-clock bucket, so crossing an hour cannot reschedule work.
-    files.remove(markerPath);
-    if (!files.createExclusive(markerPath, contents)) return false;
+    const observedDigest = crypto.createHash("sha256").update(observedContents, "utf8").digest("hex");
+    const renewalPath = path.join(sessionsRoot, `renew-${marker.key}-${observedDigest}.claim`);
+    if (!files.createExclusive(renewalPath, observedContents)) return false;
+    if (files.readText(markerPath) !== observedContents) {
+      try { files.remove(renewalPath); } catch { /* fail open */ }
+      return false;
+    }
+    // Contenders for one expired generation share an exclusive token. The winner atomically
+    // replaces that exact observed generation; delayed contenders re-read and fail closed.
+    try {
+      files.replace(markerPath, contents);
+    } catch {
+      // Preserve the token after an uncertain replacement failure. Pruning removes it only once
+      // the paired marker no longer contains the generation recorded in the token.
+      return false;
+    }
+    try { files.remove(renewalPath); } catch { /* stale token is safely pruned later */ }
   }
   try { pruneSessionMarkers(files, sessionsRoot, markerName); } catch { return false; }
   return true;
