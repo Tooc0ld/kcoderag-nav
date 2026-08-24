@@ -148,6 +148,29 @@ function validV3Receipt(): JsonMap {
   return value;
 }
 
+function setReceiptVersion(value: JsonMap, version: string): void {
+  value.version = version;
+  value.tag = `v${version}`;
+  if (value.schema_version === 1) {
+    value.registry.latest = version;
+    return;
+  }
+  value.registry.exact.requestedVersion = version;
+  value.registry.exact.resolvedVersion = version;
+  value.registry.latest.resolvedVersion = version;
+  value.workflow.tag = `v${version}`;
+  value.workflow.ref = `refs/tags/v${version}`;
+  value.lifecycle.exact_version.requestedPackageSpec = `kcoderag-nav@${version}`;
+  for (const lifecycleName of ["exact_version", "latest"] as const) {
+    value.lifecycle[lifecycleName].expectedVersion = version;
+    value.lifecycle[lifecycleName].resolvedVersion = version;
+    if (value.schema_version === 3) {
+      value.lifecycle[lifecycleName].publicRegistryArtifact.resolvedTarballUrl =
+        `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${version}.tgz`;
+    }
+  }
+}
+
 function expectCode(value: unknown, code: string): void {
   assert.throws(
     () => receipt.verifyPublishReceipt(value),
@@ -252,6 +275,20 @@ test("schema v3 binds exact/latest public registry origin, URL, SRI, and artifac
   }
 });
 
+test("historical schema v2 receipt remains immutable and verifies without migration", () => {
+  const historicalPath = path.join(
+    repositoryRoot,
+    ".planning",
+    "phases",
+    "03.1-javascript-npx",
+    "03.1-33-PUBLISH-RECEIPT.json",
+  );
+  const before = fs.readFileSync(historicalPath);
+  const historical: unknown = JSON.parse(before.toString("utf8"));
+  assert.equal(receipt.verifyPublishReceipt(historical).schema_version, 2);
+  assert.deepEqual(fs.readFileSync(historicalPath), before);
+});
+
 test("schema v3 rejects distinct exact/latest artifacts even when both observations are internally self-consistent", () => {
   const value = validV3Receipt();
   const latestSha256 = "ef".repeat(32);
@@ -281,6 +318,52 @@ test("schema v3 cross-binds each public artifact digest to its lifecycle provena
   const value = validV3Receipt();
   value.lifecycle.exact_version.lifecycleTarballSha256 = "34".repeat(32);
   expectCode(value, "registry_artifact_mismatch");
+});
+
+test("all receipt schemas use strict bounded core SemVer at root and nested entry points", () => {
+  const oversizedVersion = `${"1".repeat(100000)}.2.3`;
+  assert.equal(oversizedVersion.length, 100004);
+  const invalidVersions = [
+    "01.2.3",
+    "1.02.3",
+    "1.2.03",
+    " 1.2.3",
+    "1.2.3 ",
+    "1.2.3-beta",
+    "^1.2.3",
+    oversizedVersion,
+  ];
+  const factories = [validReceipt, validV2Receipt, validV3Receipt];
+  for (const factory of factories) {
+    for (const invalidVersion of invalidVersions) {
+      const value = factory();
+      setReceiptVersion(value, invalidVersion);
+      expectCode(value, "invalid_receipt_schema");
+    }
+  }
+
+  const nestedEntrypoints: Array<(value: JsonMap, version: string) => void> = [
+    (value, version) => { value.registry.exact.requestedVersion = version; },
+    (value, version) => { value.registry.exact.resolvedVersion = version; },
+    (value, version) => { value.registry.latest.resolvedVersion = version; },
+    (value, version) => { value.lifecycle.exact_version.expectedVersion = version; },
+    (value, version) => { value.lifecycle.exact_version.resolvedVersion = version; },
+    (value, version) => { value.lifecycle.latest.expectedVersion = version; },
+    (value, version) => { value.lifecycle.latest.resolvedVersion = version; },
+  ];
+  for (const factory of [validV2Receipt, validV3Receipt]) {
+    for (const mutate of nestedEntrypoints) {
+      for (const invalidVersion of ["01.2.3", " 1.2.3", oversizedVersion]) {
+        const value = factory();
+        mutate(value, invalidVersion);
+        expectCode(value, "invalid_receipt_schema");
+      }
+    }
+  }
+
+  const v1Nested = validReceipt();
+  v1Nested.registry.latest = oversizedVersion;
+  expectCode(v1Nested, "invalid_receipt_schema");
 });
 
 test("v2 rejects registry, release, workflow identity, lane, and publish divergence", () => {

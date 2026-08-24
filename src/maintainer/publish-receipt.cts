@@ -127,6 +127,7 @@ export interface PublishReceiptV3 extends Omit<PublishReceiptV2, "schema_version
 export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2 | PublishReceiptV3;
 
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const MAX_VERSION_LENGTH = 64;
 const SHA_RE = /^[0-9a-f]{40}$/u;
 const DIGEST_RE = /^[0-9a-f]{64}$/u;
 const SHA512_RE = /^[0-9a-f]{128}$/u;
@@ -203,6 +204,10 @@ function validTimestamp(value: unknown): value is string {
   return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
 }
 
+function isExactVersion(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_VERSION_LENGTH && VERSION_RE.test(value);
+}
+
 function verifyPublishReceiptV1(value: JsonMap): PublishReceiptV1 {
   failUnless(exactKeys(value, [
     "schema_version",
@@ -216,7 +221,7 @@ function verifyPublishReceiptV1(value: JsonMap): PublishReceiptV1 {
     "timestamp",
   ]), "invalid_receipt_schema");
   failUnless(value.schema_version === 1 && value.package === "kcoderag-nav", "invalid_receipt_schema");
-  failUnless(typeof value.version === "string" && VERSION_RE.test(value.version), "invalid_version");
+  failUnless(isExactVersion(value.version), "invalid_receipt_schema");
   failUnless(value.tag === `v${value.version}`, "tag_version_mismatch");
   failUnless(typeof value.release_commit_sha === "string" && SHA_RE.test(value.release_commit_sha), "invalid_release_sha");
   failUnless(validTimestamp(value.timestamp), "invalid_timestamp");
@@ -236,6 +241,7 @@ function verifyPublishReceiptV1(value: JsonMap): PublishReceiptV1 {
       && exactKeys(value.registry.engines, ["node"]),
     "invalid_receipt_schema",
   );
+  failUnless(isExactVersion(value.registry.latest), "invalid_receipt_schema");
   failUnless(value.registry.latest === value.version, "registry_version_mismatch");
   failUnless(value.registry.bin["kcoderag-nav"] === "dist/bin/kcoderag-nav.cjs", "registry_metadata_mismatch");
   failUnless(value.registry.engines.node === ">=22", "registry_metadata_mismatch");
@@ -271,6 +277,10 @@ function verifyLifecycleEvidence(
     "hosts",
   ]), "invalid_receipt_schema");
   failUnless(
+    isExactVersion(expectedVersion) && isExactVersion(value.expectedVersion) && isExactVersion(value.resolvedVersion),
+    "invalid_receipt_schema",
+  );
+  failUnless(
     value.requestedPackageSpec === requestedPackageSpec &&
       value.expectedVersion === expectedVersion &&
       value.resolvedPackageName === "kcoderag-nav" &&
@@ -298,7 +308,7 @@ function verifyPublishReceiptV2(value: JsonMap): PublishReceiptV2 {
     "timestamp",
   ]), "invalid_receipt_schema");
   failUnless(value.schema_version === 2 && value.package === "kcoderag-nav", "invalid_receipt_schema");
-  failUnless(typeof value.version === "string" && VERSION_RE.test(value.version), "invalid_version");
+  failUnless(isExactVersion(value.version), "invalid_receipt_schema");
   failUnless(value.tag === `v${value.version}`, "tag_version_mismatch");
   failUnless(typeof value.release_commit_sha === "string" && SHA_RE.test(value.release_commit_sha), "invalid_release_sha");
   failUnless(validTimestamp(value.timestamp), "invalid_timestamp");
@@ -309,6 +319,12 @@ function verifyPublishReceiptV2(value: JsonMap): PublishReceiptV2 {
       && exactKeys(value.registry.latest, ["resolvedVersion"])
       && exactKeys(value.registry.bin, ["kcoderag-nav"])
       && exactKeys(value.registry.engines, ["node"]),
+    "invalid_receipt_schema",
+  );
+  failUnless(
+    isExactVersion(value.registry.exact.requestedVersion)
+      && isExactVersion(value.registry.exact.resolvedVersion)
+      && isExactVersion(value.registry.latest.resolvedVersion),
     "invalid_receipt_schema",
   );
   failUnless(
