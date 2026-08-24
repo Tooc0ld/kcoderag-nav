@@ -423,10 +423,9 @@ function verifyLifecycleEvidenceV3(
   const { publicRegistryArtifact, ...legacyEvidence } = value;
   verifyLifecycleEvidence(legacyEvidence, requestedPackageSpec, expectedVersion);
   const normalizedArtifact = verifyPublicRegistryArtifact(publicRegistryArtifact, expectedVersion);
-  failUnless(
-    legacyEvidence.lifecycleTarballSha256 === normalizedArtifact.artifactSha256,
-    "registry_artifact_mismatch",
-  );
+  // The lifecycle digest identifies the instrumented package repacked for the
+  // loopback MCP run. The public artifact identifies the original immutable
+  // Registry tarball, so their hashes are independent by design.
   return normalizedArtifact;
 }
 

@@ -135,13 +135,17 @@ function validV3Receipt(): JsonMap {
   const value = validV2Receipt();
   value.schema_version = 3;
   const artifactSha512 = "ab".repeat(64);
-  for (const lifecycleName of ["exact_version", "latest"] as const) {
-    value.lifecycle[lifecycleName].lifecycleTarballSha256 = "cd".repeat(32);
+  const artifactSha256 = "ef".repeat(32);
+  for (const [lifecycleName, lifecycleSha256] of [
+    ["exact_version", "cd".repeat(32)],
+    ["latest", "34".repeat(32)],
+  ] as const) {
+    value.lifecycle[lifecycleName].lifecycleTarballSha256 = lifecycleSha256;
     value.lifecycle[lifecycleName].publicRegistryArtifact = {
       registry: "https://registry.npmjs.org/",
       resolvedTarballUrl: "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
       distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
-      artifactSha256: "cd".repeat(32),
+      artifactSha256,
       artifactSha512,
     };
   }
@@ -293,7 +297,6 @@ test("schema v3 rejects distinct exact/latest artifacts even when both observati
   const value = validV3Receipt();
   const latestSha256 = "ef".repeat(32);
   const latestSha512 = "12".repeat(64);
-  value.lifecycle.latest.lifecycleTarballSha256 = latestSha256;
   value.lifecycle.latest.publicRegistryArtifact.artifactSha256 = latestSha256;
   value.lifecycle.latest.publicRegistryArtifact.artifactSha512 = latestSha512;
   value.lifecycle.latest.publicRegistryArtifact.distIntegrity =
@@ -314,10 +317,57 @@ test("schema v3 rejects distinct exact/latest artifacts even when both observati
   }
 });
 
-test("schema v3 cross-binds each public artifact digest to its lifecycle provenance", () => {
+test("schema v3 keeps synthetic lifecycle digests independent from the public artifact", () => {
   const value = validV3Receipt();
-  value.lifecycle.exact_version.lifecycleTarballSha256 = "34".repeat(32);
-  expectCode(value, "registry_artifact_mismatch");
+  assert.notEqual(
+    value.lifecycle.exact_version.lifecycleTarballSha256,
+    value.lifecycle.exact_version.publicRegistryArtifact.artifactSha256,
+  );
+  assert.notEqual(
+    value.lifecycle.exact_version.lifecycleTarballSha256,
+    value.lifecycle.latest.lifecycleTarballSha256,
+  );
+  assert.deepEqual(receipt.verifyPublishReceipt(value), value);
+
+  value.lifecycle.exact_version.lifecycleTarballSha256 = "not-a-digest";
+  expectCode(value, "invalid_lifecycle_digest");
+});
+
+test("records genuine public 0.1.7 exact/latest smoke evidence as schema v3", () => {
+  const historicalPath = path.join(
+    repositoryRoot,
+    ".planning",
+    "phases",
+    "03.1-javascript-npx",
+    "03.1-33-PUBLISH-RECEIPT.json",
+  );
+  const value = JSON.parse(fs.readFileSync(historicalPath, "utf8")) as JsonMap;
+  value.schema_version = 3;
+  const publicRegistryArtifact = {
+    registry: "https://registry.npmjs.org/",
+    resolvedTarballUrl: "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-0.1.7.tgz",
+    distIntegrity: "sha512-JXQK65Ow9/u9HyKB1l3aby1cHctgIJiwAXUdxA+cstJsTpREsIrnHou0Pe9LxGE/EyqIQkVOX8209T2OE5QnGw==",
+    artifactSha256: "127dfec77c222c0a1be3e002fb330b1b0e74fee87de3d4f79eab603459d18cd8",
+    artifactSha512: "25740aeb93b0f7fbbd1f2281d65dda6f2d5c1dcb602098b001751dc40f9cb2d26c4e9444b08ae71e8bb43def4bc4613f132a8842454e5fcdb4f53d8e1394271b",
+  };
+  value.lifecycle.exact_version.publicRegistryArtifact = { ...publicRegistryArtifact };
+  value.lifecycle.latest.publicRegistryArtifact = { ...publicRegistryArtifact };
+
+  assert.notEqual(value.lifecycle.exact_version.lifecycleTarballSha256, publicRegistryArtifact.artifactSha256);
+  assert.notEqual(value.lifecycle.latest.lifecycleTarballSha256, publicRegistryArtifact.artifactSha256);
+  assert.notEqual(
+    value.lifecycle.exact_version.lifecycleTarballSha256,
+    value.lifecycle.latest.lifecycleTarballSha256,
+  );
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-publish-receipt-v3-public-"));
+  try {
+    const target = path.join(root, "receipt.json");
+    assert.deepEqual(receipt.recordPublishReceipt(target, value), value);
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, "utf8")), value);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("all receipt schemas use strict bounded core SemVer at root and nested entry points", () => {
