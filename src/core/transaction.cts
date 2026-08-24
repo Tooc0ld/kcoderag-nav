@@ -35,6 +35,12 @@ interface RecoveryLocation {
   readonly absolutePath: string;
 }
 
+interface RecoveryIdentity {
+  readonly root: DirectoryIdentity;
+  readonly filesDirectory?: DirectoryIdentity;
+  readonly files: ReadonlyMap<string, FileIdentity>;
+}
+
 interface RecoveryManifestEntry {
   readonly relativePath: string;
   readonly kind: "absent" | "file";
@@ -391,36 +397,44 @@ function writeSecureFile(
   directoryPath: string,
   directoryIdentity: DirectoryIdentity,
   options: TransactionOptions,
-): void {
+): FileIdentity {
   let descriptor: number | undefined;
-  let createdIdentity: FileIdentity | undefined;
+  let ownedIdentity: FileIdentity | undefined;
   try {
     assertParentIdentities(desired, guardEntry, identities);
     assertExactDirectory(desired, directoryPath, directoryIdentity, guardEntry.path.relativePath);
     options.onBeforePathOperation?.("recovery-write", guardEntry.path.relativePath);
     descriptor = fs.openSync(destination, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-    createdIdentity = fileIdentity(fs.fstatSync(descriptor));
+    ownedIdentity = fileIdentity(fs.fstatSync(descriptor));
     assertParentIdentities(desired, guardEntry, identities);
     assertExactDirectory(desired, directoryPath, directoryIdentity, guardEntry.path.relativePath);
     const namedIdentity = inspectFile(destination, guardEntry.path.relativePath);
-    if (namedIdentity === null || !sameFile(createdIdentity, namedIdentity)) {
+    if (namedIdentity === null || !sameFile(ownedIdentity, namedIdentity)) {
       throw new InstallError("filesystem_race", guardEntry.path.relativePath);
     }
     fs.writeFileSync(descriptor, bytes);
     fs.fsyncSync(descriptor);
+    ownedIdentity = fileIdentity(fs.fstatSync(descriptor));
+    assertParentIdentities(desired, guardEntry, identities);
+    assertExactDirectory(desired, directoryPath, directoryIdentity, guardEntry.path.relativePath);
+    const writtenIdentity = inspectFile(destination, guardEntry.path.relativePath);
+    if (writtenIdentity === null || !sameFile(ownedIdentity, writtenIdentity)) {
+      throw new InstallError("filesystem_race", guardEntry.path.relativePath);
+    }
     fs.closeSync(descriptor);
     descriptor = undefined;
+    return ownedIdentity;
   } catch (error) {
     if (descriptor !== undefined) {
       try { fs.closeSync(descriptor); } catch { /* Best-effort close before exact cleanup. */ }
     }
     try {
       const current = inspectFile(destination, guardEntry.path.relativePath);
-      if (current !== null && createdIdentity !== undefined && sameFile(current, createdIdentity)) {
+      if (current !== null && ownedIdentity !== undefined && sameFile(current, ownedIdentity)) {
         fs.unlinkSync(destination);
       }
     } catch {
-      // createRecovery removes the private recovery tree on propagation.
+      // The caller retains an uncertain recovery tree rather than deleting a replacement pathname.
     }
     throw error;
   }
@@ -438,10 +452,12 @@ function createRecovery(
   originals: ReadonlyMap<string, Buffer | undefined>,
   identities: DirectoryIdentities,
   options: TransactionOptions,
-): DirectoryIdentity {
+): RecoveryIdentity {
   const guardEntry = entries.find((entry) => entry.path.relativePath === desired.statePath.relativePath) ?? entries[0];
   if (guardEntry === undefined) throw new InstallError("invalid_desired_state");
   let recoveryIdentity: DirectoryIdentity | undefined;
+  let filesIdentity: DirectoryIdentity | undefined;
+  const recoveryFiles = new Map<string, FileIdentity>();
   try {
     assertParentIdentities(desired, guardEntry, identities);
     options.onBeforePathOperation?.("recovery-create", recovery.relativePath);
@@ -454,8 +470,8 @@ function createRecovery(
     fs.mkdirSync(filesDirectory, { mode: 0o700 });
     assertParentIdentities(desired, guardEntry, identities);
     assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity, recovery.relativePath);
-    const filesIdentity = inspectDirectory(desired, filesDirectory, recovery.relativePath);
-    if (filesIdentity === null) throw new InstallError("filesystem_race", recovery.relativePath);
+    filesIdentity = inspectDirectory(desired, filesDirectory, recovery.relativePath) ?? undefined;
+    if (filesIdentity === undefined) throw new InstallError("filesystem_race", recovery.relativePath);
 
     const manifestEntries: RecoveryManifestEntry[] = [];
     for (const [index, entry] of entries.entries()) {
@@ -465,8 +481,9 @@ function createRecovery(
         continue;
       }
       const backup = `files/${index.toString().padStart(4, "0")}.bin`;
-      writeSecureFile(
-        path.join(recovery.absolutePath, ...backup.split("/")),
+      const backupPath = path.join(recovery.absolutePath, ...backup.split("/"));
+      const backupIdentity = writeSecureFile(
+        backupPath,
         original,
         desired,
         guardEntry,
@@ -475,6 +492,7 @@ function createRecovery(
         filesIdentity,
         options,
       );
+      recoveryFiles.set(backupPath, backupIdentity);
       manifestEntries.push({
         relativePath: entry.path.relativePath,
         kind: "file",
@@ -487,8 +505,9 @@ function createRecovery(
       host: desired.host,
       entries: manifestEntries,
     }, null, 2)}\n`, "utf8");
-    writeSecureFile(
-      path.join(recovery.absolutePath, "manifest.json"),
+    const manifestPath = path.join(recovery.absolutePath, "manifest.json");
+    const manifestIdentity = writeSecureFile(
+      manifestPath,
       manifest,
       desired,
       guardEntry,
@@ -497,12 +516,22 @@ function createRecovery(
       recoveryIdentity,
       options,
     );
-    return recoveryIdentity;
+    recoveryFiles.set(manifestPath, manifestIdentity);
+    return { root: recoveryIdentity, filesDirectory: filesIdentity, files: recoveryFiles };
   } catch (error) {
-    try {
-      fs.rmSync(recovery.absolutePath, { recursive: true, force: true });
-    } catch {
-      // No managed destination has changed yet; the transaction reports a safe failure code.
+    if (recoveryIdentity !== undefined) {
+      try {
+        removeRecovery(
+          recovery,
+          desired,
+          guardEntry,
+          identities,
+          { root: recoveryIdentity, ...(filesIdentity === undefined ? {} : { filesDirectory: filesIdentity }), files: recoveryFiles },
+          options,
+        );
+      } catch {
+        // Identity ambiguity retains both the verified private object and any replacement pathname.
+      }
     }
     throw error;
   }
@@ -551,15 +580,51 @@ function removeRecovery(
   desired: DesiredState,
   guardEntry: DesiredEntry,
   identities: DirectoryIdentities,
-  recoveryIdentity: DirectoryIdentity,
+  recoveryIdentity: RecoveryIdentity,
   options: TransactionOptions,
 ): void {
   assertParentIdentities(desired, guardEntry, identities);
-  assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity, recovery.relativePath);
+  assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
   options.onBeforePathOperation?.("recovery-cleanup", recovery.relativePath);
   assertParentIdentities(desired, guardEntry, identities);
-  assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity, recovery.relativePath);
-  fs.rmSync(recovery.absolutePath, { recursive: true });
+  assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
+
+  for (const [filePath, expected] of recoveryIdentity.files) {
+    assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
+    if (recoveryIdentity.filesDirectory !== undefined && path.dirname(filePath) !== recovery.absolutePath) {
+      assertExactDirectory(
+        desired,
+        path.join(recovery.absolutePath, "files"),
+        recoveryIdentity.filesDirectory,
+        recovery.relativePath,
+      );
+    }
+    options.onBeforePathOperation?.("recovery-cleanup-file", recovery.relativePath);
+    assertParentIdentities(desired, guardEntry, identities);
+    assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
+    const current = inspectFile(filePath, recovery.relativePath);
+    if (current === null || !sameFile(expected, current)) {
+      throw new InstallError("filesystem_race", recovery.relativePath);
+    }
+    fs.unlinkSync(filePath);
+  }
+
+  if (recoveryIdentity.filesDirectory !== undefined) {
+    const filesDirectory = path.join(recovery.absolutePath, "files");
+    assertExactDirectory(desired, filesDirectory, recoveryIdentity.filesDirectory, recovery.relativePath);
+    options.onBeforePathOperation?.("recovery-cleanup-files-directory", recovery.relativePath);
+    assertParentIdentities(desired, guardEntry, identities);
+    assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
+    assertExactDirectory(desired, filesDirectory, recoveryIdentity.filesDirectory, recovery.relativePath);
+    fs.rmdirSync(filesDirectory);
+  }
+
+  options.onBeforePathOperation?.("recovery-cleanup-remove", recovery.relativePath);
+  assertParentIdentities(desired, guardEntry, identities);
+  assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
+  // Node cannot bind recursive deletion to a directory descriptor. Removing only a proven-empty
+  // directory means a final-window replacement containing user data is retained with ENOTEMPTY.
+  fs.rmdirSync(recovery.absolutePath);
   assertParentIdentities(desired, guardEntry, identities);
 }
 
@@ -638,7 +703,7 @@ export function applyTransaction(
   const discarded: string[] = [];
   const committed = new Set<string>();
   let recovery: RecoveryLocation | undefined;
-  let recoveryIdentity: DirectoryIdentity | undefined;
+  let recoveryIdentity: RecoveryIdentity | undefined;
   let transactionStarted = false;
 
   try {
@@ -747,7 +812,7 @@ export function applyTransaction(
 
     if (recovery !== undefined && recoveryIdentity !== undefined) {
       try {
-        assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity, recovery.relativePath);
+        assertExactDirectory(desired, recovery.absolutePath, recoveryIdentity.root, recovery.relativePath);
         if (inspectFile(path.join(recovery.absolutePath, "manifest.json"), recovery.relativePath) === null) {
           rollbackFailed = true;
         }

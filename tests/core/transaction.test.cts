@@ -463,6 +463,78 @@ test("transaction fences swaps in final read, stage, recovery, and delete operat
   }
 });
 
+test("recovery-write identity swaps retain replacement data instead of recursively deleting it", () => {
+  const base = temporaryDirectory("kcoderag-core-recovery-write-swap-");
+  try {
+    const fixture = transactionFixture(base);
+    let recoveryPath: string | undefined;
+    let parkedRecovery: string | undefined;
+    let swapped = false;
+    let caught: unknown;
+    try {
+      transaction.applyTransaction(fixture.desired, {
+        onBeforePathOperation: (operation) => {
+          if (swapped || operation !== "recovery-write") return;
+          const recoveryName = fs.readdirSync(fixture.targetRoot)
+            .find((name) => name.startsWith(".kcoderag-nav-recovery-"));
+          assert.ok(recoveryName);
+          recoveryPath = path.join(fixture.targetRoot, recoveryName);
+          parkedRecovery = `${recoveryPath}-verified`;
+          fs.renameSync(recoveryPath, parkedRecovery);
+          fs.mkdirSync(path.join(recoveryPath, "files"), { recursive: true });
+          fs.writeFileSync(path.join(recoveryPath, "replacement-sentinel.txt"), "replacement\n");
+          swapped = true;
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    assert.equal(errorCode(caught), "transaction_failed");
+    assert.equal(swapped, true);
+    assert.equal(fs.readFileSync(path.join(recoveryPath as string, "replacement-sentinel.txt"), "utf8"), "replacement\n");
+    assert.equal(fs.statSync(parkedRecovery as string).isDirectory(), true);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("final recovery cleanup swaps retain a non-empty replacement directory", () => {
+  const base = temporaryDirectory("kcoderag-core-recovery-cleanup-swap-");
+  try {
+    const fixture = transactionFixture(base);
+    let recoveryPath: string | undefined;
+    let parkedRecovery: string | undefined;
+    let swapped = false;
+    let caught: unknown;
+    try {
+      transaction.applyTransaction(fixture.desired, {
+        onBeforePathOperation: (operation) => {
+          if (swapped || operation !== "recovery-cleanup-remove") return;
+          const recoveryName = fs.readdirSync(fixture.targetRoot)
+            .find((name) => name.startsWith(".kcoderag-nav-recovery-"));
+          assert.ok(recoveryName);
+          recoveryPath = path.join(fixture.targetRoot, recoveryName);
+          parkedRecovery = `${recoveryPath}-verified`;
+          fs.renameSync(recoveryPath, parkedRecovery);
+          fs.mkdirSync(recoveryPath);
+          fs.writeFileSync(path.join(recoveryPath, "replacement-sentinel.txt"), "replacement\n");
+          swapped = true;
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    assert.equal(errorCode(caught), "rollback_failed");
+    assert.equal(swapped, true);
+    assert.equal(fs.readFileSync(path.join(recoveryPath as string, "replacement-sentinel.txt"), "utf8"), "replacement\n");
+    assert.equal(fs.statSync(parkedRecovery as string).isDirectory(), true);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("transaction stages all entries, atomically replaces them, and commits state last", () => {
   const base = temporaryDirectory("kcoderag-core-success-");
   try {
