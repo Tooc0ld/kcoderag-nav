@@ -383,7 +383,7 @@ test("public acquisition strips inherited npm controls and rejects redirected or
   const previousRegistry = process.env.NPM_CONFIG_REGISTRY;
   process.env.NPM_CONFIG_REGISTRY = "http://127.0.0.1:9/";
   try {
-    for (const fixture of ["redirected", "integrity-mismatch"] as const) {
+    for (const fixture of ["redirected", "wrong-version-url", "integrity-mismatch"] as const) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-public-boundary-"));
       let npmCalls = 0;
       try {
@@ -413,7 +413,9 @@ test("public acquisition strips inherited npm controls and rejects redirected or
                       integrity: `sha512-${Buffer.alloc(64, 7).toString("base64")}`,
                       tarball: fixture === "redirected"
                         ? "https://registry.example.invalid/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz"
-                        : "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
+                        : fixture === "wrong-version-url"
+                          ? "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.4.tgz"
+                          : "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
                     },
                   }),
                   stderr: "",
@@ -433,7 +435,7 @@ test("public acquisition strips inherited npm controls and rejects redirected or
         assert.equal(result.status, "NOT_RUN", fixture);
         assert.equal(result.provenance, undefined, fixture);
         assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture);
-        assert.equal(npmCalls, fixture === "redirected" ? 1 : 2, fixture);
+        assert.equal(npmCalls, fixture === "integrity-mismatch" ? 2 : 1, fixture);
         assert.doesNotMatch(JSON.stringify(result), /127\.0\.0\.1|registry\.example|integrity|npmrc/iu);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
@@ -442,6 +444,42 @@ test("public acquisition strips inherited npm controls and rejects redirected or
   } finally {
     if (previousRegistry === undefined) delete process.env.NPM_CONFIG_REGISTRY;
     else process.env.NPM_CONFIG_REGISTRY = previousRegistry;
+  }
+});
+
+test("public registry artifact drift during npm install fails before any host project write", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-registry-install-drift-"));
+  let replaced = false;
+  try {
+    const fixture = packTinyFixture(root, "kcoderag-nav", "1.2.3");
+    const result = await smoke.runHostSmoke(
+      {
+        mode: "required-contract",
+        packageSpec: "kcoderag-nav@1.2.3",
+        expectedVersion: "1.2.3",
+        temporaryRoot: root,
+      },
+      {
+        runNpm: publicRegistryRunner(fixture.tarball, "1.2.3", (args) => {
+          if (!replaced && args[0] === "install") {
+            const invocationTarball = args[args.length - 1];
+            assert.equal(typeof invocationTarball, "string");
+            assert.match(path.basename(invocationTarball as string), /^[a-f0-9]{64}\.tgz$/u);
+            const bytes = fs.readFileSync(invocationTarball as string);
+            bytes[9] = (bytes[9] ?? 0) ^ 1;
+            fs.writeFileSync(invocationTarball as string, bytes);
+            replaced = true;
+          }
+        }),
+      },
+    );
+    assert.equal(replaced, true);
+    assert.equal(result.status, "NOT_RUN");
+    assert.equal(result.provenance, undefined);
+    assert.equal(fs.existsSync(path.join(root, "projects")), false);
+    assert.doesNotMatch(JSON.stringify(result), /registry-install-drift|verified-artifacts|node_modules/iu);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -87,11 +87,11 @@ interface NormalizedPackageRequest {
 }
 
 interface ValidatedAcquisition {
-  readonly lifecycleArtifact: VerifiedLifecycleArtifact;
+  readonly lifecycleArtifact: VerifiedTarballArtifact;
   readonly provenance: PackageProvenance;
 }
 
-interface VerifiedLifecycleArtifact {
+interface VerifiedTarballArtifact {
   readonly originalPath: string;
   readonly originalRealPath: string;
   readonly bytes: Buffer;
@@ -322,12 +322,12 @@ function packDirectory(directory: string, destination: string, env: NodeJS.Proce
   return parsePackFilename(packed.stdout, destination);
 }
 
-function publicTarballUrl(value: string): boolean {
+function publicTarballUrl(value: string, expectedVersion: string): boolean {
   try {
     const parsed = new URL(value);
     return parsed.protocol === "https:" && parsed.hostname === "registry.npmjs.org" && parsed.port === "" &&
       parsed.username === "" && parsed.password === "" && parsed.search === "" && parsed.hash === "" &&
-      /^\/kcoderag-nav\/-\/kcoderag-nav-[^/]+\.tgz$/u.test(parsed.pathname);
+      parsed.pathname === `/kcoderag-nav/-/kcoderag-nav-${expectedVersion}.tgz`;
   } catch {
     return false;
   }
@@ -339,7 +339,11 @@ function acquirePublicRegistryArtifact(
   acquisitionRoot: string,
   env: NodeJS.ProcessEnv,
   runNpm: NpmRunner,
-): { readonly tarballPath: string; readonly provenance: PublicRegistryArtifact } {
+): {
+  readonly tarballPath: string;
+  readonly verifiedArtifact: VerifiedTarballArtifact;
+  readonly provenance: PublicRegistryArtifact;
+} {
   const isolatedArgs = isolatedRegistryArguments(env);
   const metadataResult = runNpm(["view", sourceSpec, "--json", ...isolatedArgs], acquisitionRoot, env);
   if (metadataResult.code !== 0) throw new Error("package_acquisition_failed");
@@ -353,7 +357,7 @@ function acquirePublicRegistryArtifact(
     !isRecord(metadata) || metadata.name !== PACKAGE_NAME || metadata.version !== expectedVersion ||
     !isRecord(metadata.dist) || typeof metadata.dist.integrity !== "string" ||
     !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(metadata.dist.integrity) ||
-    typeof metadata.dist.tarball !== "string" || !publicTarballUrl(metadata.dist.tarball)
+    typeof metadata.dist.tarball !== "string" || !publicTarballUrl(metadata.dist.tarball, expectedVersion)
   ) {
     throw new Error("package_acquisition_failed");
   }
@@ -366,15 +370,23 @@ function acquirePublicRegistryArtifact(
   const tarballPath = parsePackFilename(packed.stdout, destination);
   const bytes = fs.readFileSync(tarballPath);
   const artifactSha512 = crypto.createHash("sha512").update(bytes).digest("hex");
+  const artifactSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
   const verifiedIntegrity = `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`;
   if (verifiedIntegrity !== metadata.dist.integrity) throw new Error("package_acquisition_failed");
   return Object.freeze({
     tarballPath,
+    verifiedArtifact: {
+      originalPath: tarballPath,
+      originalRealPath: tarballPath,
+      bytes: Buffer.from(bytes),
+      sha256: artifactSha256,
+      compromised: false,
+    },
     provenance: Object.freeze({
       registry: PUBLIC_REGISTRY,
       resolvedTarballUrl: metadata.dist.tarball,
       distIntegrity: metadata.dist.integrity,
-      artifactSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      artifactSha256,
       artifactSha512,
     }),
   });
@@ -474,6 +486,7 @@ async function acquirePackage(
   const env = safeEnvironment(acquisitionRuntime);
   fs.mkdirSync(acquisitionRoot, { recursive: true });
   let publicRegistryArtifact: PublicRegistryArtifact | undefined;
+  let publicInstallArtifact: VerifiedTarballArtifact | undefined;
   let sourceSpec: string;
   if (packageSpec.length === 0) {
     sourceSpec = packDirectory(repositoryRoot, path.join(temporaryRoot, "source-pack"), env, runNpm);
@@ -482,21 +495,25 @@ async function acquirePackage(
     const acquired = acquirePublicRegistryArtifact(packageSpec, expectedVersion, acquisitionRoot, env, runNpm);
     sourceSpec = acquired.tarballPath;
     publicRegistryArtifact = acquired.provenance;
+    publicInstallArtifact = acquired.verifiedArtifact;
   } else {
     sourceSpec = packageSpec;
   }
   const installRoot = path.join(temporaryRoot, "acquired");
   fs.mkdirSync(installRoot, { recursive: true });
-  const installed = runNpm([
-    "install",
-    "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
-    "--package-lock=false",
-    "--prefix",
-    installRoot,
-    sourceSpec,
-  ], acquisitionRoot, env);
+  const install = (verifiedSourceSpec: string): CommandResult => runNpm([
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--package-lock=false",
+      "--prefix",
+      installRoot,
+      verifiedSourceSpec,
+    ], acquisitionRoot, env);
+  const installed = publicInstallArtifact === undefined
+    ? install(sourceSpec)
+    : withVerifiedInvocationTarball(publicInstallArtifact, acquisitionRuntime, "registry-install", install);
   if (installed.code !== 0) throw new Error("package_acquisition_failed");
   const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
   let resolvedVersion: string;
@@ -559,7 +576,8 @@ function validateAcquisition(
   if (request.publicRegistry) {
     if (
       !isRecord(publicRegistryArtifact) || publicRegistryArtifact.registry !== PUBLIC_REGISTRY ||
-      typeof publicRegistryArtifact.resolvedTarballUrl !== "string" || !publicTarballUrl(publicRegistryArtifact.resolvedTarballUrl) ||
+      typeof publicRegistryArtifact.resolvedTarballUrl !== "string" ||
+      !publicTarballUrl(publicRegistryArtifact.resolvedTarballUrl, expectedVersion) ||
       typeof publicRegistryArtifact.distIntegrity !== "string" ||
       !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(publicRegistryArtifact.distIntegrity) ||
       typeof publicRegistryArtifact.artifactSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(publicRegistryArtifact.artifactSha256) ||
@@ -595,7 +613,7 @@ function validateAcquisition(
     lifecycleTarballSha256,
     ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact: Object.freeze({ ...publicRegistryArtifact }) }),
   });
-  const lifecycleArtifact: VerifiedLifecycleArtifact = {
+  const lifecycleArtifact: VerifiedTarballArtifact = {
     originalPath: lifecyclePackageSpec,
     originalRealPath: realTarball,
     bytes: Buffer.from(lifecycleBytes),
@@ -615,7 +633,7 @@ function assertArtifactFile(filePath: string, expectedRealPath: string, expected
   if (digest !== expectedSha256) throw new Error("artifact_integrity_failed");
 }
 
-function assertLifecycleArtifact(artifact: VerifiedLifecycleArtifact): void {
+function assertVerifiedArtifact(artifact: VerifiedTarballArtifact): void {
   try {
     assertArtifactFile(artifact.originalPath, artifact.originalRealPath, artifact.sha256);
   } catch {
@@ -625,13 +643,13 @@ function assertLifecycleArtifact(artifact: VerifiedLifecycleArtifact): void {
 }
 
 function withVerifiedInvocationTarball<T>(
-  artifact: VerifiedLifecycleArtifact,
+  artifact: VerifiedTarballArtifact,
   runtimeRoot: string,
   command: string,
   invoke: (packageSpec: string) => T,
 ): T {
   try {
-    assertLifecycleArtifact(artifact);
+    assertVerifiedArtifact(artifact);
     const copiesRoot = path.join(runtimeRoot, "verified-artifacts");
     fs.mkdirSync(copiesRoot, { recursive: true, mode: 0o700 });
     const invocationRoot = fs.mkdtempSync(path.join(copiesRoot, `${command}-`));
@@ -641,7 +659,7 @@ function withVerifiedInvocationTarball<T>(
     assertArtifactFile(invocationPath, invocationRealPath, artifact.sha256);
     const result = invoke(invocationPath);
     assertArtifactFile(invocationPath, invocationRealPath, artifact.sha256);
-    assertLifecycleArtifact(artifact);
+    assertVerifiedArtifact(artifact);
     return result;
   } catch {
     artifact.compromised = true;
@@ -660,7 +678,7 @@ function parseCliPayload(result: CommandResult, command: string): Record<string,
 }
 
 function runPackageCli(
-  artifact: VerifiedLifecycleArtifact,
+  artifact: VerifiedTarballArtifact,
   projectRoot: string,
   runtimeRoot: string,
   command: "install" | "status" | "update" | "uninstall",
@@ -823,7 +841,7 @@ function statePath(host: HostId, projectRoot: string): string {
 
 async function runRequiredHost(
   host: HostId,
-  artifact: VerifiedLifecycleArtifact,
+  artifact: VerifiedTarballArtifact,
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
@@ -919,7 +937,7 @@ function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string):
 
 async function runOptionalHost(
   host: HostId,
-  artifact: VerifiedLifecycleArtifact,
+  artifact: VerifiedTarballArtifact,
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
@@ -1091,7 +1109,7 @@ export async function runHostSmoke(
       })));
     }
     try {
-      assertLifecycleArtifact(acquiredPackage.lifecycleArtifact);
+      assertVerifiedArtifact(acquiredPackage.lifecycleArtifact);
     } catch {
       return aggregate(
         options.mode,
@@ -1123,7 +1141,7 @@ export async function runHostSmoke(
             runNpm,
           ));
     }
-    try { assertLifecycleArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
+    try { assertVerifiedArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
     return acquiredPackage.lifecycleArtifact.compromised
       ? aggregate(
           options.mode,
