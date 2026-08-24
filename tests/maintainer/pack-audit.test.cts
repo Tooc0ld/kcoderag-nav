@@ -118,6 +118,34 @@ test("rejects Python, runtime compiler, source, tests, planning, dependency, and
   }
 });
 
+test("rejects unexpected ignored compiled outputs and scans compiled runtime bytes", () => {
+  const extra = path.join(repositoryRoot, "dist", "extra.cjs");
+  fs.writeFileSync(extra, "module.exports = {};\n", "utf8");
+  try {
+    expectCode(
+      () => packAudit.expandPackageFiles(repositoryRoot, packageJson()),
+      "compiled_output_drift",
+    );
+  } finally {
+    fs.unlinkSync(extra);
+  }
+
+  const credential = baseline();
+  credential.archiveEntries.set(
+    "dist/core/state.cjs",
+    Buffer.from("KCODERAG_PACK_CREDENTIAL_FIXTURE", "ascii"),
+  );
+  expectCode(() => packAudit.validatePack(credential), "credential_fixture_in_archive");
+
+  const unresolved = baseline();
+  unresolved.archiveEntries.set(
+    "dist/hosts/codex.cjs",
+    Buffer.from("const value = '{{unexpected_runtime_token}}';\n", "utf8"),
+  );
+  expectCode(() => packAudit.validatePack(unresolved), "unresolved_placeholder");
+});
+
+
 test("rejects broad product files entries, missing entries, engine drift, and bin drift", () => {
   const broad = packageJson();
   broad.files = ["dist/", "kcoderag-qa/", "kcoderag-dev/", "kcoderag-cursor/"];

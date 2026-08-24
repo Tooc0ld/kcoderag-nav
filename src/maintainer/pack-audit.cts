@@ -116,11 +116,42 @@ function walkFiles(root: string, relativeDirectory: string): string[] {
   return output;
 }
 
+function compiledOutputPaths(root: string): readonly string[] {
+  return Object.freeze(
+    walkFiles(root, "src")
+      .filter((relativePath) => relativePath.endsWith(".cts"))
+      .map((relativePath) => `dist/${relativePath.slice("src/".length, -".cts".length)}.cjs`)
+      .sort(compare),
+  );
+}
+
+function assertCompiledOutputPolicy(root: string, packageJson: JsonMap): void {
+  const expected = compiledOutputPaths(root);
+  const declared = (packageJson.files as unknown[])
+    .filter((value): value is string => typeof value === "string" && value.startsWith("dist/"))
+    .map(normalizeRelative)
+    .sort(compare);
+  if (
+    declared.length !== expected.length ||
+    declared.some((relativePath, index) => relativePath !== expected[index])
+  ) {
+    throw new PackAuditError("files_policy_invalid");
+  }
+  const actual = walkFiles(root, "dist").sort(compare);
+  if (
+    actual.length !== expected.length ||
+    actual.some((relativePath, index) => relativePath !== expected[index])
+  ) {
+    throw new PackAuditError("compiled_output_drift");
+  }
+}
+
 /** Expand the exact package allow-list to ordinary paths before npm packing. */
 export function expandPackageFiles(root: string, packageJson: JsonMap): readonly string[] {
   if (!Array.isArray(packageJson.files) || packageJson.files.length === 0) {
     throw new PackAuditError("files_policy_invalid");
   }
+  assertCompiledOutputPolicy(root, packageJson);
   const paths = new Set<string>(["README.md", "package.json"]);
   for (const raw of packageJson.files as unknown[]) {
     if (typeof raw !== "string" || GLOB_RE.test(raw)) {
@@ -128,20 +159,13 @@ export function expandPackageFiles(root: string, packageJson: JsonMap): readonly
     }
     const directory = raw.endsWith("/");
     const relativePath = normalizeRelative(directory ? raw.slice(0, -1) : raw);
-    if (directory && relativePath !== "dist") {
-      throw new PackAuditError("files_policy_invalid");
-    }
+    if (directory) throw new PackAuditError("files_policy_invalid");
     const absolutePath = path.join(root, ...relativePath.split("/"));
     if (!fs.existsSync(absolutePath)) throw new PackAuditError("files_entry_missing");
     const metadata = fs.lstatSync(absolutePath);
     if (metadata.isSymbolicLink()) throw new PackAuditError("files_policy_invalid");
-    if (directory) {
-      if (!metadata.isDirectory()) throw new PackAuditError("files_policy_invalid");
-      for (const child of walkFiles(root, relativePath)) paths.add(child);
-    } else {
-      if (!metadata.isFile()) throw new PackAuditError("files_policy_invalid");
-      paths.add(relativePath);
-    }
+    if (!metadata.isFile()) throw new PackAuditError("files_policy_invalid");
+    paths.add(relativePath);
   }
   return Object.freeze([...paths].sort(compare));
 }
@@ -220,12 +244,15 @@ export function validatePack(input: {
   if (!archiveEntries.has("dist/bin/kcoderag-nav.cjs")) throw new PackAuditError("bin_drift");
 
   for (const [relativePath, bytes] of archiveEntries) {
-    if (!relativePath.startsWith("dist/") && bytes.indexOf(CREDENTIAL_SENTINEL) >= 0) {
+    if (
+      relativePath !== "dist/maintainer/pack-audit.cjs" &&
+      bytes.indexOf(CREDENTIAL_SENTINEL) >= 0
+    ) {
       throw new PackAuditError("credential_fixture_in_archive");
     }
     // The compiled generator intentionally contains template-token logic; only rendered/user
     // assets are required to be token-free in the archive.
-    if (!relativePath.startsWith("dist/") && hasUnresolvedPlaceholder(bytes)) {
+    if (relativePath !== "dist/generator/index.cjs" && hasUnresolvedPlaceholder(bytes)) {
       throw new PackAuditError("unresolved_placeholder");
     }
   }
