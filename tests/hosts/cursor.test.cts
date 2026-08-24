@@ -14,7 +14,10 @@ interface CursorModule {
   migrateCursorLegacyInstall(
     desired: Record<string, unknown>,
     observation: Record<string, unknown>,
-    options?: { readonly failAtLegacyDelete?: number },
+    options?: {
+      readonly failAtLegacyDelete?: number;
+      readonly onBeforeLegacyMutation?: (operation: string, legacyPath: string) => void;
+    },
   ): unknown;
 }
 
@@ -456,5 +459,74 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
+  }
+});
+
+test("legacy migration refuses an ancestor swap in the final quarantine window without deleting replacement data", (context) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-legacy-race-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-legacy-race-outside-"));
+  let parkedRoot: string | undefined;
+  let linkedRoot: string | undefined;
+  try {
+    const pkg = packageFixture(base);
+    const targetFixtureValue = targetFixture(base);
+    const legacy = legacyFixture(base, pkg, "qa");
+    const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
+    const target = targets.resolveProjectTarget(targetFixtureValue.root);
+    const observation = adapter.detect({ target, packageRoot: pkg.root });
+    const desired = adapter.renderInstall({
+      target,
+      packageRoot: pkg.root,
+      command: "install",
+      environment: "qa",
+      observation,
+      allowLegacyUserRemoval: true,
+    });
+    const projectBefore = snapshot(targetFixtureValue.root);
+    write(outside, "kcoderag-nav/replacement.txt", "outside-replacement\n");
+    write(outside, LEGACY_STATE, "outside-state\n");
+    const outsideBefore = snapshot(outside);
+    linkedRoot = legacy.localRoot;
+    parkedRoot = `${legacy.localRoot}-original`;
+    let linkAvailable = true;
+
+    let caught: unknown;
+    try {
+      cursor.migrateCursorLegacyInstall(desired, observation, {
+        onBeforeLegacyMutation: (operation) => {
+          if (operation !== "quarantine-plugin" || fs.existsSync(parkedRoot as string)) return;
+          fs.renameSync(linkedRoot as string, parkedRoot as string);
+          try {
+            fs.symlinkSync(outside, linkedRoot as string, process.platform === "win32" ? "junction" : "dir");
+          } catch (error) {
+            fs.renameSync(parkedRoot as string, linkedRoot as string);
+            linkAvailable = false;
+            if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+          }
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    if (!linkAvailable) {
+      context.skip("directory symlink unavailable");
+      return;
+    }
+    assert.match(String(caught), /rollback_failed|transaction_failed|filesystem_race|symlink_escape/);
+    assert.deepEqual(snapshot(outside), outsideBefore);
+    assert.deepEqual(snapshot(targetFixtureValue.root), projectBefore);
+  } finally {
+    if (linkedRoot !== undefined) {
+      try {
+        if (fs.lstatSync(linkedRoot).isSymbolicLink()) fs.unlinkSync(linkedRoot);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    if (linkedRoot !== undefined && parkedRoot !== undefined && fs.existsSync(parkedRoot)) {
+      fs.renameSync(parkedRoot, linkedRoot);
+    }
+    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });

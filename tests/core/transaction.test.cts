@@ -70,6 +70,7 @@ interface TransactionModule {
       failAtCommit?: number;
       failAtRollback?: number;
       onAfterValidation?: () => void;
+      onBeforePathOperation?: (operation: string, relativePath: string) => void;
       onCommit?: (relativePath: string) => void;
     },
   ): {
@@ -397,6 +398,68 @@ test("transaction rejects an ancestor swap after validation without outside read
     }
     fs.rmSync(base, { recursive: true, force: true });
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("transaction fences swaps in final read, stage, recovery, and delete operation windows", (context) => {
+  for (const operation of ["read", "stage", "recovery-create", "quarantine"] as const) {
+    const base = temporaryDirectory(`kcoderag-core-${operation}-race-`);
+    const outside = temporaryDirectory(`kcoderag-core-${operation}-outside-`);
+    let linkedPath: string | undefined;
+    let parkedPath: string | undefined;
+    try {
+      const fixture = transactionFixture(base);
+      write(outside, "config.txt", "outside-config");
+      write(outside, "remove.txt", "outside-remove");
+      write(outside, "escape.txt", "outside-keep");
+      const outsideBefore = snapshotTree(outside);
+      linkedPath = path.join(fixture.targetRoot, "owned");
+      parkedPath = path.join(base, `owned-${operation}-original`);
+      let linkAvailable = true;
+      let swapped = false;
+
+      let caught: unknown;
+      try {
+        transaction.applyTransaction(fixture.desired, {
+          onBeforePathOperation: (kind, relativePath) => {
+            if (swapped || kind !== operation || (operation === "quarantine" && relativePath !== "owned/remove.txt")) return;
+            fs.renameSync(linkedPath as string, parkedPath as string);
+            try {
+              fs.symlinkSync(outside, linkedPath as string, process.platform === "win32" ? "junction" : "dir");
+              swapped = true;
+            } catch (error) {
+              fs.renameSync(parkedPath as string, linkedPath as string);
+              linkAvailable = false;
+              if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+            }
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      if (!linkAvailable) {
+        context.skip("directory symlink unavailable");
+        return;
+      }
+      assert.ok(
+        ["filesystem_race", "symlink_escape", "transaction_failed", "rollback_failed"].includes(errorCode(caught) ?? ""),
+        `${operation}:${String(caught)}`,
+      );
+      assert.deepEqual(snapshotTree(outside), outsideBefore, operation);
+    } finally {
+      if (linkedPath !== undefined) {
+        try {
+          if (fs.lstatSync(linkedPath).isSymbolicLink()) fs.unlinkSync(linkedPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      if (linkedPath !== undefined && parkedPath !== undefined && fs.existsSync(parkedPath)) {
+        fs.renameSync(parkedPath, linkedPath);
+      }
+      fs.rmSync(base, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   }
 });
 

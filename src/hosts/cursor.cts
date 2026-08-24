@@ -51,6 +51,25 @@ interface CursorAdapterOptions {
 
 interface MigrationOptions {
   readonly failAtLegacyDelete?: number;
+  readonly onBeforeLegacyMutation?: (operation: string, legacyPath: string) => void;
+}
+
+interface LegacyObjectIdentity {
+  readonly dev: number;
+  readonly ino: number;
+  readonly mode: number;
+}
+
+interface LegacyMutationIdentity {
+  readonly localRoot: LegacyObjectIdentity;
+  readonly pluginRoot: LegacyObjectIdentity;
+  readonly state: LegacyObjectIdentity;
+}
+
+interface LegacyQuarantine {
+  readonly pluginRoot: string;
+  readonly statePath: string;
+  readonly identity: LegacyMutationIdentity;
 }
 
 interface CursorMigrationAdapter extends HostAdapter {
@@ -745,6 +764,128 @@ function verifyLegacySnapshot(snapshot: LegacyCursorSnapshot): void {
   }
 }
 
+function legacyIdentity(filePath: string, kind: "directory" | "file", safePath: string): LegacyObjectIdentity {
+  let metadata: import("node:fs").Stats;
+  try {
+    metadata = fs.lstatSync(filePath);
+  } catch {
+    throw new InstallError("filesystem_race", safePath);
+  }
+  if (metadata.isSymbolicLink()) throw new InstallError("symlink_escape", safePath);
+  if ((kind === "directory" && !metadata.isDirectory()) || (kind === "file" && !metadata.isFile())) {
+    throw new InstallError("special_file", safePath);
+  }
+  return { dev: metadata.dev, ino: metadata.ino, mode: metadata.mode };
+}
+
+function sameLegacyIdentity(left: LegacyObjectIdentity, right: LegacyObjectIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+}
+
+function assertLegacyIdentity(
+  filePath: string,
+  kind: "directory" | "file",
+  expected: LegacyObjectIdentity,
+  safePath: string,
+): void {
+  if (!sameLegacyIdentity(expected, legacyIdentity(filePath, kind, safePath))) {
+    throw new InstallError("filesystem_race", safePath);
+  }
+}
+
+function captureLegacyMutationIdentity(snapshot: LegacyCursorSnapshot): LegacyMutationIdentity {
+  verifyLegacySnapshot(snapshot);
+  return {
+    localRoot: legacyIdentity(snapshot.localRoot, "directory", LEGACY_PLUGIN_NAME),
+    pluginRoot: legacyIdentity(snapshot.pluginRoot, "directory", LEGACY_PLUGIN_NAME),
+    state: legacyIdentity(snapshot.statePath, "file", LEGACY_STATE_NAME),
+  };
+}
+
+function restoreMovedObject(source: string, destination: string, kind: "directory" | "file", safePath: string): void {
+  let sourceExists = false;
+  let destinationExists = false;
+  try { legacyIdentity(source, kind, safePath); sourceExists = true; } catch { /* Missing or replaced. */ }
+  try { fs.lstatSync(destination); destinationExists = true; } catch { /* Destination is absent. */ }
+  if (sourceExists && !destinationExists) fs.renameSync(source, destination);
+}
+
+function quarantineLegacy(
+  snapshot: LegacyCursorSnapshot,
+  identity: LegacyMutationIdentity,
+  options: MigrationOptions,
+): LegacyQuarantine {
+  const nonce = crypto.randomUUID();
+  const pluginQuarantine = path.join(snapshot.localRoot, `.kcoderag-plugin-quarantine-${nonce}`);
+  const stateQuarantine = path.join(snapshot.localRoot, `.kcoderag-state-quarantine-${nonce}`);
+  let pluginMoved = false;
+  let stateMoved = false;
+  try {
+    assertLegacyIdentity(snapshot.localRoot, "directory", identity.localRoot, LEGACY_PLUGIN_NAME);
+    assertLegacyIdentity(snapshot.pluginRoot, "directory", identity.pluginRoot, LEGACY_PLUGIN_NAME);
+    options.onBeforeLegacyMutation?.("quarantine-plugin", snapshot.pluginRoot);
+    fs.renameSync(snapshot.pluginRoot, pluginQuarantine);
+    pluginMoved = true;
+    assertLegacyIdentity(snapshot.localRoot, "directory", identity.localRoot, LEGACY_PLUGIN_NAME);
+    assertLegacyIdentity(pluginQuarantine, "directory", identity.pluginRoot, LEGACY_PLUGIN_NAME);
+
+    assertLegacyIdentity(snapshot.statePath, "file", identity.state, LEGACY_STATE_NAME);
+    options.onBeforeLegacyMutation?.("quarantine-state", snapshot.statePath);
+    fs.renameSync(snapshot.statePath, stateQuarantine);
+    stateMoved = true;
+    assertLegacyIdentity(snapshot.localRoot, "directory", identity.localRoot, LEGACY_PLUGIN_NAME);
+    assertLegacyIdentity(stateQuarantine, "file", identity.state, LEGACY_STATE_NAME);
+    return { pluginRoot: pluginQuarantine, statePath: stateQuarantine, identity };
+  } catch (error) {
+    try {
+      if (stateMoved) restoreMovedObject(stateQuarantine, snapshot.statePath, "file", LEGACY_STATE_NAME);
+      if (pluginMoved) restoreMovedObject(pluginQuarantine, snapshot.pluginRoot, "directory", LEGACY_PLUGIN_NAME);
+    } catch {
+      throw new InstallError("filesystem_race", LEGACY_PLUGIN_NAME);
+    }
+    throw error;
+  }
+}
+
+function restoreLegacyQuarantine(snapshot: LegacyCursorSnapshot, quarantine: LegacyQuarantine): void {
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+  restoreMovedObject(quarantine.statePath, snapshot.statePath, "file", LEGACY_STATE_NAME);
+  restoreMovedObject(quarantine.pluginRoot, snapshot.pluginRoot, "directory", LEGACY_PLUGIN_NAME);
+  verifyLegacySnapshot(snapshot);
+}
+
+function removeLegacyQuarantine(
+  snapshot: LegacyCursorSnapshot,
+  quarantine: LegacyQuarantine,
+  options: MigrationOptions,
+): void {
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+  assertLegacyIdentity(quarantine.pluginRoot, "directory", quarantine.identity.pluginRoot, LEGACY_PLUGIN_NAME);
+  const directories = new Set<string>();
+  const files = readLegacyTree(quarantine.pluginRoot, directories);
+  if ([...files.keys()].sort().join("\0") !== [...snapshot.files.keys()].sort().join("\0")) {
+    throw new InstallError("filesystem_race", LEGACY_PLUGIN_NAME);
+  }
+  for (const [relativePath, bytes] of snapshot.files) {
+    if (!files.get(relativePath)?.equals(bytes)) throw new InstallError("filesystem_race", relativePath);
+  }
+  options.onBeforeLegacyMutation?.("remove-plugin-quarantine", quarantine.pluginRoot);
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+  assertLegacyIdentity(quarantine.pluginRoot, "directory", quarantine.identity.pluginRoot, LEGACY_PLUGIN_NAME);
+  fs.rmSync(quarantine.pluginRoot, { recursive: true });
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+
+  assertLegacyIdentity(quarantine.statePath, "file", quarantine.identity.state, LEGACY_STATE_NAME);
+  if (!fs.readFileSync(quarantine.statePath).equals(snapshot.stateBytes)) {
+    throw new InstallError("filesystem_race", LEGACY_STATE_NAME);
+  }
+  options.onBeforeLegacyMutation?.("remove-state-quarantine", quarantine.statePath);
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+  assertLegacyIdentity(quarantine.statePath, "file", quarantine.identity.state, LEGACY_STATE_NAME);
+  fs.unlinkSync(quarantine.statePath);
+  assertLegacyIdentity(snapshot.localRoot, "directory", quarantine.identity.localRoot, LEGACY_PLUGIN_NAME);
+}
+
 function projectRollbackState(desired: DesiredState): DesiredState {
   const stateEntry = desired.entries.find((entry) => entry.path.relativePath === STATE_PATH);
   if (stateEntry?.content === null || stateEntry?.content === undefined) {
@@ -766,35 +907,6 @@ function projectRollbackState(desired: DesiredState): DesiredState {
           : decodeOriginal(state.originals[entry.path.relativePath], entry.path.relativePath),
     })),
   });
-}
-
-function restoreLegacy(snapshot: LegacyCursorSnapshot): void {
-  for (const [relativePath, bytes] of snapshot.files) {
-    const destination = path.join(snapshot.pluginRoot, ...relativePath.split("/"));
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, bytes);
-  }
-  fs.mkdirSync(snapshot.localRoot, { recursive: true });
-  fs.writeFileSync(snapshot.statePath, snapshot.stateBytes);
-}
-
-function pruneLegacyDirectories(snapshot: LegacyCursorSnapshot): void {
-  const directories = new Set<string>();
-  for (const relativePath of snapshot.files.keys()) {
-    let current = path.dirname(path.join(snapshot.pluginRoot, ...relativePath.split("/")));
-    while (current.startsWith(`${snapshot.pluginRoot}${path.sep}`)) {
-      directories.add(current);
-      current = path.dirname(current);
-    }
-  }
-  for (const directory of [...directories].sort((left, right) => right.length - left.length)) {
-    try {
-      fs.rmdirSync(directory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") throw error;
-    }
-  }
-  fs.rmdirSync(snapshot.pluginRoot);
 }
 
 function pruneEmptyProjectDirectories(desired: DesiredState): void {
@@ -819,17 +931,9 @@ function pruneEmptyProjectDirectories(desired: DesiredState): void {
 
 interface MigrationBackup {
   readonly root: string;
+  readonly filesRoot: string;
   readonly relativePath: string;
-}
-
-function writePrivateFile(destination: string, bytes: Buffer): void {
-  const descriptor = fs.openSync(destination, "wx", 0o600);
-  try {
-    fs.writeFileSync(descriptor, bytes);
-    fs.fsyncSync(descriptor);
-  } finally {
-    fs.closeSync(descriptor);
-  }
+  readonly entries: readonly { readonly relativePath: string; readonly bytes: Buffer; readonly digest: string }[];
 }
 
 function createMigrationBackup(
@@ -839,40 +943,70 @@ function createMigrationBackup(
   const name = `.legacy-migration-${crypto.randomUUID()}`;
   const relativePath = `.cursor/kcoderag-nav/${name}`;
   const root = path.join(desired.target.root, ".cursor", "kcoderag-nav", name);
-  try {
-    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-    const filesRoot = path.join(root, "files");
-    fs.mkdirSync(filesRoot, { mode: 0o700 });
-    const records: { readonly path: string; readonly digest: string; readonly backup: string }[] = [];
-    for (const [index, [relativePathEntry, bytes]] of [...snapshot.files.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .entries()) {
-      const backup = `${index.toString().padStart(4, "0")}.bin`;
-      writePrivateFile(path.join(filesRoot, backup), bytes);
-      records.push({ path: relativePathEntry, digest: sha256(bytes), backup });
-    }
-    writePrivateFile(path.join(root, "legacy-state.bin"), snapshot.stateBytes);
-    writePrivateFile(path.join(root, "journal.json"), canonicalJson({
-      schemaVersion: CORE_SCHEMA_VERSION,
-      operation: "cursor-legacy-migration",
-      environment: snapshot.environment,
-      legacyPath: snapshot.pluginRoot,
-      stateDigest: sha256(snapshot.stateBytes),
-      files: records,
-    }));
-    return { root, relativePath };
-  } catch {
-    try {
-      fs.rmSync(root, { recursive: true, force: true });
-    } catch {
-      // No project or user installation bytes have changed yet.
-    }
-    throw new InstallError("transaction_failed");
+  const filesRoot = path.join(root, "files");
+  const entries: { relativePath: string; bytes: Buffer; digest: string }[] = [];
+  const records: { readonly path: string; readonly digest: string; readonly backup: string }[] = [];
+  for (const [index, [relativePathEntry, bytes]] of [...snapshot.files.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .entries()) {
+    const backup = `${index.toString().padStart(4, "0")}.bin`;
+    const backupPath = `${relativePath}/files/${backup}`;
+    entries.push({ relativePath: backupPath, bytes, digest: sha256(bytes) });
+    records.push({ path: relativePathEntry, digest: sha256(bytes), backup });
   }
+  entries.push({
+    relativePath: `${relativePath}/legacy-state.bin`,
+    bytes: snapshot.stateBytes,
+    digest: sha256(snapshot.stateBytes),
+  });
+  const journal = canonicalJson({
+    schemaVersion: CORE_SCHEMA_VERSION,
+    operation: "cursor-legacy-migration",
+    environment: snapshot.environment,
+    legacyPath: snapshot.pluginRoot,
+    stateDigest: sha256(snapshot.stateBytes),
+    files: records,
+  });
+  entries.push({ relativePath: `${relativePath}/journal.json`, bytes: journal, digest: sha256(journal) });
+  return { root, filesRoot, relativePath, entries };
 }
 
-function removeMigrationBackup(backup: MigrationBackup): void {
-  fs.rmSync(backup.root, { recursive: true });
+function withMigrationBackup(desired: DesiredState, backup: MigrationBackup): DesiredState {
+  return createDesiredState({
+    host: "cursor",
+    target: desired.target,
+    managedRoots: desired.managedRoots,
+    statePath: desired.statePath.relativePath,
+    entries: [
+      ...desired.entries.map((entry) => ({
+        relativePath: entry.path.relativePath,
+        expectedDigest: entry.expectedDigest,
+        content: entry.content,
+      })),
+      ...backup.entries.map((entry) => ({
+        relativePath: entry.relativePath,
+        expectedDigest: null,
+        content: entry.bytes,
+      })),
+    ],
+  });
+}
+
+function removeMigrationBackup(desired: DesiredState, backup: MigrationBackup): void {
+  const cleanup = createDesiredState({
+    host: "cursor",
+    target: desired.target,
+    managedRoots: desired.managedRoots,
+    statePath: backup.entries.at(-1)?.relativePath ?? backup.relativePath,
+    entries: backup.entries.map((entry) => ({
+      relativePath: entry.relativePath,
+      expectedDigest: entry.digest,
+      content: null,
+    })),
+  });
+  applyTransaction(cleanup);
+  fs.rmdirSync(backup.filesRoot);
+  fs.rmdirSync(backup.root);
 }
 
 export function migrateCursorLegacyInstall(
@@ -884,41 +1018,43 @@ export function migrateCursorLegacyInstall(
   if (desired.host !== "cursor" || snapshot === undefined || observation.legacyUserRemoval === undefined) {
     throw new InstallError("invalid_legacy_migration");
   }
-  verifyLegacySnapshot(snapshot);
+  const legacyIdentitySnapshot = captureLegacyMutationIdentity(snapshot);
   const backup = createMigrationBackup(desired, snapshot);
   let projectResult: TransactionResult;
   try {
-    projectResult = applyTransaction(desired);
+    const combinedResult = applyTransaction(withMigrationBackup(desired, backup));
+    projectResult = Object.freeze({
+      schemaVersion: combinedResult.schemaVersion,
+      host: combinedResult.host,
+      changedPaths: Object.freeze(desired.entries.map((entry) => entry.path.relativePath)),
+    });
   } catch (error) {
     try {
-      removeMigrationBackup(backup);
       pruneEmptyProjectDirectories(desired);
     } catch {
       throw new InstallError("rollback_failed", backup.relativePath);
     }
     throw error;
   }
-  let deletionIndex = 0;
+  let quarantine: LegacyQuarantine | undefined;
   try {
-    for (const relativePath of [...snapshot.files.keys()].sort((left, right) => left.localeCompare(right))) {
-      if (options.failAtLegacyDelete === deletionIndex++) throw new Error("injected_legacy_delete_failure");
-      fs.unlinkSync(path.join(snapshot.pluginRoot, ...relativePath.split("/")));
-    }
-    if (options.failAtLegacyDelete === deletionIndex) throw new Error("injected_legacy_delete_failure");
-    fs.unlinkSync(snapshot.statePath);
-    pruneLegacyDirectories(snapshot);
-    removeMigrationBackup(backup);
+    quarantine = quarantineLegacy(snapshot, legacyIdentitySnapshot, options);
+    if (options.failAtLegacyDelete !== undefined) throw new Error("injected_legacy_delete_failure");
+    removeLegacyQuarantine(snapshot, quarantine, options);
+    quarantine = undefined;
+    removeMigrationBackup(desired, backup);
     return projectResult;
   } catch {
     let rollbackFailed = false;
     try {
-      restoreLegacy(snapshot);
+      if (quarantine !== undefined) restoreLegacyQuarantine(snapshot, quarantine);
+      else verifyLegacySnapshot(snapshot);
     } catch {
       rollbackFailed = true;
     }
     try {
       applyTransaction(projectRollbackState(desired));
-      removeMigrationBackup(backup);
+      removeMigrationBackup(desired, backup);
       pruneEmptyProjectDirectories(desired);
     } catch {
       rollbackFailed = true;
