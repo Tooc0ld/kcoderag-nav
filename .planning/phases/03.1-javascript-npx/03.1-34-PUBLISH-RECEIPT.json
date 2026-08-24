@@ -1,0 +1,154 @@
+{
+  "schema_version": 3,
+  "package": "kcoderag-nav",
+  "version": "0.1.8",
+  "tag": "v0.1.8",
+  "release_commit_sha": "beb5bfa08ceb6e3677b6d623bc5eab4d09f2dc8a",
+  "registry": {
+    "exact": {
+      "requestedVersion": "0.1.8",
+      "resolvedVersion": "0.1.8"
+    },
+    "latest": {
+      "resolvedVersion": "0.1.8"
+    },
+    "gitHead": "beb5bfa08ceb6e3677b6d623bc5eab4d09f2dc8a",
+    "bin": {
+      "kcoderag-nav": "dist/bin/kcoderag-nav.cjs"
+    },
+    "engines": {
+      "node": ">=22"
+    },
+    "repository": "git+https://github.com/Tooc0ld/kcoderag-nav.git"
+  },
+  "workflow": {
+    "name": "Release",
+    "path": ".github/workflows/release.yml",
+    "run_id": "32731317466",
+    "tag": "v0.1.8",
+    "ref": "refs/tags/v0.1.8",
+    "head_sha": "beb5bfa08ceb6e3677b6d623bc5eab4d09f2dc8a",
+    "event": "push",
+    "conclusion": "success",
+    "lanes": {
+      "ubuntu-latest-node-22": true,
+      "ubuntu-latest-node-24": true,
+      "windows-latest-node-22": true,
+      "windows-latest-node-24": true
+    },
+    "publish": true
+  },
+  "lifecycle": {
+    "exact_version": {
+      "requestedPackageSpec": "kcoderag-nav@0.1.8",
+      "expectedVersion": "0.1.8",
+      "resolvedPackageName": "kcoderag-nav",
+      "resolvedVersion": "0.1.8",
+      "lifecycleTarballSha256": "46435f51c053e9fbd334c41fc546077e80d1ba64bbefcc08e651fb9de86af32f",
+      "publicRegistryArtifact": {
+        "registry": "https://registry.npmjs.org/",
+        "resolvedTarballUrl": "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-0.1.8.tgz",
+        "distIntegrity": "sha512-Y4gYGdRJ4ubjfT5IN/Zc0kJTCqk2UMYwt0CUhsqgYwM1HXu5yd11V8NrIG6bD+yGuFYXS7WWB3WGELJhezJ8EA==",
+        "artifactSha256": "9ac489e326727a9d086d2bbdc7a148f381c2550495a591d0ab71761e27565d34",
+        "artifactSha512": "63881819d449e2e6e37d3e4837f65cd242530aa93650c630b7409486caa06303351d7bb9c9dd7557c36b206e9b0fec86b856174bb59607758610b2617b327c10"
+      },
+      "hosts": {
+        "codex": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "claude": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "cursor": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        }
+      }
+    },
+    "latest": {
+      "requestedPackageSpec": "kcoderag-nav@latest",
+      "expectedVersion": "0.1.8",
+      "resolvedPackageName": "kcoderag-nav",
+      "resolvedVersion": "0.1.8",
+      "lifecycleTarballSha256": "ddd6da3295afb29698cfac219a5336e52ad901ca8c0d232e89f16303592d99a1",
+      "publicRegistryArtifact": {
+        "registry": "https://registry.npmjs.org/",
+        "resolvedTarballUrl": "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-0.1.8.tgz",
+        "distIntegrity": "sha512-Y4gYGdRJ4ubjfT5IN/Zc0kJTCqk2UMYwt0CUhsqgYwM1HXu5yd11V8NrIG6bD+yGuFYXS7WWB3WGELJhezJ8EA==",
+        "artifactSha256": "9ac489e326727a9d086d2bbdc7a148f381c2550495a591d0ab71761e27565d34",
+        "artifactSha512": "63881819d449e2e6e37d3e4837f65cd242530aa93650c630b7409486caa06303351d7bb9c9dd7557c36b206e9b0fec86b856174bb59607758610b2617b327c10"
+      },
+      "hosts": {
+        "codex": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "claude": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "cursor": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        }
+      }
+    }
+  },
+  "timestamp": "2026-08-24T13:29:51.461Z"
+}
