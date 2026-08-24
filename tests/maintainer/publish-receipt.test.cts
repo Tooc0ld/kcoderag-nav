@@ -457,6 +457,39 @@ test("malformed v3 lifecycle and nested artifact shapes always use the stable sc
   }
 });
 
+test("deeply nested malformed JSON has a stable schema error through direct and CLI verification", () => {
+  let nested: unknown = null;
+  for (let depth = 0; depth < 20_000; depth += 1) nested = [nested];
+  expectCode({ schema_version: 3, extra: nested }, "invalid_receipt_schema");
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-publish-receipt-deep-"));
+  try {
+    const target = path.join(root, "receipt.json");
+    const errors: string[] = [];
+    const stdinText = `{"schema_version":3,"extra":${"[".repeat(20_000)}null${"]".repeat(20_000)}}`;
+    assert.equal(receipt.runCli(["--record", target], {
+      stdinText,
+      stdout() {},
+      stderr: (text) => errors.push(text),
+    }), 1);
+    assert.deepEqual(errors, [`${JSON.stringify({ ok: false, code: "invalid_receipt_schema" })}\n`]);
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded secret scanning still detects ordinary-depth secret-like keys and values", () => {
+  expectCode({
+    schema_version: 3,
+    nested: { deeper: { NPM_TOKEN: "redacted" } },
+  }, "secret_like_value");
+  expectCode({
+    schema_version: 3,
+    nested: { deeper: "Bearer value-that-must-not-appear" },
+  }, "secret_like_value");
+});
+
 test("v2 rejects registry, release, workflow identity, lane, and publish divergence", () => {
   const fixtures: Array<[name: string, mutate: (value: JsonMap) => void, code: string]> = [
     ["registry exact request", (value) => { value.registry.exact.requestedVersion = "1.2.4"; }, "registry_version_mismatch"],

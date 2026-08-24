@@ -133,6 +133,9 @@ const DIGEST_RE = /^[0-9a-f]{64}$/u;
 const SHA512_RE = /^[0-9a-f]{128}$/u;
 const RUN_ID_RE = /^[1-9][0-9]*$/u;
 const SECRET_RE = /(?:bearer\s+|npm_token\s*=|node_auth_token\s*=|mcp[_ -]?(?:auth|token|credential)|:\/\/[^/@\s:]+:[^/@\s]+@|[?&](?:token|key|secret)=)/iu;
+const SECRET_KEY_RE = /^(?:npm_token|node_auth_token|mcp[_ -]?(?:auth|token|credential)|token|secret|api[_ -]?key)$/iu;
+const MAX_SECRET_SCAN_DEPTH = 64;
+const MAX_SECRET_SCAN_NODES = 10_000;
 const HOSTS = Object.freeze(["codex", "claude", "cursor"] as const);
 const HOST_EVIDENCE_KEYS = Object.freeze([
   "packageAcquired",
@@ -194,16 +197,39 @@ function exactKeys(value: unknown, expected: readonly string[]): value is JsonMa
 }
 
 function assertNoSecretLikeValue(value: unknown): void {
-  if (typeof value === "string") {
-    failUnless(!SECRET_RE.test(value), "secret_like_value");
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) assertNoSecretLikeValue(item);
-    return;
-  }
-  if (isRecord(value)) {
-    for (const item of Object.values(value)) assertNoSecretLikeValue(item);
+  const pending: Array<{ readonly value: unknown; readonly depth: number }> = [{ value, depth: 0 }];
+  let visitedNodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) break;
+    visitedNodes += 1;
+    failUnless(
+      visitedNodes <= MAX_SECRET_SCAN_NODES && current.depth <= MAX_SECRET_SCAN_DEPTH,
+      "invalid_receipt_schema",
+    );
+    if (typeof current.value === "string") {
+      failUnless(!SECRET_RE.test(current.value), "secret_like_value");
+      continue;
+    }
+    if (Array.isArray(current.value)) {
+      failUnless(
+        current.value.length <= MAX_SECRET_SCAN_NODES - visitedNodes - pending.length,
+        "invalid_receipt_schema",
+      );
+      for (const item of current.value) pending.push({ value: item, depth: current.depth + 1 });
+      continue;
+    }
+    if (isRecord(current.value)) {
+      const keys = Object.keys(current.value);
+      failUnless(
+        keys.length <= MAX_SECRET_SCAN_NODES - visitedNodes - pending.length,
+        "invalid_receipt_schema",
+      );
+      for (const key of keys) {
+        failUnless(!SECRET_KEY_RE.test(key), "secret_like_value");
+        pending.push({ value: current.value[key], depth: current.depth + 1 });
+      }
+    }
   }
 }
 
