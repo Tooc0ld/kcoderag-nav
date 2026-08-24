@@ -201,8 +201,6 @@ function renderMcp(
   if (allowLegacyOwned) {
     delete document.mcpServers["kcoderag-qa"];
     delete document.mcpServers["kcoderag-dev"];
-  } else if (currentName !== undefined) {
-    delete document.mcpServers[currentName];
   }
   const source = readMcpServer(packageRoot, environment);
   document.mcpServers[source.name] = source.entry;
@@ -259,6 +257,7 @@ function renderSettings(
   const ownedIndexes = hooks.PreToolUse
     .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
     .filter((entry) => entry.environment !== undefined);
+  let insertionIndex: number | undefined;
   if (owned !== undefined) {
     const expectedEnvironment = owned.id.split(".").at(-1);
     const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
@@ -267,6 +266,7 @@ function renderSettings(
     if (index === undefined) throw new InstallError("managed_content_changed", SETTINGS_PATH);
     verifySection(owned, `hooks.PreToolUse.kcoderag-nav.${expectedEnvironment}`, hooks.PreToolUse[index], SETTINGS_PATH);
     hooks.PreToolUse.splice(index, 1);
+    insertionIndex = index;
   } else if (allowLegacyOwned) {
     for (const entry of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
       hooks.PreToolUse.splice(entry.index, 1);
@@ -275,7 +275,8 @@ function renderSettings(
     throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
   }
   const entry = managedHook(environment);
-  hooks.PreToolUse.push(entry);
+  if (insertionIndex === undefined) hooks.PreToolUse.push(entry);
+  else hooks.PreToolUse.splice(insertionIndex, 0, entry);
   return {
     bytes: renderJsonLike(current, document),
     section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
@@ -321,12 +322,52 @@ function validateCurrentState(state: InstallState): InstallState {
     state.managedFiles.join("\0") !== paths.join("\0") ||
     Object.keys(state.originals).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
-    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
     (secureState && Object.keys(state.sections ?? {}).sort().join("\0") !== [...SHARED_PATHS].sort().join("\0"))
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
   return state;
+}
+
+function validateOwnedSections(target: ProjectTarget, state: InstallState): void {
+  const mcpRecord = state.sections?.[MCP_PATH];
+  const settingsRecord = state.sections?.[SETTINGS_PATH];
+  const currentMcp = readManagedOptional(target, MCP_PATH);
+  const currentSettings = readManagedOptional(target, SETTINGS_PATH);
+  if (
+    mcpRecord === undefined ||
+    settingsRecord === undefined ||
+    currentMcp === undefined ||
+    currentSettings === undefined
+  ) {
+    throw new InstallError("managed_content_changed", MCP_PATH);
+  }
+  const mcpDocument = parseJsonBytes(currentMcp, "invalid_json", MCP_PATH);
+  if (!isRecord(mcpDocument.mcpServers)) {
+    throw new InstallError("managed_content_changed", MCP_PATH);
+  }
+  const mcpName = mcpRecord.id.split(".").at(-1);
+  if (mcpName === undefined) throw new InstallError("invalid_state", STATE_PATH);
+  verifySection(mcpRecord, `mcpServers.${mcpName}`, mcpDocument.mcpServers[mcpName], MCP_PATH);
+
+  const settingsDocument = parseJsonBytes(currentSettings, "invalid_json", SETTINGS_PATH);
+  if (!isRecord(settingsDocument.hooks) || !Array.isArray(settingsDocument.hooks.PreToolUse)) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
+  const environment = settingsRecord.id.split(".").at(-1);
+  const matched = settingsDocument.hooks.PreToolUse.filter((entry) =>
+    hookEnvironment(entry) === environment);
+  if (matched.length !== 1 || matched[0] === undefined) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
+  verifySection(
+    settingsRecord,
+    `hooks.PreToolUse.kcoderag-nav.${environment}`,
+    matched[0],
+    SETTINGS_PATH,
+  );
 }
 
 function detectClaude(context: { readonly target: ProjectTarget }): HostObservation {
@@ -340,6 +381,7 @@ function detectClaude(context: { readonly target: ProjectTarget }): HostObservat
   }
   try {
     const state = validateCurrentState(parseInstallState(stateBytes));
+    if (state.sections !== undefined) validateOwnedSections(context.target, state);
     for (const [relativePath, digest] of Object.entries(state.digests)) {
       const current = readManagedOptional(context.target, relativePath);
       if (current === undefined || sha256(current) !== digest) {
@@ -388,6 +430,13 @@ function expectedDigest(
   stateBytes: Buffer | undefined,
 ): string | null {
   if (relativePath === STATE_PATH) return stateBytes === undefined ? null : sha256(stateBytes);
+  if (
+    state !== undefined &&
+    SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])
+  ) {
+    const current = readManagedOptional(target, relativePath);
+    return current === undefined ? null : sha256(current);
+  }
   if (state !== undefined) return state.digests[relativePath] ?? null;
   const current = readManagedOptional(target, relativePath);
   return current === undefined ? null : sha256(current);
@@ -446,7 +495,11 @@ function renderInstall(context: HostInstallContext): DesiredState {
   const rendered = desiredPayloads(context);
   const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
-  for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
+  for (const [relativePath, bytes] of payloads) {
+    if (!SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      digests[relativePath] = sha256(bytes);
+    }
+  }
   const state: InstallState = {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: readPackageVersion(context.packageRoot),
@@ -548,7 +601,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     statePath: STATE_PATH,
     entries: managedPaths(state.environment).map((relativePath) => ({
       relativePath,
-      expectedDigest: relativePath === STATE_PATH ? sha256(stateBytes) : state.digests[relativePath] ?? null,
+      expectedDigest: expectedDigest(context.target, relativePath, state, stateBytes),
       content: relativePath === STATE_PATH
         ? null
         : sharedPayloads.has(relativePath)

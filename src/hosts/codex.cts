@@ -228,6 +228,7 @@ function tomlString(value: string): string {
 
 interface ConfigRange {
   readonly start: number;
+  readonly markerStart: number;
   readonly end: number;
 }
 
@@ -254,7 +255,7 @@ function configRange(text: string, record: ManagedSectionRecord): ConfigRange {
   const start = candidates.find((candidate) =>
     sha256(Buffer.from(text.slice(candidate, end), "utf8")) === record.digest);
   if (start === undefined) throw new InstallError("managed_content_changed", CONFIG_PATH);
-  return { start, end };
+  return { start, markerStart, end };
 }
 
 function renderConfig(
@@ -264,10 +265,13 @@ function renderConfig(
   owned: ManagedSectionRecord | undefined,
   fileExisted: boolean,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
-  let originalText = (current ?? Buffer.alloc(0)).toString("utf8");
+  const currentText = (current ?? Buffer.alloc(0)).toString("utf8");
+  let originalText = currentText;
+  let replacementRange: ConfigRange | undefined;
   if (owned !== undefined) {
-    const range = configRange(originalText, owned);
-    originalText = originalText.slice(0, range.start) + originalText.slice(range.end);
+    replacementRange = configRange(originalText, owned);
+    originalText = originalText.slice(0, replacementRange.start) +
+      originalText.slice(replacementRange.end);
   }
   if (
     originalText.includes("# BEGIN KCODERAG-NAV") ||
@@ -288,14 +292,22 @@ function renderConfig(
     `# END KCODERAG-NAV ${environment}`,
     "",
   ].join("\n");
-  const separator = originalText.length === 0 || originalText.endsWith("\n\n")
-    ? ""
-    : originalText.endsWith("\n")
-      ? "\n"
-      : "\n\n";
+  const separator = replacementRange === undefined
+    ? originalText.length === 0 || originalText.endsWith("\n\n")
+      ? ""
+      : originalText.endsWith("\n")
+        ? "\n"
+        : "\n\n"
+    : currentText.slice(replacementRange.start, replacementRange.markerStart);
   const ownedBytes = Buffer.from(`${separator}${block}`, "utf8");
   return {
-    bytes: Buffer.concat([Buffer.from(originalText, "utf8"), ownedBytes]),
+    bytes: replacementRange === undefined
+      ? Buffer.concat([Buffer.from(originalText, "utf8"), ownedBytes])
+      : Buffer.concat([
+          Buffer.from(currentText.slice(0, replacementRange.start), "utf8"),
+          ownedBytes,
+          Buffer.from(currentText.slice(replacementRange.end), "utf8"),
+        ]),
     section: sectionRecord(`mcp_servers.${entry.name}`, ownedBytes, fileExisted),
   };
 }
@@ -347,6 +359,7 @@ function renderHooks(
   const ownedIndexes = hooks.PreToolUse
     .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
     .filter((entry) => entry.environment !== undefined);
+  let insertionIndex: number | undefined;
   if (owned !== undefined) {
     const expectedEnvironment = owned.id.split(".").at(-1);
     const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
@@ -360,11 +373,13 @@ function renderHooks(
       HOOKS_PATH,
     );
     hooks.PreToolUse.splice(matched[0].index, 1);
+    insertionIndex = matched[0].index;
   } else if (ownedIndexes.length > 0) {
     throw new InstallError("unmanaged_name_conflict", HOOKS_PATH);
   }
   const entry = managedHook(environment);
-  hooks.PreToolUse.push(entry);
+  if (insertionIndex === undefined) hooks.PreToolUse.push(entry);
+  else hooks.PreToolUse.splice(insertionIndex, 0, entry);
   return {
     bytes: renderJsonLike(current, document),
     section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
@@ -410,7 +425,8 @@ function validateCurrentState(state: InstallState): InstallState {
     state.managedFiles.join("\0") !== paths.join("\0") ||
     Object.keys(state.originals).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
-    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
     (secureState && Object.keys(state.sections ?? {}).sort().join("\0") !== [...SHARED_PATHS].sort().join("\0")) ||
     (secureState && state.sections?.[CONFIG_PATH]?.id !== `mcp_servers.kcoderag-${state.environment}`) ||
     (secureState && state.sections?.[HOOKS_PATH]?.id !== `hooks.PreToolUse.kcoderag-nav.${state.environment}`)
@@ -418,6 +434,39 @@ function validateCurrentState(state: InstallState): InstallState {
     throw new InstallError("invalid_state", STATE_PATH);
   }
   return state;
+}
+
+function validateOwnedSections(target: ProjectTarget, state: InstallState): void {
+  const configRecord = state.sections?.[CONFIG_PATH];
+  const hooksRecord = state.sections?.[HOOKS_PATH];
+  const currentConfig = readManagedOptional(target, CONFIG_PATH);
+  const currentHooks = readManagedOptional(target, HOOKS_PATH);
+  if (
+    configRecord === undefined ||
+    hooksRecord === undefined ||
+    currentConfig === undefined ||
+    currentHooks === undefined
+  ) {
+    throw new InstallError("managed_content_changed", CONFIG_PATH);
+  }
+  configRange(currentConfig.toString("utf8"), configRecord);
+
+  const hooksDocument = parseJsonBytes(currentHooks, "invalid_json", HOOKS_PATH);
+  if (!isRecord(hooksDocument.hooks) || !Array.isArray(hooksDocument.hooks.PreToolUse)) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  const environment = hooksRecord.id.split(".").at(-1);
+  const matched = hooksDocument.hooks.PreToolUse.filter((entry) =>
+    hookEnvironment(entry) === environment);
+  if (matched.length !== 1 || matched[0] === undefined) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  verifyJsonSection(
+    hooksRecord,
+    `hooks.PreToolUse.kcoderag-nav.${environment}`,
+    matched[0],
+    HOOKS_PATH,
+  );
 }
 
 function legacyEnvironment(bytes: Buffer): EnvironmentId | undefined {
@@ -475,6 +524,7 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
       });
     }
     const state = validateCurrentState(parseInstallState(stateBytes));
+    if (state.sections !== undefined) validateOwnedSections(context.target, state);
     for (const [relativePath, digest] of Object.entries(state.digests)) {
       const current = readManagedOptional(context.target, relativePath);
       if (current === undefined || sha256(current) !== digest) {
@@ -526,6 +576,13 @@ function expectedDigest(
   stateBytes: Buffer | undefined,
 ): string | null {
   if (relativePath === STATE_PATH) return stateBytes === undefined ? null : sha256(stateBytes);
+  if (
+    state !== undefined &&
+    SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])
+  ) {
+    const current = readManagedOptional(target, relativePath);
+    return current === undefined ? null : sha256(current);
+  }
   if (state !== undefined) return state.digests[relativePath] ?? null;
   const current = readManagedOptional(target, relativePath);
   return current === undefined ? null : sha256(current);
@@ -626,7 +683,11 @@ function renderLegacyInstall(
   const rendered = desiredPayloads(context, legacyOriginals);
   const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
-  for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
+  for (const [relativePath, bytes] of payloads) {
+    if (!SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      digests[relativePath] = sha256(bytes);
+    }
+  }
   const state: InstallState = {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: readPackageVersion(context.packageRoot),
@@ -692,7 +753,11 @@ function renderInstall(context: HostInstallContext): DesiredState {
   const rendered = desiredPayloads(context, priorOriginals);
   const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
-  for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
+  for (const [relativePath, bytes] of payloads) {
+    if (!SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      digests[relativePath] = sha256(bytes);
+    }
+  }
   const state: InstallState = {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: readPackageVersion(context.packageRoot),
@@ -819,9 +884,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     statePath: STATE_PATH,
     entries: managedPaths(state.environment).map((relativePath) => ({
       relativePath,
-      expectedDigest: relativePath === STATE_PATH
-        ? sha256(stateBytes)
-        : state.digests[relativePath] ?? null,
+      expectedDigest: expectedDigest(context.target, relativePath, state, stateBytes),
       content: relativePath === STATE_PATH
         ? null
         : sharedPayloads.has(relativePath)

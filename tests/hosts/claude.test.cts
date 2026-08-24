@@ -202,6 +202,40 @@ test("Claude install state never snapshots shared-config credentials", async () 
   }
 });
 
+test("Claude update and uninstall preserve unrelated shared-config edits made after install", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-section-life-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
+
+    const mcpPath = path.join(target.root, ".mcp.json");
+    const mcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    mcp.mcpServers["user-added"] = { command: "keep-me" };
+    fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 4)}\n`);
+    const settingsPath = path.join(target.root, ".claude/settings.json");
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    settings.afterInstall = { keep: true };
+    fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 4)}\n`);
+
+    assert.equal((await run(target.root, pkg.root, "status")).output.status, "healthy");
+    write(pkg.root, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:section-v2\n");
+    assert.equal((await run(target.root, pkg.root, "update")).exitCode, 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(mcpPath, "utf8")).mcpServers["user-added"], {
+      command: "keep-me",
+    });
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).afterInstall, { keep: true });
+
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    const remainingMcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    assert.equal(remainingMcp.mcpServers["kcoderag-qa"], undefined);
+    assert.deepEqual(remainingMcp.mcpServers["user-added"], { command: "keep-me" });
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).afterInstall, { keep: true });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Claude refuses JSON conflicts and managed drift before writes", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-refuse-"));
   try {

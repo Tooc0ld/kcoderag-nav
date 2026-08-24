@@ -232,6 +232,36 @@ test("Codex install state never snapshots shared-config credentials", async () =
   }
 });
 
+test("Codex update and uninstall preserve unrelated shared-config edits made after install", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-section-life-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
+
+    const configPath = path.join(target.root, ".codex/config.toml");
+    fs.appendFileSync(configPath, "[mcp_servers.user-added]\nurl = \"https://user.invalid/mcp\"\n");
+    const hooksPath = path.join(target.root, ".codex/hooks.json");
+    const hooks = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+    hooks.afterInstall = { keep: true };
+    fs.writeFileSync(hooksPath, `${JSON.stringify(hooks, null, 4)}\n`);
+
+    assert.equal((await run(target.root, pkg.root, "status")).output.status, "healthy");
+    write(pkg.root, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:grep-nudge.cjs:section-v2\n");
+    assert.equal((await run(target.root, pkg.root, "update")).exitCode, 0);
+    assert.match(fs.readFileSync(configPath, "utf8"), /\[mcp_servers\.user-added\]/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(hooksPath, "utf8")).afterInstall, { keep: true });
+
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    const remainingConfig = fs.readFileSync(configPath, "utf8");
+    assert.doesNotMatch(remainingConfig, /BEGIN KCODERAG-NAV/);
+    assert.match(remainingConfig, /\[mcp_servers\.user-added\]/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(hooksPath, "utf8")).afterInstall, { keep: true });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Codex Dev is explicit and a managed drift blocks update and uninstall before writes", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-dev-"));
   try {

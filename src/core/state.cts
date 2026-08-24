@@ -204,8 +204,7 @@ export function parseLegacyInstallState(
     value.active_environments.length !== 1 ||
     !isEnvironment(value.active_environments[0]) ||
     !isRecord(value.originals) ||
-    !isRecord(value.digests) ||
-    (value.sections !== undefined && !isRecord(value.sections))
+    !isRecord(value.digests)
   ) {
     throw new InstallError("invalid_state");
   }
@@ -262,7 +261,8 @@ export function parseInstallState(bytes: Buffer): InstallState {
     !value.managedFiles.every((item) => typeof item === "string") ||
     new Set(value.managedFiles).size !== value.managedFiles.length ||
     !isRecord(value.originals) ||
-    !isRecord(value.digests)
+    !isRecord(value.digests) ||
+    (value.sections !== undefined && !isRecord(value.sections))
   ) {
     throw new InstallError("invalid_state");
   }

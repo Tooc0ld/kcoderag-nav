@@ -249,6 +249,37 @@ test("Cursor install state never snapshots shared-config credentials", async () 
   }
 });
 
+test("Cursor update and uninstall preserve unrelated MCP edits made after install", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-section-life-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
+
+    const mcpPath = path.join(target.root, ".cursor/mcp.json");
+    const mcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    mcp.mcpServers["user-added"] = { command: "keep-me" };
+    fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 4)}\n`);
+
+    assert.equal(
+      (await run(target.root, pkg.root, cursor.cursorAdapter, "status")).output.status,
+      "healthy",
+    );
+    write(pkg.root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "updated section rule\n");
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "update")).exitCode, 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(mcpPath, "utf8")).mcpServers["user-added"], {
+      command: "keep-me",
+    });
+
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "uninstall")).exitCode, 0);
+    const remainingMcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    assert.equal(remainingMcp.mcpServers.kcoderag, undefined);
+    assert.deepEqual(remainingMcp.mcpServers["user-added"], { command: "keep-me" });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-refuse-"));
   try {

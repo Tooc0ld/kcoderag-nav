@@ -274,13 +274,25 @@ function validateCurrentState(state: InstallState): InstallState {
     state.managedFiles.join("\0") !== paths.join("\0") ||
     Object.keys(state.originals).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
-    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
     (secureState && Object.keys(state.sections ?? {}).join("\0") !== MCP_PATH) ||
     (secureState && state.sections?.[MCP_PATH]?.id !== "mcpServers.kcoderag")
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
   return state;
+}
+
+function validateOwnedSection(target: ProjectTarget, state: InstallState): void {
+  const record = state.sections?.[MCP_PATH];
+  const current = readManagedOptional(target, MCP_PATH);
+  if (record === undefined || current === undefined) {
+    throw new InstallError("managed_content_changed", MCP_PATH);
+  }
+  const document = parseJsonBytes(current, "invalid_json", MCP_PATH);
+  if (!isRecord(document.mcpServers)) throw new InstallError("managed_content_changed", MCP_PATH);
+  verifyMcpSection(record, document.mcpServers.kcoderag);
 }
 
 function legacyTreeDigest(digests: Readonly<Record<string, string>>): string {
@@ -468,6 +480,7 @@ function detectCursor(
     let currentState: InstallState | undefined;
     if (stateBytes !== undefined) {
       currentState = validateCurrentState(parseInstallState(stateBytes));
+      if (currentState.sections !== undefined) validateOwnedSection(context.target, currentState);
       for (const [relativePath, digest] of Object.entries(currentState.digests)) {
         const current = readManagedOptional(context.target, relativePath);
         if (current === undefined || sha256(current) !== digest) {
@@ -531,6 +544,10 @@ function expectedDigest(
   stateBytes: Buffer | undefined,
 ): string | null {
   if (relativePath === STATE_PATH) return stateBytes === undefined ? null : sha256(stateBytes);
+  if (state !== undefined && relativePath === MCP_PATH) {
+    const current = readManagedOptional(target, relativePath);
+    return current === undefined ? null : sha256(current);
+  }
   if (state !== undefined) return state.digests[relativePath] ?? null;
   const current = readManagedOptional(target, relativePath);
   return current === undefined ? null : sha256(current);
@@ -572,7 +589,9 @@ function renderInstall(context: HostInstallContext): DesiredState {
     [SKILL_PATH, sourceAsset(context.packageRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md")],
   ]);
   const digests: Record<string, string> = {};
-  for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
+  for (const [relativePath, bytes] of payloads) {
+    if (relativePath !== MCP_PATH) digests[relativePath] = sha256(bytes);
+  }
   const state: InstallState = {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: readPackageVersion(context.packageRoot),
@@ -623,7 +642,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     statePath: STATE_PATH,
     entries: managedPaths().map((relativePath) => ({
       relativePath,
-      expectedDigest: relativePath === STATE_PATH ? sha256(stateBytes) : state.digests[relativePath] ?? null,
+      expectedDigest: expectedDigest(context.target, relativePath, state, stateBytes),
       content: relativePath === STATE_PATH
         ? null
         : relativePath === MCP_PATH && state.sections !== undefined
