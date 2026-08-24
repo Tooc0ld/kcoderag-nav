@@ -107,6 +107,7 @@ interface StubModule {
 
 const smoke = require("../../dist/smoke/host-smoke.cjs") as SmokeModule;
 const stub = require("../../dist/smoke/stub-mcp-server.cjs") as StubModule;
+const repositoryRoot = path.resolve(__dirname, "../..");
 
 function runNpm(args: readonly string[], cwd: string): string {
   const completed = process.platform === "win32"
@@ -199,6 +200,26 @@ function syntheticAcquisition(
       artifactSha256: crypto.createHash("sha256").update(sourceBytes).digest("hex"),
       artifactSha512,
     },
+  };
+}
+
+function runNpmResult(
+  args: readonly string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): { readonly code: number; readonly stdout: string; readonly stderr: string } {
+  const completed = process.platform === "win32"
+    ? childProcess.spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "npm", ...args], {
+        cwd,
+        env,
+        encoding: "utf8",
+        windowsHide: true,
+      })
+    : childProcess.spawnSync("npm", args, { cwd, env, encoding: "utf8" });
+  return {
+    code: completed.status ?? 1,
+    stdout: typeof completed.stdout === "string" ? completed.stdout : "",
+    stderr: typeof completed.stderr === "string" ? completed.stderr : "",
   };
 }
 
@@ -614,5 +635,54 @@ test("acquired identity, latest races, missing provenance, and tarball digest dr
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+test("every host fails when a per-command content-addressed tarball is replaced after execution", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invocation-drift-"));
+  const version = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version;
+  let replaced = false;
+  try {
+    const result = await smoke.runHostSmoke(
+      {
+        mode: "required-contract",
+        packageSpec: `kcoderag-nav@${version}`,
+        expectedVersion: version,
+        temporaryRoot: root,
+        hosts: ["codex", "claude", "cursor"],
+      },
+      {
+        acquirePackage: async (requestedPackageSpec, temporaryRoot, stubUrl, repoRoot, expectedVersion) =>
+          syntheticAcquisition(
+            requestedPackageSpec,
+            expectedVersion as string,
+            temporaryRoot,
+            stubUrl,
+            repoRoot,
+          ),
+        runNpm: (args, cwd, env) => {
+          const completed = runNpmResult(args, cwd, env);
+          if (!replaced && args[0] === "exec") {
+            const packageArgument = args.find((arg) => arg.startsWith("--package="));
+            assert.equal(typeof packageArgument, "string");
+            const invocationTarball = (packageArgument as string).slice("--package=".length);
+            assert.match(path.basename(invocationTarball), /^[a-f0-9]{64}\.tgz$/u);
+            const bytes = fs.readFileSync(invocationTarball);
+            bytes[9] = (bytes[9] ?? 0) ^ 1;
+            fs.writeFileSync(invocationTarball, bytes);
+            replaced = true;
+          }
+          return completed;
+        },
+      },
+    );
+    assert.equal(replaced, true);
+    assert.equal(result.status, "FAIL", JSON.stringify(result));
+    assert.equal(result.hosts.every((host) => host.status === "FAIL"), true);
+    assert.equal(result.hosts.every((host) => host.reason === "artifact_integrity_failed"), true);
+    assert.equal(smoke.smokeExitCode(result), 1);
+    assert.doesNotMatch(JSON.stringify(result), /verified-artifacts|node_modules|invocation-drift/iu);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

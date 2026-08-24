@@ -87,8 +87,16 @@ interface NormalizedPackageRequest {
 }
 
 interface ValidatedAcquisition {
-  readonly lifecyclePackageSpec: string;
+  readonly lifecycleArtifact: VerifiedLifecycleArtifact;
   readonly provenance: PackageProvenance;
+}
+
+interface VerifiedLifecycleArtifact {
+  readonly originalPath: string;
+  readonly originalRealPath: string;
+  readonly bytes: Buffer;
+  readonly sha256: string;
+  compromised: boolean;
 }
 
 interface RunHostSmokeDependencies {
@@ -558,6 +566,7 @@ function validateAcquisition(
     throw new Error("invalid_package_provenance");
   }
   let realTarball: string;
+  let lifecycleBytes: Buffer;
   try {
     realTarball = fs.realpathSync(lifecyclePackageSpec);
     const stats = fs.lstatSync(lifecyclePackageSpec);
@@ -566,7 +575,8 @@ function validateAcquisition(
     }
     const realTemporaryRoot = fs.realpathSync(temporaryRoot);
     if (!isPathInside(realTemporaryRoot, realTarball)) throw new Error("invalid_package_provenance");
-    const actualDigest = crypto.createHash("sha256").update(fs.readFileSync(realTarball)).digest("hex");
+    lifecycleBytes = fs.readFileSync(realTarball);
+    const actualDigest = crypto.createHash("sha256").update(lifecycleBytes).digest("hex");
     if (actualDigest !== lifecycleTarballSha256) throw new Error("invalid_package_provenance");
   } catch {
     throw new Error("invalid_package_provenance");
@@ -579,7 +589,58 @@ function validateAcquisition(
     lifecycleTarballSha256,
     ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact: Object.freeze({ ...publicRegistryArtifact }) }),
   });
-  return Object.freeze({ lifecyclePackageSpec: realTarball, provenance });
+  const lifecycleArtifact: VerifiedLifecycleArtifact = {
+    originalPath: lifecyclePackageSpec,
+    originalRealPath: realTarball,
+    bytes: Buffer.from(lifecycleBytes),
+    sha256: lifecycleTarballSha256,
+    compromised: false,
+  };
+  return Object.freeze({ lifecycleArtifact, provenance });
+}
+
+function assertArtifactFile(filePath: string, expectedRealPath: string, expectedSha256: string): void {
+  const stats = fs.lstatSync(filePath);
+  const realPath = fs.realpathSync(filePath);
+  if (!stats.isFile() || stats.isSymbolicLink() || realPath !== expectedRealPath) {
+    throw new Error("artifact_integrity_failed");
+  }
+  const digest = crypto.createHash("sha256").update(fs.readFileSync(realPath)).digest("hex");
+  if (digest !== expectedSha256) throw new Error("artifact_integrity_failed");
+}
+
+function assertLifecycleArtifact(artifact: VerifiedLifecycleArtifact): void {
+  try {
+    assertArtifactFile(artifact.originalPath, artifact.originalRealPath, artifact.sha256);
+  } catch {
+    artifact.compromised = true;
+    throw new Error("artifact_integrity_failed");
+  }
+}
+
+function withVerifiedInvocationTarball<T>(
+  artifact: VerifiedLifecycleArtifact,
+  runtimeRoot: string,
+  command: string,
+  invoke: (packageSpec: string) => T,
+): T {
+  try {
+    assertLifecycleArtifact(artifact);
+    const copiesRoot = path.join(runtimeRoot, "verified-artifacts");
+    fs.mkdirSync(copiesRoot, { recursive: true, mode: 0o700 });
+    const invocationRoot = fs.mkdtempSync(path.join(copiesRoot, `${command}-`));
+    const invocationPath = path.join(invocationRoot, `${artifact.sha256}.tgz`);
+    fs.writeFileSync(invocationPath, artifact.bytes, { flag: "wx", mode: 0o600 });
+    const invocationRealPath = fs.realpathSync(invocationPath);
+    assertArtifactFile(invocationPath, invocationRealPath, artifact.sha256);
+    const result = invoke(invocationPath);
+    assertArtifactFile(invocationPath, invocationRealPath, artifact.sha256);
+    assertLifecycleArtifact(artifact);
+    return result;
+  } catch {
+    artifact.compromised = true;
+    throw new Error("artifact_integrity_failed");
+  }
 }
 
 function parseCliPayload(result: CommandResult, command: string): Record<string, any> | undefined {
@@ -593,31 +654,33 @@ function parseCliPayload(result: CommandResult, command: string): Record<string,
 }
 
 function runPackageCli(
-  packageSpec: string,
+  artifact: VerifiedLifecycleArtifact,
   projectRoot: string,
   runtimeRoot: string,
   command: "install" | "status" | "update" | "uninstall",
   host: HostId,
   runNpm: NpmRunner,
 ): Record<string, any> | undefined {
-  const args = [
-    "exec",
-    "--yes",
-    "--ignore-scripts",
-    `--package=${packageSpec}`,
-    "--",
-    "kcoderag-nav",
-    command,
-    "--host",
-    host,
-    "--environment",
-    "qa",
-    "--target",
-    projectRoot,
-    "--json",
-  ];
-  if (command !== "status") args.push("--yes");
-  return parseCliPayload(runNpm(args, projectRoot, safeEnvironment(runtimeRoot)), command);
+  return withVerifiedInvocationTarball(artifact, runtimeRoot, command, (packageSpec) => {
+    const args = [
+      "exec",
+      "--yes",
+      "--ignore-scripts",
+      `--package=${packageSpec}`,
+      "--",
+      "kcoderag-nav",
+      command,
+      "--host",
+      host,
+      "--environment",
+      "qa",
+      "--target",
+      projectRoot,
+      "--json",
+    ];
+    if (command !== "status") args.push("--yes");
+    return parseCliPayload(runNpm(args, projectRoot, safeEnvironment(runtimeRoot)), command);
+  });
 }
 
 function expectedServerName(host: HostId): string {
@@ -754,7 +817,7 @@ function statePath(host: HostId, projectRoot: string): string {
 
 async function runRequiredHost(
   host: HostId,
-  packageSpec: string,
+  artifact: VerifiedLifecycleArtifact,
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
@@ -768,7 +831,7 @@ async function runRequiredHost(
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   try {
-    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
+    evidence.install = runPackageCli(artifact, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -777,14 +840,14 @@ async function runRequiredHost(
       failureReason: "install_failed",
       provenance,
     });
-    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host, runNpm);
+    const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
     evidence.navigation = navigationEvidence(host, projectRoot, runtimeRoot);
     if (connection?.url === stubUrl) Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
-    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
-    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
+    evidence.update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
+    evidence.uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
     installed = !evidence.uninstall;
     return evaluateHostEvidence({ host, mode: "required-contract", evidence, provenance });
@@ -797,7 +860,9 @@ async function runRequiredHost(
       provenance,
     });
   } finally {
-    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    if (installed) {
+      try { runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm); } catch { /* fail closed above */ }
+    }
   }
 }
 
@@ -848,7 +913,7 @@ function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string):
 
 async function runOptionalHost(
   host: HostId,
-  packageSpec: string,
+  artifact: VerifiedLifecycleArtifact,
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
@@ -881,7 +946,7 @@ async function runOptionalHost(
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   try {
-    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
+    evidence.install = runPackageCli(artifact, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -890,7 +955,7 @@ async function runOptionalHost(
       failureReason: "install_failed",
       provenance,
     });
-    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host, runNpm);
+    const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
@@ -905,8 +970,8 @@ async function runOptionalHost(
     evidence.mcpList = has("tools/list");
     evidence.mcpCall = structured.tool && has("tools/call", SYNTHETIC_TOOL);
     evidence.stubReceipt = evidence.mcpInitialize && evidence.mcpList && has("tools/call", SYNTHETIC_TOOL);
-    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
-    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
+    evidence.update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
+    evidence.uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
     installed = !evidence.uninstall;
     if (live.code !== 0) {
@@ -930,7 +995,9 @@ async function runOptionalHost(
       provenance,
     });
   } finally {
-    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    if (installed) {
+      try { runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm); } catch { /* fail closed above */ }
+    }
   }
 }
 
@@ -951,6 +1018,20 @@ function aggregate(
     ...(provenance === undefined ? {} : { provenance }),
     hosts: Object.freeze([...hosts]),
   });
+}
+
+function artifactFailureResults(
+  mode: SmokeMode,
+  hosts: readonly HostId[],
+  provenance: PackageProvenance,
+): readonly HostSmokeResult[] {
+  return hosts.map((host) => evaluateHostEvidence({
+    host,
+    mode,
+    evidence: { packageAcquired: true },
+    failureReason: "artifact_integrity_failed",
+    provenance,
+  }));
 }
 
 export async function runHostSmoke(
@@ -1003,6 +1084,15 @@ export async function runHostSmoke(
         unavailableReason: "package_unavailable",
       })));
     }
+    try {
+      assertLifecycleArtifact(acquiredPackage.lifecycleArtifact);
+    } catch {
+      return aggregate(
+        options.mode,
+        artifactFailureResults(options.mode, hosts, acquiredPackage.provenance),
+        acquiredPackage.provenance,
+      );
+    }
     const projectsRoot = path.join(temporaryRoot, "projects");
     fs.mkdirSync(projectsRoot, { recursive: true });
     const results: HostSmokeResult[] = [];
@@ -1010,7 +1100,7 @@ export async function runHostSmoke(
       results.push(options.mode === "required-contract"
         ? await runRequiredHost(
             host,
-            acquiredPackage.lifecyclePackageSpec,
+            acquiredPackage.lifecycleArtifact,
             projectsRoot,
             server.url,
             receiptPath,
@@ -1019,7 +1109,7 @@ export async function runHostSmoke(
           )
         : await runOptionalHost(
             host,
-            acquiredPackage.lifecyclePackageSpec,
+            acquiredPackage.lifecycleArtifact,
             projectsRoot,
             server.url,
             receiptPath,
@@ -1027,7 +1117,14 @@ export async function runHostSmoke(
             runNpm,
           ));
     }
-    return aggregate(options.mode, results, acquiredPackage.provenance);
+    try { assertLifecycleArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
+    return acquiredPackage.lifecycleArtifact.compromised
+      ? aggregate(
+          options.mode,
+          artifactFailureResults(options.mode, hosts, acquiredPackage.provenance),
+          acquiredPackage.provenance,
+        )
+      : aggregate(options.mode, results, acquiredPackage.provenance);
   } finally {
     await server.close();
   }
