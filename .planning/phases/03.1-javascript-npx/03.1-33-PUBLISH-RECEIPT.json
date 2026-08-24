@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "package": "kcoderag-nav",
+  "version": "0.1.7",
+  "tag": "v0.1.7",
+  "release_commit_sha": "af38e03a3243777c1c00bdc5fb0c5a9f347780b6",
+  "registry": {
+    "exact": {
+      "requestedVersion": "0.1.7",
+      "resolvedVersion": "0.1.7"
+    },
+    "latest": {
+      "resolvedVersion": "0.1.7"
+    },
+    "gitHead": "af38e03a3243777c1c00bdc5fb0c5a9f347780b6",
+    "bin": {
+      "kcoderag-nav": "dist/bin/kcoderag-nav.cjs"
+    },
+    "engines": {
+      "node": ">=22"
+    },
+    "repository": "git+https://github.com/Tooc0ld/kcoderag-nav.git"
+  },
+  "workflow": {
+    "name": "Release",
+    "path": ".github/workflows/release.yml",
+    "run_id": "32715408403",
+    "tag": "v0.1.7",
+    "ref": "refs/tags/v0.1.7",
+    "head_sha": "af38e03a3243777c1c00bdc5fb0c5a9f347780b6",
+    "event": "push",
+    "conclusion": "success",
+    "lanes": {
+      "ubuntu-latest-node-22": true,
+      "ubuntu-latest-node-24": true,
+      "windows-latest-node-22": true,
+      "windows-latest-node-24": true
+    },
+    "publish": true
+  },
+  "lifecycle": {
+    "exact_version": {
+      "requestedPackageSpec": "kcoderag-nav@0.1.7",
+      "expectedVersion": "0.1.7",
+      "resolvedPackageName": "kcoderag-nav",
+      "resolvedVersion": "0.1.7",
+      "lifecycleTarballSha256": "1a235c6f0a6eaae736f1e220593072539159da659407ced35d6fbc20959d4b74",
+      "hosts": {
+        "codex": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "claude": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "cursor": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        }
+      }
+    },
+    "latest": {
+      "requestedPackageSpec": "kcoderag-nav@latest",
+      "expectedVersion": "0.1.7",
+      "resolvedPackageName": "kcoderag-nav",
+      "resolvedVersion": "0.1.7",
+      "lifecycleTarballSha256": "7d7c929948dd58c000be6d864b7b7c95539665094f2ed815d78a9fd33a2ad0b7",
+      "hosts": {
+        "codex": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "claude": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        },
+        "cursor": {
+          "packageAcquired": true,
+          "install": true,
+          "status": true,
+          "toolRegistration": true,
+          "navigation": true,
+          "mcpInitialize": true,
+          "mcpList": true,
+          "mcpCall": true,
+          "update": true,
+          "uninstall": true,
+          "stubReceipt": true
+        }
+      }
+    }
+  },
+  "timestamp": "2026-08-24T10:20:41.124Z"
+}
