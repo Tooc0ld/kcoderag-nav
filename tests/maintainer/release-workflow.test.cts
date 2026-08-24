@@ -22,7 +22,24 @@ test("release workflow runs only for matching semantic version tags with minimal
   assert.doesNotMatch(source, /pull_request:|workflow_dispatch:|schedule:|branches:|workflow_run:/u);
   assert.match(source, /permissions:\s*\n\s*contents:\s*read/u);
   assert.doesNotMatch(source, /contents:\s*write|packages:\s*write|actions:\s*write|id-token:\s*write/u);
-  assert.doesNotMatch(source, /continue-on-error|fail-fast:\s*false/iu);
+  assert.doesNotMatch(source, /continue-on-error/iu);
+});
+
+test("publish depends on every required Windows and Linux Node 22 and 24 lane", () => {
+  const source = workflow();
+  const requiredStart = position(source, "  required-contracts:");
+  const publishStart = position(source, "  publish:");
+  assert.ok(requiredStart < publishStart);
+  const requiredJob = source.slice(requiredStart, publishStart);
+  const publishJob = source.slice(publishStart);
+
+  assert.match(requiredJob, /matrix:\s*\n\s*os:\s*\[ubuntu-latest, windows-latest\]\s*\n\s*node:\s*\["22", "24"\]/u);
+  assert.match(requiredJob, /runs-on:\s*\$\{\{ matrix\.os \}\}/u);
+  assert.match(requiredJob, /node-version:\s*\$\{\{ matrix\.node \}\}/u);
+  assert.match(requiredJob, /fail-fast:\s*false/u);
+  assert.match(publishJob, /needs:\s*required-contracts/u);
+  assert.doesNotMatch(requiredJob, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/u);
+  assert.equal(publishJob.match(/npm publish/gu)?.length, 1);
 });
 
 test("release steps are immutable and execute every gate before one publish", () => {
