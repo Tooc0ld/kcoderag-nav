@@ -145,6 +145,14 @@ function assertCleanReleaseSurface(root: string): void {
   failUnless(git(root, ["diff", "--cached", "--name-only"]).length === 0, "dirty_index");
 }
 
+function releaseSurfaceDiffPaths(root: string): readonly string[] {
+  return Object.freeze(
+    git(root, ["diff", "--name-only"])
+      .split(/\r?\n/u)
+      .filter((relativePath) => relativePath.length > 0 && !isIgnoredLocalState(relativePath)),
+  );
+}
+
 function digestLocalState(root: string): string {
   const hash = crypto.createHash("sha256");
   const visit = (relativePath: string): void => {
@@ -327,7 +335,7 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
       "generator_write_set_drift",
     );
     failUnless(digestLocalState(root) === localStateBefore, "ignored_state_changed");
-    failUnless(sameSet(git(root, ["diff", "--name-only"]).split(/\r?\n/u).filter(Boolean), RELEASE_OWNED_PATHS), "release_write_set_drift");
+    failUnless(sameSet(releaseSurfaceDiffPaths(root), RELEASE_OWNED_PATHS), "release_write_set_drift");
     failUnless(git(root, ["diff", "--cached", "--name-only"]) === "", "dirty_index");
 
     git(root, ["add", "--", ...RELEASE_OWNED_PATHS]);

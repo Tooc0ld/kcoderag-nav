@@ -136,6 +136,32 @@ test("creates one exact seven-path release commit and matching immutable tag", (
   assert.deepEqual(publicStatus(root), []);
 });
 
+test("release commit preserves tracked local planning changes outside the exact seven paths", () => {
+  const root = createFixture();
+  const trackedState = path.join(root, ".planning", "tracked.json");
+  fs.writeFileSync(trackedState, "baseline\n", "utf8");
+  git(root, ["add", ".planning/tracked.json"]);
+  git(root, ["commit", "-q", "-m", "track planning state"]);
+  fs.writeFileSync(trackedState, "local state\n", "utf8");
+
+  const result = release.prepareRelease({
+    root,
+    level: "patch",
+    dryRun: false,
+    yes: true,
+    runGates() {},
+    runGenerator: generator(),
+  });
+
+  assert.equal(result.version, "1.2.4");
+  assert.equal(fs.readFileSync(trackedState, "utf8"), "local state\n");
+  assert.deepEqual(
+    git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split(/\r?\n/u).filter(Boolean).sort(),
+    [...release.RELEASE_OWNED_PATHS].sort(),
+  );
+  assert.equal(git(root, ["status", "--short", "--", ".planning/tracked.json"]), "M .planning/tracked.json");
+});
+
 test("allows only root build ignores and rejects every other dirty source/product path", () => {
   const root = createFixture();
   for (const relativePath of ["node_modules/probe", "dist/probe", "dist-tests/probe"]) {
