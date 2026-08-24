@@ -350,7 +350,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
         {
           mode: "required-contract",
           packageSpec: requestedPackageSpec,
-          expectedVersion: "1.2.3",
+          ...(requestedPackageSpec === "kcoderag-nav@latest" ? { expectedVersion: "1.2.3" } : {}),
           temporaryRoot: root,
           hosts: ["codex", "claude", "cursor"],
         },
@@ -373,7 +373,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           },
         },
       );
-      assert.equal(result.status, "PASS");
+      assert.equal(result.status, "PASS", JSON.stringify(result));
       assert.deepEqual(result.provenance, {
         requestedPackageSpec,
         expectedVersion: "1.2.3",

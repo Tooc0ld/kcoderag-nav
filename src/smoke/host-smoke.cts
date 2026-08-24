@@ -4,6 +4,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 
 import type { HostId } from "../core/contracts.cjs";
 import {
@@ -37,21 +38,47 @@ export interface HostSmokeResult {
   readonly status: SmokeStatus;
   readonly reason: string;
   readonly evidence: SmokeEvidence;
+  readonly provenance?: PackageProvenance;
+}
+
+export interface PackageProvenance {
+  readonly requestedPackageSpec: string;
+  readonly expectedVersion: string;
+  readonly resolvedPackageName: "kcoderag-nav";
+  readonly resolvedVersion: string;
+  readonly lifecycleTarballSha256: string;
 }
 
 export interface SmokeRunResult {
   readonly schemaVersion: 1;
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
+  readonly provenance?: PackageProvenance;
   readonly hosts: readonly HostSmokeResult[];
 }
 
 export interface RunHostSmokeOptions {
   readonly mode: SmokeMode;
   readonly packageSpec?: string;
+  readonly expectedVersion?: string;
   readonly temporaryRoot?: string;
   readonly repositoryRoot?: string;
   readonly hosts?: readonly HostId[];
+}
+
+interface AcquiredPackage extends PackageProvenance {
+  readonly lifecyclePackageSpec: string;
+}
+
+interface NormalizedPackageRequest {
+  readonly sourceSpec: string;
+  readonly requestedPackageSpec: string;
+  readonly expectedVersion?: string;
+}
+
+interface ValidatedAcquisition {
+  readonly lifecyclePackageSpec: string;
+  readonly provenance: PackageProvenance;
 }
 
 interface RunHostSmokeDependencies {
@@ -60,7 +87,8 @@ interface RunHostSmokeDependencies {
     temporaryRoot: string,
     stubUrl: string,
     repositoryRoot: string,
-  ) => Promise<string>;
+    expectedVersion?: string,
+  ) => Promise<AcquiredPackage>;
 }
 
 interface CommandResult {
@@ -88,7 +116,10 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "uninstall",
   "stubReceipt",
 ]);
-const PUBLIC_EXACT_SPEC = /^kcoderag-nav@\d+\.\d+\.\d+$/u;
+const EXACT_VERSION = /^\d+\.\d+\.\d+$/u;
+const PUBLIC_EXACT_SPEC = /^kcoderag-nav@(\d+\.\d+\.\d+)$/u;
+const PUBLIC_LATEST_SPEC = "kcoderag-nav@latest";
+const PACKAGE_NAME = "kcoderag-nav";
 const SYNTHETIC_AUTHORIZATION = "Bearer synthetic-contract-only";
 const COMMAND_TIMEOUT_MS = 120_000;
 const LIVE_TIMEOUT_MS = 120_000;
@@ -122,8 +153,10 @@ export function evaluateHostEvidence(input: {
   readonly evidence?: Partial<SmokeEvidence>;
   readonly unavailableReason?: string;
   readonly failureReason?: string;
+  readonly provenance?: PackageProvenance;
 }): HostSmokeResult {
   const evidence = normalizeEvidence(input.evidence);
+  const provenance = input.provenance === undefined ? {} : { provenance: input.provenance };
   if (input.unavailableReason !== undefined) {
     return Object.freeze({
       schemaVersion: 1,
@@ -132,6 +165,7 @@ export function evaluateHostEvidence(input: {
       status: "NOT_RUN",
       reason: input.unavailableReason,
       evidence,
+      ...provenance,
     });
   }
   const complete = EVIDENCE_KEYS.every((key) => evidence[key]);
@@ -142,6 +176,7 @@ export function evaluateHostEvidence(input: {
     status: complete ? "PASS" : "FAIL",
     reason: complete ? "verified" : (input.failureReason ?? "evidence_incomplete"),
     evidence,
+    ...provenance,
   });
 }
 
@@ -153,17 +188,26 @@ export function smokeExitCode(result: { readonly mode: SmokeMode; readonly statu
 
 function safeEnvironment(root: string): NodeJS.ProcessEnv {
   const hostHome = path.join(root, "host-home");
+  const npmCache = path.join(root, "npm-cache");
+  const npmUserConfig = path.join(root, "npmrc");
   fs.mkdirSync(hostHome, { recursive: true });
+  fs.mkdirSync(npmCache, { recursive: true });
+  if (!fs.existsSync(npmUserConfig)) fs.writeFileSync(npmUserConfig, "", "utf8");
+  const inheritedEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !/^(?:npm_config_(?:cache|globalconfig|userconfig)|node_auth_token|npm_token)$/iu.test(key)),
+  );
   return {
-    ...process.env,
+    ...inheritedEnvironment,
     ...(process.platform === "win32" ? { USERPROFILE: hostHome } : { HOME: hostHome }),
     CODEX_HOME: hostHome,
     CLAUDE_CONFIG_DIR: hostHome,
     KCODERAG_NAV_UPDATE_CHECK: "0",
     NO_COLOR: "1",
     npm_config_audit: "false",
+    npm_config_cache: npmCache,
     npm_config_fund: "false",
     npm_config_loglevel: "silent",
+    npm_config_userconfig: npmUserConfig,
   };
 }
 
@@ -230,16 +274,57 @@ function packDirectory(directory: string, destination: string, env: NodeJS.Proce
   return parsePackFilename(packed.stdout, destination);
 }
 
-function normalizePackageSpec(packageSpec: string, repositoryRoot: string): string {
-  if (PUBLIC_EXACT_SPEC.test(packageSpec)) return packageSpec;
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function normalizePackageRequest(
+  packageSpec: string,
+  expectedVersion: string | undefined,
+  repositoryRoot: string,
+): NormalizedPackageRequest {
+  const exact = PUBLIC_EXACT_SPEC.exec(packageSpec);
+  if (exact?.[1] !== undefined) {
+    if (expectedVersion !== undefined && expectedVersion !== exact[1]) throw new Error("invalid_expected_version");
+    return Object.freeze({
+      sourceSpec: packageSpec,
+      requestedPackageSpec: packageSpec,
+      expectedVersion: exact[1],
+    });
+  }
+  if (packageSpec === PUBLIC_LATEST_SPEC) {
+    if (expectedVersion === undefined || !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+    return Object.freeze({ sourceSpec: packageSpec, requestedPackageSpec: packageSpec, expectedVersion });
+  }
+  if (packageSpec.length === 0) {
+    if (expectedVersion !== undefined && !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+    return Object.freeze({
+      sourceSpec: packageSpec,
+      requestedPackageSpec: "local-source",
+      ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    });
+  }
+  if (!packageSpec.toLowerCase().endsWith(".tgz") || /(?:^|:)\/\//u.test(packageSpec)) {
+    throw new Error("invalid_package_spec");
+  }
   const resolved = path.resolve(repositoryRoot, packageSpec);
-  if (!resolved.toLowerCase().endsWith(".tgz")) throw new Error("invalid_package_spec");
   try {
-    if (!fs.statSync(resolved).isFile()) throw new Error("invalid_package_spec");
+    const realRepositoryRoot = fs.realpathSync(repositoryRoot);
+    const realResolved = fs.realpathSync(resolved);
+    const stats = fs.lstatSync(resolved);
+    if (!stats.isFile() || stats.isSymbolicLink() || !isPathInside(realRepositoryRoot, realResolved)) {
+      throw new Error("invalid_package_spec");
+    }
   } catch {
     throw new Error("invalid_package_spec");
   }
-  return resolved;
+  if (expectedVersion !== undefined && !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+  return Object.freeze({
+    sourceSpec: resolved,
+    requestedPackageSpec: "local-tarball",
+    ...(expectedVersion === undefined ? {} : { expectedVersion }),
+  });
 }
 
 function writeSyntheticMcpSources(packageRoot: string, stubUrl: string): void {
@@ -271,11 +356,12 @@ async function acquirePackage(
   temporaryRoot: string,
   stubUrl: string,
   repositoryRoot: string,
-): Promise<string> {
+  expectedVersion?: string,
+): Promise<AcquiredPackage> {
   const env = safeEnvironment(path.join(temporaryRoot, "acquisition-runtime"));
   const sourceSpec = packageSpec.length === 0
     ? packDirectory(repositoryRoot, path.join(temporaryRoot, "source-pack"), env)
-    : normalizePackageSpec(packageSpec, repositoryRoot);
+    : packageSpec;
   const installRoot = path.join(temporaryRoot, "acquired");
   fs.mkdirSync(installRoot, { recursive: true });
   const installed = runNpm([
@@ -290,14 +376,83 @@ async function acquirePackage(
   ], temporaryRoot, env);
   if (installed.code !== 0) throw new Error("package_acquisition_failed");
   const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
+  let resolvedVersion: string;
   try {
     const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
-    if (!isRecord(manifest) || manifest.name !== "kcoderag-nav") throw new Error("invalid_package");
+    if (
+      !isRecord(manifest) ||
+      manifest.name !== PACKAGE_NAME ||
+      typeof manifest.version !== "string" ||
+      !EXACT_VERSION.test(manifest.version) ||
+      (expectedVersion !== undefined && manifest.version !== expectedVersion)
+    ) {
+      throw new Error("invalid_package");
+    }
+    resolvedVersion = manifest.version;
   } catch {
     throw new Error("package_acquisition_failed");
   }
   writeSyntheticMcpSources(packageRoot, stubUrl);
-  return packDirectory(packageRoot, path.join(temporaryRoot, "synthetic-pack"), env);
+  const lifecyclePackageSpec = packDirectory(packageRoot, path.join(temporaryRoot, "synthetic-pack"), env);
+  const requestedPackageSpec = packageSpec.length === 0
+    ? "local-source"
+    : packageSpec.toLowerCase().endsWith(".tgz")
+      ? "local-tarball"
+      : packageSpec;
+  return Object.freeze({
+    requestedPackageSpec,
+    expectedVersion: expectedVersion ?? resolvedVersion,
+    resolvedPackageName: PACKAGE_NAME,
+    resolvedVersion,
+    lifecycleTarballSha256: crypto.createHash("sha256").update(fs.readFileSync(lifecyclePackageSpec)).digest("hex"),
+    lifecyclePackageSpec,
+  });
+}
+
+function validateAcquisition(
+  value: AcquiredPackage,
+  request: NormalizedPackageRequest,
+  temporaryRoot: string,
+): ValidatedAcquisition {
+  if (!isRecord(value)) throw new Error("invalid_package_provenance");
+  const requestedPackageSpec = value.requestedPackageSpec;
+  const resolvedPackageName = value.resolvedPackageName;
+  const resolvedVersion = value.resolvedVersion;
+  const lifecycleTarballSha256 = value.lifecycleTarballSha256;
+  const lifecyclePackageSpec = value.lifecyclePackageSpec;
+  const expectedVersion = request.expectedVersion ?? value.expectedVersion;
+  if (
+    typeof requestedPackageSpec !== "string" || requestedPackageSpec !== request.requestedPackageSpec ||
+    typeof expectedVersion !== "string" || !EXACT_VERSION.test(expectedVersion) || value.expectedVersion !== expectedVersion ||
+    resolvedPackageName !== PACKAGE_NAME ||
+    typeof resolvedVersion !== "string" || resolvedVersion !== expectedVersion ||
+    typeof lifecycleTarballSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(lifecycleTarballSha256) ||
+    typeof lifecyclePackageSpec !== "string"
+  ) {
+    throw new Error("invalid_package_provenance");
+  }
+  let realTarball: string;
+  try {
+    realTarball = fs.realpathSync(lifecyclePackageSpec);
+    const stats = fs.lstatSync(lifecyclePackageSpec);
+    if (!stats.isFile() || stats.isSymbolicLink() || !realTarball.toLowerCase().endsWith(".tgz")) {
+      throw new Error("invalid_package_provenance");
+    }
+    const realTemporaryRoot = fs.realpathSync(temporaryRoot);
+    if (!isPathInside(realTemporaryRoot, realTarball)) throw new Error("invalid_package_provenance");
+    const actualDigest = crypto.createHash("sha256").update(fs.readFileSync(realTarball)).digest("hex");
+    if (actualDigest !== lifecycleTarballSha256) throw new Error("invalid_package_provenance");
+  } catch {
+    throw new Error("invalid_package_provenance");
+  }
+  const provenance: PackageProvenance = Object.freeze({
+    requestedPackageSpec,
+    expectedVersion,
+    resolvedPackageName: PACKAGE_NAME,
+    resolvedVersion,
+    lifecycleTarballSha256,
+  });
+  return Object.freeze({ lifecyclePackageSpec: realTarball, provenance });
 }
 
 function parseCliPayload(result: CommandResult, command: string): Record<string, any> | undefined {
@@ -475,6 +630,7 @@ async function runRequiredHost(
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
+  provenance: PackageProvenance,
 ): Promise<HostSmokeResult> {
   const projectRoot = path.join(projectsRoot, host);
   const runtimeRoot = path.join(projectsRoot, `${host}-runtime`);
@@ -485,7 +641,13 @@ async function runRequiredHost(
   try {
     evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host) !== undefined;
     installed = evidence.install;
-    if (!installed) return evaluateHostEvidence({ host, mode: "required-contract", evidence, failureReason: "install_failed" });
+    if (!installed) return evaluateHostEvidence({
+      host,
+      mode: "required-contract",
+      evidence,
+      failureReason: "install_failed",
+      provenance,
+    });
     const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
@@ -496,9 +658,15 @@ async function runRequiredHost(
     evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host) !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
     installed = !evidence.uninstall;
-    return evaluateHostEvidence({ host, mode: "required-contract", evidence });
+    return evaluateHostEvidence({ host, mode: "required-contract", evidence, provenance });
   } catch {
-    return evaluateHostEvidence({ host, mode: "required-contract", evidence, failureReason: "contract_execution_failed" });
+    return evaluateHostEvidence({
+      host,
+      mode: "required-contract",
+      evidence,
+      failureReason: "contract_execution_failed",
+      provenance,
+    });
   } finally {
     if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host);
   }
@@ -555,6 +723,7 @@ async function runOptionalHost(
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
+  provenance: PackageProvenance,
 ): Promise<HostSmokeResult> {
   if (host === "cursor") {
     return evaluateHostEvidence({
@@ -562,6 +731,7 @@ async function runOptionalHost(
       mode: "optional-live",
       evidence: { packageAcquired: true },
       unavailableReason: "headless_host_unsupported",
+      provenance,
     });
   }
   const command = host === "codex" ? "codex" : "claude";
@@ -571,6 +741,7 @@ async function runOptionalHost(
       mode: "optional-live",
       evidence: { packageAcquired: true },
       unavailableReason: "host_cli_missing",
+      provenance,
     });
   }
   const projectRoot = path.join(projectsRoot, host);
@@ -582,7 +753,13 @@ async function runOptionalHost(
   try {
     evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host) !== undefined;
     installed = evidence.install;
-    if (!installed) return evaluateHostEvidence({ host, mode: "optional-live", evidence, failureReason: "install_failed" });
+    if (!installed) return evaluateHostEvidence({
+      host,
+      mode: "optional-live",
+      evidence,
+      failureReason: "install_failed",
+      provenance,
+    });
     const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
@@ -610,23 +787,40 @@ async function runOptionalHost(
         mode: "optional-live",
         evidence,
         ...(authMissing ? { unavailableReason: "auth_missing" } : { failureReason: "host_execution_failed" }),
+        provenance,
       });
     }
-    return evaluateHostEvidence({ host, mode: "optional-live", evidence });
+    return evaluateHostEvidence({ host, mode: "optional-live", evidence, provenance });
   } catch {
-    return evaluateHostEvidence({ host, mode: "optional-live", evidence, failureReason: "live_execution_failed" });
+    return evaluateHostEvidence({
+      host,
+      mode: "optional-live",
+      evidence,
+      failureReason: "live_execution_failed",
+      provenance,
+    });
   } finally {
     if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host);
   }
 }
 
-function aggregate(mode: SmokeMode, hosts: readonly HostSmokeResult[]): SmokeRunResult {
+function aggregate(
+  mode: SmokeMode,
+  hosts: readonly HostSmokeResult[],
+  provenance?: PackageProvenance,
+): SmokeRunResult {
   const status: SmokeStatus = hosts.some((result) => result.status === "FAIL")
     ? "FAIL"
     : hosts.some((result) => result.status === "NOT_RUN")
       ? "NOT_RUN"
       : "PASS";
-  return Object.freeze({ schemaVersion: 1, mode, status, hosts: Object.freeze([...hosts]) });
+  return Object.freeze({
+    schemaVersion: 1,
+    mode,
+    status,
+    ...(provenance === undefined ? {} : { provenance }),
+    hosts: Object.freeze([...hosts]),
+  });
 }
 
 export async function runHostSmoke(
@@ -639,17 +833,29 @@ export async function runHostSmoke(
   if (hosts.length === 0 || hosts.some((host) => !HOSTS.includes(host))) {
     throw new Error("unsupported_host");
   }
+  let request: NormalizedPackageRequest;
+  try {
+    request = normalizePackageRequest(options.packageSpec ?? "", options.expectedVersion, repositoryRoot);
+  } catch {
+    return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
+      host,
+      mode: options.mode,
+      unavailableReason: "package_unavailable",
+    })));
+  }
   const receiptPath = path.join(temporaryRoot, "receipts.jsonl");
   const server = await startStubMcpServer(receiptPath);
-  let acquiredPackage: string;
+  let acquiredPackage: ValidatedAcquisition;
   try {
     try {
-      acquiredPackage = await (dependencies.acquirePackage ?? acquirePackage)(
-        options.packageSpec ?? "",
+      const acquired = await (dependencies.acquirePackage ?? acquirePackage)(
+        request.sourceSpec,
         temporaryRoot,
         server.url,
         repositoryRoot,
+        request.expectedVersion,
       );
+      acquiredPackage = validateAcquisition(acquired, request, temporaryRoot);
     } catch {
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
         host,
@@ -662,10 +868,24 @@ export async function runHostSmoke(
     const results: HostSmokeResult[] = [];
     for (const host of hosts) {
       results.push(options.mode === "required-contract"
-        ? await runRequiredHost(host, acquiredPackage, projectsRoot, server.url, receiptPath)
-        : await runOptionalHost(host, acquiredPackage, projectsRoot, server.url, receiptPath));
+        ? await runRequiredHost(
+            host,
+            acquiredPackage.lifecyclePackageSpec,
+            projectsRoot,
+            server.url,
+            receiptPath,
+            acquiredPackage.provenance,
+          )
+        : await runOptionalHost(
+            host,
+            acquiredPackage.lifecyclePackageSpec,
+            projectsRoot,
+            server.url,
+            receiptPath,
+            acquiredPackage.provenance,
+          ));
     }
-    return aggregate(options.mode, results);
+    return aggregate(options.mode, results, acquiredPackage.provenance);
   } finally {
     await server.close();
   }
@@ -674,12 +894,14 @@ export async function runHostSmoke(
 interface ParsedArguments {
   readonly mode: SmokeMode;
   readonly packageSpec?: string;
+  readonly expectedVersion?: string;
   readonly hosts?: readonly HostId[];
 }
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   let mode: SmokeMode | undefined;
   let packageSpec: string | undefined;
+  let expectedVersion: string | undefined;
   const hosts: HostId[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -692,6 +914,10 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       index += 1;
       if (packageSpec !== undefined) throw new Error("invalid_arguments");
       packageSpec = value;
+    } else if (argument === "--expected-version" && value !== undefined) {
+      index += 1;
+      if (expectedVersion !== undefined) throw new Error("invalid_arguments");
+      expectedVersion = value;
     } else if (argument === "--host" && value !== undefined) {
       index += 1;
       if (!HOSTS.includes(value as HostId)) throw new Error("unsupported_host");
@@ -701,8 +927,14 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     }
   }
   if (mode === undefined) throw new Error("invalid_arguments");
-  const result: { mode: SmokeMode; packageSpec?: string; hosts?: readonly HostId[] } = { mode };
+  const result: {
+    mode: SmokeMode;
+    packageSpec?: string;
+    expectedVersion?: string;
+    hosts?: readonly HostId[];
+  } = { mode };
   if (packageSpec !== undefined) result.packageSpec = packageSpec;
+  if (expectedVersion !== undefined) result.expectedVersion = expectedVersion;
   if (hosts.length > 0) result.hosts = Object.freeze([...new Set(hosts)]);
   return result;
 }
@@ -717,6 +949,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       temporaryRoot,
       repositoryRoot: path.resolve(__dirname, "../.."),
       ...(args.packageSpec === undefined ? {} : { packageSpec: args.packageSpec }),
+      ...(args.expectedVersion === undefined ? {} : { expectedVersion: args.expectedVersion }),
       ...(args.hosts === undefined ? {} : { hosts: args.hosts }),
     };
     const result = await runHostSmoke(options);
