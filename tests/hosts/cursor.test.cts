@@ -462,6 +462,98 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
   }
 });
 
+test("legacy deletion failures after plugin removal restore both legacy and project trees from the verified backup", () => {
+  for (const failureOperation of [
+    "after-remove-plugin-quarantine",
+    "remove-state-quarantine",
+    "after-remove-state-quarantine",
+  ]) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-delete-window-"));
+    try {
+      const pkg = packageFixture(base);
+      const targetFixtureValue = targetFixture(base);
+      const legacy = legacyFixture(base, pkg, "qa");
+      const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
+      const target = targets.resolveProjectTarget(targetFixtureValue.root);
+      const observation = adapter.detect({ target, packageRoot: pkg.root });
+      const desired = adapter.renderInstall({
+        target,
+        packageRoot: pkg.root,
+        command: "install",
+        environment: "qa",
+        observation,
+        allowLegacyUserRemoval: true,
+      });
+      const projectBefore = snapshot(targetFixtureValue.root);
+      const userBefore = snapshot(legacy.localRoot);
+
+      assert.throws(
+        () => cursor.migrateCursorLegacyInstall(desired, observation, {
+          onBeforeLegacyMutation: (operation) => {
+            if (operation === failureOperation) throw new Error(`injected-${failureOperation}`);
+          },
+        }),
+        /transaction_failed/,
+        failureOperation,
+      );
+      assert.deepEqual(snapshot(targetFixtureValue.root), projectBefore, failureOperation);
+      assert.deepEqual(snapshot(legacy.localRoot), userBefore, failureOperation);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  }
+});
+
+test("unrestorable legacy conflicts retain a complete migration backup", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-retained-backup-"));
+  try {
+    const pkg = packageFixture(base);
+    const targetFixtureValue = targetFixture(base);
+    const legacy = legacyFixture(base, pkg, "qa");
+    const stateBefore = fs.readFileSync(path.join(legacy.localRoot, LEGACY_STATE));
+    const pluginDigests = snapshot(legacy.pluginRoot)
+      .filter((entry) => entry.startsWith("f:"))
+      .map((entry) => entry.split(":").at(-1) ?? "")
+      .sort();
+    const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
+    const target = targets.resolveProjectTarget(targetFixtureValue.root);
+    const observation = adapter.detect({ target, packageRoot: pkg.root });
+    const desired = adapter.renderInstall({
+      target,
+      packageRoot: pkg.root,
+      command: "install",
+      environment: "qa",
+      observation,
+      allowLegacyUserRemoval: true,
+    });
+
+    assert.throws(
+      () => cursor.migrateCursorLegacyInstall(desired, observation, {
+        onBeforeLegacyMutation: (operation) => {
+          if (operation !== "after-remove-plugin-quarantine") return;
+          write(legacy.pluginRoot, "replacement.txt", "replacement\n");
+          throw new Error("injected-unrestorable-conflict");
+        },
+      }),
+      /rollback_failed/,
+    );
+
+    assert.equal(fs.readFileSync(path.join(legacy.pluginRoot, "replacement.txt"), "utf8"), "replacement\n");
+    assert.deepEqual(fs.readFileSync(path.join(legacy.localRoot, LEGACY_STATE)), stateBefore);
+    const recoveryParent = path.join(targetFixtureValue.root, ".cursor", "kcoderag-nav");
+    const backups = fs.readdirSync(recoveryParent).filter((entry) => entry.startsWith(".legacy-migration-"));
+    assert.equal(backups.length, 1);
+    const backupRoot = path.join(recoveryParent, backups[0] as string);
+    const backupDigests = fs.readdirSync(path.join(backupRoot, "files"))
+      .map((entry) => sha256(fs.readFileSync(path.join(backupRoot, "files", entry))))
+      .sort();
+    assert.deepEqual(backupDigests, pluginDigests);
+    assert.deepEqual(fs.readFileSync(path.join(backupRoot, "legacy-state.bin")), stateBefore);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Cursor MCP lifecycle preserves unowned lexical bytes and unsafe integer literals", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-lossless-"));
   try {
@@ -537,7 +629,14 @@ test("legacy migration refuses an ancestor swap in the final quarantine window w
     }
     assert.match(String(caught), /rollback_failed|transaction_failed|filesystem_race|symlink_escape/);
     assert.deepEqual(snapshot(outside), outsideBefore);
-    assert.deepEqual(snapshot(targetFixtureValue.root), projectBefore);
+    const projectWithoutRecovery = snapshot(targetFixtureValue.root).filter((entry) =>
+      !entry.includes(".cursor/kcoderag-nav"));
+    assert.deepEqual(projectWithoutRecovery, projectBefore);
+    const retainedRoot = path.join(targetFixtureValue.root, ".cursor", "kcoderag-nav");
+    assert.equal(
+      fs.readdirSync(retainedRoot).filter((entry) => entry.startsWith(".legacy-migration-")).length,
+      1,
+    );
   } finally {
     if (linkedRoot !== undefined) {
       try {
