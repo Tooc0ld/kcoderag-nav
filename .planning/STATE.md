@@ -5,8 +5,8 @@ current_phase_name: JavaScript 与 npx 安装运行时迁移
 status: executing
 stopped_at: Completed 03.1-21-PLAN.md
 last_updated: "2026-08-23T19:33:29.324Z"
-last_activity: 2026-08-23
-last_activity_desc: Phase 03.1 execution started
+last_activity: 2026-08-24
+last_activity_desc: "Completed quick task 260824-ecs: Enable stricter TypeScript compiler checks"
 state_head: 8d1cd887e2b6a8ae8272e36cb4f065aa3c58e3dd
 progress:
   total_phases: 9
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 Phase: 03.1 (JavaScript 与 npx 安装运行时迁移) — EXECUTING
 Plan: 27 of 27
 Status: Ready to execute
-Last activity: 2026-08-23 — Phase 03.1 execution started
+Last activity: 2026-08-24 — Completed quick task 260824-ecs: Enable stricter TypeScript compiler checks
 
 Progress: [███░░░░░░░] 33%
 
@@ -214,6 +214,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260821-flg | 为免费 Cursor 用户增加 local 插件 install/status/update/uninstall，并更新权威指南 | 2026-08-21 | b284819 | [260821-flg-add-a-free-cursor-local-plugin-installer](./quick/260821-flg-add-a-free-cursor-local-plugin-installer/) |
 | 260821-g07 | 将 QA/Dev/Cursor 基础版本升级到 0.1.3，验证并推送累计本地改动 | 2026-08-21 | 71f6778 | [260821-g07-bump-plugin-base-version-to-0-1-3-regene](./quick/260821-g07-bump-plugin-base-version-to-0-1-3-regene/) |
 | 260821-kqa | 修复 Codex bundled MCP direct map，硬停止重复来源，并发布 QA/Dev/Cursor 0.1.4 | 2026-08-21 | 1602284 | [260821-kqa-fix-codex-bundled-mcp-compatibility-with](./quick/260821-kqa-fix-codex-bundled-mcp-compatibility-with/) |
+| 260824-ecs | Enable stricter TypeScript compiler checks in source and test configs and verify the build | 2026-08-24 | 7dcbbfa | [260824-ecs-enable-stricter-typescript-compiler-chec](./quick/260824-ecs-enable-stricter-typescript-compiler-chec/) |
 
 ## Deferred Items
 
