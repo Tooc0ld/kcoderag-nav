@@ -22,6 +22,8 @@ interface ReleaseOptions {
   readonly yes: boolean;
   readonly runGates?: (root: string) => void;
   readonly runGenerator?: (input: { readonly root: string; readonly check: boolean }) => GenerationEvidence;
+  /** Deterministic post-ref-update failure seam used by recovery tests. */
+  readonly failAfter?: "commit" | "tag";
 }
 
 interface ReleaseResult {
@@ -288,6 +290,26 @@ function restoreReleaseFiles(root: string, snapshot: ReadonlyMap<string, Buffer>
   });
 }
 
+function compensateReleaseRefs(
+  root: string,
+  originalHead: string,
+  releaseCommit: string,
+  tag: string,
+  snapshot: ReadonlyMap<string, Buffer>,
+): void {
+  const currentHead = git(root, ["rev-parse", "HEAD"], true);
+  const tagTarget = git(root, ["rev-list", "-n", "1", tag], true);
+  failUnless(
+    currentHead === releaseCommit && (tagTarget === "" || tagTarget === releaseCommit),
+    "release_recovery_conflict",
+  );
+  if (tagTarget === releaseCommit) git(root, ["tag", "-d", tag]);
+  git(root, ["reset", "--mixed", originalHead]);
+  restoreReleaseFiles(root, snapshot);
+  failUnless(git(root, ["rev-parse", "HEAD"]) === originalHead, "release_recovery_failed");
+  failUnless(git(root, ["rev-list", "-n", "1", tag], true) === "", "release_recovery_failed");
+}
+
 export function prepareRelease(options: ReleaseOptions): ReleaseResult {
   failUnless(((["patch", "minor", "major"] as const) as readonly string[]).includes(options.level), "invalid_level");
   const root = normalizeRoot(options.root);
@@ -324,7 +346,9 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
   }
 
   const snapshot = snapshotReleaseFiles(root);
-  let committed = false;
+  const originalHead = git(root, ["rev-parse", "HEAD"]);
+  failUnless(SHA_RE.test(originalHead), "invalid_repository_head");
+  let releaseCommit: string | undefined;
   try {
     updatePackageVersions(root, version);
     const generated = runGenerator({ root, check: false });
@@ -341,15 +365,17 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
     git(root, ["add", "--", ...RELEASE_OWNED_PATHS]);
     failUnless(sameSet(git(root, ["diff", "--cached", "--name-only"]).split(/\r?\n/u).filter(Boolean), RELEASE_OWNED_PATHS), "staged_write_set_drift");
     git(root, ["commit", "-m", `release: ${tag}`]);
-    committed = true;
     const commit = git(root, ["rev-parse", "HEAD"]);
+    releaseCommit = commit;
     failUnless(SHA_RE.test(commit), "invalid_release_commit");
+    if (options.failAfter === "commit") throw new ReleaseError("injected_after_commit");
     failUnless(
       sameSet(git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split(/\r?\n/u).filter(Boolean), RELEASE_OWNED_PATHS),
       "commit_write_set_drift",
     );
     failUnless(digestLocalState(root) === localStateBefore, "ignored_state_changed");
     git(root, ["tag", tag, commit]);
+    if (options.failAfter === "tag") throw new ReleaseError("injected_after_tag");
     failUnless(git(root, ["rev-list", "-n", "1", tag]) === commit, "tag_mismatch");
     assertCleanReleaseSurface(root);
     return Object.freeze({
@@ -362,7 +388,8 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
       releasePaths: RELEASE_OWNED_PATHS,
     });
   } catch (error) {
-    if (!committed) restoreReleaseFiles(root, snapshot);
+    if (releaseCommit === undefined) restoreReleaseFiles(root, snapshot);
+    else compensateReleaseRefs(root, originalHead, releaseCommit, tag, snapshot);
     if (error instanceof ReleaseError) throw error;
     throw new ReleaseError("release_failed");
   }

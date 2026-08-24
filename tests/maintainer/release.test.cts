@@ -20,6 +20,7 @@ interface ReleaseModule {
     readonly level: "patch" | "minor" | "major";
     readonly dryRun: boolean;
     readonly yes: boolean;
+    readonly failAfter?: "commit" | "tag";
     readonly runGates?: (root: string) => void;
     readonly runGenerator?: (input: {
       readonly root: string;
@@ -134,6 +135,46 @@ test("creates one exact seven-path release commit and matching immutable tag", (
   );
   assert.equal(git(root, ["tag", "--points-at", "HEAD"]), "v1.3.0");
   assert.deepEqual(publicStatus(root), []);
+});
+
+test("post-commit and post-tag failures restore the original HEAD, files, index, and tag set", () => {
+  for (const failAfter of ["commit", "tag"] as const) {
+    const root = createFixture();
+    const originalHead = git(root, ["rev-parse", "HEAD"]);
+    const originalStatus = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
+    const originalFiles = new Map(release.RELEASE_OWNED_PATHS.map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(root, ...relativePath.split("/"))),
+    ]));
+
+    expectCode(
+      () => release.prepareRelease({
+        root,
+        level: "patch",
+        dryRun: false,
+        yes: true,
+        failAfter,
+        runGates() {},
+        runGenerator: generator(),
+      }),
+      failAfter === "commit" ? "injected_after_commit" : "injected_after_tag",
+    );
+
+    assert.equal(git(root, ["rev-parse", "HEAD"]), originalHead, failAfter);
+    assert.equal(git(root, ["tag", "--list", "v1.2.4"]), "", failAfter);
+    assert.equal(
+      git(root, ["status", "--porcelain=v1", "--untracked-files=all"]),
+      originalStatus,
+      failAfter,
+    );
+    for (const [relativePath, bytes] of originalFiles) {
+      assert.deepEqual(
+        fs.readFileSync(path.join(root, ...relativePath.split("/"))),
+        bytes,
+        `${failAfter}:${relativePath}`,
+      );
+    }
+  }
 });
 
 test("accepts the canonical repository root through a filesystem alias", (context) => {
