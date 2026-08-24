@@ -137,10 +137,11 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "uninstall",
   "stubReceipt",
 ]);
-const EXACT_VERSION = /^\d+\.\d+\.\d+$/u;
-const PUBLIC_EXACT_SPEC = /^kcoderag-nav@(\d+\.\d+\.\d+)$/u;
+const EXACT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const PUBLIC_EXACT_SPEC = /^kcoderag-nav@(.+)$/u;
 const PUBLIC_LATEST_SPEC = "kcoderag-nav@latest";
 const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
+const MAX_VERSION_LENGTH = 64;
 const PACKAGE_NAME = "kcoderag-nav";
 const SYNTHETIC_AUTHORIZATION = "Bearer synthetic-contract-only";
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -235,6 +236,10 @@ function safeEnvironment(root: string): NodeJS.ProcessEnv {
     npm_config_registry: PUBLIC_REGISTRY,
     npm_config_userconfig: npmUserConfig,
   };
+}
+
+function isExactVersion(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_VERSION_LENGTH && EXACT_VERSION.test(value);
 }
 
 function runProcess(
@@ -386,7 +391,8 @@ function normalizePackageRequest(
   repositoryRoot: string,
 ): NormalizedPackageRequest {
   const exact = PUBLIC_EXACT_SPEC.exec(packageSpec);
-  if (exact?.[1] !== undefined) {
+  if (packageSpec !== PUBLIC_LATEST_SPEC && exact?.[1] !== undefined) {
+    if (!isExactVersion(exact[1])) throw new Error("invalid_package_spec");
     if (expectedVersion !== undefined && expectedVersion !== exact[1]) throw new Error("invalid_expected_version");
     return Object.freeze({
       sourceSpec: packageSpec,
@@ -396,11 +402,11 @@ function normalizePackageRequest(
     });
   }
   if (packageSpec === PUBLIC_LATEST_SPEC) {
-    if (expectedVersion === undefined || !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+    if (!isExactVersion(expectedVersion)) throw new Error("invalid_expected_version");
     return Object.freeze({ sourceSpec: packageSpec, requestedPackageSpec: packageSpec, expectedVersion, publicRegistry: true });
   }
   if (packageSpec.length === 0) {
-    if (expectedVersion !== undefined && !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+    if (expectedVersion !== undefined && !isExactVersion(expectedVersion)) throw new Error("invalid_expected_version");
     return Object.freeze({
       sourceSpec: packageSpec,
       requestedPackageSpec: "local-source",
@@ -422,7 +428,7 @@ function normalizePackageRequest(
   } catch {
     throw new Error("invalid_package_spec");
   }
-  if (expectedVersion !== undefined && !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
+  if (expectedVersion !== undefined && !isExactVersion(expectedVersion)) throw new Error("invalid_expected_version");
   return Object.freeze({
     sourceSpec: resolved,
     requestedPackageSpec: "local-tarball",
@@ -500,7 +506,7 @@ async function acquirePackage(
       !isRecord(manifest) ||
       manifest.name !== PACKAGE_NAME ||
       typeof manifest.version !== "string" ||
-      !EXACT_VERSION.test(manifest.version) ||
+      !isExactVersion(manifest.version) ||
       (expectedVersion !== undefined && manifest.version !== expectedVersion)
     ) {
       throw new Error("invalid_package");
@@ -542,7 +548,7 @@ function validateAcquisition(
   const expectedVersion = request.expectedVersion ?? value.expectedVersion;
   if (
     typeof requestedPackageSpec !== "string" || requestedPackageSpec !== request.requestedPackageSpec ||
-    typeof expectedVersion !== "string" || !EXACT_VERSION.test(expectedVersion) || value.expectedVersion !== expectedVersion ||
+    !isExactVersion(expectedVersion) || value.expectedVersion !== expectedVersion ||
     resolvedPackageName !== PACKAGE_NAME ||
     typeof resolvedVersion !== "string" || resolvedVersion !== expectedVersion ||
     typeof lifecycleTarballSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(lifecycleTarballSha256) ||

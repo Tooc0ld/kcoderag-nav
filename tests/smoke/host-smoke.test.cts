@@ -508,6 +508,12 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
 
 test("public specifier validation fails before acquisition or host project writes", async () => {
   const invalidSpecs = [
+    "kcoderag-nav@01.2.3",
+    "kcoderag-nav@1.02.3",
+    "kcoderag-nav@1.2.03",
+    `kcoderag-nav@1.${"9".repeat(65)}.3`,
+    "kcoderag-nav@ 1.2.3",
+    "kcoderag-nav@1.2.3 ",
     "kcoderag-nav@1.2.3-beta.1",
     "kcoderag-nav@^1.2.3",
     "kcoderag-nav@~1.2.3",
@@ -546,6 +552,9 @@ test("public expected-version rules reject exact disagreement and latest omissio
     { packageSpec: "kcoderag-nav@1.2.3", expectedVersion: "1.2.4" },
     { packageSpec: "kcoderag-nav@latest", expectedVersion: undefined },
     { packageSpec: "kcoderag-nav@latest", expectedVersion: "1.2.3-beta.1" },
+    { packageSpec: "kcoderag-nav@latest", expectedVersion: "01.2.3" },
+    { packageSpec: "kcoderag-nav@latest", expectedVersion: `1.${"9".repeat(65)}.3` },
+    { packageSpec: "kcoderag-nav@latest", expectedVersion: " 1.2.3" },
   ] as const) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invalid-expected-"));
     let acquisitions = 0;
