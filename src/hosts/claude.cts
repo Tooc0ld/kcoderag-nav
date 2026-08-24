@@ -17,6 +17,12 @@ import {
   type StatusIssue,
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
+import {
+  removeJsonArrayElement,
+  removeJsonObjectProperty,
+  upsertJsonArrayElement,
+  upsertJsonObjectProperty,
+} from "../core/json-splice.cjs";
 import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
 import type {
   HostAdapter,
@@ -117,16 +123,18 @@ function canonicalJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function renderJsonLike(original: Buffer | undefined, value: unknown, safePath: string): Buffer {
-  if (original === undefined) return canonicalJson(value);
-  const text = decodeUtf8(original, safePath);
-  const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
-  const indent = indentMatch?.[1]?.includes("\t")
-    ? "\t"
-    : Math.max(0, indentMatch?.[1]?.length ?? (text.includes("\n") ? 2 : 0));
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const rendered = JSON.stringify(value, null, indent).replaceAll("\n", eol);
-  return Buffer.from(text.endsWith("\n") ? `${rendered}${eol}` : rendered, "utf8");
+function losslessJson(
+  current: Buffer,
+  safePath: string,
+  operation: (text: string) => string,
+  code = "invalid_json",
+): Buffer {
+  try {
+    return Buffer.from(operation(decodeUtf8(current, safePath)), "utf8");
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    throw new InstallError(code, safePath);
+  }
 }
 
 function sectionDigest(value: unknown): string {
@@ -213,9 +221,31 @@ function renderMcp(
     delete document.mcpServers["kcoderag-dev"];
   }
   const source = readMcpServer(packageRoot, environment);
+  const preserveManaged = owned !== undefined && currentName === source.name &&
+    sectionDigest(currentEntry) === sectionDigest(source.entry);
   document.mcpServers[source.name] = source.entry;
+  let bytes: Buffer;
+  if (current === undefined) {
+    bytes = canonicalJson(document);
+  } else {
+    bytes = losslessJson(current, MCP_PATH, (original) => {
+      if (preserveManaged && !allowLegacyOwned) return original;
+      let rendered = original;
+      if (allowLegacyOwned) {
+        const originalDocument = parseJsonBytes(current, "invalid_json", MCP_PATH);
+        if (isRecord(originalDocument.mcpServers)) {
+          for (const name of ["kcoderag-qa", "kcoderag-dev"] as const) {
+            if (originalDocument.mcpServers[name] !== undefined) {
+              rendered = removeJsonObjectProperty(rendered, ["mcpServers"], name);
+            }
+          }
+        }
+      }
+      return upsertJsonObjectProperty(rendered, ["mcpServers"], source.name, source.entry);
+    });
+  }
   return {
-    bytes: renderJsonLike(current, document, MCP_PATH),
+    bytes,
     section: sectionRecord(`mcpServers.${source.name}`, source.entry, fileExisted),
   };
 }
@@ -260,6 +290,7 @@ function renderSettings(
   if (document.hooks === undefined) document.hooks = {};
   if (!isRecord(document.hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
   const hooks = document.hooks;
+  const preToolUseExisted = hooks.PreToolUse !== undefined;
   if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
   if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
     throw new InstallError("invalid_json", SETTINGS_PATH);
@@ -268,6 +299,7 @@ function renderSettings(
     .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
     .filter((entry) => entry.environment !== undefined);
   let insertionIndex: number | undefined;
+  let previousOwnedEntry: unknown;
   if (owned !== undefined) {
     const expectedEnvironment = owned.id.split(".").at(-1);
     const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
@@ -275,6 +307,7 @@ function renderSettings(
     const index = matched[0]?.index;
     if (index === undefined) throw new InstallError("managed_content_changed", SETTINGS_PATH);
     verifySection(owned, `hooks.PreToolUse.kcoderag-nav.${expectedEnvironment}`, hooks.PreToolUse[index], SETTINGS_PATH);
+    previousOwnedEntry = hooks.PreToolUse[index];
     hooks.PreToolUse.splice(index, 1);
     insertionIndex = index;
   } else if (allowLegacyOwned) {
@@ -287,8 +320,32 @@ function renderSettings(
   const entry = managedHook(environment);
   if (insertionIndex === undefined) hooks.PreToolUse.push(entry);
   else hooks.PreToolUse.splice(insertionIndex, 0, entry);
+  const renderedIndex = hooks.PreToolUse.length - 1;
+  const preserveManaged = owned !== undefined && previousOwnedEntry !== undefined &&
+    sectionDigest(previousOwnedEntry) === sectionDigest(entry);
+  let bytes: Buffer;
+  if (current === undefined) {
+    bytes = canonicalJson(document);
+  } else {
+    bytes = losslessJson(current, SETTINGS_PATH, (original) => {
+      if (preserveManaged) return original;
+      let rendered = original;
+      if (owned !== undefined && insertionIndex !== undefined) {
+        return upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], insertionIndex, entry);
+      }
+      if (allowLegacyOwned) {
+        for (const ownedEntry of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
+          rendered = removeJsonArrayElement(rendered, ["hooks", "PreToolUse"], ownedEntry.index);
+        }
+        return upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], renderedIndex, entry);
+      }
+      return preToolUseExisted
+        ? upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], renderedIndex, entry)
+        : upsertJsonObjectProperty(rendered, ["hooks"], "PreToolUse", [entry]);
+    });
+  }
   return {
-    bytes: renderJsonLike(current, document, SETTINGS_PATH),
+    bytes,
     section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
   };
 }
@@ -556,12 +613,18 @@ function uninstallShared(
   if (mcpName === undefined) throw new InstallError("invalid_state", STATE_PATH);
   verifySection(mcpRecord, `mcpServers.${mcpName}`, mcpDocument.mcpServers[mcpName], MCP_PATH);
   delete mcpDocument.mcpServers[mcpName];
+  let renderedMcp = losslessJson(currentMcp, MCP_PATH, (original) =>
+    removeJsonObjectProperty(original, ["mcpServers"], mcpName), "managed_content_changed");
   if (Object.keys(mcpDocument.mcpServers).length === 0) delete mcpDocument.mcpServers;
+  if (mcpDocument.mcpServers === undefined) {
+    renderedMcp = losslessJson(renderedMcp, MCP_PATH, (original) =>
+      removeJsonObjectProperty(original, [], "mcpServers"), "managed_content_changed");
+  }
   result.set(
     MCP_PATH,
     !mcpRecord.fileExisted && Object.keys(mcpDocument).length === 0
       ? null
-      : renderJsonLike(currentMcp, mcpDocument, MCP_PATH),
+      : renderedMcp,
   );
 
   const currentSettings = readManagedOptional(target, SETTINGS_PATH);
@@ -584,13 +647,23 @@ function uninstallShared(
     SETTINGS_PATH,
   );
   settingsDocument.hooks.PreToolUse.splice(matched[0].index, 1);
+  let renderedSettings = losslessJson(currentSettings, SETTINGS_PATH, (original) =>
+    removeJsonArrayElement(original, ["hooks", "PreToolUse"], matched[0]!.index), "managed_content_changed");
   if (settingsDocument.hooks.PreToolUse.length === 0) delete settingsDocument.hooks.PreToolUse;
+  if (settingsDocument.hooks.PreToolUse === undefined) {
+    renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
+      removeJsonObjectProperty(original, ["hooks"], "PreToolUse"), "managed_content_changed");
+  }
   if (Object.keys(settingsDocument.hooks).length === 0) delete settingsDocument.hooks;
+  if (settingsDocument.hooks === undefined) {
+    renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
+      removeJsonObjectProperty(original, [], "hooks"), "managed_content_changed");
+  }
   result.set(
     SETTINGS_PATH,
     !settingsRecord.fileExisted && Object.keys(settingsDocument).length === 0
       ? null
-      : renderJsonLike(currentSettings, settingsDocument, SETTINGS_PATH),
+      : renderedSettings,
   );
   return result;
 }

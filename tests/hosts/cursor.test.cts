@@ -462,6 +462,29 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
   }
 });
 
+test("Cursor MCP lifecycle preserves unowned lexical bytes and unsafe integer literals", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-lossless-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const mcpPath = path.join(target.root, ".cursor/mcp.json");
+    const original = "{\r\n  \"huge\" : 9007199254740993,\r\n  \"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\",\r\n  \"mcpServers\" : { \"user\" : {\"command\":\"keep\"} }\r\n}\r\n";
+    fs.mkdirSync(path.dirname(mcpPath), { recursive: true });
+    fs.writeFileSync(mcpPath, original, "utf8");
+
+    for (const command of ["install", "update"] as const) {
+      assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, command)).exitCode, 0);
+      const current = fs.readFileSync(mcpPath, "utf8");
+      assert.ok(current.includes("\"huge\" : 9007199254740993"));
+      assert.ok(current.includes("\"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\""));
+    }
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "uninstall")).exitCode, 0);
+    assert.equal(fs.readFileSync(mcpPath, "utf8"), original);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("legacy migration refuses an ancestor swap in the final quarantine window without deleting replacement data", (context) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-legacy-race-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-legacy-race-outside-"));

@@ -175,6 +175,41 @@ test("Claude lifecycle preserves unrelated JSON and restores exact original byte
   }
 });
 
+test("Claude shared JSON lifecycle preserves unowned lexical bytes and unsafe integer literals", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-lossless-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const mcpPath = path.join(target.root, ".mcp.json");
+    const settingsPath = path.join(target.root, ".claude/settings.json");
+    const mcpOriginal = "{\r\n  \"huge\" : 9007199254740993,\r\n  \"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\",\r\n  \"mcpServers\" : { \"user\" : {\"command\":\"keep\"} }\r\n}\r\n";
+    const settingsOriginal = "{\r\n \"huge\" : 9007199254740993,\r\n \"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\",\r\n \"hooks\" : { \"Stop\" : [{\"matcher\":\"*\",\"hooks\":[]}] }\r\n}\r\n";
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(mcpPath, mcpOriginal, "utf8");
+    fs.writeFileSync(settingsPath, settingsOriginal, "utf8");
+    const unowned = "\"huge\" : 9007199254740993";
+    const escaped = "\"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\"";
+
+    assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
+    for (const filePath of [mcpPath, settingsPath]) {
+      const installed = fs.readFileSync(filePath, "utf8");
+      assert.ok(installed.includes(unowned));
+      assert.ok(installed.includes(escaped));
+    }
+    assert.equal((await run(target.root, pkg.root, "update")).exitCode, 0);
+    for (const filePath of [mcpPath, settingsPath]) {
+      const updated = fs.readFileSync(filePath, "utf8");
+      assert.ok(updated.includes(unowned));
+      assert.ok(updated.includes(escaped));
+    }
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    assert.equal(fs.readFileSync(mcpPath, "utf8"), mcpOriginal);
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), settingsOriginal);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Claude install state never snapshots shared-config credentials", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-secret-state-"));
   try {

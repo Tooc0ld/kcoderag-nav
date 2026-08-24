@@ -18,6 +18,12 @@ import {
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
 import {
+  removeJsonArrayElement,
+  removeJsonObjectProperty,
+  upsertJsonArrayElement,
+  upsertJsonObjectProperty,
+} from "../core/json-splice.cjs";
+import {
   createDesiredState,
   createStatusResult,
   parseInstallState,
@@ -76,16 +82,17 @@ function sha256(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
-  if (original === undefined) return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-  const text = decodeUtf8(original, HOOKS_PATH);
-  const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
-  const indent = indentMatch?.[1]?.includes("\t")
-    ? "\t"
-    : Math.max(0, indentMatch?.[1]?.length ?? (text.includes("\n") ? 2 : 0));
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const rendered = JSON.stringify(value, null, indent).replaceAll("\n", eol);
-  return Buffer.from(text.endsWith("\n") ? `${rendered}${eol}` : rendered, "utf8");
+function losslessHooks(
+  current: Buffer,
+  operation: (text: string) => string,
+  code = "invalid_json",
+): Buffer {
+  try {
+    return Buffer.from(operation(decodeUtf8(current, HOOKS_PATH)), "utf8");
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    throw new InstallError(code, HOOKS_PATH);
+  }
 }
 
 function sectionDigest(value: unknown): string {
@@ -550,6 +557,7 @@ function renderHooks(
   if (document.hooks === undefined) document.hooks = {};
   if (!isRecord(document.hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const hooks = document.hooks;
+  const preToolUseExisted = hooks.PreToolUse !== undefined;
   if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
   if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
     throw new InstallError("invalid_json", HOOKS_PATH);
@@ -558,6 +566,7 @@ function renderHooks(
     .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
     .filter((entry) => entry.environment !== undefined);
   let insertionIndex: number | undefined;
+  let previousOwnedEntry: unknown;
   if (owned !== undefined) {
     const expectedEnvironment = owned.id.split(".").at(-1);
     const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
@@ -570,6 +579,7 @@ function renderHooks(
       hooks.PreToolUse[matched[0].index],
       HOOKS_PATH,
     );
+    previousOwnedEntry = hooks.PreToolUse[matched[0].index];
     hooks.PreToolUse.splice(matched[0].index, 1);
     insertionIndex = matched[0].index;
   } else if (ownedIndexes.length > 0) {
@@ -578,8 +588,22 @@ function renderHooks(
   const entry = managedHook(environment);
   if (insertionIndex === undefined) hooks.PreToolUse.push(entry);
   else hooks.PreToolUse.splice(insertionIndex, 0, entry);
+  const renderedIndex = hooks.PreToolUse.length - 1;
+  const preserveManaged = owned !== undefined && previousOwnedEntry !== undefined &&
+    sectionDigest(previousOwnedEntry) === sectionDigest(entry);
+  const bytes = current === undefined
+    ? Buffer.from(`${JSON.stringify(document, null, 2)}\n`, "utf8")
+    : losslessHooks(current, (original) => {
+        if (preserveManaged) return original;
+        if (owned !== undefined && insertionIndex !== undefined) {
+          return upsertJsonArrayElement(original, ["hooks", "PreToolUse"], insertionIndex, entry);
+        }
+        return preToolUseExisted
+          ? upsertJsonArrayElement(original, ["hooks", "PreToolUse"], renderedIndex, entry)
+          : upsertJsonObjectProperty(original, ["hooks"], "PreToolUse", [entry]);
+      });
   return {
-    bytes: renderJsonLike(current, document),
+    bytes,
     section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
   };
 }
@@ -1024,13 +1048,23 @@ function uninstallShared(
     HOOKS_PATH,
   );
   hooksDocument.hooks.PreToolUse.splice(matched[0].index, 1);
+  let renderedHooks = losslessHooks(currentHooks, (original) =>
+    removeJsonArrayElement(original, ["hooks", "PreToolUse"], matched[0]!.index), "managed_content_changed");
   if (hooksDocument.hooks.PreToolUse.length === 0) delete hooksDocument.hooks.PreToolUse;
+  if (hooksDocument.hooks.PreToolUse === undefined) {
+    renderedHooks = losslessHooks(renderedHooks, (original) =>
+      removeJsonObjectProperty(original, ["hooks"], "PreToolUse"), "managed_content_changed");
+  }
   if (Object.keys(hooksDocument.hooks).length === 0) delete hooksDocument.hooks;
+  if (hooksDocument.hooks === undefined) {
+    renderedHooks = losslessHooks(renderedHooks, (original) =>
+      removeJsonObjectProperty(original, [], "hooks"), "managed_content_changed");
+  }
   result.set(
     HOOKS_PATH,
     !hooksRecord.fileExisted && Object.keys(hooksDocument).length === 0
       ? null
-      : renderJsonLike(currentHooks, hooksDocument),
+      : renderedHooks,
   );
   return result;
 }

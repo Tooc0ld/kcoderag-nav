@@ -204,6 +204,29 @@ test("Codex QA lifecycle is idempotent, reports health, and restores unrelated b
   }
 });
 
+test("Codex hooks lifecycle preserves unowned lexical bytes and unsafe integer literals", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-lossless-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const hooksPath = path.join(target.root, ".codex/hooks.json");
+    const original = "{\r\n \"huge\" : 9007199254740993,\r\n \"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\",\r\n \"hooks\" : { \"Stop\" : [{\"matcher\":\"*\",\"hooks\":[]}] }\r\n}\r\n";
+    fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+    fs.writeFileSync(hooksPath, original, "utf8");
+
+    for (const command of ["install", "update"] as const) {
+      assert.equal((await run(target.root, pkg.root, command)).exitCode, 0);
+      const current = fs.readFileSync(hooksPath, "utf8");
+      assert.ok(current.includes("\"huge\" : 9007199254740993"));
+      assert.ok(current.includes("\"escaped\" : \"\\u006b\\u0065\\u0065\\u0070\""));
+    }
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    assert.equal(fs.readFileSync(hooksPath, "utf8"), original);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Codex install state never snapshots shared-config credentials", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-secret-state-"));
   try {

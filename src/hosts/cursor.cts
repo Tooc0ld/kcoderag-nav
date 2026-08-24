@@ -18,6 +18,7 @@ import {
   type StatusIssue,
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
+import { removeJsonObjectProperty, upsertJsonObjectProperty } from "../core/json-splice.cjs";
 import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
 import { applyTransaction, type TransactionResult } from "../core/transaction.cjs";
 import type {
@@ -105,16 +106,17 @@ function canonicalJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
-  if (original === undefined) return canonicalJson(value);
-  const text = decodeUtf8(original, MCP_PATH);
-  const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
-  const indent = indentMatch?.[1]?.includes("\t")
-    ? "\t"
-    : Math.max(0, indentMatch?.[1]?.length ?? (text.includes("\n") ? 2 : 0));
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const rendered = JSON.stringify(value, null, indent).replaceAll("\n", eol);
-  return Buffer.from(text.endsWith("\n") ? `${rendered}${eol}` : rendered, "utf8");
+function losslessMcp(
+  current: Buffer,
+  operation: (text: string) => string,
+  code = "invalid_json",
+): Buffer {
+  try {
+    return Buffer.from(operation(decodeUtf8(current, MCP_PATH)), "utf8");
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    throw new InstallError(code, MCP_PATH);
+  }
 }
 
 function sectionDigest(value: unknown): string {
@@ -240,9 +242,14 @@ function renderMcp(
     throw new InstallError("unmanaged_name_conflict", MCP_PATH);
   }
   const entry = environmentMcpEntry(packageRoot, environment).entry;
+  const preserveManaged = owned !== undefined &&
+    sectionDigest(document.mcpServers.kcoderag) === sectionDigest(entry);
   document.mcpServers.kcoderag = entry;
   return {
-    bytes: renderJsonLike(current, document),
+    bytes: current === undefined
+      ? canonicalJson(document)
+      : losslessMcp(current, (original) =>
+          preserveManaged ? original : upsertJsonObjectProperty(original, ["mcpServers"], "kcoderag", entry)),
     section: sectionRecord(entry, fileExisted),
   };
 }
@@ -258,10 +265,16 @@ function removeInstalledMcp(
   if (!isRecord(document.mcpServers)) throw new InstallError("managed_content_changed", MCP_PATH);
   verifyMcpSection(record, document.mcpServers.kcoderag);
   delete document.mcpServers.kcoderag;
+  let rendered = losslessMcp(current, (original) =>
+    removeJsonObjectProperty(original, ["mcpServers"], "kcoderag"), "managed_content_changed");
   if (Object.keys(document.mcpServers).length === 0) delete document.mcpServers;
+  if (document.mcpServers === undefined) {
+    rendered = losslessMcp(rendered, (original) =>
+      removeJsonObjectProperty(original, [], "mcpServers"), "managed_content_changed");
+  }
   return !record.fileExisted && Object.keys(document).length === 0
     ? null
-    : renderJsonLike(current, document);
+    : rendered;
 }
 
 function sourceAsset(packageRoot: string, relativePath: string): Buffer {

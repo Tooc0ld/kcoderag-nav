@@ -10,6 +10,7 @@
     "dist/bin/kcoderag-nav.cjs",
     "dist/cli/commands.cjs",
     "dist/core/contracts.cjs",
+    "dist/core/json-splice.cjs",
     "dist/core/project-target.cjs",
     "dist/core/state.cjs",
     "dist/core/transaction.cjs",
