@@ -366,6 +366,47 @@ test("all receipt schemas use strict bounded core SemVer at root and nested entr
   expectCode(v1Nested, "invalid_receipt_schema");
 });
 
+test("malformed v3 lifecycle and nested artifact shapes always use the stable schema error", () => {
+  const fixtures: Array<[name: string, mutate: (value: JsonMap) => void]> = [
+    ["null lifecycle", (value) => { value.lifecycle = null; }],
+    ["array lifecycle", (value) => { value.lifecycle = []; }],
+    ["primitive lifecycle", (value) => { value.lifecycle = 7; }],
+    ["null exact child", (value) => { value.lifecycle.exact_version = null; }],
+    ["array exact child", (value) => { value.lifecycle.exact_version = []; }],
+    ["primitive exact child", (value) => { value.lifecycle.exact_version = 7; }],
+    ["null latest child", (value) => { value.lifecycle.latest = null; }],
+    ["array latest child", (value) => { value.lifecycle.latest = []; }],
+    ["primitive latest child", (value) => { value.lifecycle.latest = 7; }],
+    ["missing child", (value) => { delete value.lifecycle.latest; }],
+    ["null exact artifact", (value) => { value.lifecycle.exact_version.publicRegistryArtifact = null; }],
+    ["array exact artifact", (value) => { value.lifecycle.exact_version.publicRegistryArtifact = []; }],
+    ["primitive exact artifact", (value) => { value.lifecycle.exact_version.publicRegistryArtifact = 7; }],
+    ["null latest artifact", (value) => { value.lifecycle.latest.publicRegistryArtifact = null; }],
+    ["array latest artifact", (value) => { value.lifecycle.latest.publicRegistryArtifact = []; }],
+    ["primitive latest artifact", (value) => { value.lifecycle.latest.publicRegistryArtifact = 7; }],
+  ];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-publish-receipt-malformed-v3-"));
+  try {
+    for (const [name, mutate] of fixtures) {
+      const value = validV3Receipt();
+      mutate(value);
+      expectCode(value, "invalid_receipt_schema");
+
+      const target = path.join(root, `${name.replaceAll(" ", "-")}.json`);
+      const errors: string[] = [];
+      assert.equal(receipt.runCli(["--record", target], {
+        stdinText: JSON.stringify(value),
+        stdout() {},
+        stderr: (text) => errors.push(text),
+      }), 1, name);
+      assert.deepEqual(errors, [`${JSON.stringify({ ok: false, code: "invalid_receipt_schema" })}\n`], name);
+      assert.equal(fs.existsSync(target), false, name);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("v2 rejects registry, release, workflow identity, lane, and publish divergence", () => {
   const fixtures: Array<[name: string, mutate: (value: JsonMap) => void, code: string]> = [
     ["registry exact request", (value) => { value.registry.exact.requestedVersion = "1.2.4"; }, "registry_version_mismatch"],

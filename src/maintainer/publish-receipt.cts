@@ -160,6 +160,15 @@ const PUBLIC_REGISTRY_ARTIFACT_KEYS = Object.freeze([
   "artifactSha256",
   "artifactSha512",
 ] as const);
+const LIFECYCLE_V3_KEYS = Object.freeze([
+  "requestedPackageSpec",
+  "expectedVersion",
+  "resolvedPackageName",
+  "resolvedVersion",
+  "lifecycleTarballSha256",
+  "publicRegistryArtifact",
+  "hosts",
+] as const);
 
 export class PublishReceiptError extends Error {
   readonly code: string;
@@ -410,15 +419,7 @@ function verifyLifecycleEvidenceV3(
   requestedPackageSpec: string,
   expectedVersion: string,
 ): ReceiptPublicRegistryArtifact {
-  failUnless(exactKeys(value, [
-    "requestedPackageSpec",
-    "expectedVersion",
-    "resolvedPackageName",
-    "resolvedVersion",
-    "lifecycleTarballSha256",
-    "publicRegistryArtifact",
-    "hosts",
-  ]), "invalid_receipt_schema");
+  failUnless(exactKeys(value, LIFECYCLE_V3_KEYS), "invalid_receipt_schema");
   const { publicRegistryArtifact, ...legacyEvidence } = value;
   verifyLifecycleEvidence(legacyEvidence, requestedPackageSpec, expectedVersion);
   const normalizedArtifact = verifyPublicRegistryArtifact(publicRegistryArtifact, expectedVersion);
@@ -443,7 +444,8 @@ function verifyPublishReceiptV3(value: JsonMap): PublishReceiptV3 {
   ]), "invalid_receipt_schema");
   failUnless(value.schema_version === 3 && value.package === "kcoderag-nav", "invalid_receipt_schema");
   failUnless(exactKeys(value.lifecycle, ["exact_version", "latest"]), "invalid_receipt_schema");
-  const withoutPublicArtifact = (lifecycle: JsonMap): JsonMap => {
+  const withoutPublicArtifact = (lifecycle: unknown): JsonMap => {
+    failUnless(exactKeys(lifecycle, LIFECYCLE_V3_KEYS), "invalid_receipt_schema");
     const { publicRegistryArtifact: _publicRegistryArtifact, ...legacy } = lifecycle;
     return legacy;
   };
