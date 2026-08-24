@@ -34,6 +34,7 @@ interface RetirementModule {
 }
 
 const retirement = require("../../dist/maintainer/retirement-audit.cjs") as RetirementModule;
+const repositoryRoot = path.resolve(__dirname, "../..");
 
 const CACHE_LAYOUT: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "plugin-src/hooks/__pycache__": ["grep_nudge.cpython-314.pyc", "update_check.cpython-314.pyc"],
@@ -258,4 +259,37 @@ test("receipt evidence contains hashes and safe paths, never cache bytes", () =>
     receipt.authorized_set_sha256);
   assert.doesNotMatch(serialized, /pyc-plugin-src|adjacent-plugin-src/u);
   assert.match(serialized, /plugin-src\/hooks\/__pycache__/u);
+});
+
+test("compiled CLI retires the parity route while keeping the post-retirement audit executable", () => {
+  const executable = path.join(repositoryRoot, "dist", "maintainer", "retirement-audit.cjs");
+  const retired = childProcess.spawnSync(process.execPath, [
+    executable,
+    "--run-parity",
+    "--mode",
+    "pre",
+    "--receipt",
+    ".planning/phases/03.1-javascript-npx/obsolete.json",
+  ], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(retired.status, 1);
+  assert.deepEqual(JSON.parse(retired.stderr), { ok: false, code: "invalid_arguments" });
+
+  const post = childProcess.spawnSync(process.execPath, [executable, "--mode", "post"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(post.status, 0);
+  assert.deepEqual(JSON.parse(post.stdout), {
+    ok: true,
+    schema_version: "kcoderag-nav/retirement-audit@1",
+    mode: "post",
+    source_remaining: 0,
+    scripts_remaining: 0,
+    tests_remaining: 0,
+  });
 });

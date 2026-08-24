@@ -24,6 +24,7 @@ interface PackAuditModule {
 
 const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
+const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -97,6 +98,46 @@ test("requires exact archive equality and all self-contained host assets", () =>
   expectCode(
     () => packAudit.validatePack({ ...missingHost, expectedPaths: reduced }),
     "missing_self_contained_asset",
+  );
+});
+
+test("rejects the explicitly non-publishable retirement auditor at every pure inventory boundary", () => {
+  const declared = packageJson();
+  if (!declared.files.includes(RETIREMENT_AUDITOR_PATH)) {
+    declared.files.push(RETIREMENT_AUDITOR_PATH);
+  }
+  expectCode(
+    () => packAudit.expandPackageFiles(repositoryRoot, declared),
+    "non_publishable_compiled_output",
+  );
+
+  const expected = baseline();
+  expectCode(
+    () => packAudit.validatePack({
+      ...expected,
+      expectedPaths: [...new Set([...expected.expectedPaths, RETIREMENT_AUDITOR_PATH])],
+    }),
+    "non_publishable_compiled_output",
+  );
+
+  const archived = baseline();
+  archived.archiveEntries.set(RETIREMENT_AUDITOR_PATH, Buffer.from("repository-only\n"));
+  expectCode(
+    () => packAudit.validatePack(archived),
+    "non_publishable_compiled_output",
+  );
+});
+
+test("rejects an undeclared compiled member even when expected and archive inventories agree", () => {
+  const extra = baseline();
+  const extraPath = "dist/maintainer/undeclared-wrapper.cjs";
+  extra.archiveEntries.set(extraPath, Buffer.from("module.exports = {};\n"));
+  expectCode(
+    () => packAudit.validatePack({
+      ...extra,
+      expectedPaths: [...extra.expectedPaths, extraPath].sort(),
+    }),
+    "archive_path_drift",
   );
 });
 
