@@ -72,6 +72,8 @@ export interface ManagedSectionRecord {
   readonly id: string;
   readonly digest: string;
   readonly fileExisted: boolean;
+  /** Parent containers created by the installer and removable only while still empty. */
+  readonly createdContainers?: readonly string[];
 }
 
 export interface InstallState {

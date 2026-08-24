@@ -154,15 +154,25 @@ function validateOriginal(value: unknown): value is OriginalRecord {
 }
 
 function validateSection(value: unknown): value is ManagedSectionRecord {
-  return isRecord(value) &&
-    Object.keys(value).sort().join("\0") === "digest\0fileExisted\0id" &&
-    typeof value.id === "string" &&
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value).sort().join("\0");
+  if (keys !== "digest\0fileExisted\0id" && keys !== "createdContainers\0digest\0fileExisted\0id") {
+    return false;
+  }
+  return typeof value.id === "string" &&
     value.id.length > 0 &&
     value.id.length <= 160 &&
     /^[A-Za-z0-9_.:-]+$/.test(value.id) &&
     typeof value.digest === "string" &&
     DIGEST_PATTERN.test(value.digest) &&
-    typeof value.fileExisted === "boolean";
+    typeof value.fileExisted === "boolean" &&
+    (value.createdContainers === undefined || (
+      Array.isArray(value.createdContainers) &&
+      value.createdContainers.length <= 8 &&
+      new Set(value.createdContainers).size === value.createdContainers.length &&
+      value.createdContainers.every((container) =>
+        typeof container === "string" && /^[A-Za-z0-9_.:-]+$/.test(container))
+    ));
 }
 
 function decodeLegacyOriginal(value: unknown): OriginalRecord | undefined {

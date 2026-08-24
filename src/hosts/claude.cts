@@ -141,8 +141,13 @@ function sectionDigest(value: unknown): string {
   return sha256(Buffer.from(JSON.stringify(value), "utf8"));
 }
 
-function sectionRecord(id: string, value: unknown, fileExisted: boolean): ManagedSectionRecord {
-  return { id, digest: sectionDigest(value), fileExisted };
+function sectionRecord(
+  id: string,
+  value: unknown,
+  fileExisted: boolean,
+  createdContainers: readonly string[] = [],
+): ManagedSectionRecord {
+  return { id, digest: sectionDigest(value), fileExisted, createdContainers: [...createdContainers] };
 }
 
 function verifySection(
@@ -204,6 +209,7 @@ function renderMcp(
   const document = current === undefined
     ? { mcpServers: {} as JsonMap }
     : parseJsonBytes(current, "invalid_json", MCP_PATH);
+  const mcpServersExisted = current !== undefined && document.mcpServers !== undefined;
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
   const currentName = owned?.id.split(".").at(-1);
@@ -246,7 +252,12 @@ function renderMcp(
   }
   return {
     bytes,
-    section: sectionRecord(`mcpServers.${source.name}`, source.entry, fileExisted),
+    section: sectionRecord(
+      `mcpServers.${source.name}`,
+      source.entry,
+      fileExisted,
+      owned?.createdContainers ?? (mcpServersExisted ? [] : ["mcpServers"]),
+    ),
   };
 }
 
@@ -287,6 +298,7 @@ function renderSettings(
   const document = current === undefined
     ? {}
     : parseJsonBytes(current, "invalid_json", SETTINGS_PATH);
+  const hooksExisted = document.hooks !== undefined;
   if (document.hooks === undefined) document.hooks = {};
   if (!isRecord(document.hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
   const hooks = document.hooks;
@@ -346,7 +358,15 @@ function renderSettings(
   }
   return {
     bytes,
-    section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
+    section: sectionRecord(
+      `hooks.PreToolUse.kcoderag-nav.${environment}`,
+      entry,
+      fileExisted,
+      owned?.createdContainers ?? [
+        ...(hooksExisted ? [] : ["hooks"]),
+        ...(preToolUseExisted ? [] : ["hooks.PreToolUse"]),
+      ],
+    ),
   };
 }
 
@@ -615,7 +635,10 @@ function uninstallShared(
   delete mcpDocument.mcpServers[mcpName];
   let renderedMcp = losslessJson(currentMcp, MCP_PATH, (original) =>
     removeJsonObjectProperty(original, ["mcpServers"], mcpName), "managed_content_changed");
-  if (Object.keys(mcpDocument.mcpServers).length === 0) delete mcpDocument.mcpServers;
+  if (Object.keys(mcpDocument.mcpServers).length === 0 &&
+      mcpRecord.createdContainers?.includes("mcpServers")) {
+    delete mcpDocument.mcpServers;
+  }
   if (mcpDocument.mcpServers === undefined) {
     renderedMcp = losslessJson(renderedMcp, MCP_PATH, (original) =>
       removeJsonObjectProperty(original, [], "mcpServers"), "managed_content_changed");
@@ -649,12 +672,18 @@ function uninstallShared(
   settingsDocument.hooks.PreToolUse.splice(matched[0].index, 1);
   let renderedSettings = losslessJson(currentSettings, SETTINGS_PATH, (original) =>
     removeJsonArrayElement(original, ["hooks", "PreToolUse"], matched[0]!.index), "managed_content_changed");
-  if (settingsDocument.hooks.PreToolUse.length === 0) delete settingsDocument.hooks.PreToolUse;
+  if (settingsDocument.hooks.PreToolUse.length === 0 &&
+      settingsRecord.createdContainers?.includes("hooks.PreToolUse")) {
+    delete settingsDocument.hooks.PreToolUse;
+  }
   if (settingsDocument.hooks.PreToolUse === undefined) {
     renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
       removeJsonObjectProperty(original, ["hooks"], "PreToolUse"), "managed_content_changed");
   }
-  if (Object.keys(settingsDocument.hooks).length === 0) delete settingsDocument.hooks;
+  if (Object.keys(settingsDocument.hooks).length === 0 &&
+      settingsRecord.createdContainers?.includes("hooks")) {
+    delete settingsDocument.hooks;
+  }
   if (settingsDocument.hooks === undefined) {
     renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
       removeJsonObjectProperty(original, [], "hooks"), "managed_content_changed");

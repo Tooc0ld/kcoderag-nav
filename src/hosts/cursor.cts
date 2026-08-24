@@ -131,8 +131,14 @@ function sectionDigest(value: unknown): string {
 function sectionRecord(
   value: unknown,
   fileExisted: boolean,
+  createdContainers: readonly string[] = [],
 ): ManagedSectionRecord {
-  return { id: "mcpServers.kcoderag", digest: sectionDigest(value), fileExisted };
+  return {
+    id: "mcpServers.kcoderag",
+    digest: sectionDigest(value),
+    fileExisted,
+    createdContainers: [...createdContainers],
+  };
 }
 
 function verifyMcpSection(record: ManagedSectionRecord, value: unknown): void {
@@ -240,6 +246,7 @@ function renderMcp(
   const document = current === undefined
     ? { mcpServers: {} as JsonMap }
     : parseJsonBytes(current, "invalid_json", MCP_PATH);
+  const mcpServersExisted = current !== undefined && document.mcpServers !== undefined;
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
   if (owned !== undefined) verifyMcpSection(owned, document.mcpServers.kcoderag);
@@ -255,7 +262,11 @@ function renderMcp(
       ? canonicalJson(document)
       : losslessMcp(current, (original) =>
           preserveManaged ? original : upsertJsonObjectProperty(original, ["mcpServers"], "kcoderag", entry)),
-    section: sectionRecord(entry, fileExisted),
+    section: sectionRecord(
+      entry,
+      fileExisted,
+      owned?.createdContainers ?? (mcpServersExisted ? [] : ["mcpServers"]),
+    ),
   };
 }
 
@@ -272,7 +283,10 @@ function removeInstalledMcp(
   delete document.mcpServers.kcoderag;
   let rendered = losslessMcp(current, (original) =>
     removeJsonObjectProperty(original, ["mcpServers"], "kcoderag"), "managed_content_changed");
-  if (Object.keys(document.mcpServers).length === 0) delete document.mcpServers;
+  if (Object.keys(document.mcpServers).length === 0 &&
+      record.createdContainers?.includes("mcpServers")) {
+    delete document.mcpServers;
+  }
   if (document.mcpServers === undefined) {
     rendered = losslessMcp(rendered, (original) =>
       removeJsonObjectProperty(original, [], "mcpServers"), "managed_content_changed");

@@ -103,11 +103,13 @@ function sectionRecord(
   id: string,
   value: Buffer | unknown,
   fileExisted: boolean,
+  createdContainers: readonly string[] = [],
 ): ManagedSectionRecord {
   return {
     id,
     digest: Buffer.isBuffer(value) ? sha256(value) : sectionDigest(value),
     fileExisted,
+    createdContainers: [...createdContainers],
   };
 }
 
@@ -554,6 +556,7 @@ function renderHooks(
   const document = current === undefined
     ? { hooks: {} as JsonMap }
     : parseJsonBytes(current, "invalid_json", HOOKS_PATH);
+  const hooksExisted = current !== undefined && document.hooks !== undefined;
   if (document.hooks === undefined) document.hooks = {};
   if (!isRecord(document.hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const hooks = document.hooks;
@@ -604,7 +607,15 @@ function renderHooks(
       });
   return {
     bytes,
-    section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
+    section: sectionRecord(
+      `hooks.PreToolUse.kcoderag-nav.${environment}`,
+      entry,
+      fileExisted,
+      owned?.createdContainers ?? [
+        ...(hooksExisted ? [] : ["hooks"]),
+        ...(preToolUseExisted ? [] : ["hooks.PreToolUse"]),
+      ],
+    ),
   };
 }
 
@@ -1050,12 +1061,18 @@ function uninstallShared(
   hooksDocument.hooks.PreToolUse.splice(matched[0].index, 1);
   let renderedHooks = losslessHooks(currentHooks, (original) =>
     removeJsonArrayElement(original, ["hooks", "PreToolUse"], matched[0]!.index), "managed_content_changed");
-  if (hooksDocument.hooks.PreToolUse.length === 0) delete hooksDocument.hooks.PreToolUse;
+  if (hooksDocument.hooks.PreToolUse.length === 0 &&
+      hooksRecord.createdContainers?.includes("hooks.PreToolUse")) {
+    delete hooksDocument.hooks.PreToolUse;
+  }
   if (hooksDocument.hooks.PreToolUse === undefined) {
     renderedHooks = losslessHooks(renderedHooks, (original) =>
       removeJsonObjectProperty(original, ["hooks"], "PreToolUse"), "managed_content_changed");
   }
-  if (Object.keys(hooksDocument.hooks).length === 0) delete hooksDocument.hooks;
+  if (Object.keys(hooksDocument.hooks).length === 0 &&
+      hooksRecord.createdContainers?.includes("hooks")) {
+    delete hooksDocument.hooks;
+  }
   if (hooksDocument.hooks === undefined) {
     renderedHooks = losslessHooks(renderedHooks, (original) =>
       removeJsonObjectProperty(original, [], "hooks"), "managed_content_changed");

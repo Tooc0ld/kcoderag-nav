@@ -227,6 +227,30 @@ test("Codex hooks lifecycle preserves unowned lexical bytes and unsafe integer l
   }
 });
 
+test("Codex preserves pre-existing empty hook containers across install update and uninstall", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-empty-parents-"));
+  try {
+    const pkg = packageFixture(base);
+    for (const [name, hooksOriginal, expectedCreated] of [
+      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse"]],
+      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", []],
+    ] as const) {
+      const target = targetFixture(base, name);
+      const hooksPath = path.join(target.root, ".codex", "hooks.json");
+      fs.writeFileSync(hooksPath, hooksOriginal, "utf8");
+
+      assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0, name);
+      assert.equal((await run(target.root, pkg.root, "update")).exitCode, 0, name);
+      const installState = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+      assert.deepEqual(installState.sections[".codex/hooks.json"].createdContainers, expectedCreated, name);
+      assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0, name);
+      assert.equal(fs.readFileSync(hooksPath, "utf8"), hooksOriginal, name);
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Codex install state never snapshots shared-config credentials", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-secret-state-"));
   try {

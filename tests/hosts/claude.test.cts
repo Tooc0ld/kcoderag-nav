@@ -210,6 +210,35 @@ test("Claude shared JSON lifecycle preserves unowned lexical bytes and unsafe in
   }
 });
 
+test("Claude preserves pre-existing empty shared JSON containers across install update and uninstall", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-empty-parents-"));
+  try {
+    const pkg = packageFixture(base);
+    const mcpOriginal = "{ \"mcpServers\" : {} }\n";
+    for (const [name, settingsOriginal, expectedCreated] of [
+      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse"]],
+      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", []],
+    ] as const) {
+      const target = targetFixture(base, name);
+      const mcpPath = path.join(target.root, ".mcp.json");
+      const settingsPath = path.join(target.root, ".claude", "settings.json");
+      fs.writeFileSync(mcpPath, mcpOriginal, "utf8");
+      fs.writeFileSync(settingsPath, settingsOriginal, "utf8");
+
+      assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0, name);
+      assert.equal((await run(target.root, pkg.root, "update")).exitCode, 0, name);
+      const installState = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+      assert.deepEqual(installState.sections[".mcp.json"].createdContainers, [], name);
+      assert.deepEqual(installState.sections[".claude/settings.json"].createdContainers, expectedCreated, name);
+      assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0, name);
+      assert.equal(fs.readFileSync(mcpPath, "utf8"), mcpOriginal, name);
+      assert.equal(fs.readFileSync(settingsPath, "utf8"), settingsOriginal, name);
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Claude install state never snapshots shared-config credentials", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-secret-state-"));
   try {

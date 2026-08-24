@@ -283,6 +283,26 @@ test("Cursor update and uninstall preserve unrelated MCP edits made after instal
   }
 });
 
+test("Cursor preserves a pre-existing empty mcpServers container across install update and uninstall", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-empty-parent-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const mcpPath = path.join(target.root, ".cursor", "mcp.json");
+    const original = "{ \"mcpServers\" : {} }\n";
+    fs.writeFileSync(mcpPath, original, "utf8");
+
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "update")).exitCode, 0);
+    const installState = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+    assert.deepEqual(installState.sections[".cursor/mcp.json"].createdContainers, []);
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "uninstall")).exitCode, 0);
+    assert.equal(fs.readFileSync(mcpPath, "utf8"), original);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Cursor rejects malformed UTF-8 in MCP JSON before any write", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-utf8-"));
   try {
