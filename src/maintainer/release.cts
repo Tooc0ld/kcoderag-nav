@@ -23,7 +23,7 @@ interface ReleaseOptions {
   readonly runGates?: (root: string) => void;
   readonly runGenerator?: (input: { readonly root: string; readonly check: boolean }) => GenerationEvidence;
   /** Deterministic post-ref-update failure seam used by recovery tests. */
-  readonly failAfter?: "commit" | "tag";
+  readonly failAfter?: "commit-before-rev-parse" | "commit" | "tag";
 }
 
 interface ReleaseResult {
@@ -310,6 +310,30 @@ function compensateReleaseRefs(
   failUnless(git(root, ["rev-list", "-n", "1", tag], true) === "", "release_recovery_failed");
 }
 
+function discoverExactReleaseCommit(
+  root: string,
+  originalHead: string,
+  tag: string,
+): string | undefined {
+  const currentHead = git(root, ["rev-parse", "HEAD"], true);
+  if (currentHead === originalHead) return undefined;
+  const parent = git(root, ["rev-parse", `${currentHead}^`], true);
+  const subject = git(root, ["show", "-s", "--format=%s", currentHead], true);
+  const writeSet = git(root, ["show", "--pretty=format:", "--name-only", currentHead], true)
+    .split(/\r?\n/u)
+    .filter(Boolean);
+  const tagTarget = git(root, ["rev-list", "-n", "1", tag], true);
+  failUnless(
+    SHA_RE.test(currentHead)
+      && parent === originalHead
+      && subject === `release: ${tag}`
+      && sameSet(writeSet, RELEASE_OWNED_PATHS)
+      && (tagTarget === "" || tagTarget === currentHead),
+    "release_recovery_conflict",
+  );
+  return currentHead;
+}
+
 export function prepareRelease(options: ReleaseOptions): ReleaseResult {
   failUnless(((["patch", "minor", "major"] as const) as readonly string[]).includes(options.level), "invalid_level");
   const root = normalizeRoot(options.root);
@@ -365,6 +389,9 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
     git(root, ["add", "--", ...RELEASE_OWNED_PATHS]);
     failUnless(sameSet(git(root, ["diff", "--cached", "--name-only"]).split(/\r?\n/u).filter(Boolean), RELEASE_OWNED_PATHS), "staged_write_set_drift");
     git(root, ["commit", "-m", `release: ${tag}`]);
+    if (options.failAfter === "commit-before-rev-parse") {
+      throw new ReleaseError("injected_before_release_commit_discovery");
+    }
     const commit = git(root, ["rev-parse", "HEAD"]);
     releaseCommit = commit;
     failUnless(SHA_RE.test(commit), "invalid_release_commit");
@@ -388,8 +415,9 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
       releasePaths: RELEASE_OWNED_PATHS,
     });
   } catch (error) {
-    if (releaseCommit === undefined) restoreReleaseFiles(root, snapshot);
-    else compensateReleaseRefs(root, originalHead, releaseCommit, tag, snapshot);
+    const compensatingCommit = releaseCommit ?? discoverExactReleaseCommit(root, originalHead, tag);
+    if (compensatingCommit === undefined) restoreReleaseFiles(root, snapshot);
+    else compensateReleaseRefs(root, originalHead, compensatingCommit, tag, snapshot);
     if (error instanceof ReleaseError) throw error;
     throw new ReleaseError("release_failed");
   }
