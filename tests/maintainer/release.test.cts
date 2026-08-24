@@ -138,6 +138,19 @@ test("creates one exact seven-path release commit and matching immutable tag", (
 
 test("accepts the canonical repository root through a filesystem alias", (context) => {
   const root = createFixture();
+  const subdirectory = path.join(root, "nested");
+  fs.mkdirSync(subdirectory);
+  expectCode(
+    () => release.prepareRelease({
+      root: subdirectory,
+      level: "patch",
+      dryRun: true,
+      yes: false,
+      runGates() {},
+      runGenerator() { return { ok: true, changedPaths: [], writtenPaths: [] }; },
+    }),
+    "invalid_repository_root",
+  );
   const alias = path.join(path.dirname(root), `${path.basename(root)}-alias`);
   try {
     fs.symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");

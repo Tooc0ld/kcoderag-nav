@@ -107,12 +107,8 @@ function writeJson(filePath: string, value: JsonMap): void {
 
 function normalizeRoot(root: string): string {
   const resolved = fs.realpathSync(path.resolve(root));
-  const gitRoot = fs.realpathSync(path.resolve(git(resolved, ["rev-parse", "--show-toplevel"])));
-  const comparable = (value: string): string => {
-    const normalized = value.replaceAll("\\", "/");
-    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-  };
-  failUnless(comparable(gitRoot) === comparable(resolved), "invalid_repository_root");
+  // Git owns repository-root discovery and avoids Windows short-path, casing, and junction aliases.
+  failUnless(git(resolved, ["rev-parse", "--show-prefix"]) === "", "invalid_repository_root");
   return resolved;
 }
 
