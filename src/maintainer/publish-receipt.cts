@@ -6,7 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 
 type JsonMap = Record<string, any>;
 
-export interface PublishReceipt {
+export interface PublishReceiptV1 {
   readonly schema_version: 1;
   readonly package: "kcoderag-nav";
   readonly version: string;
@@ -34,10 +34,103 @@ export interface PublishReceipt {
   readonly timestamp: string;
 }
 
+interface ReceiptHostEvidence {
+  readonly packageAcquired: true;
+  readonly install: true;
+  readonly status: true;
+  readonly toolRegistration: true;
+  readonly navigation: true;
+  readonly mcpInitialize: true;
+  readonly mcpList: true;
+  readonly mcpCall: true;
+  readonly update: true;
+  readonly uninstall: true;
+  readonly stubReceipt: true;
+}
+
+interface ReceiptLifecycleEvidence {
+  readonly requestedPackageSpec: string;
+  readonly expectedVersion: string;
+  readonly resolvedPackageName: "kcoderag-nav";
+  readonly resolvedVersion: string;
+  readonly lifecycleTarballSha256: string;
+  readonly hosts: {
+    readonly codex: ReceiptHostEvidence;
+    readonly claude: ReceiptHostEvidence;
+    readonly cursor: ReceiptHostEvidence;
+  };
+}
+
+export interface PublishReceiptV2 {
+  readonly schema_version: 2;
+  readonly package: "kcoderag-nav";
+  readonly version: string;
+  readonly tag: string;
+  readonly release_commit_sha: string;
+  readonly registry: {
+    readonly exact: {
+      readonly requestedVersion: string;
+      readonly resolvedVersion: string;
+    };
+    readonly latest: {
+      readonly resolvedVersion: string;
+    };
+    readonly gitHead: string;
+    readonly bin: { readonly "kcoderag-nav": "dist/bin/kcoderag-nav.cjs" };
+    readonly engines: { readonly node: ">=22" };
+    readonly repository: "git+https://github.com/Tooc0ld/kcoderag-nav.git";
+  };
+  readonly workflow: {
+    readonly name: "Release";
+    readonly path: ".github/workflows/release.yml";
+    readonly run_id: string;
+    readonly tag: string;
+    readonly ref: string;
+    readonly head_sha: string;
+    readonly event: "push";
+    readonly conclusion: "success";
+    readonly lanes: {
+      readonly "ubuntu-latest-node-22": true;
+      readonly "ubuntu-latest-node-24": true;
+      readonly "windows-latest-node-22": true;
+      readonly "windows-latest-node-24": true;
+    };
+    readonly publish: true;
+  };
+  readonly lifecycle: {
+    readonly exact_version: ReceiptLifecycleEvidence;
+    readonly latest: ReceiptLifecycleEvidence;
+  };
+  readonly timestamp: string;
+}
+
+export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2;
+
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SHA_RE = /^[0-9a-f]{40}$/u;
+const DIGEST_RE = /^[0-9a-f]{64}$/u;
 const RUN_ID_RE = /^[1-9][0-9]*$/u;
-const SECRET_RE = /(?:bearer\s+|npm_token\s*=|node_auth_token\s*=|:\/\/[^/@\s:]+:[^/@\s]+@|[?&](?:token|key|secret)=)/iu;
+const SECRET_RE = /(?:bearer\s+|npm_token\s*=|node_auth_token\s*=|mcp[_ -]?(?:auth|token|credential)|:\/\/[^/@\s:]+:[^/@\s]+@|[?&](?:token|key|secret)=)/iu;
+const HOSTS = Object.freeze(["codex", "claude", "cursor"] as const);
+const HOST_EVIDENCE_KEYS = Object.freeze([
+  "packageAcquired",
+  "install",
+  "status",
+  "toolRegistration",
+  "navigation",
+  "mcpInitialize",
+  "mcpList",
+  "mcpCall",
+  "update",
+  "uninstall",
+  "stubReceipt",
+] as const);
+const RELEASE_LANES = Object.freeze([
+  "ubuntu-latest-node-22",
+  "ubuntu-latest-node-24",
+  "windows-latest-node-22",
+  "windows-latest-node-24",
+] as const);
 
 export class PublishReceiptError extends Error {
   readonly code: string;
@@ -82,8 +175,7 @@ function validTimestamp(value: unknown): value is string {
   return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
 }
 
-export function verifyPublishReceipt(value: unknown): PublishReceipt {
-  assertNoSecretLikeValue(value);
+function verifyPublishReceiptV1(value: JsonMap): PublishReceiptV1 {
   failUnless(exactKeys(value, [
     "schema_version",
     "package",
@@ -129,7 +221,122 @@ export function verifyPublishReceipt(value: unknown): PublishReceipt {
     "invalid_receipt_schema",
   );
   failUnless(Object.values(value.evidence).every((item) => item === true), "incomplete_evidence");
-  return value as PublishReceipt;
+  return value as PublishReceiptV1;
+}
+
+function verifyHostEvidence(value: unknown): asserts value is ReceiptHostEvidence {
+  failUnless(exactKeys(value, HOST_EVIDENCE_KEYS), "invalid_receipt_schema");
+  failUnless(HOST_EVIDENCE_KEYS.every((key) => value[key] === true), "incomplete_evidence");
+}
+
+function verifyLifecycleEvidence(
+  value: unknown,
+  requestedPackageSpec: string,
+  expectedVersion: string,
+): asserts value is ReceiptLifecycleEvidence {
+  failUnless(exactKeys(value, [
+    "requestedPackageSpec",
+    "expectedVersion",
+    "resolvedPackageName",
+    "resolvedVersion",
+    "lifecycleTarballSha256",
+    "hosts",
+  ]), "invalid_receipt_schema");
+  failUnless(
+    value.requestedPackageSpec === requestedPackageSpec &&
+      value.expectedVersion === expectedVersion &&
+      value.resolvedPackageName === "kcoderag-nav" &&
+      value.resolvedVersion === expectedVersion,
+    "lifecycle_provenance_mismatch",
+  );
+  failUnless(
+    typeof value.lifecycleTarballSha256 === "string" && DIGEST_RE.test(value.lifecycleTarballSha256),
+    "invalid_lifecycle_digest",
+  );
+  failUnless(exactKeys(value.hosts, HOSTS), "invalid_receipt_schema");
+  for (const host of HOSTS) verifyHostEvidence(value.hosts[host]);
+}
+
+function verifyPublishReceiptV2(value: JsonMap): PublishReceiptV2 {
+  failUnless(exactKeys(value, [
+    "schema_version",
+    "package",
+    "version",
+    "tag",
+    "release_commit_sha",
+    "registry",
+    "workflow",
+    "lifecycle",
+    "timestamp",
+  ]), "invalid_receipt_schema");
+  failUnless(value.schema_version === 2 && value.package === "kcoderag-nav", "invalid_receipt_schema");
+  failUnless(typeof value.version === "string" && VERSION_RE.test(value.version), "invalid_version");
+  failUnless(value.tag === `v${value.version}`, "tag_version_mismatch");
+  failUnless(typeof value.release_commit_sha === "string" && SHA_RE.test(value.release_commit_sha), "invalid_release_sha");
+  failUnless(validTimestamp(value.timestamp), "invalid_timestamp");
+
+  failUnless(
+    exactKeys(value.registry, ["exact", "latest", "gitHead", "bin", "engines", "repository"])
+      && exactKeys(value.registry.exact, ["requestedVersion", "resolvedVersion"])
+      && exactKeys(value.registry.latest, ["resolvedVersion"])
+      && exactKeys(value.registry.bin, ["kcoderag-nav"])
+      && exactKeys(value.registry.engines, ["node"]),
+    "invalid_receipt_schema",
+  );
+  failUnless(
+    value.registry.exact.requestedVersion === value.version &&
+      value.registry.exact.resolvedVersion === value.version &&
+      value.registry.latest.resolvedVersion === value.version,
+    "registry_version_mismatch",
+  );
+  failUnless(value.registry.gitHead === value.release_commit_sha, "registry_git_head_mismatch");
+  failUnless(value.registry.bin["kcoderag-nav"] === "dist/bin/kcoderag-nav.cjs", "registry_metadata_mismatch");
+  failUnless(value.registry.engines.node === ">=22", "registry_metadata_mismatch");
+  failUnless(
+    value.registry.repository === "git+https://github.com/Tooc0ld/kcoderag-nav.git",
+    "registry_metadata_mismatch",
+  );
+
+  failUnless(exactKeys(value.workflow, [
+    "name",
+    "path",
+    "run_id",
+    "tag",
+    "ref",
+    "head_sha",
+    "event",
+    "conclusion",
+    "lanes",
+    "publish",
+  ]), "invalid_receipt_schema");
+  failUnless(
+    value.workflow.name === "Release" && value.workflow.path === ".github/workflows/release.yml",
+    "invalid_workflow_identity",
+  );
+  failUnless(typeof value.workflow.run_id === "string" && RUN_ID_RE.test(value.workflow.run_id), "invalid_workflow_run");
+  failUnless(
+    value.workflow.tag === value.tag && value.workflow.ref === `refs/tags/${value.tag}`,
+    "workflow_ref_mismatch",
+  );
+  failUnless(value.workflow.head_sha === value.release_commit_sha, "workflow_sha_mismatch");
+  failUnless(value.workflow.event === "push", "invalid_workflow_event");
+  failUnless(value.workflow.conclusion === "success", "workflow_not_successful");
+  failUnless(exactKeys(value.workflow.lanes, RELEASE_LANES), "invalid_receipt_schema");
+  failUnless(RELEASE_LANES.every((lane) => value.workflow.lanes[lane] === true), "incomplete_workflow_lanes");
+  failUnless(value.workflow.publish === true, "publish_not_successful");
+
+  failUnless(exactKeys(value.lifecycle, ["exact_version", "latest"]), "invalid_receipt_schema");
+  verifyLifecycleEvidence(value.lifecycle.exact_version, `kcoderag-nav@${value.registry.exact.requestedVersion}`, value.registry.exact.resolvedVersion);
+  verifyLifecycleEvidence(value.lifecycle.latest, "kcoderag-nav@latest", value.registry.latest.resolvedVersion);
+  return value as PublishReceiptV2;
+}
+
+export function verifyPublishReceipt(value: unknown): PublishReceipt {
+  assertNoSecretLikeValue(value);
+  failUnless(isRecord(value), "invalid_receipt_schema");
+  if (value.schema_version === 1) return verifyPublishReceiptV1(value);
+  if (value.schema_version === 2) return verifyPublishReceiptV2(value);
+  throw new PublishReceiptError("invalid_receipt_schema");
 }
 
 function writeJsonAtomic(filePath: string, value: PublishReceipt): void {

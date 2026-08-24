@@ -181,6 +181,17 @@ test("accepts one closed v2 receipt binding registry, workflow lanes, publish, a
     mutate(value);
     expectCode(value, "invalid_receipt_schema");
   }
+
+  const missingFields: Array<(value: JsonMap) => void> = [
+    (value) => { delete value.registry.gitHead; },
+    (value) => { delete value.workflow.publish; },
+    (value) => { delete value.lifecycle.exact_version.hosts.codex.install; },
+  ];
+  for (const mutate of missingFields) {
+    const value = validV2Receipt();
+    mutate(value);
+    expectCode(value, "invalid_receipt_schema");
+  }
 });
 
 test("v2 rejects registry, release, workflow identity, lane, and publish divergence", () => {
@@ -205,11 +216,13 @@ test("v2 rejects registry, release, workflow identity, lane, and publish diverge
     "windows-latest-node-22",
     "windows-latest-node-24",
   ]) {
-    fixtures.push([
-      `lane ${lane}`,
-      (value) => { value.workflow.lanes[lane] = false; },
-      "incomplete_workflow_lanes",
-    ]);
+    for (const incomplete of [false, "NOT_RUN"] as const) {
+      fixtures.push([
+        `lane ${lane} ${String(incomplete)}`,
+        (value) => { value.workflow.lanes[lane] = incomplete; },
+        "incomplete_workflow_lanes",
+      ]);
+    }
   }
   for (const [name, mutate, code] of fixtures) {
     const value = validV2Receipt();
