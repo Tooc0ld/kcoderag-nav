@@ -140,8 +140,12 @@ function stagedPaths(root: string, env: NodeJS.ProcessEnv): readonly string[] {
   return Object.freeze(splitZero(stdout).map(normalizeRelative).sort());
 }
 
-function canonicalWorkingTreeIsDirty(root: string, env: NodeJS.ProcessEnv): boolean {
-  const tracked = git(root, env, ["diff", "--quiet", "--exit-code", "--", ...CANONICAL_PATHS]);
+function workingTreeIsDirty(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  roots: readonly string[],
+): boolean {
+  const tracked = git(root, env, ["diff", "--quiet", "--exit-code", "--", ...roots]);
   if (tracked.status !== 0 && tracked.status !== 1) throw new Error("git_worktree_unavailable");
   const untracked = git(root, env, [
     "ls-files",
@@ -149,7 +153,7 @@ function canonicalWorkingTreeIsDirty(root: string, env: NodeJS.ProcessEnv): bool
     "--exclude-standard",
     "-z",
     "--",
-    ...CANONICAL_PATHS,
+    ...roots,
   ]);
   if (untracked.status !== 0) throw new Error("git_worktree_unavailable");
   return tracked.status === 1 || untracked.stdout.length > 0;
@@ -198,8 +202,11 @@ export function runPreCommit(options: RunOptions): PreCommitResult {
   if (!paths.some(isManaged)) return result(true, "not_applicable", paths);
 
   try {
-    if (canonicalWorkingTreeIsDirty(root, env)) {
+    if (workingTreeIsDirty(root, env, CANONICAL_PATHS)) {
       return result(false, "canonical_unstaged_changes", paths);
+    }
+    if (workingTreeIsDirty(root, env, GENERATED_PATHS)) {
+      return result(false, "generated_unstaged_changes", paths);
     }
   } catch {
     return result(false, "git_inspection_failed", paths);
@@ -220,6 +227,8 @@ const MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   git_inspection_failed: "Cannot inspect the staged KCodeRag files with Git.",
   canonical_unstaged_changes:
     "Canonical KCodeRag inputs have unstaged changes. Review and stage them explicitly.",
+  generated_unstaged_changes:
+    "Generated KCodeRag files have unstaged changes. Regenerate, review, and stage them explicitly.",
   build_failed: "KCodeRag Node build failed. Run npm run build for details.",
   generation_drift:
     "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",

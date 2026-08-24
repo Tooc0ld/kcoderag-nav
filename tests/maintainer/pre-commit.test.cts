@@ -111,6 +111,40 @@ test("partial staging preserves index bytes, staged blob A, and working bytes B 
   assert.deepEqual(bytes(path.join(current.root, "package.json")), workingBefore);
 });
 
+test("stale generated blob A cannot be approved through working generated blob B", () => {
+  const current = fixture("generated partial stage");
+  const generated = path.join(current.root, "kcoderag-qa", "README.md");
+  fs.mkdirSync(path.dirname(generated), { recursive: true });
+  fs.writeFileSync(generated, "base\n");
+  git(current.root, ["add", "kcoderag-qa/README.md"], current.env);
+  git(current.root, ["commit", "--quiet", "-m", "generated base"], current.env);
+
+  fs.writeFileSync(generated, "staged-A\n");
+  git(current.root, ["add", "kcoderag-qa/README.md"], current.env);
+  const stagedBlob = git(current.root, ["rev-parse", ":kcoderag-qa/README.md"], current.env);
+  fs.writeFileSync(generated, "working-B\n");
+  const workingBefore = bytes(generated);
+  const indexBefore = bytes(current.index);
+  let commands = 0;
+
+  const result = preCommit.runPreCommit({
+    root: current.root,
+    env: current.env,
+    runCommand: () => {
+      commands += 1;
+      return { status: 0 };
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "generated_unstaged_changes");
+  assert.equal(commands, 0);
+  assert.deepEqual(bytes(current.index), indexBefore);
+  assert.equal(git(current.root, ["rev-parse", ":kcoderag-qa/README.md"], current.env), stagedBlob);
+  assert.deepEqual(bytes(generated), workingBefore);
+});
+
+
 test("managed staging runs build then the read-only generator check", () => {
   const current = fixture("managed stage");
   fs.writeFileSync(path.join(current.root, "package.json"), '{"name":"fixture","version":"1.0.1"}\n');
