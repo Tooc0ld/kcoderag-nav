@@ -81,7 +81,10 @@ const FORBIDDEN_PREFIXES = Object.freeze([
 
 const SEMVER_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const GLOB_RE = /[*?\[\]{}]/u;
-const CREDENTIAL_SENTINEL = Buffer.from("KCODERAG_PACK_CREDENTIAL_FIXTURE", "ascii");
+const CREDENTIAL_SENTINEL = Buffer.concat([
+  Buffer.from("KCODERAG_PACK_", "ascii"),
+  Buffer.from("CREDENTIAL_FIXTURE", "ascii"),
+]);
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -182,8 +185,8 @@ function forbiddenArchivePath(relativePath: string): boolean {
 }
 
 function hasUnresolvedPlaceholder(bytes: Buffer): boolean {
-  const open = Buffer.from("{{", "ascii");
-  const close = Buffer.from("}}", "ascii");
+  const open = Buffer.from([0x7b, 0x7b]);
+  const close = Buffer.from([0x7d, 0x7d]);
   let cursor = 0;
   while (cursor < bytes.length) {
     const start = bytes.indexOf(open, cursor);
@@ -244,10 +247,7 @@ export function validatePack(input: {
   if (!archiveEntries.has("dist/bin/kcoderag-nav.cjs")) throw new PackAuditError("bin_drift");
 
   for (const [relativePath, bytes] of archiveEntries) {
-    if (
-      relativePath !== "dist/maintainer/pack-audit.cjs" &&
-      bytes.indexOf(CREDENTIAL_SENTINEL) >= 0
-    ) {
+    if (bytes.indexOf(CREDENTIAL_SENTINEL) >= 0) {
       throw new PackAuditError("credential_fixture_in_archive");
     }
     // The compiled generator intentionally contains template-token logic; only rendered/user
