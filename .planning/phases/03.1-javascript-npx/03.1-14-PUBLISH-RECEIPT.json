@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "package": "kcoderag-nav",
+  "version": "0.1.6",
+  "tag": "v0.1.6",
+  "release_commit_sha": "5ff0a978bb3df370336cd533fb6f814937e23954",
+  "workflow": {
+    "run_id": "32682791252",
+    "head_sha": "5ff0a978bb3df370336cd533fb6f814937e23954",
+    "event": "push",
+    "conclusion": "success"
+  },
+  "registry": {
+    "latest": "0.1.6",
+    "bin": {
+      "kcoderag-nav": "dist/bin/kcoderag-nav.cjs"
+    },
+    "engines": {
+      "node": ">=22"
+    },
+    "repository": "git+https://github.com/Tooc0ld/kcoderag-nav.git"
+  },
+  "evidence": {
+    "registry_metadata": true,
+    "npx_install": true,
+    "codex": true,
+    "claude": true,
+    "cursor": true
+  },
+  "timestamp": "2026-08-24T02:25:49.407Z"
+}
