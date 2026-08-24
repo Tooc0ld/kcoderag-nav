@@ -126,80 +126,76 @@ function packFilename(stdout: string, destination: string): string {
   return path.resolve(destination, payload[0].filename);
 }
 
-function sha256(file: string): string {
-  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
-}
-
-function writeSyntheticMcpSources(packageRoot: string, stubUrl: string): void {
-  for (const environment of ["qa", "dev"] as const) {
-    const name = `kcoderag-${environment}`;
-    const httpEntry = {
-      type: "http",
-      url: stubUrl,
-      headers: { Authorization: "Bearer synthetic-contract-only" },
-    };
-    fs.writeFileSync(
-      path.join(packageRoot, name, ".mcp.json"),
-      `${JSON.stringify({ mcpServers: { [name]: httpEntry } }, null, 2)}\n`,
-      "utf8",
-    );
-    fs.writeFileSync(
-      path.join(packageRoot, name, ".codex.mcp.json"),
-      `${JSON.stringify({ [name]: {
-        url: stubUrl,
-        http_headers: { Authorization: "Bearer synthetic-contract-only" },
-      } }, null, 2)}\n`,
-      "utf8",
-    );
-  }
-}
-
-function syntheticAcquisition(
-  requestedPackageSpec: string,
-  expectedVersion: string,
-  root: string,
-  stubUrl: string,
-  repositoryRoot: string,
-): AcquiredPackage {
-  const sourcePack = path.join(root, "fixture-source-pack");
-  fs.mkdirSync(sourcePack, { recursive: true });
-  const sourceTarball = packFilename(
-    runNpm(["pack", repositoryRoot, "--json", "--ignore-scripts", "--pack-destination", sourcePack], root),
-    sourcePack,
+function packRepositoryFixture(root: string): { readonly tarball: string; readonly version: string } {
+  const destination = path.join(root, "repository-fixture");
+  fs.mkdirSync(destination, { recursive: true });
+  const tarball = packFilename(
+    runNpm(["pack", repositoryRoot, "--json", "--ignore-scripts", "--pack-destination", destination], root),
+    destination,
   );
-  const installRoot = path.join(root, "fixture-acquired");
-  fs.mkdirSync(installRoot, { recursive: true });
-  runNpm([
-    "install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false",
-    "--prefix", installRoot, sourceTarball,
-  ], root);
-  const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
-  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")) as {
-    readonly name: "kcoderag-nav";
+  const version = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    readonly version: string;
+  }).version;
+  return { tarball, version };
+}
+
+function packTinyFixture(
+  root: string,
+  name: string,
+  version: string,
+): { readonly tarball: string; readonly manifestPath: string } {
+  const source = path.join(root, `tiny-${name.replace(/[^a-z0-9]/giu, "-")}-${version.replace(/\./gu, "-")}`);
+  const destination = path.join(root, "tiny-packs");
+  fs.mkdirSync(source, { recursive: true });
+  fs.mkdirSync(destination, { recursive: true });
+  const manifestPath = path.join(source, "package.json");
+  fs.writeFileSync(manifestPath, `${JSON.stringify({ name, version }, null, 2)}\n`, "utf8");
+  return {
+    tarball: packFilename(
+      runNpm(["pack", source, "--json", "--ignore-scripts", "--pack-destination", destination], root),
+      destination,
+    ),
+    manifestPath,
   };
+}
+
+function publicRegistryRunner(
+  sourceTarball: string,
+  metadataVersion: string,
+  afterRun?: (args: readonly string[], result: { readonly code: number; readonly stdout: string; readonly stderr: string }) => void,
+): (args: readonly string[], cwd: string, env: NodeJS.ProcessEnv) => {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+} {
   const sourceBytes = fs.readFileSync(sourceTarball);
   const artifactSha512 = crypto.createHash("sha512").update(sourceBytes).digest("hex");
-  writeSyntheticMcpSources(packageRoot, stubUrl);
-  const syntheticPack = path.join(root, "fixture-synthetic-pack");
-  fs.mkdirSync(syntheticPack, { recursive: true });
-  const lifecyclePackageSpec = packFilename(
-    runNpm(["pack", packageRoot, "--json", "--ignore-scripts", "--pack-destination", syntheticPack], root),
-    syntheticPack,
-  );
-  return {
-    requestedPackageSpec,
-    expectedVersion,
-    resolvedPackageName: manifest.name,
-    resolvedVersion: expectedVersion,
-    lifecycleTarballSha256: sha256(lifecyclePackageSpec),
-    lifecyclePackageSpec,
-    publicRegistryArtifact: {
-      registry: "https://registry.npmjs.org/",
-      resolvedTarballUrl: `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${expectedVersion}.tgz`,
-      distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
-      artifactSha256: crypto.createHash("sha256").update(sourceBytes).digest("hex"),
-      artifactSha512,
-    },
+  return (args, cwd, env) => {
+    let result: { readonly code: number; readonly stdout: string; readonly stderr: string };
+    if (args[0] === "view") {
+      result = {
+        code: 0,
+        stdout: JSON.stringify({
+          name: "kcoderag-nav",
+          version: metadataVersion,
+          dist: {
+            integrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
+            tarball: `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${metadataVersion}.tgz`,
+          },
+        }),
+        stderr: "",
+      };
+    } else if (args[0] === "pack" && args[1]?.startsWith("kcoderag-nav@")) {
+      const destination = args[args.indexOf("--pack-destination") + 1];
+      assert.equal(typeof destination, "string");
+      const filename = `kcoderag-nav-${metadataVersion}.tgz`;
+      fs.copyFileSync(sourceTarball, path.join(destination as string, filename));
+      result = { code: 0, stdout: JSON.stringify([{ filename }]), stderr: "" };
+    } else {
+      result = runNpmResult(args, cwd, env);
+    }
+    afterRun?.(args, result);
+    return result;
   };
 }
 
@@ -450,56 +446,55 @@ test("public acquisition strips inherited npm controls and rejects redirected or
 });
 
 test("exact and latest preserve acquired-manifest and synthetic-tarball provenance across all hosts", async () => {
-  for (const requestedPackageSpec of ["kcoderag-nav@1.2.3", "kcoderag-nav@latest"] as const) {
+  for (const selector of ["exact", "latest"] as const) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-happy-"));
     try {
-      let mutableAcquisition: AcquiredPackage | undefined;
+      const fixture = packRepositoryFixture(root);
+      const requestedPackageSpec = selector === "exact" ? `kcoderag-nav@${fixture.version}` : "kcoderag-nav@latest";
+      const sourceBytes = fs.readFileSync(fixture.tarball);
+      const artifactSha512 = crypto.createHash("sha512").update(sourceBytes).digest("hex");
       const result = await smoke.runHostSmoke(
         {
           mode: "required-contract",
           packageSpec: requestedPackageSpec,
-          ...(requestedPackageSpec === "kcoderag-nav@latest" ? { expectedVersion: "1.2.3" } : {}),
+          ...(selector === "latest" ? { expectedVersion: fixture.version } : {}),
           temporaryRoot: root,
           hosts: ["codex", "claude", "cursor"],
         },
-        {
-          acquirePackage: async (normalizedSpec, temporaryRoot, stubUrl, repositoryRoot, expectedVersion) => {
-            assert.equal(normalizedSpec, requestedPackageSpec);
-            assert.equal(expectedVersion, "1.2.3");
-            const acquired = syntheticAcquisition(
-              requestedPackageSpec,
-              "1.2.3",
-              temporaryRoot,
-              stubUrl,
-              repositoryRoot,
-            );
-            mutableAcquisition = acquired;
-            setTimeout(() => {
-              (acquired as { expectedVersion: string }).expectedVersion = "9.9.9";
-            }, 0);
-            return acquired;
-          },
-        },
+        { runNpm: publicRegistryRunner(fixture.tarball, fixture.version) },
       );
       assert.equal(result.status, "PASS", JSON.stringify(result));
       assert.deepEqual(result.provenance, {
         requestedPackageSpec,
-        expectedVersion: "1.2.3",
+        expectedVersion: fixture.version,
         resolvedPackageName: "kcoderag-nav",
-        resolvedVersion: "1.2.3",
+        resolvedVersion: fixture.version,
         lifecycleTarballSha256: result.provenance?.lifecycleTarballSha256,
-        publicRegistryArtifact: result.provenance?.publicRegistryArtifact,
+        publicRegistryArtifact: {
+          registry: "https://registry.npmjs.org/",
+          resolvedTarballUrl: `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${fixture.version}.tgz`,
+          distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
+          artifactSha256: crypto.createHash("sha256").update(sourceBytes).digest("hex"),
+          artifactSha512,
+        },
       });
       assert.match(result.provenance?.lifecycleTarballSha256 ?? "", /^[a-f0-9]{64}$/u);
       assert.equal(Object.isFrozen(result.provenance), true);
-      assert.equal(mutableAcquisition?.expectedVersion, "9.9.9");
+      const installedManifest = JSON.parse(fs.readFileSync(
+        path.join(root, "acquired", "node_modules", "kcoderag-nav", "package.json"),
+        "utf8",
+      )) as { readonly name: string; readonly version: string };
+      assert.deepEqual(
+        { name: installedManifest.name, version: installedManifest.version },
+        { name: "kcoderag-nav", version: fixture.version },
+      );
       for (const host of result.hosts) {
         assert.equal(host.status, "PASS");
         assert.equal(host.provenance, result.provenance);
         assert.deepEqual(host.evidence, smoke.completeEvidence());
       }
       const serialized = JSON.stringify(result);
-      assert.doesNotMatch(serialized, /fixture-|node_modules|synthetic-pack|Authorization|Bearer/iu);
+      assert.doesNotMatch(serialized, /repository-fixture|node_modules|synthetic-pack|Authorization|Bearer/iu);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -577,57 +572,22 @@ test("public expected-version rules reject exact disagreement and latest omissio
   }
 });
 
-test("acquired identity, latest races, missing provenance, and tarball digest drift fail before host writes", async () => {
-  const cases: readonly {
-    readonly name: string;
-    readonly packageSpec: string;
-    readonly mutate: (acquired: AcquiredPackage) => unknown;
-  }[] = [
-    {
-      name: "exact installed-manifest mismatch",
-      packageSpec: "kcoderag-nav@1.2.3",
-      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.4" }),
-    },
-    {
-      name: "latest acquired previous version",
-      packageSpec: "kcoderag-nav@latest",
-      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.2" }),
-    },
-    {
-      name: "latest acquired next version",
-      packageSpec: "kcoderag-nav@latest",
-      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.4" }),
-    },
-    {
-      name: "wrong acquired package name",
-      packageSpec: "kcoderag-nav@1.2.3",
-      mutate: (acquired) => ({ ...acquired, resolvedPackageName: "not-kcoderag-nav" }),
-    },
-    {
-      name: "missing provenance",
-      packageSpec: "kcoderag-nav@1.2.3",
-      mutate: (acquired) => ({ lifecyclePackageSpec: acquired.lifecyclePackageSpec }),
-    },
-    {
-      name: "synthetic tgz digest mismatch",
-      packageSpec: "kcoderag-nav@1.2.3",
-      mutate: (acquired) => ({ ...acquired, lifecycleTarballSha256: "0".repeat(64) }),
-    },
-  ];
+test("real installed manifests reject exact mismatches, latest races, and wrong package identity before host writes", async () => {
+  const cases = [
+    { name: "exact mismatch", packageSpec: "kcoderag-nav@1.2.3", packageName: "kcoderag-nav", manifestVersion: "1.2.4" },
+    { name: "latest previous", packageSpec: "kcoderag-nav@latest", packageName: "kcoderag-nav", manifestVersion: "1.2.2" },
+    { name: "latest next", packageSpec: "kcoderag-nav@latest", packageName: "kcoderag-nav", manifestVersion: "1.2.4" },
+    { name: "wrong name", packageSpec: "kcoderag-nav@1.2.3", packageName: "not-kcoderag-nav", manifestVersion: "1.2.3" },
+  ] as const;
 
   for (const fixture of cases) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-fail-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-manifest-fixture-"));
     try {
-      const tarball = path.join(root, "synthetic.tgz");
-      fs.writeFileSync(tarball, "synthetic tarball bytes", "utf8");
-      const acquired: AcquiredPackage = {
-        requestedPackageSpec: fixture.packageSpec,
-        expectedVersion: "1.2.3",
-        resolvedPackageName: "kcoderag-nav",
-        resolvedVersion: "1.2.3",
-        lifecycleTarballSha256: sha256(tarball),
-        lifecyclePackageSpec: tarball,
-      };
+      const packedFixture = packTinyFixture(root, fixture.packageName, fixture.manifestVersion);
+      assert.deepEqual(JSON.parse(fs.readFileSync(packedFixture.manifestPath, "utf8")), {
+        name: fixture.packageName,
+        version: fixture.manifestVersion,
+      });
       const result = await smoke.runHostSmoke(
         {
           mode: "required-contract",
@@ -635,12 +595,12 @@ test("acquired identity, latest races, missing provenance, and tarball digest dr
           expectedVersion: "1.2.3",
           temporaryRoot: root,
         },
-        { acquirePackage: async () => fixture.mutate(acquired) as AcquiredPackage },
+        { runNpm: publicRegistryRunner(packedFixture.tarball, "1.2.3") },
       );
       assert.equal(result.status, "NOT_RUN", fixture.name);
       assert.equal(result.provenance, undefined, fixture.name);
       assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture.name);
-      assert.doesNotMatch(JSON.stringify(result), /not-kcoderag-nav|1\.2\.2|1\.2\.4|synthetic\.tgz/iu);
+      assert.doesNotMatch(JSON.stringify(result), /not-kcoderag-nav|1\.2\.2|1\.2\.4|manifest-fixture/iu);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -649,28 +609,19 @@ test("acquired identity, latest races, missing provenance, and tarball digest dr
 
 test("every host fails when a per-command content-addressed tarball is replaced after execution", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invocation-drift-"));
-  const version = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version;
   let replaced = false;
   try {
+    const fixture = packRepositoryFixture(root);
     const result = await smoke.runHostSmoke(
       {
         mode: "required-contract",
-        packageSpec: `kcoderag-nav@${version}`,
-        expectedVersion: version,
+        packageSpec: `kcoderag-nav@${fixture.version}`,
+        expectedVersion: fixture.version,
         temporaryRoot: root,
         hosts: ["codex", "claude", "cursor"],
       },
       {
-        acquirePackage: async (requestedPackageSpec, temporaryRoot, stubUrl, repoRoot, expectedVersion) =>
-          syntheticAcquisition(
-            requestedPackageSpec,
-            expectedVersion as string,
-            temporaryRoot,
-            stubUrl,
-            repoRoot,
-          ),
-        runNpm: (args, cwd, env) => {
-          const completed = runNpmResult(args, cwd, env);
+        runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
           if (!replaced && args[0] === "exec") {
             const packageArgument = args.find((arg) => arg.startsWith("--package="));
             assert.equal(typeof packageArgument, "string");
@@ -681,8 +632,7 @@ test("every host fails when a per-command content-addressed tarball is replaced 
             fs.writeFileSync(invocationTarball, bytes);
             replaced = true;
           }
-          return completed;
-        },
+        }),
       },
     );
     assert.equal(replaced, true);
