@@ -24,6 +24,7 @@ interface UpdateCheckOptions {
 
 interface UpdateCheckModule {
   readonly CACHE_TTL_MS: number;
+  readonly SESSIONLESS_MARKER_TTL_MS: number;
   readonly MAX_SESSION_MARKERS: number;
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
@@ -190,6 +191,36 @@ test("stale or missing cache schedules at most one detached worker per session",
 
   const serializedEntries = JSON.stringify([...files.entries]);
   assert.doesNotMatch(serializedEntries, /must-not-leak|KPlayer|Bearer/u);
+});
+
+test("session-less scheduling stays claimed across an hour with an explicit lifetime", () => {
+  const files = new MemoryFiles();
+  const payload = {
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer src" },
+    cwd: path.resolve("project-without-session-id"),
+  };
+  const firstClaimAt = 3_599_999;
+  let now = firstClaimAt;
+  let spawnCalls = 0;
+  const options: UpdateCheckOptions = {
+    cacheRoot,
+    files,
+    now: () => now,
+    spawn: () => {
+      spawnCalls += 1;
+      return { unref() {} };
+    },
+  };
+
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  now = 3_600_001;
+  assert.equal(update.scheduleRefresh(payload, options), false);
+  assert.equal(spawnCalls, 1);
+
+  now = firstClaimAt + update.SESSIONLESS_MARKER_TTL_MS;
+  assert.equal(update.scheduleRefresh(payload, options), true);
+  assert.equal(spawnCalls, 2);
 });
 
 test("invalid cache, clock skew, races, permissions, and spawn failures fail open", () => {

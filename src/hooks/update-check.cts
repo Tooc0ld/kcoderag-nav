@@ -8,6 +8,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
+export const SESSIONLESS_MARKER_TTL_MS = CACHE_TTL_MS;
 export const MAX_SESSION_MARKERS = 128;
 export const CACHE_SCHEMA_VERSION = 1;
 const MAX_CACHE_CHARS = 8 * 1_024;
@@ -163,7 +164,10 @@ function relevantPayload(value: unknown): value is Record<string, unknown> {
     isRecord(value.tool_input);
 }
 
-function sessionKey(payload: Record<string, unknown>, now: number): string {
+function sessionMarker(payload: Record<string, unknown>): {
+  readonly key: string;
+  readonly sessionless: boolean;
+} {
   let material: string | undefined;
   for (const field of ["session_id", "thread_id", "conversation_id"] as const) {
     const candidate = payload[field];
@@ -179,9 +183,12 @@ function sessionKey(payload: Record<string, unknown>, now: number): string {
     const candidate = payload.cwd;
     const cwd = typeof candidate === "string" || typeof candidate === "number" ? String(candidate) : ".";
     const normalized = path.normalize(cwd.trim().slice(0, 2_048) || ".").toLowerCase();
-    material = `fallback\0${normalized}\0${Math.floor(now / (60 * 60 * 1_000))}`;
+    material = `fallback\0${normalized}`;
   }
-  return crypto.createHash("sha256").update(material, "utf8").digest("hex");
+  return {
+    key: crypto.createHash("sha256").update(material, "utf8").digest("hex"),
+    sessionless: material.startsWith("fallback\0"),
+  };
 }
 
 function pruneSessionMarkers(files: UpdateCheckFiles, directoryPath: string, keepName: string): void {
@@ -204,8 +211,24 @@ function claimSession(
 ): boolean {
   const sessionsRoot = path.join(cacheRoot, "sessions");
   files.ensureDirectory(sessionsRoot);
-  const markerName = `session-${sessionKey(hookPayload, now)}.seen`;
-  if (!files.createExclusive(path.join(sessionsRoot, markerName), "")) return false;
+  const marker = sessionMarker(hookPayload);
+  const markerName = `session-${marker.key}.seen`;
+  const markerPath = path.join(sessionsRoot, markerName);
+  const contents = marker.sessionless ? String(now) : "";
+  if (!files.createExclusive(markerPath, contents)) {
+    if (!marker.sessionless) return false;
+    const claimedAt = Number(files.readText(markerPath));
+    if (
+      !Number.isFinite(claimedAt) || claimedAt < 0 || now < claimedAt
+      || now - claimedAt < SESSIONLESS_MARKER_TTL_MS
+    ) {
+      return false;
+    }
+    // A protocol without a session ID gets a stable project marker. Its lifetime is anchored to
+    // the first claim instead of a wall-clock bucket, so crossing an hour cannot reschedule work.
+    files.remove(markerPath);
+    if (!files.createExclusive(markerPath, contents)) return false;
+  }
   try { pruneSessionMarkers(files, sessionsRoot, markerName); } catch { return false; }
   return true;
 }
