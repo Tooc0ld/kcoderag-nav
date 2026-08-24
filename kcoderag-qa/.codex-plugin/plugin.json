@@ -25,5 +25,5 @@
   "mcpServers": "./.codex.mcp.json",
   "name": "kcoderag-qa",
   "skills": "./skills/",
-  "version": "0.1.6"
+  "version": "0.1.7"
 }
