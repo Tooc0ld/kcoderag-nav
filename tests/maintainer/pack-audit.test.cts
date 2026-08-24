@@ -94,6 +94,9 @@ test("requires exact archive equality and all self-contained host assets", () =>
   const reduced = missingHost.expectedPaths.filter(
     (relativePath) => relativePath !== "kcoderag-cursor/rules/kcoderag-navigation.mdc",
   );
+  missingHost.packageJson.files = missingHost.packageJson.files.filter(
+    (relativePath: string) => relativePath !== "kcoderag-cursor/rules/kcoderag-navigation.mdc",
+  );
   missingHost.archiveEntries.delete("kcoderag-cursor/rules/kcoderag-navigation.mdc");
   expectCode(
     () => packAudit.validatePack({ ...missingHost, expectedPaths: reduced }),
@@ -139,6 +142,21 @@ test("rejects an undeclared compiled member even when expected and archive inven
     }),
     "archive_path_drift",
   );
+});
+
+test("accepts historical Python and parity vocabulary as data inside declared archive members", () => {
+  const historical = baseline();
+  historical.archiveEntries.set("dist/core/state.cjs", Buffer.from([
+    "// Historical receipt label: python-legacy.",
+    "const migratedPath = 'scripts/run_host_smoke.py';",
+    "const retiredFlag = '--run-parity';",
+    "const computedRuntimeName = ['py', 'thon'].join('');",
+    "module.exports = { migratedPath, retiredFlag, computedRuntimeName };",
+    "",
+  ].join("\n"), "utf8"));
+
+  assert.equal(packAudit.validatePack(historical).entryCount, historical.expectedPaths.length);
+  assert.equal(Object.hasOwn(historical.packageJson.scripts, "verify:parity-before-retire"), false);
 });
 
 test("rejects Python, runtime compiler, source, tests, planning, dependency, and credential fixtures", () => {

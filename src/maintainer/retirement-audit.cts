@@ -579,81 +579,12 @@ export function auditRetirement(root: string, mode: string): JsonMap {
   });
 }
 
-function runCommand(root: string, name: string, command: string, args: readonly string[], selectedPattern: RegExp): JsonMap {
-  const result = childProcess.spawnSync(command, [...args], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  failUnless(result.status === 0, `parity_suite_failed_${name}`);
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  const match = selectedPattern.exec(output);
-  failUnless(match !== null && Number(match[1]) > 0, `parity_suite_empty_${name}`);
-  return Object.freeze({ name, status: "PASS", selected: Number(match[1]), sha256: hashBytes(output) });
-}
-
-function writeCanonicalAtomic(filePath: string, value: unknown): void {
-  const absolute = path.resolve(filePath);
-  fs.mkdirSync(path.dirname(absolute), { recursive: true });
-  const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    fs.writeFileSync(temporary, canonicalJson(value), { encoding: "utf8", flag: "wx", mode: 0o600 });
-    fs.renameSync(temporary, absolute);
-    try { fs.chmodSync(absolute, 0o600); } catch { /* POSIX mode is unavailable on Windows. */ }
-  } finally {
-    try { fs.rmSync(temporary, { force: true }); } catch { /* best effort */ }
-  }
-}
-
-function runParity(root: string, receiptPath: string): JsonMap {
-  auditRetirement(root, "pre");
-  const suites = [
-    runCommand(root, "node", process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
-      process.platform === "win32" ? ["/d", "/s", "/c", "npm test"] : ["test"], /(?:ℹ|#)\s*tests\s+(\d+)/u),
-    runCommand(root, "python-dev-hook", "python", ["kcoderag-dev/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
-    runCommand(root, "python-legacy", "python", ["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], /Ran\s+(\d+)\s+tests?/iu),
-    runCommand(root, "python-plugin-hook", "python", ["plugin-src/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
-    runCommand(root, "python-qa-hook", "python", ["kcoderag-qa/hooks/test_grep_nudge.py"], /(\d+)\/\d+\s+passed/iu),
-  ].sort((left, right) => compareCodePointPaths(left.name, right.name));
-  const generation = childProcess.spawnSync(process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
-    process.platform === "win32" ? ["/d", "/s", "/c", "npm run generate:check"] : ["run", "generate:check"],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  failUnless(generation.status === 0 && /"ok"\s*:\s*true/u.test(generation.stdout ?? ""),
-    "parity_suite_failed_generation");
-  const pack = childProcess.spawnSync(process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm",
-    process.platform === "win32" ? ["/d", "/s", "/c", "npm run pack:audit"] : ["run", "pack:audit"],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  failUnless(pack.status === 0 && /"ok"\s*:\s*true/u.test(pack.stdout ?? ""),
-    "parity_suite_failed_pack");
-  const receipt = buildPreReceipt({
-    root,
-    repoHead: gitText(root, ["rev-parse", "HEAD"]),
-    suites,
-    generatedSha256: hashBytes(`${generation.stdout ?? ""}\n${generation.stderr ?? ""}`),
-    packSha256: hashBytes(`${pack.stdout ?? ""}\n${pack.stderr ?? ""}`),
-    timestamp: new Date().toISOString(),
-  });
-  writeCanonicalAtomic(path.resolve(root, receiptPath), receipt);
-  verifyPreReceipt(JSON.parse(fs.readFileSync(path.resolve(root, receiptPath), "utf8")) as unknown, root);
-  return receipt;
-}
-
 export function main(argv: readonly string[] = process.argv.slice(2)): number {
   try {
     const root = path.resolve(__dirname, "../..");
     if (argv[0] === "--verify-pre-receipt" && argv.length === 2) {
       verifyPreReceipt(JSON.parse(fs.readFileSync(path.resolve(root, argv[1]!), "utf8")) as unknown, root);
       process.stdout.write(`${canonicalJson({ ok: true, mode: "verify-pre-receipt" })}\n`);
-      return 0;
-    }
-    if (argv[0] === "--run-parity") {
-      const modeIndex = argv.indexOf("--mode");
-      const receiptIndex = argv.indexOf("--receipt");
-      failUnless(modeIndex >= 0 && argv[modeIndex + 1] === "pre" && receiptIndex >= 0
-        && typeof argv[receiptIndex + 1] === "string" && argv.length === 5, "invalid_arguments");
-      runParity(root, argv[receiptIndex + 1]!);
-      process.stdout.write(`${canonicalJson({ ok: true, mode: "pre", receipt: path.basename(argv[receiptIndex + 1]!) })}\n`);
       return 0;
     }
     const modeIndex = argv.indexOf("--mode");

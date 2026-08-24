@@ -79,6 +79,12 @@ const FORBIDDEN_PREFIXES = Object.freeze([
   "tests/",
 ]);
 
+export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
+  "dist/maintainer/retirement-audit.cjs",
+]);
+
+const NON_PUBLISHED_COMPILED_OUTPUT_SET = new Set<string>(NON_PUBLISHED_COMPILED_OUTPUTS);
+
 const SEMVER_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const GLOB_RE = /[*?\[\]{}]/u;
 const CREDENTIAL_SENTINEL = Buffer.concat([
@@ -128,15 +134,41 @@ function compiledOutputPaths(root: string): readonly string[] {
   );
 }
 
+function assertNoNonPublishedCompiledOutputs(paths: readonly string[]): void {
+  if (paths.some((relativePath) => NON_PUBLISHED_COMPILED_OUTPUT_SET.has(relativePath))) {
+    throw new PackAuditError("non_publishable_compiled_output");
+  }
+}
+
+function declaredPackagePaths(packageJson: JsonMap): readonly string[] {
+  if (!Array.isArray(packageJson.files) || packageJson.files.length === 0) {
+    throw new PackAuditError("files_policy_invalid");
+  }
+  const paths = new Set<string>(["README.md", "package.json"]);
+  for (const raw of packageJson.files as unknown[]) {
+    if (typeof raw !== "string" || GLOB_RE.test(raw)) {
+      throw new PackAuditError("files_policy_invalid");
+    }
+    const directory = raw.endsWith("/");
+    const relativePath = normalizeRelative(directory ? raw.slice(0, -1) : raw);
+    if (directory) throw new PackAuditError("files_policy_invalid");
+    assertNoNonPublishedCompiledOutputs([relativePath]);
+    if (paths.has(relativePath)) throw new PackAuditError("files_policy_invalid");
+    paths.add(relativePath);
+  }
+  return Object.freeze([...paths].sort(compare));
+}
+
 function assertCompiledOutputPolicy(root: string, packageJson: JsonMap): void {
   const expected = compiledOutputPaths(root);
-  const declared = (packageJson.files as unknown[])
-    .filter((value): value is string => typeof value === "string" && value.startsWith("dist/"))
-    .map(normalizeRelative)
-    .sort(compare);
+  if (NON_PUBLISHED_COMPILED_OUTPUTS.some((relativePath) => !expected.includes(relativePath))) {
+    throw new PackAuditError("compiled_output_drift");
+  }
+  const publishable = expected.filter((relativePath) => !NON_PUBLISHED_COMPILED_OUTPUT_SET.has(relativePath));
+  const declared = declaredPackagePaths(packageJson).filter((relativePath) => relativePath.startsWith("dist/"));
   if (
-    declared.length !== expected.length ||
-    declared.some((relativePath, index) => relativePath !== expected[index])
+    declared.length !== publishable.length ||
+    declared.some((relativePath, index) => relativePath !== publishable[index])
   ) {
     throw new PackAuditError("files_policy_invalid");
   }
@@ -151,26 +183,16 @@ function assertCompiledOutputPolicy(root: string, packageJson: JsonMap): void {
 
 /** Expand the exact package allow-list to ordinary paths before npm packing. */
 export function expandPackageFiles(root: string, packageJson: JsonMap): readonly string[] {
-  if (!Array.isArray(packageJson.files) || packageJson.files.length === 0) {
-    throw new PackAuditError("files_policy_invalid");
-  }
   assertCompiledOutputPolicy(root, packageJson);
-  const paths = new Set<string>(["README.md", "package.json"]);
-  for (const raw of packageJson.files as unknown[]) {
-    if (typeof raw !== "string" || GLOB_RE.test(raw)) {
-      throw new PackAuditError("files_policy_invalid");
-    }
-    const directory = raw.endsWith("/");
-    const relativePath = normalizeRelative(directory ? raw.slice(0, -1) : raw);
-    if (directory) throw new PackAuditError("files_policy_invalid");
+  const paths = declaredPackagePaths(packageJson);
+  for (const relativePath of paths) {
     const absolutePath = path.join(root, ...relativePath.split("/"));
     if (!fs.existsSync(absolutePath)) throw new PackAuditError("files_entry_missing");
     const metadata = fs.lstatSync(absolutePath);
     if (metadata.isSymbolicLink()) throw new PackAuditError("files_policy_invalid");
     if (!metadata.isFile()) throw new PackAuditError("files_policy_invalid");
-    paths.add(relativePath);
   }
-  return Object.freeze([...paths].sort(compare));
+  return paths;
 }
 
 function forbiddenArchivePath(relativePath: string): boolean {
@@ -230,11 +252,22 @@ export function validatePack(input: {
     throw new PackAuditError("bin_drift");
   }
 
+  const declaredPaths = declaredPackagePaths(packageJson);
+  const expected = expectedPaths.map(normalizeRelative).sort(compare);
+  if (new Set(expected).size !== expected.length) throw new PackAuditError("archive_path_drift");
+  assertNoNonPublishedCompiledOutputs(expected);
+  if (
+    declaredPaths.length !== expected.length
+    || declaredPaths.some((relativePath, index) => relativePath !== expected[index])
+  ) {
+    throw new PackAuditError("archive_path_drift");
+  }
+
   const actualPaths = [...archiveEntries.keys()].sort(compare);
+  assertNoNonPublishedCompiledOutputs(actualPaths);
   for (const relativePath of actualPaths) {
     if (forbiddenArchivePath(relativePath)) throw new PackAuditError("forbidden_archive_path");
   }
-  const expected = [...new Set(expectedPaths)].sort(compare);
   if (
     expected.length !== actualPaths.length
     || expected.some((relativePath, index) => relativePath !== actualPaths[index])
@@ -454,6 +487,7 @@ export function auditPack(options: { readonly root: string }): PackAuditResult {
     const tarball = path.join(temporary, packed.filename);
     const archiveEntries = readTarEntries(tarball);
     const archivePaths = [...archiveEntries.keys()].sort(compare);
+    assertNoNonPublishedCompiledOutputs(packed.paths);
     if (
       packed.paths.length !== archivePaths.length
       || packed.paths.some((relativePath, index) => relativePath !== archivePaths[index])
@@ -493,6 +527,7 @@ export function main(argv: readonly string[] = process.argv.slice(2)): number {
 }
 
 exports.PackAuditError = PackAuditError;
+exports.NON_PUBLISHED_COMPILED_OUTPUTS = NON_PUBLISHED_COMPILED_OUTPUTS;
 exports.auditPack = auditPack;
 exports.expandPackageFiles = expandPackageFiles;
 exports.main = main;

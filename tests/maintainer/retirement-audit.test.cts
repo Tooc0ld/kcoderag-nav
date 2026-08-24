@@ -261,6 +261,16 @@ test("receipt evidence contains hashes and safe paths, never cache bytes", () =>
   assert.match(serialized, /plugin-src\/hooks\/__pycache__/u);
 });
 
+test("historical Python suite labels and cache identifiers remain valid receipt data", () => {
+  const root = initRepository();
+  createCaches(root);
+  const receipt = validReceipt(root);
+
+  assert.deepEqual(receipt.suites.map((suite: JsonMap) => suite.name), ["node", "python-legacy"]);
+  assert.ok(receipt.pre_cache_inventory.files.every((file: JsonMap) => file.path.endsWith(".pyc")));
+  assert.doesNotThrow(() => retirement.verifyPreReceipt(receipt, root));
+});
+
 test("compiled CLI retires the parity route while keeping the post-retirement audit executable", () => {
   const executable = path.join(repositoryRoot, "dist", "maintainer", "retirement-audit.cjs");
   const retired = childProcess.spawnSync(process.execPath, [
