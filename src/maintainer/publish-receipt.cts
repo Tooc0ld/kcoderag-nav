@@ -61,6 +61,18 @@ interface ReceiptLifecycleEvidence {
   };
 }
 
+interface ReceiptPublicRegistryArtifact {
+  readonly registry: "https://registry.npmjs.org/";
+  readonly resolvedTarballUrl: string;
+  readonly distIntegrity: string;
+  readonly artifactSha256: string;
+  readonly artifactSha512: string;
+}
+
+interface ReceiptLifecycleEvidenceV3 extends ReceiptLifecycleEvidence {
+  readonly publicRegistryArtifact: ReceiptPublicRegistryArtifact;
+}
+
 export interface PublishReceiptV2 {
   readonly schema_version: 2;
   readonly package: "kcoderag-nav";
@@ -104,11 +116,20 @@ export interface PublishReceiptV2 {
   readonly timestamp: string;
 }
 
-export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2;
+export interface PublishReceiptV3 extends Omit<PublishReceiptV2, "schema_version" | "lifecycle"> {
+  readonly schema_version: 3;
+  readonly lifecycle: {
+    readonly exact_version: ReceiptLifecycleEvidenceV3;
+    readonly latest: ReceiptLifecycleEvidenceV3;
+  };
+}
+
+export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2 | PublishReceiptV3;
 
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const SHA_RE = /^[0-9a-f]{40}$/u;
 const DIGEST_RE = /^[0-9a-f]{64}$/u;
+const SHA512_RE = /^[0-9a-f]{128}$/u;
 const RUN_ID_RE = /^[1-9][0-9]*$/u;
 const SECRET_RE = /(?:bearer\s+|npm_token\s*=|node_auth_token\s*=|mcp[_ -]?(?:auth|token|credential)|:\/\/[^/@\s:]+:[^/@\s]+@|[?&](?:token|key|secret)=)/iu;
 const HOSTS = Object.freeze(["codex", "claude", "cursor"] as const);
@@ -331,11 +352,95 @@ function verifyPublishReceiptV2(value: JsonMap): PublishReceiptV2 {
   return value as PublishReceiptV2;
 }
 
+function verifyPublicRegistryArtifact(value: unknown, version: string): asserts value is ReceiptPublicRegistryArtifact {
+  failUnless(exactKeys(value, [
+    "registry",
+    "resolvedTarballUrl",
+    "distIntegrity",
+    "artifactSha256",
+    "artifactSha512",
+  ]), "invalid_receipt_schema");
+  failUnless(value.registry === "https://registry.npmjs.org/", "invalid_registry_origin");
+  let tarballUrl: URL;
+  try {
+    tarballUrl = new URL(value.resolvedTarballUrl);
+  } catch {
+    throw new PublishReceiptError("invalid_registry_artifact");
+  }
+  failUnless(
+    tarballUrl.protocol === "https:" && tarballUrl.hostname === "registry.npmjs.org" && tarballUrl.port === "" &&
+      tarballUrl.username === "" && tarballUrl.password === "" && tarballUrl.search === "" && tarballUrl.hash === "" &&
+      tarballUrl.pathname === `/kcoderag-nav/-/kcoderag-nav-${version}.tgz`,
+    "invalid_registry_artifact",
+  );
+  failUnless(typeof value.artifactSha256 === "string" && DIGEST_RE.test(value.artifactSha256), "invalid_registry_digest");
+  failUnless(typeof value.artifactSha512 === "string" && SHA512_RE.test(value.artifactSha512), "invalid_registry_digest");
+  failUnless(
+    value.distIntegrity === `sha512-${Buffer.from(value.artifactSha512, "hex").toString("base64")}`,
+    "registry_integrity_mismatch",
+  );
+}
+
+function verifyLifecycleEvidenceV3(
+  value: unknown,
+  requestedPackageSpec: string,
+  expectedVersion: string,
+): asserts value is ReceiptLifecycleEvidenceV3 {
+  failUnless(exactKeys(value, [
+    "requestedPackageSpec",
+    "expectedVersion",
+    "resolvedPackageName",
+    "resolvedVersion",
+    "lifecycleTarballSha256",
+    "publicRegistryArtifact",
+    "hosts",
+  ]), "invalid_receipt_schema");
+  const { publicRegistryArtifact, ...legacyEvidence } = value;
+  verifyLifecycleEvidence(legacyEvidence, requestedPackageSpec, expectedVersion);
+  verifyPublicRegistryArtifact(publicRegistryArtifact, expectedVersion);
+}
+
+function verifyPublishReceiptV3(value: JsonMap): PublishReceiptV3 {
+  failUnless(exactKeys(value, [
+    "schema_version",
+    "package",
+    "version",
+    "tag",
+    "release_commit_sha",
+    "registry",
+    "workflow",
+    "lifecycle",
+    "timestamp",
+  ]), "invalid_receipt_schema");
+  failUnless(value.schema_version === 3 && value.package === "kcoderag-nav", "invalid_receipt_schema");
+  failUnless(exactKeys(value.lifecycle, ["exact_version", "latest"]), "invalid_receipt_schema");
+  const withoutPublicArtifact = (lifecycle: JsonMap): JsonMap => {
+    const { publicRegistryArtifact: _publicRegistryArtifact, ...legacy } = lifecycle;
+    return legacy;
+  };
+  verifyPublishReceiptV2({
+    ...value,
+    schema_version: 2,
+    lifecycle: {
+      exact_version: withoutPublicArtifact(value.lifecycle.exact_version),
+      latest: withoutPublicArtifact(value.lifecycle.latest),
+    },
+  });
+  verifyLifecycleEvidenceV3(
+    value.lifecycle.exact_version,
+    `kcoderag-nav@${value.registry.exact.requestedVersion}`,
+    value.registry.exact.resolvedVersion,
+  );
+  verifyLifecycleEvidenceV3(value.lifecycle.latest, "kcoderag-nav@latest", value.registry.latest.resolvedVersion);
+  return value as PublishReceiptV3;
+}
+
 export function verifyPublishReceipt(value: unknown): PublishReceipt {
   assertNoSecretLikeValue(value);
   failUnless(isRecord(value), "invalid_receipt_schema");
   if (value.schema_version === 1) return verifyPublishReceiptV1(value);
   if (value.schema_version === 2) return verifyPublishReceiptV2(value);
+  if (value.schema_version === 3) return verifyPublishReceiptV3(value);
   throw new PublishReceiptError("invalid_receipt_schema");
 }
 

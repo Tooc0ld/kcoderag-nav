@@ -47,6 +47,15 @@ export interface PackageProvenance {
   readonly resolvedPackageName: "kcoderag-nav";
   readonly resolvedVersion: string;
   readonly lifecycleTarballSha256: string;
+  readonly publicRegistryArtifact?: PublicRegistryArtifact;
+}
+
+export interface PublicRegistryArtifact {
+  readonly registry: "https://registry.npmjs.org/";
+  readonly resolvedTarballUrl: string;
+  readonly distIntegrity: string;
+  readonly artifactSha256: string;
+  readonly artifactSha512: string;
 }
 
 export interface SmokeRunResult {
@@ -74,6 +83,7 @@ interface NormalizedPackageRequest {
   readonly sourceSpec: string;
   readonly requestedPackageSpec: string;
   readonly expectedVersion?: string;
+  readonly publicRegistry: boolean;
 }
 
 interface ValidatedAcquisition {
@@ -89,6 +99,7 @@ interface RunHostSmokeDependencies {
     repositoryRoot: string,
     expectedVersion?: string,
   ) => Promise<AcquiredPackage>;
+  readonly runNpm?: NpmRunner;
 }
 
 interface CommandResult {
@@ -96,6 +107,8 @@ interface CommandResult {
   readonly stdout: string;
   readonly stderr: string;
 }
+
+type NpmRunner = (args: readonly string[], cwd: string, env: NodeJS.ProcessEnv) => CommandResult;
 
 interface McpConnection {
   readonly serverName: string;
@@ -119,6 +132,7 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/u;
 const PUBLIC_EXACT_SPEC = /^kcoderag-nav@(\d+\.\d+\.\d+)$/u;
 const PUBLIC_LATEST_SPEC = "kcoderag-nav@latest";
+const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
 const PACKAGE_NAME = "kcoderag-nav";
 const SYNTHETIC_AUTHORIZATION = "Bearer synthetic-contract-only";
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -189,12 +203,14 @@ export function smokeExitCode(result: { readonly mode: SmokeMode; readonly statu
 function safeEnvironment(root: string): NodeJS.ProcessEnv {
   const hostHome = path.join(root, "host-home");
   const npmCache = path.join(root, "npm-cache");
-  const npmUserConfig = path.join(root, "npmrc");
+  const npmUserConfig = path.join(root, "user.npmrc");
+  const npmGlobalConfig = path.join(root, "global.npmrc");
   fs.mkdirSync(hostHome, { recursive: true });
   fs.mkdirSync(npmCache, { recursive: true });
   if (!fs.existsSync(npmUserConfig)) fs.writeFileSync(npmUserConfig, "", "utf8");
+  if (!fs.existsSync(npmGlobalConfig)) fs.writeFileSync(npmGlobalConfig, "", "utf8");
   const inheritedEnvironment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !/^(?:npm_config_(?:cache|globalconfig|userconfig)|node_auth_token|npm_token)$/iu.test(key)),
+    Object.entries(process.env).filter(([key]) => !/^(?:npm_config_.*|node_auth_token|npm_token)$/iu.test(key)),
   );
   return {
     ...inheritedEnvironment,
@@ -206,7 +222,9 @@ function safeEnvironment(root: string): NodeJS.ProcessEnv {
     npm_config_audit: "false",
     npm_config_cache: npmCache,
     npm_config_fund: "false",
+    npm_config_globalconfig: npmGlobalConfig,
     npm_config_loglevel: "silent",
+    npm_config_registry: PUBLIC_REGISTRY,
     npm_config_userconfig: npmUserConfig,
   };
 }
@@ -241,8 +259,21 @@ function runProcess(
   };
 }
 
-function runNpm(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
+function runNpmProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
   return runProcess("npm", args, { cwd, env, commandShim: true });
+}
+
+function isolatedRegistryArguments(env: NodeJS.ProcessEnv): readonly string[] {
+  const userConfig = env.npm_config_userconfig;
+  const globalConfig = env.npm_config_globalconfig;
+  if (typeof userConfig !== "string" || typeof globalConfig !== "string") {
+    throw new Error("package_acquisition_failed");
+  }
+  return Object.freeze([
+    `--registry=${PUBLIC_REGISTRY}`,
+    `--userconfig=${userConfig}`,
+    `--globalconfig=${globalConfig}`,
+  ]);
 }
 
 function parsePackFilename(stdout: string, destination: string): string {
@@ -252,10 +283,14 @@ function parsePackFilename(stdout: string, destination: string): string {
       Array.isArray(parsed) &&
       isRecord(parsed[0]) &&
       typeof parsed[0].filename === "string" &&
+      parsed[0].filename === path.basename(parsed[0].filename) &&
       parsed[0].filename.endsWith(".tgz")
     ) {
       const result = path.resolve(destination, parsed[0].filename);
-      if (fs.statSync(result).isFile()) return result;
+      const stats = fs.lstatSync(result);
+      const realDestination = fs.realpathSync(destination);
+      const realResult = fs.realpathSync(result);
+      if (stats.isFile() && !stats.isSymbolicLink() && isPathInside(realDestination, realResult)) return realResult;
     }
   } catch {
     // Safe stable error below.
@@ -263,7 +298,7 @@ function parsePackFilename(stdout: string, destination: string): string {
   throw new Error("package_acquisition_failed");
 }
 
-function packDirectory(directory: string, destination: string, env: NodeJS.ProcessEnv): string {
+function packDirectory(directory: string, destination: string, env: NodeJS.ProcessEnv, runNpm: NpmRunner): string {
   fs.mkdirSync(destination, { recursive: true });
   const packed = runNpm(
     ["pack", directory, "--json", "--ignore-scripts", "--pack-destination", destination],
@@ -272,6 +307,64 @@ function packDirectory(directory: string, destination: string, env: NodeJS.Proce
   );
   if (packed.code !== 0) throw new Error("package_acquisition_failed");
   return parsePackFilename(packed.stdout, destination);
+}
+
+function publicTarballUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.hostname === "registry.npmjs.org" && parsed.port === "" &&
+      parsed.username === "" && parsed.password === "" && parsed.search === "" && parsed.hash === "" &&
+      /^\/kcoderag-nav\/-\/kcoderag-nav-[^/]+\.tgz$/u.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function acquirePublicRegistryArtifact(
+  sourceSpec: string,
+  expectedVersion: string,
+  acquisitionRoot: string,
+  env: NodeJS.ProcessEnv,
+  runNpm: NpmRunner,
+): { readonly tarballPath: string; readonly provenance: PublicRegistryArtifact } {
+  const isolatedArgs = isolatedRegistryArguments(env);
+  const metadataResult = runNpm(["view", sourceSpec, "--json", ...isolatedArgs], acquisitionRoot, env);
+  if (metadataResult.code !== 0) throw new Error("package_acquisition_failed");
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataResult.stdout);
+  } catch {
+    throw new Error("package_acquisition_failed");
+  }
+  if (
+    !isRecord(metadata) || metadata.name !== PACKAGE_NAME || metadata.version !== expectedVersion ||
+    !isRecord(metadata.dist) || typeof metadata.dist.integrity !== "string" ||
+    !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(metadata.dist.integrity) ||
+    typeof metadata.dist.tarball !== "string" || !publicTarballUrl(metadata.dist.tarball)
+  ) {
+    throw new Error("package_acquisition_failed");
+  }
+  const destination = path.join(acquisitionRoot, "public-pack");
+  fs.mkdirSync(destination, { recursive: true });
+  const packed = runNpm([
+    "pack", sourceSpec, "--json", "--ignore-scripts", "--pack-destination", destination, ...isolatedArgs,
+  ], acquisitionRoot, env);
+  if (packed.code !== 0) throw new Error("package_acquisition_failed");
+  const tarballPath = parsePackFilename(packed.stdout, destination);
+  const bytes = fs.readFileSync(tarballPath);
+  const artifactSha512 = crypto.createHash("sha512").update(bytes).digest("hex");
+  const verifiedIntegrity = `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`;
+  if (verifiedIntegrity !== metadata.dist.integrity) throw new Error("package_acquisition_failed");
+  return Object.freeze({
+    tarballPath,
+    provenance: Object.freeze({
+      registry: PUBLIC_REGISTRY,
+      resolvedTarballUrl: metadata.dist.tarball,
+      distIntegrity: metadata.dist.integrity,
+      artifactSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      artifactSha512,
+    }),
+  });
 }
 
 function isPathInside(root: string, candidate: string): boolean {
@@ -291,11 +384,12 @@ function normalizePackageRequest(
       sourceSpec: packageSpec,
       requestedPackageSpec: packageSpec,
       expectedVersion: exact[1],
+      publicRegistry: true,
     });
   }
   if (packageSpec === PUBLIC_LATEST_SPEC) {
     if (expectedVersion === undefined || !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
-    return Object.freeze({ sourceSpec: packageSpec, requestedPackageSpec: packageSpec, expectedVersion });
+    return Object.freeze({ sourceSpec: packageSpec, requestedPackageSpec: packageSpec, expectedVersion, publicRegistry: true });
   }
   if (packageSpec.length === 0) {
     if (expectedVersion !== undefined && !EXACT_VERSION.test(expectedVersion)) throw new Error("invalid_expected_version");
@@ -303,6 +397,7 @@ function normalizePackageRequest(
       sourceSpec: packageSpec,
       requestedPackageSpec: "local-source",
       ...(expectedVersion === undefined ? {} : { expectedVersion }),
+      publicRegistry: false,
     });
   }
   if (!packageSpec.toLowerCase().endsWith(".tgz") || /(?:^|:)\/\//u.test(packageSpec)) {
@@ -324,6 +419,7 @@ function normalizePackageRequest(
     sourceSpec: resolved,
     requestedPackageSpec: "local-tarball",
     ...(expectedVersion === undefined ? {} : { expectedVersion }),
+    publicRegistry: false,
   });
 }
 
@@ -357,11 +453,24 @@ async function acquirePackage(
   stubUrl: string,
   repositoryRoot: string,
   expectedVersion?: string,
+  runNpm: NpmRunner = runNpmProcess,
 ): Promise<AcquiredPackage> {
-  const env = safeEnvironment(path.join(temporaryRoot, "acquisition-runtime"));
-  const sourceSpec = packageSpec.length === 0
-    ? packDirectory(repositoryRoot, path.join(temporaryRoot, "source-pack"), env)
-    : packageSpec;
+  const acquisitionRuntime = path.join(temporaryRoot, "acquisition-runtime");
+  const acquisitionRoot = path.join(acquisitionRuntime, "work");
+  const env = safeEnvironment(acquisitionRuntime);
+  fs.mkdirSync(acquisitionRoot, { recursive: true });
+  let publicRegistryArtifact: PublicRegistryArtifact | undefined;
+  let sourceSpec: string;
+  if (packageSpec.length === 0) {
+    sourceSpec = packDirectory(repositoryRoot, path.join(temporaryRoot, "source-pack"), env, runNpm);
+  } else if (packageSpec === PUBLIC_LATEST_SPEC || PUBLIC_EXACT_SPEC.test(packageSpec)) {
+    if (expectedVersion === undefined) throw new Error("package_acquisition_failed");
+    const acquired = acquirePublicRegistryArtifact(packageSpec, expectedVersion, acquisitionRoot, env, runNpm);
+    sourceSpec = acquired.tarballPath;
+    publicRegistryArtifact = acquired.provenance;
+  } else {
+    sourceSpec = packageSpec;
+  }
   const installRoot = path.join(temporaryRoot, "acquired");
   fs.mkdirSync(installRoot, { recursive: true });
   const installed = runNpm([
@@ -373,7 +482,7 @@ async function acquirePackage(
     "--prefix",
     installRoot,
     sourceSpec,
-  ], temporaryRoot, env);
+  ], acquisitionRoot, env);
   if (installed.code !== 0) throw new Error("package_acquisition_failed");
   const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
   let resolvedVersion: string;
@@ -393,7 +502,7 @@ async function acquirePackage(
     throw new Error("package_acquisition_failed");
   }
   writeSyntheticMcpSources(packageRoot, stubUrl);
-  const lifecyclePackageSpec = packDirectory(packageRoot, path.join(temporaryRoot, "synthetic-pack"), env);
+  const lifecyclePackageSpec = packDirectory(packageRoot, path.join(temporaryRoot, "synthetic-pack"), env, runNpm);
   const requestedPackageSpec = packageSpec.length === 0
     ? "local-source"
     : packageSpec.toLowerCase().endsWith(".tgz")
@@ -406,6 +515,7 @@ async function acquirePackage(
     resolvedVersion,
     lifecycleTarballSha256: crypto.createHash("sha256").update(fs.readFileSync(lifecyclePackageSpec)).digest("hex"),
     lifecyclePackageSpec,
+    ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact }),
   });
 }
 
@@ -420,6 +530,7 @@ function validateAcquisition(
   const resolvedVersion = value.resolvedVersion;
   const lifecycleTarballSha256 = value.lifecycleTarballSha256;
   const lifecyclePackageSpec = value.lifecyclePackageSpec;
+  const publicRegistryArtifact = value.publicRegistryArtifact;
   const expectedVersion = request.expectedVersion ?? value.expectedVersion;
   if (
     typeof requestedPackageSpec !== "string" || requestedPackageSpec !== request.requestedPackageSpec ||
@@ -429,6 +540,21 @@ function validateAcquisition(
     typeof lifecycleTarballSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(lifecycleTarballSha256) ||
     typeof lifecyclePackageSpec !== "string"
   ) {
+    throw new Error("invalid_package_provenance");
+  }
+  if (request.publicRegistry) {
+    if (
+      !isRecord(publicRegistryArtifact) || publicRegistryArtifact.registry !== PUBLIC_REGISTRY ||
+      typeof publicRegistryArtifact.resolvedTarballUrl !== "string" || !publicTarballUrl(publicRegistryArtifact.resolvedTarballUrl) ||
+      typeof publicRegistryArtifact.distIntegrity !== "string" ||
+      !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(publicRegistryArtifact.distIntegrity) ||
+      typeof publicRegistryArtifact.artifactSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(publicRegistryArtifact.artifactSha256) ||
+      typeof publicRegistryArtifact.artifactSha512 !== "string" || !/^[a-f0-9]{128}$/u.test(publicRegistryArtifact.artifactSha512) ||
+      `sha512-${Buffer.from(publicRegistryArtifact.artifactSha512, "hex").toString("base64")}` !== publicRegistryArtifact.distIntegrity
+    ) {
+      throw new Error("invalid_package_provenance");
+    }
+  } else if (publicRegistryArtifact !== undefined) {
     throw new Error("invalid_package_provenance");
   }
   let realTarball: string;
@@ -451,6 +577,7 @@ function validateAcquisition(
     resolvedPackageName: PACKAGE_NAME,
     resolvedVersion,
     lifecycleTarballSha256,
+    ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact: Object.freeze({ ...publicRegistryArtifact }) }),
   });
   return Object.freeze({ lifecyclePackageSpec: realTarball, provenance });
 }
@@ -471,6 +598,7 @@ function runPackageCli(
   runtimeRoot: string,
   command: "install" | "status" | "update" | "uninstall",
   host: HostId,
+  runNpm: NpmRunner,
 ): Record<string, any> | undefined {
   const args = [
     "exec",
@@ -631,6 +759,7 @@ async function runRequiredHost(
   stubUrl: string,
   receiptPath: string,
   provenance: PackageProvenance,
+  runNpm: NpmRunner,
 ): Promise<HostSmokeResult> {
   const projectRoot = path.join(projectsRoot, host);
   const runtimeRoot = path.join(projectsRoot, `${host}-runtime`);
@@ -639,7 +768,7 @@ async function runRequiredHost(
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   try {
-    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host) !== undefined;
+    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -648,14 +777,14 @@ async function runRequiredHost(
       failureReason: "install_failed",
       provenance,
     });
-    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host);
+    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host, runNpm);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
     evidence.navigation = navigationEvidence(host, projectRoot, runtimeRoot);
     if (connection?.url === stubUrl) Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
-    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host) !== undefined;
-    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host) !== undefined &&
+    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
+    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
     installed = !evidence.uninstall;
     return evaluateHostEvidence({ host, mode: "required-contract", evidence, provenance });
@@ -668,7 +797,7 @@ async function runRequiredHost(
       provenance,
     });
   } finally {
-    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host);
+    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm);
   }
 }
 
@@ -724,6 +853,7 @@ async function runOptionalHost(
   stubUrl: string,
   receiptPath: string,
   provenance: PackageProvenance,
+  runNpm: NpmRunner,
 ): Promise<HostSmokeResult> {
   if (host === "cursor") {
     return evaluateHostEvidence({
@@ -751,7 +881,7 @@ async function runOptionalHost(
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   try {
-    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host) !== undefined;
+    evidence.install = runPackageCli(packageSpec, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -760,7 +890,7 @@ async function runOptionalHost(
       failureReason: "install_failed",
       provenance,
     });
-    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host);
+    const status = runPackageCli(packageSpec, projectRoot, runtimeRoot, "status", host, runNpm);
     evidence.status = status?.status === "healthy";
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
@@ -775,8 +905,8 @@ async function runOptionalHost(
     evidence.mcpList = has("tools/list");
     evidence.mcpCall = structured.tool && has("tools/call", SYNTHETIC_TOOL);
     evidence.stubReceipt = evidence.mcpInitialize && evidence.mcpList && has("tools/call", SYNTHETIC_TOOL);
-    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host) !== undefined;
-    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host) !== undefined &&
+    evidence.update = runPackageCli(packageSpec, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
+    evidence.uninstall = runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
     installed = !evidence.uninstall;
     if (live.code !== 0) {
@@ -800,7 +930,7 @@ async function runOptionalHost(
       provenance,
     });
   } finally {
-    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host);
+    if (installed) runPackageCli(packageSpec, projectRoot, runtimeRoot, "uninstall", host, runNpm);
   }
 }
 
@@ -846,15 +976,25 @@ export async function runHostSmoke(
   const receiptPath = path.join(temporaryRoot, "receipts.jsonl");
   const server = await startStubMcpServer(receiptPath);
   let acquiredPackage: ValidatedAcquisition;
+  const runNpm = dependencies.runNpm ?? runNpmProcess;
   try {
     try {
-      const acquired = await (dependencies.acquirePackage ?? acquirePackage)(
-        request.sourceSpec,
-        temporaryRoot,
-        server.url,
-        repositoryRoot,
-        request.expectedVersion,
-      );
+      const acquired = dependencies.acquirePackage === undefined
+        ? await acquirePackage(
+            request.sourceSpec,
+            temporaryRoot,
+            server.url,
+            repositoryRoot,
+            request.expectedVersion,
+            runNpm,
+          )
+        : await dependencies.acquirePackage(
+            request.sourceSpec,
+            temporaryRoot,
+            server.url,
+            repositoryRoot,
+            request.expectedVersion,
+          );
       acquiredPackage = validateAcquisition(acquired, request, temporaryRoot);
     } catch {
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
@@ -875,6 +1015,7 @@ export async function runHostSmoke(
             server.url,
             receiptPath,
             acquiredPackage.provenance,
+            runNpm,
           )
         : await runOptionalHost(
             host,
@@ -883,6 +1024,7 @@ export async function runHostSmoke(
             server.url,
             receiptPath,
             acquiredPackage.provenance,
+            runNpm,
           ));
     }
     return aggregate(options.mode, results, acquiredPackage.provenance);

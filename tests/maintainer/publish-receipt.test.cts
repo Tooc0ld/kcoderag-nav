@@ -131,6 +131,22 @@ function validV2Receipt(): JsonMap {
   };
 }
 
+function validV3Receipt(): JsonMap {
+  const value = validV2Receipt();
+  value.schema_version = 3;
+  const artifactSha512 = "ab".repeat(64);
+  for (const lifecycleName of ["exact_version", "latest"] as const) {
+    value.lifecycle[lifecycleName].publicRegistryArtifact = {
+      registry: "https://registry.npmjs.org/",
+      resolvedTarballUrl: "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
+      distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
+      artifactSha256: "cd".repeat(32),
+      artifactSha512,
+    };
+  }
+  return value;
+}
+
 function expectCode(value: unknown, code: string): void {
   assert.throws(
     () => receipt.verifyPublishReceipt(value),
@@ -191,6 +207,47 @@ test("accepts one closed v2 receipt binding registry, workflow lanes, publish, a
     const value = validV2Receipt();
     mutate(value);
     expectCode(value, "invalid_receipt_schema");
+  }
+});
+
+test("schema v3 binds exact/latest public registry origin, URL, SRI, and artifact digests without rewriting v1/v2", () => {
+  const input = validV3Receipt();
+  assert.deepEqual(receipt.verifyPublishReceipt(input), input);
+  assert.equal(receipt.verifyPublishReceipt(validReceipt()).schema_version, 1);
+  assert.equal(receipt.verifyPublishReceipt(validV2Receipt()).schema_version, 2);
+
+  const fixtures: Array<[name: string, mutate: (value: JsonMap) => void, code: string]> = [
+    ["redirected registry", (value) => {
+      value.lifecycle.exact_version.publicRegistryArtifact.registry = "https://registry.example.invalid/";
+    }, "invalid_registry_origin"],
+    ["redirected tarball", (value) => {
+      value.lifecycle.latest.publicRegistryArtifact.resolvedTarballUrl =
+        "https://registry.example.invalid/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz";
+    }, "invalid_registry_artifact"],
+    ["wrong tarball version", (value) => {
+      value.lifecycle.exact_version.publicRegistryArtifact.resolvedTarballUrl =
+        "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.4.tgz";
+    }, "invalid_registry_artifact"],
+    ["SRI drift", (value) => {
+      value.lifecycle.latest.publicRegistryArtifact.distIntegrity = `sha512-${Buffer.alloc(64, 9).toString("base64")}`;
+    }, "registry_integrity_mismatch"],
+    ["sha256 drift", (value) => {
+      value.lifecycle.exact_version.publicRegistryArtifact.artifactSha256 = "short";
+    }, "invalid_registry_digest"],
+    ["sha512 drift", (value) => {
+      value.lifecycle.exact_version.publicRegistryArtifact.artifactSha512 = "ef".repeat(64);
+    }, "registry_integrity_mismatch"],
+  ];
+  for (const [name, mutate, code] of fixtures) {
+    const value = validV3Receipt();
+    mutate(value);
+    assert.throws(
+      () => receipt.verifyPublishReceipt(value),
+      (error: unknown) => {
+        assert.equal((error as Error & { code?: string }).code, code, name);
+        return true;
+      },
+    );
   }
 });
 

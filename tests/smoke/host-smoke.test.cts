@@ -40,6 +40,13 @@ interface PackageProvenance {
   readonly resolvedPackageName: "kcoderag-nav";
   readonly resolvedVersion: string;
   readonly lifecycleTarballSha256: string;
+  readonly publicRegistryArtifact?: {
+    readonly registry: "https://registry.npmjs.org/";
+    readonly resolvedTarballUrl: string;
+    readonly distIntegrity: string;
+    readonly artifactSha256: string;
+    readonly artifactSha512: string;
+  };
 }
 
 interface AcquiredPackage extends PackageProvenance {
@@ -74,6 +81,11 @@ interface SmokeModule {
       repositoryRoot: string,
       expectedVersion?: string,
     ) => Promise<AcquiredPackage>;
+    readonly runNpm?: (
+      args: readonly string[],
+      cwd: string,
+      env: NodeJS.ProcessEnv,
+    ) => { readonly code: number; readonly stdout: string; readonly stderr: string };
   }): Promise<{
     readonly schemaVersion: 1;
     readonly mode: SmokeMode;
@@ -164,6 +176,8 @@ function syntheticAcquisition(
   const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")) as {
     readonly name: "kcoderag-nav";
   };
+  const sourceBytes = fs.readFileSync(sourceTarball);
+  const artifactSha512 = crypto.createHash("sha512").update(sourceBytes).digest("hex");
   writeSyntheticMcpSources(packageRoot, stubUrl);
   const syntheticPack = path.join(root, "fixture-synthetic-pack");
   fs.mkdirSync(syntheticPack, { recursive: true });
@@ -178,6 +192,13 @@ function syntheticAcquisition(
     resolvedVersion: expectedVersion,
     lifecycleTarballSha256: sha256(lifecyclePackageSpec),
     lifecyclePackageSpec,
+    publicRegistryArtifact: {
+      registry: "https://registry.npmjs.org/",
+      resolvedTarballUrl: `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${expectedVersion}.tgz`,
+      distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
+      artifactSha256: crypto.createHash("sha256").update(sourceBytes).digest("hex"),
+      artifactSha512,
+    },
   };
 }
 
@@ -341,6 +362,72 @@ test("package acquisition failure occurs before any host project is created", as
   }
 });
 
+test("public acquisition strips inherited npm controls and rejects redirected or integrity-mismatched artifacts", async () => {
+  const previousRegistry = process.env.NPM_CONFIG_REGISTRY;
+  process.env.NPM_CONFIG_REGISTRY = "http://127.0.0.1:9/";
+  try {
+    for (const fixture of ["redirected", "integrity-mismatch"] as const) {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-public-boundary-"));
+      let npmCalls = 0;
+      try {
+        const result = await smoke.runHostSmoke(
+          {
+            mode: "required-contract",
+            packageSpec: "kcoderag-nav@1.2.3",
+            temporaryRoot: root,
+          },
+          {
+            runNpm: (args, _cwd, env) => {
+              npmCalls += 1;
+              assert.equal(env.npm_config_registry, "https://registry.npmjs.org/");
+              assert.equal(Object.keys(env).some((key) => /^npm_config_/iu.test(key) && key !== key.toLowerCase()), false);
+              for (const key of ["npm_config_userconfig", "npm_config_globalconfig"] as const) {
+                assert.equal(typeof env[key], "string");
+                assert.equal(fs.readFileSync(env[key] as string, "utf8"), "");
+              }
+              assert.ok(args.includes("--registry=https://registry.npmjs.org/"));
+              if (args[0] === "view") {
+                return {
+                  code: 0,
+                  stdout: JSON.stringify({
+                    name: "kcoderag-nav",
+                    version: "1.2.3",
+                    dist: {
+                      integrity: `sha512-${Buffer.alloc(64, 7).toString("base64")}`,
+                      tarball: fixture === "redirected"
+                        ? "https://registry.example.invalid/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz"
+                        : "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
+                    },
+                  }),
+                  stderr: "",
+                };
+              }
+              if (args[0] === "pack") {
+                const destinationArg = args[args.indexOf("--pack-destination") + 1];
+                assert.equal(typeof destinationArg, "string");
+                const filename = "kcoderag-nav-1.2.3.tgz";
+                fs.writeFileSync(path.join(destinationArg as string, filename), "not the registry artifact", "utf8");
+                return { code: 0, stdout: JSON.stringify([{ filename }]), stderr: "" };
+              }
+              throw new Error("public acquisition must fail before installation");
+            },
+          },
+        );
+        assert.equal(result.status, "NOT_RUN", fixture);
+        assert.equal(result.provenance, undefined, fixture);
+        assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture);
+        assert.equal(npmCalls, fixture === "redirected" ? 1 : 2, fixture);
+        assert.doesNotMatch(JSON.stringify(result), /127\.0\.0\.1|registry\.example|integrity|npmrc/iu);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    if (previousRegistry === undefined) delete process.env.NPM_CONFIG_REGISTRY;
+    else process.env.NPM_CONFIG_REGISTRY = previousRegistry;
+  }
+});
+
 test("exact and latest preserve acquired-manifest and synthetic-tarball provenance across all hosts", async () => {
   for (const requestedPackageSpec of ["kcoderag-nav@1.2.3", "kcoderag-nav@latest"] as const) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-happy-"));
@@ -380,6 +467,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
         resolvedPackageName: "kcoderag-nav",
         resolvedVersion: "1.2.3",
         lifecycleTarballSha256: result.provenance?.lifecycleTarballSha256,
+        publicRegistryArtifact: result.provenance?.publicRegistryArtifact,
       });
       assert.match(result.provenance?.lifecycleTarballSha256 ?? "", /^[a-f0-9]{64}$/u);
       assert.equal(Object.isFrozen(result.provenance), true);
