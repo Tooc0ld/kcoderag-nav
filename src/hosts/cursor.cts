@@ -4,6 +4,7 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const { TextDecoder } = require("node:util") as typeof import("node:util");
 
 import {
   CORE_SCHEMA_VERSION,
@@ -69,6 +70,14 @@ function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function decodeUtf8(bytes: Buffer, safePath: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new InstallError("invalid_utf8", safePath);
+  }
+}
+
 function sha256(bytes: Buffer | string): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
@@ -79,7 +88,7 @@ function canonicalJson(value: unknown): Buffer {
 
 function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
   if (original === undefined) return canonicalJson(value);
-  const text = original.toString("utf8");
+  const text = decodeUtf8(original, MCP_PATH);
   const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
   const indent = indentMatch?.[1]?.includes("\t")
     ? "\t"
@@ -119,8 +128,9 @@ function managedPaths(): readonly string[] {
 }
 
 function parseJsonBytes(bytes: Buffer, code: string, safePath: string): JsonMap {
+  const text = decodeUtf8(bytes, safePath);
   try {
-    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    const value: unknown = JSON.parse(text);
     if (!isRecord(value)) throw new Error("not_object");
     return value;
   } catch {

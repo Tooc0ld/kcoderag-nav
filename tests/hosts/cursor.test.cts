@@ -280,6 +280,26 @@ test("Cursor update and uninstall preserve unrelated MCP edits made after instal
   }
 });
 
+test("Cursor rejects malformed UTF-8 in MCP JSON before any write", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-utf8-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    write(target.root, ".cursor/mcp.json", Buffer.concat([
+      Buffer.from("{\"mcpServers\":{},\"value\":\"", "utf8"),
+      Buffer.from([0x80]),
+      Buffer.from("\"}\\n", "utf8"),
+    ]));
+    const before = snapshot(target.root);
+    const result = await run(target.root, pkg.root, cursor.cursorAdapter, "install");
+    assert.equal(result.output.code, "invalid_utf8");
+    assert.deepEqual(snapshot(target.root), before);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+
 test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-refuse-"));
   try {

@@ -283,6 +283,31 @@ test("Codex Dev is explicit and a managed drift blocks update and uninstall befo
   }
 });
 
+test("Codex rejects malformed UTF-8 in TOML and JSON before any write", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-utf8-"));
+  try {
+    const pkg = packageFixture(base);
+    for (const [name, relativePath, prefix, suffix] of [
+      ["toml", ".codex/config.toml", "[features]\\nvalue = \"", "\"\\n"],
+      ["json", ".codex/hooks.json", "{\"hooks\":{},\"value\":\"", "\"}\\n"],
+    ] as const) {
+      const target = targetFixture(base, name);
+      write(target.root, relativePath, Buffer.concat([
+        Buffer.from(prefix, "utf8"),
+        Buffer.from([0x80]),
+        Buffer.from(suffix, "utf8"),
+      ]));
+      const before = snapshot(target.root);
+      const result = await run(target.root, pkg.root, "install");
+      assert.equal(result.output.code, "invalid_utf8");
+      assert.deepEqual(snapshot(target.root), before);
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+
 test("Codex refuses type conflicts, unowned exclusive files, symlinks, and transaction failures", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-refuse-"));
   try {

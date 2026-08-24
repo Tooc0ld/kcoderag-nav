@@ -3,6 +3,7 @@
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
+const { TextDecoder } = require("node:util") as typeof import("node:util");
 
 import {
   CORE_SCHEMA_VERSION,
@@ -63,13 +64,21 @@ function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function decodeUtf8(bytes: Buffer, safePath: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new InstallError("invalid_utf8", safePath);
+  }
+}
+
 function sha256(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
 function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
   if (original === undefined) return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-  const text = original.toString("utf8");
+  const text = decodeUtf8(original, HOOKS_PATH);
   const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
   const indent = indentMatch?.[1]?.includes("\t")
     ? "\t"
@@ -161,8 +170,9 @@ function readManagedOptional(target: ProjectTarget, relativePath: string): Buffe
 }
 
 function parseJsonBytes(bytes: Buffer, code: string, safePath: string): JsonMap {
+  const text = decodeUtf8(bytes, safePath);
   try {
-    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    const value: unknown = JSON.parse(text);
     if (!isRecord(value)) throw new Error("not_object");
     return value;
   } catch {
@@ -265,7 +275,7 @@ function renderConfig(
   owned: ManagedSectionRecord | undefined,
   fileExisted: boolean,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
-  const currentText = (current ?? Buffer.alloc(0)).toString("utf8");
+  const currentText = decodeUtf8(current ?? Buffer.alloc(0), CONFIG_PATH);
   let originalText = currentText;
   let replacementRange: ConfigRange | undefined;
   if (owned !== undefined) {
@@ -449,7 +459,7 @@ function validateOwnedSections(target: ProjectTarget, state: InstallState): void
   ) {
     throw new InstallError("managed_content_changed", CONFIG_PATH);
   }
-  configRange(currentConfig.toString("utf8"), configRecord);
+  configRange(decodeUtf8(currentConfig, CONFIG_PATH), configRecord);
 
   const hooksDocument = parseJsonBytes(currentHooks, "invalid_json", HOOKS_PATH);
   if (!isRecord(hooksDocument.hooks) || !Array.isArray(hooksDocument.hooks.PreToolUse)) {
@@ -796,7 +806,7 @@ function uninstallShared(
 
   const currentConfig = readManagedOptional(target, CONFIG_PATH);
   if (currentConfig === undefined) throw new InstallError("managed_content_changed", CONFIG_PATH);
-  const configText = currentConfig.toString("utf8");
+  const configText = decodeUtf8(currentConfig, CONFIG_PATH);
   const range = configRange(configText, configRecord);
   const remainingConfig = Buffer.from(
     configText.slice(0, range.start) + configText.slice(range.end),

@@ -236,6 +236,31 @@ test("Claude update and uninstall preserve unrelated shared-config edits made af
   }
 });
 
+test("Claude rejects malformed UTF-8 in every shared JSON config before any write", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-utf8-"));
+  try {
+    const pkg = packageFixture(base);
+    for (const [name, relativePath, prefix] of [
+      ["settings", ".claude/settings.json", "{\"hooks\":{},\"value\":\""],
+      ["mcp", ".mcp.json", "{\"mcpServers\":{},\"value\":\""],
+    ] as const) {
+      const target = targetFixture(base, name);
+      write(target.root, relativePath, Buffer.concat([
+        Buffer.from(prefix, "utf8"),
+        Buffer.from([0x80]),
+        Buffer.from("\"}\\n", "utf8"),
+      ]));
+      const before = snapshot(target.root);
+      const result = await run(target.root, pkg.root, "install");
+      assert.equal(result.output.code, "invalid_utf8");
+      assert.deepEqual(snapshot(target.root), before);
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+
 test("Claude refuses JSON conflicts and managed drift before writes", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-refuse-"));
   try {
