@@ -3,6 +3,8 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 
 type HostId = "codex" | "claude" | "cursor";
 type SmokeMode = "required-contract" | "optional-live";
@@ -29,6 +31,19 @@ interface HostSmokeResult {
   readonly status: SmokeStatus;
   readonly reason: string;
   readonly evidence: SmokeEvidence;
+  readonly provenance?: PackageProvenance;
+}
+
+interface PackageProvenance {
+  readonly requestedPackageSpec: string;
+  readonly expectedVersion: string;
+  readonly resolvedPackageName: "kcoderag-nav";
+  readonly resolvedVersion: string;
+  readonly lifecycleTarballSha256: string;
+}
+
+interface AcquiredPackage extends PackageProvenance {
+  readonly lifecyclePackageSpec: string;
 }
 
 interface SmokeModule {
@@ -48,14 +63,22 @@ interface SmokeModule {
   runHostSmoke(options: {
     readonly mode: SmokeMode;
     readonly packageSpec: string;
+    readonly expectedVersion?: string;
     readonly temporaryRoot: string;
     readonly hosts?: readonly HostId[];
   }, dependencies?: {
-    readonly acquirePackage?: (packageSpec: string, root: string) => Promise<string>;
+    readonly acquirePackage?: (
+      packageSpec: string,
+      root: string,
+      stubUrl: string,
+      repositoryRoot: string,
+      expectedVersion?: string,
+    ) => Promise<AcquiredPackage>;
   }): Promise<{
     readonly schemaVersion: 1;
     readonly mode: SmokeMode;
     readonly status: SmokeStatus;
+    readonly provenance?: PackageProvenance;
     readonly hosts: readonly HostSmokeResult[];
   }>;
 }
@@ -72,6 +95,91 @@ interface StubModule {
 
 const smoke = require("../../dist/smoke/host-smoke.cjs") as SmokeModule;
 const stub = require("../../dist/smoke/stub-mcp-server.cjs") as StubModule;
+
+function runNpm(args: readonly string[], cwd: string): string {
+  const completed = process.platform === "win32"
+    ? childProcess.spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "npm", ...args], {
+        cwd,
+        encoding: "utf8",
+        windowsHide: true,
+      })
+    : childProcess.spawnSync("npm", args, { cwd, encoding: "utf8" });
+  assert.equal(completed.status, 0, "synthetic smoke package command must succeed");
+  return typeof completed.stdout === "string" ? completed.stdout : "";
+}
+
+function packFilename(stdout: string, destination: string): string {
+  const payload = JSON.parse(stdout) as readonly [{ readonly filename: string }];
+  return path.resolve(destination, payload[0].filename);
+}
+
+function sha256(file: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+function writeSyntheticMcpSources(packageRoot: string, stubUrl: string): void {
+  for (const environment of ["qa", "dev"] as const) {
+    const name = `kcoderag-${environment}`;
+    const httpEntry = {
+      type: "http",
+      url: stubUrl,
+      headers: { Authorization: "Bearer synthetic-contract-only" },
+    };
+    fs.writeFileSync(
+      path.join(packageRoot, name, ".mcp.json"),
+      `${JSON.stringify({ mcpServers: { [name]: httpEntry } }, null, 2)}\n`,
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(packageRoot, name, ".codex.mcp.json"),
+      `${JSON.stringify({ [name]: {
+        url: stubUrl,
+        http_headers: { Authorization: "Bearer synthetic-contract-only" },
+      } }, null, 2)}\n`,
+      "utf8",
+    );
+  }
+}
+
+function syntheticAcquisition(
+  requestedPackageSpec: string,
+  expectedVersion: string,
+  root: string,
+  stubUrl: string,
+  repositoryRoot: string,
+): AcquiredPackage {
+  const sourcePack = path.join(root, "fixture-source-pack");
+  fs.mkdirSync(sourcePack, { recursive: true });
+  const sourceTarball = packFilename(
+    runNpm(["pack", repositoryRoot, "--json", "--ignore-scripts", "--pack-destination", sourcePack], root),
+    sourcePack,
+  );
+  const installRoot = path.join(root, "fixture-acquired");
+  fs.mkdirSync(installRoot, { recursive: true });
+  runNpm([
+    "install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false",
+    "--prefix", installRoot, sourceTarball,
+  ], root);
+  const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")) as {
+    readonly name: "kcoderag-nav";
+  };
+  writeSyntheticMcpSources(packageRoot, stubUrl);
+  const syntheticPack = path.join(root, "fixture-synthetic-pack");
+  fs.mkdirSync(syntheticPack, { recursive: true });
+  const lifecyclePackageSpec = packFilename(
+    runNpm(["pack", packageRoot, "--json", "--ignore-scripts", "--pack-destination", syntheticPack], root),
+    syntheticPack,
+  );
+  return {
+    requestedPackageSpec,
+    expectedVersion,
+    resolvedPackageName: manifest.name,
+    resolvedVersion: expectedVersion,
+    lifecycleTarballSha256: sha256(lifecyclePackageSpec),
+    lifecyclePackageSpec,
+  };
+}
 
 async function postJson(url: string, payload: unknown): Promise<{ status: number; body?: any }> {
   const response = await fetch(url, {
@@ -230,5 +338,193 @@ test("package acquisition failure occurs before any host project is created", as
     assert.doesNotMatch(JSON.stringify(result), /private detail|Bearer|Authorization/iu);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("exact and latest preserve acquired-manifest and synthetic-tarball provenance across all hosts", async () => {
+  for (const requestedPackageSpec of ["kcoderag-nav@1.2.3", "kcoderag-nav@latest"] as const) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-happy-"));
+    try {
+      let mutableAcquisition: AcquiredPackage | undefined;
+      const result = await smoke.runHostSmoke(
+        {
+          mode: "required-contract",
+          packageSpec: requestedPackageSpec,
+          expectedVersion: "1.2.3",
+          temporaryRoot: root,
+          hosts: ["codex", "claude", "cursor"],
+        },
+        {
+          acquirePackage: async (normalizedSpec, temporaryRoot, stubUrl, repositoryRoot, expectedVersion) => {
+            assert.equal(normalizedSpec, requestedPackageSpec);
+            assert.equal(expectedVersion, "1.2.3");
+            const acquired = syntheticAcquisition(
+              requestedPackageSpec,
+              "1.2.3",
+              temporaryRoot,
+              stubUrl,
+              repositoryRoot,
+            );
+            mutableAcquisition = acquired;
+            setTimeout(() => {
+              (acquired as { expectedVersion: string }).expectedVersion = "9.9.9";
+            }, 0);
+            return acquired;
+          },
+        },
+      );
+      assert.equal(result.status, "PASS");
+      assert.deepEqual(result.provenance, {
+        requestedPackageSpec,
+        expectedVersion: "1.2.3",
+        resolvedPackageName: "kcoderag-nav",
+        resolvedVersion: "1.2.3",
+        lifecycleTarballSha256: result.provenance?.lifecycleTarballSha256,
+      });
+      assert.match(result.provenance?.lifecycleTarballSha256 ?? "", /^[a-f0-9]{64}$/u);
+      assert.equal(Object.isFrozen(result.provenance), true);
+      assert.equal(mutableAcquisition?.expectedVersion, "9.9.9");
+      for (const host of result.hosts) {
+        assert.equal(host.status, "PASS");
+        assert.equal(host.provenance, result.provenance);
+        assert.deepEqual(host.evidence, smoke.completeEvidence());
+      }
+      const serialized = JSON.stringify(result);
+      assert.doesNotMatch(serialized, /fixture-|node_modules|synthetic-pack|Authorization|Bearer/iu);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("public specifier validation fails before acquisition or host project writes", async () => {
+  const invalidSpecs = [
+    "kcoderag-nav@1.2.3-beta.1",
+    "kcoderag-nav@^1.2.3",
+    "kcoderag-nav@~1.2.3",
+    "kcoderag-nav@>=1.2.3",
+    "kcoderag-nav@next",
+    "alias@npm:kcoderag-nav@1.2.3",
+    "other-package@1.2.3",
+    "https://example.invalid/package.tgz",
+    ".",
+  ];
+  for (const packageSpec of invalidSpecs) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invalid-spec-"));
+    let acquisitions = 0;
+    try {
+      const result = await smoke.runHostSmoke(
+        { mode: "required-contract", packageSpec, expectedVersion: "1.2.3", temporaryRoot: root },
+        {
+          acquirePackage: async () => {
+            acquisitions += 1;
+            throw new Error("must not run");
+          },
+        },
+      );
+      assert.equal(result.status, "NOT_RUN", packageSpec);
+      assert.equal(smoke.smokeExitCode(result), 1);
+      assert.equal(acquisitions, 0, packageSpec);
+      assert.deepEqual(fs.readdirSync(root), [], packageSpec);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("public expected-version rules reject exact disagreement and latest omission before acquisition", async () => {
+  for (const input of [
+    { packageSpec: "kcoderag-nav@1.2.3", expectedVersion: "1.2.4" },
+    { packageSpec: "kcoderag-nav@latest", expectedVersion: undefined },
+    { packageSpec: "kcoderag-nav@latest", expectedVersion: "1.2.3-beta.1" },
+  ] as const) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invalid-expected-"));
+    let acquisitions = 0;
+    try {
+      const result = await smoke.runHostSmoke(
+        {
+          mode: "required-contract",
+          packageSpec: input.packageSpec,
+          ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
+          temporaryRoot: root,
+        },
+        { acquirePackage: async () => { acquisitions += 1; throw new Error("must not run"); } },
+      );
+      assert.equal(result.status, "NOT_RUN");
+      assert.equal(acquisitions, 0);
+      assert.deepEqual(fs.readdirSync(root), []);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("acquired identity, latest races, missing provenance, and tarball digest drift fail before host writes", async () => {
+  const cases: readonly {
+    readonly name: string;
+    readonly packageSpec: string;
+    readonly mutate: (acquired: AcquiredPackage) => unknown;
+  }[] = [
+    {
+      name: "exact installed-manifest mismatch",
+      packageSpec: "kcoderag-nav@1.2.3",
+      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.4" }),
+    },
+    {
+      name: "latest acquired previous version",
+      packageSpec: "kcoderag-nav@latest",
+      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.2" }),
+    },
+    {
+      name: "latest acquired next version",
+      packageSpec: "kcoderag-nav@latest",
+      mutate: (acquired) => ({ ...acquired, resolvedVersion: "1.2.4" }),
+    },
+    {
+      name: "wrong acquired package name",
+      packageSpec: "kcoderag-nav@1.2.3",
+      mutate: (acquired) => ({ ...acquired, resolvedPackageName: "not-kcoderag-nav" }),
+    },
+    {
+      name: "missing provenance",
+      packageSpec: "kcoderag-nav@1.2.3",
+      mutate: (acquired) => ({ lifecyclePackageSpec: acquired.lifecyclePackageSpec }),
+    },
+    {
+      name: "synthetic tgz digest mismatch",
+      packageSpec: "kcoderag-nav@1.2.3",
+      mutate: (acquired) => ({ ...acquired, lifecycleTarballSha256: "0".repeat(64) }),
+    },
+  ];
+
+  for (const fixture of cases) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-fail-"));
+    try {
+      const tarball = path.join(root, "synthetic.tgz");
+      fs.writeFileSync(tarball, "synthetic tarball bytes", "utf8");
+      const acquired: AcquiredPackage = {
+        requestedPackageSpec: fixture.packageSpec,
+        expectedVersion: "1.2.3",
+        resolvedPackageName: "kcoderag-nav",
+        resolvedVersion: "1.2.3",
+        lifecycleTarballSha256: sha256(tarball),
+        lifecyclePackageSpec: tarball,
+      };
+      const result = await smoke.runHostSmoke(
+        {
+          mode: "required-contract",
+          packageSpec: fixture.packageSpec,
+          expectedVersion: "1.2.3",
+          temporaryRoot: root,
+        },
+        { acquirePackage: async () => fixture.mutate(acquired) as AcquiredPackage },
+      );
+      assert.equal(result.status, "NOT_RUN", fixture.name);
+      assert.equal(result.provenance, undefined, fixture.name);
+      assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture.name);
+      assert.doesNotMatch(JSON.stringify(result), /not-kcoderag-nav|1\.2\.2|1\.2\.4|synthetic\.tgz/iu);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 });
