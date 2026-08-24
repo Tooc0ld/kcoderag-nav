@@ -11,6 +11,7 @@ import {
   type DesiredState,
   type EnvironmentId,
   type InstallState,
+  type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
   type StatusIssue,
@@ -74,6 +75,35 @@ function sha256(bytes: Buffer | string): string {
 
 function canonicalJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
+  if (original === undefined) return canonicalJson(value);
+  const text = original.toString("utf8");
+  const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
+  const indent = indentMatch?.[1]?.includes("\t")
+    ? "\t"
+    : Math.max(0, indentMatch?.[1]?.length ?? (text.includes("\n") ? 2 : 0));
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const rendered = JSON.stringify(value, null, indent).replaceAll("\n", eol);
+  return Buffer.from(text.endsWith("\n") ? `${rendered}${eol}` : rendered, "utf8");
+}
+
+function sectionDigest(value: unknown): string {
+  return sha256(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
+function sectionRecord(
+  value: unknown,
+  fileExisted: boolean,
+): ManagedSectionRecord {
+  return { id: "mcpServers.kcoderag", digest: sectionDigest(value), fileExisted };
+}
+
+function verifyMcpSection(record: ManagedSectionRecord, value: unknown): void {
+  if (record.id !== "mcpServers.kcoderag" || sectionDigest(value) !== record.digest) {
+    throw new InstallError("managed_content_changed", MCP_PATH);
+  }
 }
 
 function packageName(environment: EnvironmentId): string {
@@ -164,20 +194,45 @@ function environmentMcpEntry(packageRoot: string, environment: EnvironmentId): {
 }
 
 function renderMcp(
-  original: Buffer | undefined,
+  current: Buffer | undefined,
   packageRoot: string,
   environment: EnvironmentId,
-): Buffer {
-  const document = original === undefined
+  owned: ManagedSectionRecord | undefined,
+  allowLegacyOwned: boolean,
+  fileExisted: boolean,
+): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
+  const document = current === undefined
     ? { mcpServers: {} as JsonMap }
-    : parseJsonBytes(original, "invalid_json", MCP_PATH);
+    : parseJsonBytes(current, "invalid_json", MCP_PATH);
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
-  if (document.mcpServers.kcoderag !== undefined) {
+  if (owned !== undefined) verifyMcpSection(owned, document.mcpServers.kcoderag);
+  if (owned === undefined && !allowLegacyOwned && document.mcpServers.kcoderag !== undefined) {
     throw new InstallError("unmanaged_name_conflict", MCP_PATH);
   }
-  document.mcpServers.kcoderag = environmentMcpEntry(packageRoot, environment).entry;
-  return canonicalJson(document);
+  const entry = environmentMcpEntry(packageRoot, environment).entry;
+  document.mcpServers.kcoderag = entry;
+  return {
+    bytes: renderJsonLike(current, document),
+    section: sectionRecord(entry, fileExisted),
+  };
+}
+
+function removeInstalledMcp(
+  current: Buffer | null,
+  record: ManagedSectionRecord | undefined,
+): Buffer | null {
+  if (current === null || record === undefined) {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+  const document = parseJsonBytes(current, "invalid_json", MCP_PATH);
+  if (!isRecord(document.mcpServers)) throw new InstallError("managed_content_changed", MCP_PATH);
+  verifyMcpSection(record, document.mcpServers.kcoderag);
+  delete document.mcpServers.kcoderag;
+  if (Object.keys(document.mcpServers).length === 0) delete document.mcpServers;
+  return !record.fileExisted && Object.keys(document).length === 0
+    ? null
+    : renderJsonLike(current, document);
 }
 
 function sourceAsset(packageRoot: string, relativePath: string): Buffer {
@@ -213,10 +268,15 @@ function validateCurrentState(state: InstallState): InstallState {
   if (state.host !== "cursor") throw new InstallError("invalid_state", STATE_PATH);
   const paths = managedPaths();
   const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
+  const dedicated = owned.filter((relativePath) => relativePath !== MCP_PATH);
+  const secureState = state.sections !== undefined;
   if (
     state.managedFiles.join("\0") !== paths.join("\0") ||
-    Object.keys(state.originals).sort().join("\0") !== [...owned].sort().join("\0") ||
-    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0")
+    Object.keys(state.originals).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0") ||
+    (secureState && Object.keys(state.sections ?? {}).join("\0") !== MCP_PATH) ||
+    (secureState && state.sections?.[MCP_PATH]?.id !== "mcpServers.kcoderag")
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
@@ -454,8 +514,9 @@ function captureOriginals(target: ProjectTarget): Record<string, OriginalRecord>
   const originals: Record<string, OriginalRecord> = {};
   for (const relativePath of managedPaths()) {
     if (relativePath === STATE_PATH) continue;
+    if (relativePath === MCP_PATH) continue;
     const current = readManagedOptional(target, relativePath);
-    if (relativePath !== MCP_PATH && current !== undefined) {
+    if (current !== undefined) {
       throw new InstallError("unmanaged_name_conflict", relativePath);
     }
     originals[relativePath] = encodeOriginal(current);
@@ -490,10 +551,23 @@ function renderInstall(context: HostInstallContext): DesiredState {
   if (existing !== undefined && existing.environment !== context.environment) {
     throw new InstallError("environment_conflict", STATE_PATH);
   }
-  const originals = existing?.originals ?? captureOriginals(context.target);
-  const originalMcp = decodeOriginal(originals[MCP_PATH], MCP_PATH) ?? undefined;
+  const originals = existing === undefined
+    ? captureOriginals(context.target)
+    : Object.fromEntries(Object.entries(existing.originals).filter(([relativePath]) =>
+      relativePath !== MCP_PATH));
+  const currentMcp = readManagedOptional(context.target, MCP_PATH);
+  const legacyState = existing !== undefined && existing.sections === undefined;
+  const renderedMcp = renderMcp(
+    currentMcp,
+    context.packageRoot,
+    context.environment,
+    existing?.sections?.[MCP_PATH],
+    legacyState,
+    existing?.sections?.[MCP_PATH]?.fileExisted ??
+      (legacyState ? existing?.originals[MCP_PATH]?.kind !== "absent" : currentMcp !== undefined),
+  );
   const payloads = new Map<string, Buffer>([
-    [MCP_PATH, renderMcp(originalMcp, context.packageRoot, context.environment)],
+    [MCP_PATH, renderedMcp.bytes],
     [RULE_PATH, sourceAsset(context.packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc")],
     [SKILL_PATH, sourceAsset(context.packageRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md")],
   ]);
@@ -507,6 +581,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
     managedFiles: [...managedPaths()],
     originals,
     digests,
+    sections: { [MCP_PATH]: renderedMcp.section },
   };
   payloads.set(STATE_PATH, canonicalJson(state));
   const stateBytes = observationDetails.stateBytes;
@@ -532,6 +607,15 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   const stateBytes = details(context.observation).stateBytes;
   if (state === undefined || stateBytes === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (state.environment !== context.environment) throw new InstallError("environment_not_installed", STATE_PATH);
+  let mcpPayload: Buffer | null | undefined;
+  if (state.sections !== undefined) {
+    const record = state.sections[MCP_PATH];
+    const current = readManagedOptional(context.target, MCP_PATH);
+    if (record === undefined || current === undefined) {
+      throw new InstallError("managed_content_changed", MCP_PATH);
+    }
+    mcpPayload = removeInstalledMcp(current, record);
+  }
   return createDesiredState({
     host: "cursor",
     target: context.target,
@@ -540,7 +624,11 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     entries: managedPaths().map((relativePath) => ({
       relativePath,
       expectedDigest: relativePath === STATE_PATH ? sha256(stateBytes) : state.digests[relativePath] ?? null,
-      content: relativePath === STATE_PATH ? null : decodeOriginal(state.originals[relativePath], relativePath),
+      content: relativePath === STATE_PATH
+        ? null
+        : relativePath === MCP_PATH && state.sections !== undefined
+          ? mcpPayload ?? null
+          : decodeOriginal(state.originals[relativePath], relativePath),
     })),
   });
 }
@@ -644,7 +732,9 @@ function projectRollbackState(desired: DesiredState): DesiredState {
       expectedDigest: entry.content === null ? null : sha256(entry.content),
       content: entry.path.relativePath === STATE_PATH
         ? null
-        : decodeOriginal(state.originals[entry.path.relativePath], entry.path.relativePath),
+        : entry.path.relativePath === MCP_PATH && state.sections !== undefined
+          ? removeInstalledMcp(entry.content, state.sections[MCP_PATH])
+          : decodeOriginal(state.originals[entry.path.relativePath], entry.path.relativePath),
     })),
   });
 }

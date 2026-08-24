@@ -67,6 +67,13 @@ export interface OriginalRecord {
   readonly data?: string;
 }
 
+/** Non-sensitive identity and integrity metadata for one entry in a shared config file. */
+export interface ManagedSectionRecord {
+  readonly id: string;
+  readonly digest: string;
+  readonly fileExisted: boolean;
+}
+
 export interface InstallState {
   readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
   readonly packageVersion: string;
@@ -75,6 +82,8 @@ export interface InstallState {
   readonly managedFiles: readonly string[];
   readonly originals: Readonly<Record<string, OriginalRecord>>;
   readonly digests: Readonly<Record<string, string>>;
+  /** Present for section-owned shared files; legacy whole-file states omit this field. */
+  readonly sections?: Readonly<Record<string, ManagedSectionRecord>>;
 }
 
 export function sanitizeSafeRelativePath(input?: string): string | undefined {

@@ -175,6 +175,33 @@ test("Claude lifecycle preserves unrelated JSON and restores exact original byte
   }
 });
 
+test("Claude install state never snapshots shared-config credentials", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-secret-state-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const unrelatedSecret = `unrelated-${crypto.randomUUID()}`;
+    const mcp = JSON.parse(target.mcp.toString("utf8"));
+    mcp.mcpServers.unrelated.env = { TOKEN: unrelatedSecret };
+    const originalMcp = Buffer.from(`${JSON.stringify(mcp, null, 4)}\n`, "utf8");
+    write(target.root, ".mcp.json", originalMcp);
+
+    assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
+    const stateBytes = fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")));
+    assert.equal(stateBytes.includes(unrelatedSecret), false);
+    assert.equal(stateBytes.includes(pkg.secret), false);
+    assert.equal(
+      fs.readdirSync(target.root).some((entry) => entry.startsWith(".kcoderag-nav-recovery-")),
+      false,
+    );
+
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    assert.deepEqual(fs.readFileSync(path.join(target.root, ".mcp.json")), originalMcp);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Claude refuses JSON conflicts and managed drift before writes", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-refuse-"));
   try {

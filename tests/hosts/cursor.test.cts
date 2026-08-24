@@ -222,6 +222,33 @@ test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks
   }
 });
 
+test("Cursor install state never snapshots shared-config credentials", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-secret-state-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const unrelatedSecret = `unrelated-${crypto.randomUUID()}`;
+    const mcp = JSON.parse(target.mcp.toString("utf8"));
+    mcp.mcpServers.unrelated.env = { TOKEN: unrelatedSecret };
+    const originalMcp = Buffer.from(`${JSON.stringify(mcp, null, 4)}\n`, "utf8");
+    write(target.root, ".cursor/mcp.json", originalMcp);
+
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
+    const stateBytes = fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")));
+    assert.equal(stateBytes.includes(unrelatedSecret), false);
+    assert.equal(stateBytes.includes(pkg.secret), false);
+    assert.equal(
+      fs.readdirSync(target.root).some((entry) => entry.startsWith(".kcoderag-nav-recovery-")),
+      false,
+    );
+
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "uninstall")).exitCode, 0);
+    assert.deepEqual(fs.readFileSync(path.join(target.root, ".cursor/mcp.json")), originalMcp);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-refuse-"));
   try {

@@ -9,6 +9,7 @@ import {
   type HostId,
   type InstallState,
   type InstallStatus,
+  type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
   type StatusIssue,
@@ -152,6 +153,18 @@ function validateOriginal(value: unknown): value is OriginalRecord {
   return Buffer.from(value.data, "base64").toString("base64") === value.data;
 }
 
+function validateSection(value: unknown): value is ManagedSectionRecord {
+  return isRecord(value) &&
+    Object.keys(value).sort().join("\0") === "digest\0fileExisted\0id" &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    value.id.length <= 160 &&
+    /^[A-Za-z0-9_.:-]+$/.test(value.id) &&
+    typeof value.digest === "string" &&
+    DIGEST_PATTERN.test(value.digest) &&
+    typeof value.fileExisted === "boolean";
+}
+
 function decodeLegacyOriginal(value: unknown): OriginalRecord | undefined {
   if (
     !isRecord(value) ||
@@ -191,7 +204,8 @@ export function parseLegacyInstallState(
     value.active_environments.length !== 1 ||
     !isEnvironment(value.active_environments[0]) ||
     !isRecord(value.originals) ||
-    !isRecord(value.digests)
+    !isRecord(value.digests) ||
+    (value.sections !== undefined && !isRecord(value.sections))
   ) {
     throw new InstallError("invalid_state");
   }
@@ -257,7 +271,11 @@ export function parseInstallState(bytes: Buffer): InstallState {
     Object.keys(value.originals).some((item) => !managed.has(item)) ||
     Object.keys(value.digests).some((item) => !managed.has(item)) ||
     !Object.values(value.originals).every(validateOriginal) ||
-    !Object.values(value.digests).every((digest) => typeof digest === "string" && DIGEST_PATTERN.test(digest))
+    !Object.values(value.digests).every((digest) => typeof digest === "string" && DIGEST_PATTERN.test(digest)) ||
+    (isRecord(value.sections) && (
+      Object.keys(value.sections).some((item) => !managed.has(item)) ||
+      !Object.values(value.sections).every(validateSection)
+    ))
   ) {
     throw new InstallError("invalid_state");
   }

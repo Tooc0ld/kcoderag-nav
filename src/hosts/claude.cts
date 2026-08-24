@@ -10,6 +10,7 @@ import {
   type DesiredState,
   type EnvironmentId,
   type InstallState,
+  type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
   type StatusIssue,
@@ -42,6 +43,7 @@ const HOOK_ASSETS = Object.freeze([
   "update-check.cjs",
   "update-worker.cjs",
 ]);
+const SHARED_PATHS = Object.freeze([MCP_PATH, SETTINGS_PATH] as const);
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,6 +107,37 @@ function canonicalJson(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function renderJsonLike(original: Buffer | undefined, value: unknown): Buffer {
+  if (original === undefined) return canonicalJson(value);
+  const text = original.toString("utf8");
+  const indentMatch = /(?:^|\r?\n)([ \t]+)"/.exec(text);
+  const indent = indentMatch?.[1]?.includes("\t")
+    ? "\t"
+    : Math.max(0, indentMatch?.[1]?.length ?? (text.includes("\n") ? 2 : 0));
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const rendered = JSON.stringify(value, null, indent).replaceAll("\n", eol);
+  return Buffer.from(text.endsWith("\n") ? `${rendered}${eol}` : rendered, "utf8");
+}
+
+function sectionDigest(value: unknown): string {
+  return sha256(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
+function sectionRecord(id: string, value: unknown, fileExisted: boolean): ManagedSectionRecord {
+  return { id, digest: sectionDigest(value), fileExisted };
+}
+
+function verifySection(
+  record: ManagedSectionRecord,
+  expectedId: string,
+  value: unknown,
+  safePath: string,
+): void {
+  if (record.id !== expectedId || sectionDigest(value) !== record.digest) {
+    throw new InstallError("managed_content_changed", safePath);
+  }
+}
+
 function readPackageVersion(packageRoot: string): string {
   const safePath = "package.json";
   let bytes: Buffer;
@@ -143,44 +176,45 @@ function readMcpServer(packageRoot: string, environment: EnvironmentId): {
 }
 
 function renderMcp(
-  original: Buffer | undefined,
+  current: Buffer | undefined,
   packageRoot: string,
   environment: EnvironmentId,
-): Buffer {
-  const document = original === undefined
+  owned: ManagedSectionRecord | undefined,
+  allowLegacyOwned: boolean,
+  fileExisted: boolean,
+): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
+  const document = current === undefined
     ? { mcpServers: {} as JsonMap }
-    : parseJsonBytes(original, "invalid_json", MCP_PATH);
+    : parseJsonBytes(current, "invalid_json", MCP_PATH);
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
-  if (document.mcpServers["kcoderag-qa"] !== undefined || document.mcpServers["kcoderag-dev"] !== undefined) {
+  const currentName = owned?.id.split(".").at(-1);
+  const currentEntry = currentName === undefined ? undefined : document.mcpServers[currentName];
+  if (owned !== undefined) verifySection(owned, `mcpServers.${currentName}`, currentEntry, MCP_PATH);
+  if (
+    owned === undefined &&
+    !allowLegacyOwned &&
+    (document.mcpServers["kcoderag-qa"] !== undefined || document.mcpServers["kcoderag-dev"] !== undefined)
+  ) {
     throw new InstallError("unmanaged_name_conflict", MCP_PATH);
+  }
+  if (allowLegacyOwned) {
+    delete document.mcpServers["kcoderag-qa"];
+    delete document.mcpServers["kcoderag-dev"];
+  } else if (currentName !== undefined) {
+    delete document.mcpServers[currentName];
   }
   const source = readMcpServer(packageRoot, environment);
   document.mcpServers[source.name] = source.entry;
-  return canonicalJson(document);
+  return {
+    bytes: renderJsonLike(current, document),
+    section: sectionRecord(`mcpServers.${source.name}`, source.entry, fileExisted),
+  };
 }
 
-function renderSettings(original: Buffer | undefined, environment: EnvironmentId): Buffer {
-  const document = original === undefined
-    ? {}
-    : parseJsonBytes(original, "invalid_json", SETTINGS_PATH);
-  if (document.hooks === undefined) document.hooks = {};
-  if (!isRecord(document.hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
-  const hooks = document.hooks;
-  if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
-  if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
-    throw new InstallError("invalid_json", SETTINGS_PATH);
-  }
-  const encoded = JSON.stringify(document);
-  if (
-    encoded.includes(".claude/kcoderag-nav/") ||
-    encoded.includes(".claude\\kcoderag-nav\\") ||
-    encoded.includes("Checking code lookup strategy (KCodeRag")
-  ) {
-    throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
-  }
+function managedHook(environment: EnvironmentId): JsonMap {
   const prefix = hookPrefix(environment);
-  hooks.PreToolUse.push({
+  return {
     matcher: "^(Grep|Glob|Bash)$",
     hooks: [{
       type: "command",
@@ -190,8 +224,62 @@ function renderSettings(original: Buffer | undefined, environment: EnvironmentId
       statusMessage: `Checking code lookup strategy (KCodeRag ${environment.toUpperCase()})`,
       additionalContextLimit: 600,
     }],
-  });
-  return canonicalJson(document);
+  };
+}
+
+function hookEnvironment(entry: unknown): EnvironmentId | undefined {
+  if (!isRecord(entry) || !Array.isArray(entry.hooks)) return undefined;
+  const encoded = JSON.stringify(entry);
+  for (const environment of ["qa", "dev"] as const) {
+    if (encoded.includes(`${hookPrefix(environment)}/run_hook.sh`) ||
+        encoded.includes(`${hookPrefix(environment).replaceAll("/", "\\\\")}\\\\run_hook.cmd`)) {
+      return environment;
+    }
+  }
+  return undefined;
+}
+
+function renderSettings(
+  current: Buffer | undefined,
+  environment: EnvironmentId,
+  owned: ManagedSectionRecord | undefined,
+  allowLegacyOwned: boolean,
+  fileExisted: boolean,
+): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
+  const document = current === undefined
+    ? {}
+    : parseJsonBytes(current, "invalid_json", SETTINGS_PATH);
+  if (document.hooks === undefined) document.hooks = {};
+  if (!isRecord(document.hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
+  const hooks = document.hooks;
+  if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
+  if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
+    throw new InstallError("invalid_json", SETTINGS_PATH);
+  }
+  const ownedIndexes = hooks.PreToolUse
+    .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
+    .filter((entry) => entry.environment !== undefined);
+  if (owned !== undefined) {
+    const expectedEnvironment = owned.id.split(".").at(-1);
+    const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
+    if (matched.length !== 1) throw new InstallError("managed_content_changed", SETTINGS_PATH);
+    const index = matched[0]?.index;
+    if (index === undefined) throw new InstallError("managed_content_changed", SETTINGS_PATH);
+    verifySection(owned, `hooks.PreToolUse.kcoderag-nav.${expectedEnvironment}`, hooks.PreToolUse[index], SETTINGS_PATH);
+    hooks.PreToolUse.splice(index, 1);
+  } else if (allowLegacyOwned) {
+    for (const entry of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
+      hooks.PreToolUse.splice(entry.index, 1);
+    }
+  } else if (ownedIndexes.length > 0 || JSON.stringify(document).includes("Checking code lookup strategy (KCodeRag")) {
+    throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
+  }
+  const entry = managedHook(environment);
+  hooks.PreToolUse.push(entry);
+  return {
+    bytes: renderJsonLike(current, document),
+    section: sectionRecord(`hooks.PreToolUse.kcoderag-nav.${environment}`, entry, fileExisted),
+  };
 }
 
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord {
@@ -227,10 +315,14 @@ function validateCurrentState(state: InstallState): InstallState {
   if (state.host !== "claude") throw new InstallError("invalid_state", STATE_PATH);
   const paths = managedPaths(state.environment);
   const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
+  const dedicated = owned.filter((relativePath) => !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]));
+  const secureState = state.sections !== undefined;
   if (
     state.managedFiles.join("\0") !== paths.join("\0") ||
-    Object.keys(state.originals).sort().join("\0") !== [...owned].sort().join("\0") ||
-    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0")
+    Object.keys(state.originals).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !== [...owned].sort().join("\0") ||
+    (secureState && Object.keys(state.sections ?? {}).sort().join("\0") !== [...SHARED_PATHS].sort().join("\0"))
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
@@ -279,8 +371,9 @@ function captureOriginals(target: ProjectTarget, environment: EnvironmentId): Re
   const originals: Record<string, OriginalRecord> = {};
   for (const relativePath of managedPaths(environment)) {
     if (relativePath === STATE_PATH) continue;
+    if (SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) continue;
     const current = readManagedOptional(target, relativePath);
-    if (![MCP_PATH, SETTINGS_PATH].includes(relativePath) && current !== undefined) {
+    if (current !== undefined) {
       throw new InstallError("unmanaged_name_conflict", relativePath);
     }
     originals[relativePath] = encodeOriginal(current);
@@ -302,19 +395,40 @@ function expectedDigest(
 
 function desiredPayloads(
   context: HostInstallContext,
-  originals: Readonly<Record<string, OriginalRecord>>,
-): Map<string, Buffer> {
+): { readonly payloads: Map<string, Buffer>; readonly sections: Record<string, ManagedSectionRecord> } {
   const name = packageName(context.environment);
-  const originalMcp = decodeOriginal(originals[MCP_PATH], MCP_PATH) ?? undefined;
-  const originalSettings = decodeOriginal(originals[SETTINGS_PATH], SETTINGS_PATH) ?? undefined;
+  const existing = context.observation.currentState;
+  const currentMcp = readManagedOptional(context.target, MCP_PATH);
+  const currentSettings = readManagedOptional(context.target, SETTINGS_PATH);
+  const legacyState = existing !== undefined && existing.sections === undefined;
+  const mcp = renderMcp(
+    currentMcp,
+    context.packageRoot,
+    context.environment,
+    existing?.sections?.[MCP_PATH],
+    legacyState,
+    existing?.sections?.[MCP_PATH]?.fileExisted ??
+      (legacyState ? existing?.originals[MCP_PATH]?.kind !== "absent" : currentMcp !== undefined),
+  );
+  const settings = renderSettings(
+    currentSettings,
+    context.environment,
+    existing?.sections?.[SETTINGS_PATH],
+    legacyState,
+    existing?.sections?.[SETTINGS_PATH]?.fileExisted ??
+      (legacyState ? existing?.originals[SETTINGS_PATH]?.kind !== "absent" : currentSettings !== undefined),
+  );
   const payloads = new Map<string, Buffer>();
-  payloads.set(MCP_PATH, renderMcp(originalMcp, context.packageRoot, context.environment));
-  payloads.set(SETTINGS_PATH, renderSettings(originalSettings, context.environment));
+  payloads.set(MCP_PATH, mcp.bytes);
+  payloads.set(SETTINGS_PATH, settings.bytes);
   payloads.set(SKILL_PATH, sourceAsset(context.packageRoot, `${name}/skills/code-lookup-discipline/SKILL.md`));
   for (const asset of HOOK_ASSETS) {
     payloads.set(`${hookPrefix(context.environment)}/${asset}`, sourceAsset(context.packageRoot, `${name}/hooks/${asset}`));
   }
-  return payloads;
+  return {
+    payloads,
+    sections: { [MCP_PATH]: mcp.section, [SETTINGS_PATH]: settings.section },
+  };
 }
 
 function renderInstall(context: HostInstallContext): DesiredState {
@@ -325,8 +439,12 @@ function renderInstall(context: HostInstallContext): DesiredState {
     throw new InstallError("environment_conflict", STATE_PATH);
   }
   const paths = managedPaths(context.environment);
-  const originals = existing?.originals ?? captureOriginals(context.target, context.environment);
-  const payloads = desiredPayloads(context, originals);
+  const originals = existing === undefined
+    ? captureOriginals(context.target, context.environment)
+    : Object.fromEntries(Object.entries(existing.originals).filter(([relativePath]) =>
+      !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])));
+  const rendered = desiredPayloads(context);
+  const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
   for (const [relativePath, bytes] of payloads) digests[relativePath] = sha256(bytes);
   const state: InstallState = {
@@ -337,6 +455,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
     managedFiles: [...paths],
     originals,
     digests,
+    sections: rendered.sections,
   };
   payloads.set(STATE_PATH, canonicalJson(state));
   const stateBytes = details(context.observation).stateBytes;
@@ -353,12 +472,75 @@ function renderInstall(context: HostInstallContext): DesiredState {
   });
 }
 
+function uninstallShared(
+  target: ProjectTarget,
+  state: InstallState,
+): Map<string, Buffer | null> {
+  const result = new Map<string, Buffer | null>();
+  const mcpRecord = state.sections?.[MCP_PATH];
+  const settingsRecord = state.sections?.[SETTINGS_PATH];
+  if (mcpRecord === undefined || settingsRecord === undefined) {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+
+  const currentMcp = readManagedOptional(target, MCP_PATH);
+  if (currentMcp === undefined) throw new InstallError("managed_content_changed", MCP_PATH);
+  const mcpDocument = parseJsonBytes(currentMcp, "invalid_json", MCP_PATH);
+  if (!isRecord(mcpDocument.mcpServers)) {
+    throw new InstallError("managed_content_changed", MCP_PATH);
+  }
+  const mcpName = mcpRecord.id.split(".").at(-1);
+  if (mcpName === undefined) throw new InstallError("invalid_state", STATE_PATH);
+  verifySection(mcpRecord, `mcpServers.${mcpName}`, mcpDocument.mcpServers[mcpName], MCP_PATH);
+  delete mcpDocument.mcpServers[mcpName];
+  if (Object.keys(mcpDocument.mcpServers).length === 0) delete mcpDocument.mcpServers;
+  result.set(
+    MCP_PATH,
+    !mcpRecord.fileExisted && Object.keys(mcpDocument).length === 0
+      ? null
+      : renderJsonLike(currentMcp, mcpDocument),
+  );
+
+  const currentSettings = readManagedOptional(target, SETTINGS_PATH);
+  if (currentSettings === undefined) throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  const settingsDocument = parseJsonBytes(currentSettings, "invalid_json", SETTINGS_PATH);
+  if (!isRecord(settingsDocument.hooks) || !Array.isArray(settingsDocument.hooks.PreToolUse)) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
+  const environment = settingsRecord.id.split(".").at(-1);
+  const matched = settingsDocument.hooks.PreToolUse
+    .map((entry, index) => ({ entry, index, environment: hookEnvironment(entry) }))
+    .filter((entry) => entry.environment === environment);
+  if (matched.length !== 1 || matched[0] === undefined) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
+  verifySection(
+    settingsRecord,
+    `hooks.PreToolUse.kcoderag-nav.${environment}`,
+    matched[0].entry,
+    SETTINGS_PATH,
+  );
+  settingsDocument.hooks.PreToolUse.splice(matched[0].index, 1);
+  if (settingsDocument.hooks.PreToolUse.length === 0) delete settingsDocument.hooks.PreToolUse;
+  if (Object.keys(settingsDocument.hooks).length === 0) delete settingsDocument.hooks;
+  result.set(
+    SETTINGS_PATH,
+    !settingsRecord.fileExisted && Object.keys(settingsDocument).length === 0
+      ? null
+      : renderJsonLike(currentSettings, settingsDocument),
+  );
+  return result;
+}
+
 function renderUninstall(context: HostUninstallContext): DesiredState {
   refuseIssues(context.observation);
   const state = context.observation.currentState;
   const stateBytes = details(context.observation).stateBytes;
   if (state === undefined || stateBytes === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (state.environment !== context.environment) throw new InstallError("environment_not_installed", STATE_PATH);
+  const sharedPayloads = state.sections === undefined
+    ? new Map<string, Buffer | null>()
+    : uninstallShared(context.target, state);
   return createDesiredState({
     host: "claude",
     target: context.target,
@@ -367,7 +549,11 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     entries: managedPaths(state.environment).map((relativePath) => ({
       relativePath,
       expectedDigest: relativePath === STATE_PATH ? sha256(stateBytes) : state.digests[relativePath] ?? null,
-      content: relativePath === STATE_PATH ? null : decodeOriginal(state.originals[relativePath], relativePath),
+      content: relativePath === STATE_PATH
+        ? null
+        : sharedPayloads.has(relativePath)
+          ? sharedPayloads.get(relativePath) ?? null
+          : decodeOriginal(state.originals[relativePath], relativePath),
     })),
   });
 }
