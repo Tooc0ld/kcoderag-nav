@@ -1,6 +1,6 @@
 {
   "name": "kcoderag-nav",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Project-scoped KCodeRag navigation integration for Codex, Claude Code, and Cursor",
   "type": "commonjs",
   "bin": {
