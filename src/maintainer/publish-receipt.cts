@@ -152,6 +152,13 @@ const RELEASE_LANES = Object.freeze([
   "windows-latest-node-22",
   "windows-latest-node-24",
 ] as const);
+const PUBLIC_REGISTRY_ARTIFACT_KEYS = Object.freeze([
+  "registry",
+  "resolvedTarballUrl",
+  "distIntegrity",
+  "artifactSha256",
+  "artifactSha512",
+] as const);
 
 export class PublishReceiptError extends Error {
   readonly code: string;
@@ -352,14 +359,8 @@ function verifyPublishReceiptV2(value: JsonMap): PublishReceiptV2 {
   return value as PublishReceiptV2;
 }
 
-function verifyPublicRegistryArtifact(value: unknown, version: string): asserts value is ReceiptPublicRegistryArtifact {
-  failUnless(exactKeys(value, [
-    "registry",
-    "resolvedTarballUrl",
-    "distIntegrity",
-    "artifactSha256",
-    "artifactSha512",
-  ]), "invalid_receipt_schema");
+function verifyPublicRegistryArtifact(value: unknown, version: string): ReceiptPublicRegistryArtifact {
+  failUnless(exactKeys(value, PUBLIC_REGISTRY_ARTIFACT_KEYS), "invalid_receipt_schema");
   failUnless(value.registry === "https://registry.npmjs.org/", "invalid_registry_origin");
   let tarballUrl: URL;
   try {
@@ -379,13 +380,20 @@ function verifyPublicRegistryArtifact(value: unknown, version: string): asserts 
     value.distIntegrity === `sha512-${Buffer.from(value.artifactSha512, "hex").toString("base64")}`,
     "registry_integrity_mismatch",
   );
+  return {
+    registry: "https://registry.npmjs.org/",
+    resolvedTarballUrl: tarballUrl.href,
+    distIntegrity: value.distIntegrity,
+    artifactSha256: value.artifactSha256,
+    artifactSha512: value.artifactSha512,
+  };
 }
 
 function verifyLifecycleEvidenceV3(
   value: unknown,
   requestedPackageSpec: string,
   expectedVersion: string,
-): asserts value is ReceiptLifecycleEvidenceV3 {
+): ReceiptPublicRegistryArtifact {
   failUnless(exactKeys(value, [
     "requestedPackageSpec",
     "expectedVersion",
@@ -397,7 +405,12 @@ function verifyLifecycleEvidenceV3(
   ]), "invalid_receipt_schema");
   const { publicRegistryArtifact, ...legacyEvidence } = value;
   verifyLifecycleEvidence(legacyEvidence, requestedPackageSpec, expectedVersion);
-  verifyPublicRegistryArtifact(publicRegistryArtifact, expectedVersion);
+  const normalizedArtifact = verifyPublicRegistryArtifact(publicRegistryArtifact, expectedVersion);
+  failUnless(
+    legacyEvidence.lifecycleTarballSha256 === normalizedArtifact.artifactSha256,
+    "registry_artifact_mismatch",
+  );
+  return normalizedArtifact;
 }
 
 function verifyPublishReceiptV3(value: JsonMap): PublishReceiptV3 {
@@ -426,12 +439,20 @@ function verifyPublishReceiptV3(value: JsonMap): PublishReceiptV3 {
       latest: withoutPublicArtifact(value.lifecycle.latest),
     },
   });
-  verifyLifecycleEvidenceV3(
+  const exactArtifact = verifyLifecycleEvidenceV3(
     value.lifecycle.exact_version,
     `kcoderag-nav@${value.registry.exact.requestedVersion}`,
     value.registry.exact.resolvedVersion,
   );
-  verifyLifecycleEvidenceV3(value.lifecycle.latest, "kcoderag-nav@latest", value.registry.latest.resolvedVersion);
+  const latestArtifact = verifyLifecycleEvidenceV3(
+    value.lifecycle.latest,
+    "kcoderag-nav@latest",
+    value.registry.latest.resolvedVersion,
+  );
+  failUnless(
+    PUBLIC_REGISTRY_ARTIFACT_KEYS.every((key) => exactArtifact[key] === latestArtifact[key]),
+    "registry_artifact_mismatch",
+  );
   return value as PublishReceiptV3;
 }
 

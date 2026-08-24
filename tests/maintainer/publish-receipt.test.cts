@@ -136,6 +136,7 @@ function validV3Receipt(): JsonMap {
   value.schema_version = 3;
   const artifactSha512 = "ab".repeat(64);
   for (const lifecycleName of ["exact_version", "latest"] as const) {
+    value.lifecycle[lifecycleName].lifecycleTarballSha256 = "cd".repeat(32);
     value.lifecycle[lifecycleName].publicRegistryArtifact = {
       registry: "https://registry.npmjs.org/",
       resolvedTarballUrl: "https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-1.2.3.tgz",
@@ -249,6 +250,37 @@ test("schema v3 binds exact/latest public registry origin, URL, SRI, and artifac
       },
     );
   }
+});
+
+test("schema v3 rejects distinct exact/latest artifacts even when both observations are internally self-consistent", () => {
+  const value = validV3Receipt();
+  const latestSha256 = "ef".repeat(32);
+  const latestSha512 = "12".repeat(64);
+  value.lifecycle.latest.lifecycleTarballSha256 = latestSha256;
+  value.lifecycle.latest.publicRegistryArtifact.artifactSha256 = latestSha256;
+  value.lifecycle.latest.publicRegistryArtifact.artifactSha512 = latestSha512;
+  value.lifecycle.latest.publicRegistryArtifact.distIntegrity =
+    `sha512-${Buffer.from(latestSha512, "hex").toString("base64")}`;
+
+  expectCode(value, "registry_artifact_mismatch");
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-publish-receipt-artifact-mismatch-"));
+  try {
+    const target = path.join(root, "receipt.json");
+    assert.throws(
+      () => receipt.recordPublishReceipt(target, value),
+      (error: unknown) => (error as Error & { code?: string }).code === "registry_artifact_mismatch",
+    );
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("schema v3 cross-binds each public artifact digest to its lifecycle provenance", () => {
+  const value = validV3Receipt();
+  value.lifecycle.exact_version.lifecycleTarballSha256 = "34".repeat(32);
+  expectCode(value, "registry_artifact_mismatch");
 });
 
 test("v2 rejects registry, release, workflow identity, lane, and publish divergence", () => {
