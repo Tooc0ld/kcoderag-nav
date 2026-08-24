@@ -107,8 +107,12 @@ function writeJson(filePath: string, value: JsonMap): void {
 
 function normalizeRoot(root: string): string {
   const resolved = fs.realpathSync(path.resolve(root));
-  failUnless(git(resolved, ["rev-parse", "--show-toplevel"]) === resolved.replaceAll("\\", "/")
-    || path.resolve(git(resolved, ["rev-parse", "--show-toplevel"])) === resolved, "invalid_repository_root");
+  const gitRoot = fs.realpathSync(path.resolve(git(resolved, ["rev-parse", "--show-toplevel"])));
+  const comparable = (value: string): string => {
+    const normalized = value.replaceAll("\\", "/");
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  failUnless(comparable(gitRoot) === comparable(resolved), "invalid_repository_root");
   return resolved;
 }
 

@@ -136,6 +136,30 @@ test("creates one exact seven-path release commit and matching immutable tag", (
   assert.deepEqual(publicStatus(root), []);
 });
 
+test("accepts the canonical repository root through a filesystem alias", (context) => {
+  const root = createFixture();
+  const alias = path.join(path.dirname(root), `${path.basename(root)}-alias`);
+  try {
+    fs.symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    context.skip(`directory alias unavailable: ${(error as NodeJS.ErrnoException).code ?? "unknown"}`);
+    return;
+  }
+  try {
+    const result = release.prepareRelease({
+      root: alias,
+      level: "patch",
+      dryRun: true,
+      yes: false,
+      runGates() {},
+      runGenerator() { return { ok: true, changedPaths: [], writtenPaths: [] }; },
+    });
+    assert.equal(result.version, "1.2.4");
+  } finally {
+    fs.rmSync(alias, { force: true });
+  }
+});
+
 test("release commit preserves tracked local planning changes outside the exact seven paths", () => {
   const root = createFixture();
   const trackedState = path.join(root, ".planning", "tracked.json");
