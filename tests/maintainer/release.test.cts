@@ -250,6 +250,9 @@ test("real repository snapshot dry-run tolerates local GSD state and preserves e
     runGenerator() { return { ok: true, changedPaths: [], writtenPaths: [] }; },
   });
   const after = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
-  assert.equal(result.tag, "v0.1.5");
+  const sourceVersion = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")).version as string;
+  const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(sourceVersion);
+  assert.notEqual(match, null);
+  assert.equal(result.tag, `v${match?.[1]}.${match?.[2]}.${Number(match?.[3]) + 1}`);
   assert.equal(after, before);
 });

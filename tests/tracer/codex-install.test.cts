@@ -194,7 +194,14 @@ test("compiled CLI installs the Codex QA project slice with one safe JSON value"
         "--yes",
         "--json",
       ],
-      { encoding: "utf8" },
+      {
+        encoding: "utf8",
+        env: Object.fromEntries(
+          Object.entries(process.env).filter(([key]) =>
+            key.toUpperCase() !== "NPM_CONFIG_USERCONFIG" && key.toUpperCase() !== "NODE_AUTH_TOKEN",
+          ),
+        ),
+      },
     );
 
     assert.equal(result.status, 0, result.stderr);

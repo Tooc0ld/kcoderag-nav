@@ -250,17 +250,24 @@ test("compiled CLI rejects unknown arguments, empty scope, and absolute reposito
 });
 
 test("sibling policy accepts only the one authoritative guide path", () => {
-  const authoritative = path.resolve("../KCodeRag/MCP_QA_EXPERIENCE_GUIDE.md");
-  const accepted = runCli(["--policy", "sibling-guide", authoritative]);
-  assert.notEqual(accepted.status, 2, accepted.stderr);
-  assert.notEqual(cliPayload(accepted).code, "invalid_sibling_scope");
+  const root = temporaryDirectory("kcoderag-sibling-guide-");
+  const authoritative = path.join(root, "MCP_QA_EXPERIENCE_GUIDE.md");
+  const other = path.join(root, "README.md");
+  try {
+    fs.writeFileSync(authoritative, "# Install\n\nRequires Node.js 22+.\n", "utf8");
+    fs.writeFileSync(other, "# Other\n", "utf8");
+    assert.deepEqual(
+      docsCheck.checkDocs([authoritative], "sibling-guide", { siblingGuidePath: authoritative }),
+      { checkedFiles: 1, diagnostics: [] },
+    );
 
-  for (const args of [
-    ["--policy", "sibling-guide", path.resolve("README.md")],
-    ["--policy", "sibling-guide", authoritative, path.resolve("README.md")],
-  ]) {
-    const rejected = runCli(args);
-    assert.equal(rejected.status, 2);
-    assert.equal(cliPayload(rejected).code, "invalid_sibling_scope");
+    for (const paths of [[other], [authoritative, other]]) {
+      assert.throws(
+        () => docsCheck.checkDocs(paths, "sibling-guide", { siblingGuidePath: authoritative }),
+        (error: unknown) => errorCode(error) === "invalid_sibling_scope",
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
