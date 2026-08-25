@@ -16,6 +16,12 @@ function position(source: string, token: string): number {
   return found;
 }
 
+function laneTuples(source: string): readonly string[] {
+  return [...source.matchAll(
+    /- lane:\s*([^\s]+)\s*\r?\n\s*os:\s*([^\s]+)\s*\r?\n\s*runner:\s*([^\s]+)\s*\r?\n\s*node:\s*["']([^"']+)["']/gu,
+  )].map((match) => [match[1], match[2], match[3], match[4]].join("|"));
+}
+
 test("release workflow runs only for matching semantic version tags with minimal authority", () => {
   const source = workflow();
   assert.match(source, /on:\s*\n\s*push:\s*\n\s*tags:\s*\n\s*- ["']v\*\.\*\.\*["']/u);
@@ -33,13 +39,33 @@ test("publish depends on every required Windows and Linux Node 22 and 24 lane", 
   const requiredJob = source.slice(requiredStart, publishStart);
   const publishJob = source.slice(publishStart);
 
-  assert.match(requiredJob, /matrix:\s*\n\s*os:\s*\[ubuntu-latest, windows-latest\]\s*\n\s*node:\s*\["22", "24"\]/u);
-  assert.match(requiredJob, /runs-on:\s*\$\{\{ matrix\.os \}\}/u);
+  assert.deepEqual(laneTuples(requiredJob), [
+    "ubuntu-node-22|ubuntu|ubuntu-latest|22",
+    "ubuntu-node-24|ubuntu|ubuntu-latest|24",
+    "windows-node-22|windows|windows-latest|22",
+    "windows-node-24|windows|windows-latest|24",
+  ]);
+  assert.match(requiredJob, /name:\s*Required release contracts \/ \$\{\{ matrix\.lane \}\}/u);
+  assert.match(requiredJob, /runs-on:\s*\$\{\{ matrix\.runner \}\}/u);
   assert.match(requiredJob, /node-version:\s*\$\{\{ matrix\.node \}\}/u);
   assert.match(requiredJob, /fail-fast:\s*false/u);
+  assert.equal(requiredJob.match(/\n\s*- lane:/gu)?.length, 4);
+  assert.doesNotMatch(requiredJob, /exclude:|continue-on-error/iu);
   assert.match(publishJob, /needs:\s*required-contracts/u);
   assert.doesNotMatch(requiredJob, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/u);
   assert.equal(publishJob.match(/npm publish/gu)?.length, 1);
+});
+
+test("release has only gate and publish jobs and every checkout binds the tag subject SHA", () => {
+  const source = workflow();
+  const jobsSource = source.slice(source.indexOf("\njobs:"));
+  assert.deepEqual(
+    [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
+    ["required-contracts", "publish"],
+  );
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 2);
+  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 2);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 2);
 });
 
 test("release steps are immutable and execute every gate before one publish", () => {
@@ -80,9 +106,14 @@ test("tag is checked against package version before any build or publication", (
 test("npm credential is scoped to publish and is never printed", () => {
   const source = workflow();
   assert.match(source, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/u);
-  const publishStep = source.slice(source.lastIndexOf("- name:"));
+  const publishStepStart = source.indexOf("      - name: Publish verified immutable package");
+  assert.notEqual(publishStepStart, -1);
+  const beforePublishStep = source.slice(0, publishStepStart);
+  const publishStep = source.slice(publishStepStart);
+  assert.doesNotMatch(beforePublishStep, /NPM_TOKEN|NODE_AUTH_TOKEN/u);
   assert.match(publishStep, /NODE_AUTH_TOKEN/u);
   assert.match(publishStep, /npm publish/u);
+  assert.equal(publishStep.match(/secrets\.NPM_TOKEN/gu)?.length, 1);
   assert.doesNotMatch(source, /echo[^\n]*(?:TOKEN|secret)|printenv|env\s*$|set\s+-x|cat\s+.*npmrc/imu);
 });
 
