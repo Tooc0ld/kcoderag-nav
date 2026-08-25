@@ -34,6 +34,89 @@ const SECRET_PATTERNS = [
 ];
 const PACKAGE_ROOT = path.resolve(__dirname, "../..");
 const AUTHORITATIVE_GUIDE = path.resolve(PACKAGE_ROOT, "../KCodeRag/MCP_QA_EXPERIENCE_GUIDE.md");
+const CANONICAL_REPO_DOCS = Object.freeze([
+  "README.md",
+  "plugin-src/README.md.tmpl",
+  "plugin-src/cursor/README.md.tmpl",
+  "kcoderag-qa/README.md",
+  "kcoderag-cursor/README.md",
+] as const);
+const OVERVIEW_DOCS = new Set([
+  "README.md",
+  "plugin-src/README.md.tmpl",
+  "kcoderag-qa/README.md",
+  "MCP_QA_EXPERIENCE_GUIDE.md",
+]);
+const CURSOR_DOCS = new Set([
+  "plugin-src/cursor/README.md.tmpl",
+  "kcoderag-cursor/README.md",
+]);
+
+interface RequiredTopic {
+  readonly code: string;
+  readonly pattern: RegExp;
+}
+
+const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  {
+    code: "missing_topic_qa_only",
+    pattern: /(?:QA\s+is\s+the\s+only\s+public\s+environment|QA\s+是唯一公开)/iu,
+  },
+  {
+    code: "missing_topic_project_npx",
+    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor)/iu,
+  },
+  {
+    code: "missing_topic_lifecycle",
+    pattern: /npx\s+kcoderag-nav@latest\s+install[\s\S]*npx\s+kcoderag-nav@latest\s+status[\s\S]*npx\s+kcoderag-nav@latest\s+doctor[\s\S]*npx\s+kcoderag-nav@latest\s+update[\s\S]*npx\s+kcoderag-nav@latest\s+uninstall/iu,
+  },
+  {
+    code: "missing_topic_status_doctor",
+    pattern: /(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*(?:fast|快速))(?=[\s\S]*(?:deep|深扫|深入))/iu,
+  },
+  {
+    code: "missing_topic_source_conflict",
+    pattern: /source_conflict[\s\S]{0,120}ok\s*[:：]?\s*`?false/iu,
+  },
+  {
+    code: "missing_topic_manual_only",
+    pattern: /(?:manual-only|只报告[^\n]{0,80}人工|人工清理)/iu,
+  },
+  {
+    code: "missing_topic_evidence_boundary",
+    pattern: /(?:Phase\s+06|authenticated\s+real-|已认证|真实[^\n]{0,80}MCP)[\s\S]{0,180}(?:query|查询|evidence|证据)/iu,
+  },
+]);
+
+const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  {
+    code: "missing_topic_fingerprint_cleanup",
+    pattern: /--allow-owned-source-cleanup[\s\S]{0,160}--cleanup-fingerprint\s+sha256:/iu,
+  },
+  {
+    code: "missing_topic_codex_capability",
+    pattern: /codex\s+plugin\s+remove\s+PLUGIN@MARKETPLACE\s+--json[\s\S]{0,500}codex\s+plugin\s+marketplace\s+remove\s+kcoderag-nav\s+--json/iu,
+  },
+  {
+    code: "missing_topic_claude_capability",
+    pattern: /claude\s+plugin\s+uninstall\s+PLUGIN@MARKETPLACE\s+--scope\s+user\|project\|local[\s\S]{0,500}claude\s+plugin\s+marketplace\s+remove\s+MARKETPLACE\s+--scope\s+SCOPE/iu,
+  },
+  {
+    code: "missing_topic_post_cleanup_rescan",
+    pattern: /(?:post-removal[\s\S]{0,80}rescan|清理后[\s\S]{0,100}(?:复扫|rescan)|完整\s*post-removal\s+rescan)/iu,
+  },
+  {
+    code: "missing_topic_nearest_state",
+    pattern: /(?:nearest|最近)[\s\S]{0,700}(?:damaged|损坏)[\s\S]{0,700}(?:move|移动|rename|改名)/iu,
+  },
+]);
+
+const CURSOR_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  {
+    code: "missing_topic_cursor_boundary",
+    pattern: /always-on\s+Rule[\s\S]{0,240}(?:does\s+not|doesn't|不使用|不声明)[\s\S]{0,120}PreToolUse/iu,
+  },
+]);
 
 class DocsCheckError extends Error {
   readonly code: string;
@@ -239,7 +322,34 @@ function inspectFile(
       addDiagnostic(diagnostics, "forbidden_clone_command", displayPath, lineNumber);
     }
     if (/\b(?:codex|claude)\b[^\n]*\bplugin\b[^\n]*\b(?:marketplace|add|install)\b/i.test(line)) {
-      addDiagnostic(diagnostics, "forbidden_marketplace_command", displayPath, lineNumber);
+      if (/\b(?:codex|claude)\s+plugin\s+(?:marketplace\s+)?(?:add|install)\b/iu.test(line)) {
+        addDiagnostic(diagnostics, "forbidden_marketplace_command", displayPath, lineNumber);
+      }
+    }
+    if (/\.claude-plugin[\\/]marketplace\.json|(?:root\s+)?marketplace\s+catalog/iu.test(line)) {
+      addDiagnostic(diagnostics, "forbidden_marketplace_catalog", displayPath, lineNumber);
+    }
+    if (/\bkcoderag-dev(?:[\\/@]|\b)|\bnpx\s+kcoderag-nav@latest\s+(?:install|update)[^\n]*--environment(?:=|\s+)dev\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "public_dev_instruction", displayPath, lineNumber);
+    }
+    if (/\bnpx\s+kcoderag-nav@latest\s+doctor\b[^\n]*--fix\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "doctor_fix_claim", displayPath, lineNumber);
+    }
+    if (/\bcodex\s+plugin\s+marketplace\s+remove\b/iu.test(line) &&
+        !/\bcodex\s+plugin\s+marketplace\s+remove\s+kcoderag-nav\s+--json\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "unsafe_cleanup_command", displayPath, lineNumber);
+    }
+    if (/\bcodex\s+plugin\s+remove\b/iu.test(line) &&
+        !/\bcodex\s+plugin\s+remove\s+PLUGIN@MARKETPLACE\s+--json\b/u.test(line)) {
+      addDiagnostic(diagnostics, "unsafe_cleanup_command", displayPath, lineNumber);
+    }
+    if (/\bclaude\s+plugin\s+uninstall\b/iu.test(line) &&
+        !/\bclaude\s+plugin\s+uninstall\s+PLUGIN@MARKETPLACE\s+--scope\s+(?:user\|project\|local|user|project|local)\b/u.test(line)) {
+      addDiagnostic(diagnostics, "unsafe_cleanup_command", displayPath, lineNumber);
+    }
+    if (/\bclaude\s+plugin\s+marketplace\s+remove\b/iu.test(line) &&
+        !/\bclaude\s+plugin\s+marketplace\s+remove\s+MARKETPLACE\s+--scope\s+(?:SCOPE|user|project|local)\b/u.test(line)) {
+      addDiagnostic(diagnostics, "unsafe_cleanup_command", displayPath, lineNumber);
     }
     if (/\bnpx\s+kcoderag-nav\b(?!@latest)/i.test(line)) {
       addDiagnostic(diagnostics, "invalid_npx_command", displayPath, lineNumber);
@@ -259,6 +369,53 @@ function inspectFile(
     }
   }
   return diagnostics;
+}
+
+function requiredTopicDiagnostics(
+  absolutePath: string,
+  displayPath: string,
+): readonly Diagnostic[] {
+  const source = fs.readFileSync(absolutePath, "utf8");
+  const basename = path.basename(absolutePath);
+  const normalized = displayPath.replace(/\\/g, "/");
+  const topics = [
+    ...COMMON_PUBLIC_TOPICS,
+    ...(OVERVIEW_DOCS.has(normalized) || basename === "MCP_QA_EXPERIENCE_GUIDE.md" ? OVERVIEW_PUBLIC_TOPICS : []),
+    ...(CURSOR_DOCS.has(normalized) ? CURSOR_PUBLIC_TOPICS : []),
+  ];
+  return topics
+    .filter((topic) => !topic.pattern.test(source))
+    .map((topic) => ({ code: topic.code, path: displayPath, line: 1 }));
+}
+
+function checkCanonicalPublicDocs(options: CheckOptions = {}): CheckResult {
+  const repoRoot = fs.realpathSync(path.resolve(options.repoRoot ?? PACKAGE_ROOT));
+  const siblingGuidePath = path.resolve(options.siblingGuidePath ?? AUTHORITATIVE_GUIDE);
+  const localGuide = path.join(repoRoot, "MCP_QA_EXPERIENCE_GUIDE.md");
+  if (fs.existsSync(localGuide)) {
+    return {
+      checkedFiles: 0,
+      diagnostics: Object.freeze([{ code: "local_guide_copy", path: "MCP_QA_EXPERIENCE_GUIDE.md", line: 1 }]),
+    };
+  }
+  const repoFiles = collectRepoFiles(CANONICAL_REPO_DOCS, repoRoot);
+  const siblingFiles = collectSiblingGuide([siblingGuidePath], siblingGuidePath);
+  const diagnostics: Diagnostic[] = [];
+  for (const absolutePath of repoFiles) {
+    const displayPath = path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
+    diagnostics.push(...inspectFile(absolutePath, displayPath, "user-docs"));
+    diagnostics.push(...requiredTopicDiagnostics(absolutePath, displayPath));
+  }
+  for (const absolutePath of siblingFiles) {
+    const displayPath = path.basename(absolutePath);
+    diagnostics.push(...inspectFile(absolutePath, displayPath, "sibling-guide"));
+    diagnostics.push(...requiredTopicDiagnostics(absolutePath, displayPath));
+  }
+  return {
+    checkedFiles: repoFiles.length + siblingFiles.length,
+    diagnostics: Object.freeze(diagnostics.sort((left, right) =>
+      left.path.localeCompare(right.path) || left.line - right.line || left.code.localeCompare(right.code))),
+  };
 }
 
 function checkDocs(
@@ -307,8 +464,12 @@ function parseArguments(argv: readonly string[]): { readonly policy: DocsPolicy;
 
 function main(argv: readonly string[] = process.argv.slice(2)): number {
   try {
-    const input = parseArguments(argv);
-    const result = checkDocs(input.paths, input.policy);
+    const result = argv.length === 0
+      ? checkCanonicalPublicDocs()
+      : (() => {
+          const input = parseArguments(argv);
+          return checkDocs(input.paths, input.policy);
+        })();
     if (result.diagnostics.length > 0) {
       process.stderr.write(`${JSON.stringify({ ok: false, diagnostics: result.diagnostics })}\n`);
       return 1;
@@ -325,6 +486,7 @@ function main(argv: readonly string[] = process.argv.slice(2)): number {
 
 exports.DocsCheckError = DocsCheckError;
 exports.checkDocs = checkDocs;
+exports.checkCanonicalPublicDocs = checkCanonicalPublicDocs;
 exports.main = main;
 
 if (require.main === module) process.exitCode = main();

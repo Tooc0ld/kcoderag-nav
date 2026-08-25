@@ -202,18 +202,18 @@ test("canonical public contract requires exact QA lifecycle, diagnostics, cleanu
       diagnostics: [],
     });
 
-    const cases: readonly [string, string, string][] = [
+    const cases: readonly [string, string, string, string?][] = [
       ["status is a fast read-only project check; doctor is a read-only deep source scan.", "status and doctor are commands.", "missing_topic_status_doctor"],
       ["--allow-owned-source-cleanup --cleanup-fingerprint", "--allow-owned-source-cleanup", "missing_topic_fingerprint_cleanup"],
       ["codex plugin marketplace remove kcoderag-nav --json", "codex cleanup is available", "missing_topic_codex_capability"],
       ["claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local", "claude cleanup is available", "missing_topic_claude_capability"],
       ["complete post-removal rescan", "rescan later", "missing_topic_post_cleanup_rescan"],
       ["a damaged boundary never falls through; complete project move works", "a boundary exists", "missing_topic_nearest_state"],
-      ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary"],
+      ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary", "plugin-src/cursor/README.md.tmpl"],
     ];
-    for (const [before, after, expectedCode] of cases) {
+    for (const [before, after, expectedCode, relativePath = "plugin-src/README.md.tmpl"] of cases) {
       writeCanonicalContract(root, guide);
-      const target = path.join(root, "plugin-src", "README.md.tmpl");
+      const target = path.join(root, ...relativePath.split("/"));
       fs.writeFileSync(target, fs.readFileSync(target, "utf8").replace(before, after), "utf8");
       assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root, siblingGuidePath: guide })).includes(expectedCode));
     }

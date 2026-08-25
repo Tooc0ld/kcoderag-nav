@@ -87,7 +87,8 @@ complete post-removal plugin and marketplace rescan proving absence before any p
 - Claude Code normally uses
   `claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local`. Marketplace removal is
   allowed only when complete plugin and marketplace inventories prove exclusive KCodeRag ownership
-  at the exact scope.
+  at the exact scope, using
+  `claude plugin marketplace remove MARKETPLACE --scope SCOPE`.
 - Cursor has no assumed equivalent plugin CLI. Without a verified versioned native capability,
   cleanup remains manual-only.
 
