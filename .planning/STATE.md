@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-19-PLAN.md
-last_updated: "2026-08-25T11:52:22.026Z"
+stopped_at: Completed 04-15-PLAN.md
+last_updated: "2026-08-25T13:34:06.716Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 724a8a3c3a627afb7f46825c6bb38ad55245ffad
+state_head: 73b17b74e8654366be87252cb2bb215b5c2639fa
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 51
+  completed_plans: 52
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 18 of 19
+Plan: 19 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -105,6 +105,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P12 | 9min | 2 tasks | 2 files |
 | Phase 04-deployment-reliability P13 | 22min | 3 tasks | 8 files |
 | Phase 04 P19 | 20min | 3 tasks | 8 files |
+| Phase 04 P15 | 92m | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -248,6 +249,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Generated package guides expose one project-scoped @latest QA lifecycle while keeping Dev solely in exact legacy migration and uninstall prose.
 - [Phase 04]: The authoritative KCodeRag guide is pinned to its Plan 14 digest and guide-only commit; audit evidence uses repository fingerprints rather than absolute paths.
 - [Phase 04]: Cursor documents Rule, skill, and MCP behavior without claiming a Codex or Claude Code PreToolUse equivalent.
+- [Phase 04]: 04-15: preserve distinct immutable implementation, evidence, and release commits in one direct-child chain
+- [Phase 04]: 04-15: retire failed attestation forward and refreeze rather than reuse stale evidence
+- [Phase 04]: 04-15: public 0.2.0/tag/latest are immutable and defects fix forward as 0.2.1
 
 ### Pending Todos
 
@@ -306,6 +310,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T11:52:21.709Z
-Stopped at: Completed 04-19-PLAN.md
+Last session: 2026-08-25T13:34:06.400Z
+Stopped at: Completed 04-15-PLAN.md
 Resume file: None
