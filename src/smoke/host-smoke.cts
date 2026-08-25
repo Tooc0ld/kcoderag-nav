@@ -160,6 +160,20 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "uninstall",
   "stubReceipt",
 ]);
+const OPTIONAL_LIVE_EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
+  "packageAcquired",
+  "install",
+  "qaOnly",
+  "status",
+  "toolRegistration",
+  "navigation",
+  "mcpInitialize",
+  "mcpList",
+  "mcpCall",
+  "update",
+  "uninstall",
+  "stubReceipt",
+]);
 const EXACT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const PUBLIC_EXACT_SPEC = /^kcoderag-nav@(.+)$/u;
 const PUBLIC_LATEST_SPEC = "kcoderag-nav@latest";
@@ -217,7 +231,8 @@ export function evaluateHostEvidence(input: {
       ...provenance,
     });
   }
-  const complete = EVIDENCE_KEYS.every((key) => evidence[key]);
+  const requiredKeys = input.mode === "required-contract" ? EVIDENCE_KEYS : OPTIONAL_LIVE_EVIDENCE_KEYS;
+  const complete = requiredKeys.every((key) => evidence[key]);
   return Object.freeze({
     schemaVersion: 1,
     host: input.host,
@@ -1236,7 +1251,8 @@ async function runOptionalHost(
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   try {
-    evidence.install = runPackageCli(artifact, projectRoot, runtimeRoot, "install", host, runNpm) !== undefined;
+    const install = runPackageCli(artifact, projectRoot, runtimeRoot, "install", host, runNpm);
+    evidence.install = install !== undefined;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -1260,9 +1276,12 @@ async function runOptionalHost(
     evidence.mcpList = has("tools/list");
     evidence.mcpCall = structured.tool && has("tools/call", SYNTHETIC_TOOL);
     evidence.stubReceipt = evidence.mcpInitialize && evidence.mcpList && has("tools/call", SYNTHETIC_TOOL);
-    evidence.update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm) !== undefined;
-    evidence.uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm) !== undefined &&
+    const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
+    evidence.update = update !== undefined;
+    const uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    evidence.uninstall = uninstall !== undefined &&
       !fs.existsSync(statePath(host, projectRoot));
+    evidence.qaOnly = [install, status, update, uninstall].every((payload) => payload?.environment === "qa");
     installed = !evidence.uninstall;
     if (live.code !== 0) {
       const diagnostic = `${live.stdout}\n${live.stderr}`.toLowerCase();

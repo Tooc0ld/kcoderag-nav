@@ -332,7 +332,6 @@ test("optional live keeps NOT_RUN honest and never converts a failure into succe
     mode: "optional-live",
     evidence: smoke.completeEvidence({
       preinstall: false,
-      qaOnly: false,
       doctor: false,
       sourceConflict: false,
       conflictInstallBlocked: false,
