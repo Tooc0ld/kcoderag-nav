@@ -22,8 +22,8 @@ interface ReleaseOptions {
   readonly yes: boolean;
   readonly runGates?: (root: string) => void;
   readonly runGenerator?: (input: { readonly root: string; readonly check: boolean }) => GenerationEvidence;
-  /** Deterministic post-ref-update failure seam used by recovery tests. */
-  readonly failAfter?: "commit-before-rev-parse" | "commit" | "tag";
+  /** Deterministic local failure seams used to prove owned-state recovery. */
+  readonly failAfter?: "write" | "stage" | "commit-before-create" | "commit-before-rev-parse" | "commit" | "tag-before-create" | "tag";
 }
 
 interface ReleaseResult {
@@ -320,10 +320,11 @@ function restoreReleaseFiles(root: string, snapshot: ReadonlyMap<string, Buffer>
   for (const [relativePath, bytes] of snapshot) {
     fs.writeFileSync(path.join(root, ...relativePath.split("/")), bytes);
   }
-  childProcess.spawnSync("git", ["restore", "--staged", "--", ...RELEASE_OWNED_PATHS], {
+  const restored = childProcess.spawnSync("git", ["restore", "--staged", "--", ...RELEASE_OWNED_PATHS], {
     cwd: root,
     stdio: "ignore",
   });
+  failUnless(restored.status === 0, "release_recovery_failed");
 }
 
 function compensateReleaseRefs(
@@ -412,6 +413,7 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
   let releaseCommit: string | undefined;
   try {
     updatePackageVersions(root, version);
+    if (options.failAfter === "write") throw new ReleaseError("injected_after_write");
     const generated = runGenerator({ root, check: false });
     failUnless(
       generated.ok
@@ -425,6 +427,8 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
 
     git(root, ["add", "--", ...RELEASE_OWNED_PATHS]);
     failUnless(sameSet(git(root, ["diff", "--cached", "--name-only"]).split(/\r?\n/u).filter(Boolean), RELEASE_OWNED_PATHS), "staged_write_set_drift");
+    if (options.failAfter === "stage") throw new ReleaseError("injected_after_stage");
+    if (options.failAfter === "commit-before-create") throw new ReleaseError("injected_before_commit");
     git(root, ["commit", "-m", `release: ${tag}`]);
     if (options.failAfter === "commit-before-rev-parse") {
       throw new ReleaseError("injected_before_release_commit_discovery");
@@ -438,6 +442,7 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
       "commit_write_set_drift",
     );
     failUnless(digestLocalState(root) === localStateBefore, "ignored_state_changed");
+    if (options.failAfter === "tag-before-create") throw new ReleaseError("injected_before_tag");
     git(root, ["tag", tag, commit]);
     if (options.failAfter === "tag") throw new ReleaseError("injected_after_tag");
     failUnless(git(root, ["rev-list", "-n", "1", tag]) === commit, "tag_mismatch");

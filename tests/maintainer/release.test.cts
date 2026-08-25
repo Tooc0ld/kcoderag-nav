@@ -21,7 +21,7 @@ interface ReleaseModule {
     readonly level: "patch" | "minor" | "major";
     readonly dryRun: boolean;
     readonly yes: boolean;
-    readonly failAfter?: "write" | "stage" | "commit-before-rev-parse" | "commit" | "tag-before-create" | "tag";
+    readonly failAfter?: "write" | "stage" | "commit-before-create" | "commit-before-rev-parse" | "commit" | "tag-before-create" | "tag";
     readonly runGates?: (root: string) => void;
     readonly runGenerator?: (input: {
       readonly root: string;
@@ -267,6 +267,7 @@ test("write, stage, commit, and tag failure seams restore files, index, refs, an
   const cases = [
     ["write", "injected_after_write"],
     ["stage", "injected_after_stage"],
+    ["commit-before-create", "injected_before_commit"],
     ["commit-before-rev-parse", "injected_before_release_commit_discovery"],
     ["commit", "injected_after_commit"],
     ["tag-before-create", "injected_before_tag"],
