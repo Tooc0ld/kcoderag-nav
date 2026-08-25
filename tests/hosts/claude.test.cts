@@ -7,6 +7,23 @@ const path = require("node:path") as typeof import("node:path");
 
 type HostId = "codex" | "claude" | "cursor";
 
+interface HostAdapter {
+  readonly id: HostId;
+  detect(context: Record<string, unknown>): Record<string, unknown>;
+  renderInstall(context: Record<string, unknown>): Record<string, any>;
+  renderUninstall(context: Record<string, unknown>): Record<string, any>;
+  scanUserSources?(context: Record<string, unknown>): Promise<Record<string, any>>;
+  cleanupOwnedSource?(
+    plan: Record<string, any>,
+    authority: Record<string, unknown>,
+  ): Promise<Record<string, any>>;
+}
+
+interface ClaudeModule {
+  readonly claudeAdapter: HostAdapter;
+  createClaudeAdapter(options?: Record<string, unknown>): HostAdapter;
+}
+
 interface CommandModule {
   executeCommand(argv: string[], dependencies: Record<string, unknown>): Promise<number>;
 }
@@ -18,9 +35,7 @@ interface TransactionModule {
   ): unknown;
 }
 
-const claude = require("../../dist/hosts/claude.cjs") as {
-  claudeAdapter: Record<string, any>;
-};
+const claude = require("../../dist/hosts/claude.cjs") as ClaudeModule;
 const commands = require("../../dist/cli/commands.cjs") as CommandModule;
 const transaction = require("../../dist/core/transaction.cjs") as TransactionModule;
 const targets = require("../../dist/core/project-target.cjs") as {
@@ -28,6 +43,92 @@ const targets = require("../../dist/core/project-target.cjs") as {
 };
 
 const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
+
+type NativeRequest = Readonly<{ executable: string; args: readonly string[]; timeoutMs: number }>;
+type NativeResult = Readonly<{ exitCode: number; timedOut: boolean; stdout?: string }>;
+
+const EMPTY_CLAUDE_PLUGIN_INVENTORY = "[]";
+const EMPTY_CLAUDE_MARKETPLACE_INVENTORY = "[]";
+
+function healthyClaudeNativeResult(request: NativeRequest): NativeResult {
+  const command = [request.executable, ...request.args].join(" ");
+  if (command === "claude --version") {
+    return { exitCode: 0, timedOut: false, stdout: "2.1.241 (Claude Code)\n" };
+  }
+  if (command.endsWith(" --help")) {
+    if (command.includes("plugin uninstall")) {
+      return {
+        exitCode: 0,
+        timedOut: false,
+        stdout: "Usage: claude plugin uninstall <PLUGIN@MARKETPLACE> --scope <scope> user project local",
+      };
+    }
+    if (command.includes("marketplace remove")) {
+      return {
+        exitCode: 0,
+        timedOut: false,
+        stdout: "Usage: claude plugin marketplace remove <name> --scope <scope>",
+      };
+    }
+    return { exitCode: 0, timedOut: false, stdout: "Usage: list --json" };
+  }
+  if (command === "claude plugin list --json") {
+    return { exitCode: 0, timedOut: false, stdout: EMPTY_CLAUDE_PLUGIN_INVENTORY };
+  }
+  if (command === "claude plugin marketplace list --json") {
+    return { exitCode: 0, timedOut: false, stdout: EMPTY_CLAUDE_MARKETPLACE_INVENTORY };
+  }
+  return { exitCode: 0, timedOut: false, stdout: "{}" };
+}
+
+function emptyClaudeUserSources(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    rawMcpPaths: [],
+    manualHookPaths: [],
+    cachePaths: [],
+    ambiguousPaths: [],
+    ...overrides,
+  };
+}
+
+function claudePluginInventory(
+  overrides: Record<string, unknown> = {},
+): string {
+  return JSON.stringify([{
+    id: "kcoderag-qa@kcoderag-nav",
+    version: "0.1.8",
+    scope: "user",
+    enabled: true,
+    installPath: path.join(os.tmpdir(), ".claude", "plugins", "cache", "kcoderag-nav", "kcoderag-qa"),
+    installedAt: "2026-08-25T00:00:00.000Z",
+    lastUpdated: "2026-08-25T00:00:00.000Z",
+    ...overrides,
+  }]);
+}
+
+function claudeMarketplaceInventory(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify([{
+    name: "kcoderag-nav",
+    source: "git",
+    repo: "Tooc0ld/kcoderag-nav",
+    installLocation: path.join(os.tmpdir(), ".claude", "plugins", "marketplaces", "kcoderag-nav"),
+    ...overrides,
+  }]);
+}
+
+function claudeScannerContext(
+  adapter: HostAdapter,
+  mode: "fast" | "deep" | "gate",
+): Promise<Record<string, any>> {
+  const target = { root: path.resolve(".") };
+  if (adapter.scanUserSources === undefined) throw new Error("scanner missing");
+  return adapter.scanUserSources({
+    mode,
+    target,
+    packageRoot: path.resolve("."),
+    observation: { host: "claude", target },
+  });
+}
 
 function write(root: string, relativePath: string, value: string | Buffer): void {
   const destination = path.join(root, ...relativePath.split("/"));
@@ -512,4 +613,201 @@ test("Claude exact legacy Dev requires authority and migrates shared JSON to QA 
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
+});
+
+test("Claude exact inventory exposes only the observed scoped native plugin cleanup", async () => {
+  const calls: NativeRequest[] = [];
+  const adapter = claude.createClaudeAdapter({
+    runner: async (request: NativeRequest) => {
+      calls.push(request);
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "claude plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: claudePluginInventory() };
+      }
+      if (command === "claude plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: claudeMarketplaceInventory() };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    readUserSources: () => emptyClaudeUserSources(),
+  });
+
+  const scan = await claudeScannerContext(adapter, "deep");
+  assert.equal(scan.hasConflict, true);
+  assert.equal(scan.cleanupPlans.length, 1);
+  assert.equal(
+    scan.cleanupPlans[0].command,
+    "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope user",
+  );
+  assert.equal(scan.cleanupPlans[0].capability.inventorySchemaId, "claude-plugin-v2.1.241-array-v1");
+  assert.match(scan.cleanupPlans[0].fingerprint, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(scan.findings[0].cleanupFingerprint, scan.cleanupPlans[0].fingerprint);
+  assert.ok(calls.every((call) => call.executable === "claude" && call.timeoutMs === 5_000));
+  assert.deepEqual(calls.map((call) => call.args.join(" ")), [
+    "--version",
+    "plugin list --help",
+    "plugin marketplace list --help",
+    "plugin uninstall --help",
+    "plugin marketplace remove --help",
+    "plugin list --json",
+    "plugin marketplace list --json",
+  ]);
+});
+
+test("Claude scan modes keep disabled/cache residue informational and raw/manual sources manual-only", async () => {
+  const adapter = claude.createClaudeAdapter({
+    runner: async (request: NativeRequest) => {
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "claude plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: claudePluginInventory({ enabled: false }) };
+      }
+      if (command === "claude plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: claudeMarketplaceInventory() };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    readUserSources: () => emptyClaudeUserSources({
+      rawMcpPaths: [".claude.json"],
+      manualHookPaths: [".claude/settings.json"],
+      cachePaths: [".claude/plugins/cache/kcoderag-nav"],
+    }),
+  });
+
+  const fast = await claudeScannerContext(adapter, "fast");
+  assert.deepEqual(
+    fast.findings.map((finding: Record<string, unknown>) => finding.sourceType),
+    ["manual_hook", "raw_mcp"],
+  );
+  assert.equal(fast.cleanupPlans.length, 0);
+
+  const deep = await claudeScannerContext(adapter, "deep");
+  assert.deepEqual(
+    new Set(deep.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
+    new Set(["raw_mcp", "manual_hook", "cache_residue", "disabled_registration"]),
+  );
+  assert.equal(deep.cleanupPlans.length, 0);
+  assert.ok(deep.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));
+});
+
+test("Claude marketplace cleanup requires one complete exclusively owned scope", async () => {
+  async function scanWith(pluginInventory: string, marketplaceInventory = claudeMarketplaceInventory()) {
+    const adapter = claude.createClaudeAdapter({
+      runner: async (request: NativeRequest) => {
+        const command = [request.executable, ...request.args].join(" ");
+        if (command === "claude plugin list --json") {
+          return { exitCode: 0, timedOut: false, stdout: pluginInventory };
+        }
+        if (command === "claude plugin marketplace list --json") {
+          return { exitCode: 0, timedOut: false, stdout: marketplaceInventory };
+        }
+        return healthyClaudeNativeResult(request);
+      },
+      readUserSources: () => emptyClaudeUserSources(),
+    });
+    return claudeScannerContext(adapter, "gate");
+  }
+
+  const exclusive = await scanWith(claudePluginInventory({ enabled: false }));
+  assert.equal(exclusive.cleanupPlans.length, 1);
+  assert.equal(
+    exclusive.cleanupPlans[0].command,
+    "claude plugin marketplace remove kcoderag-nav --scope user",
+  );
+
+  const foreign = JSON.parse(claudePluginInventory({ enabled: false }));
+  foreign.push({ ...foreign[0], id: "foreign@kcoderag-nav" });
+  const shared = await scanWith(JSON.stringify(foreign));
+  assert.equal(shared.hasConflict, true);
+  assert.equal(shared.cleanupPlans.length, 0);
+  assert.ok(shared.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));
+
+  const mixedScopes = JSON.parse(claudePluginInventory({ enabled: false }));
+  mixedScopes.push({ ...mixedScopes[0], id: "kcoderag-dev@kcoderag-nav", scope: "project" });
+  const ambiguous = await scanWith(JSON.stringify(mixedScopes));
+  assert.equal(ambiguous.cleanupPlans.length, 0);
+});
+
+test("Claude rejects old capability and malformed process schemas without leaking process bodies", async () => {
+  const sentinel = `Bearer-${crypto.randomUUID()}`;
+  const scenarios = [
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "--version") {
+        return { exitCode: 0, timedOut: false, stdout: "2.1.240 (Claude Code)\n" };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "plugin uninstall --help") {
+        return { exitCode: 0, timedOut: false, stdout: `unknown ${sentinel}` };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: JSON.stringify([{ id: sentinel }]) };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    async (_request: NativeRequest): Promise<NativeResult> => { throw new Error(sentinel); },
+  ];
+  for (const runner of scenarios) {
+    const adapter = claude.createClaudeAdapter({
+      runner,
+      readUserSources: () => emptyClaudeUserSources(),
+    });
+    const scan = await claudeScannerContext(adapter, "gate");
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.ok(scan.findings.some((finding: Record<string, unknown>) =>
+      finding.code === "source_scan_unavailable"));
+    assert.doesNotMatch(JSON.stringify(scan), new RegExp(sentinel));
+  }
+});
+
+test("Claude cleanup uses fixed argv then requires a complete clean rescan", async () => {
+  let removed = false;
+  const calls: string[] = [];
+  const sentinel = `Bearer-${crypto.randomUUID()}`;
+  const adapter = claude.createClaudeAdapter({
+    runner: async (request: NativeRequest) => {
+      const command = [request.executable, ...request.args].join(" ");
+      calls.push(command);
+      if (command === "claude plugin list --json") {
+        return {
+          exitCode: 0,
+          timedOut: false,
+          stdout: removed ? EMPTY_CLAUDE_PLUGIN_INVENTORY : claudePluginInventory(),
+        };
+      }
+      if (command === "claude plugin marketplace list --json") {
+        return {
+          exitCode: 0,
+          timedOut: false,
+          stdout: removed ? EMPTY_CLAUDE_MARKETPLACE_INVENTORY : claudeMarketplaceInventory(),
+        };
+      }
+      if (command === "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope user") {
+        removed = true;
+        return { exitCode: 0, timedOut: false, stdout: sentinel };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    readUserSources: () => emptyClaudeUserSources(),
+  });
+  const initial = await claudeScannerContext(adapter, "gate");
+  const plan = initial.cleanupPlans[0] as Record<string, any>;
+  assert.ok(plan);
+  if (adapter.cleanupOwnedSource === undefined) throw new Error("cleanup missing");
+  const after = await adapter.cleanupOwnedSource(plan, {
+    allowOwnedSourceCleanup: true,
+    cleanupFingerprint: plan.fingerprint,
+  });
+  assert.equal(after.hasConflict, false);
+  assert.equal(after.cleanupPlans.length, 0);
+  assert.equal(
+    calls.filter((command) => command ===
+      "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope user").length,
+    1,
+  );
+  assert.doesNotMatch(JSON.stringify(after), new RegExp(sentinel));
 });
