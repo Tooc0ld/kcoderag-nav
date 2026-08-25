@@ -152,6 +152,23 @@ function validV3Receipt(): JsonMap {
   return value;
 }
 
+function validV4Receipt(): JsonMap {
+  const value = validV3Receipt();
+  const subjectSha = "1".repeat(40);
+  const evidenceSha = "2".repeat(40);
+  value.schema_version = 4;
+  value.implementation_subject = {
+    sha: subjectSha,
+    tree: "3".repeat(40),
+  };
+  value.evidence_commit = {
+    sha: evidenceSha,
+    parent_sha: subjectSha,
+  };
+  value.release_parent_sha = evidenceSha;
+  return value;
+}
+
 function setReceiptVersion(value: JsonMap, version: string): void {
   value.version = version;
   value.tag = `v${version}`;
@@ -168,7 +185,7 @@ function setReceiptVersion(value: JsonMap, version: string): void {
   for (const lifecycleName of ["exact_version", "latest"] as const) {
     value.lifecycle[lifecycleName].expectedVersion = version;
     value.lifecycle[lifecycleName].resolvedVersion = version;
-    if (value.schema_version === 3) {
+    if (value.schema_version === 3 || value.schema_version === 4) {
       value.lifecycle[lifecycleName].publicRegistryArtifact.resolvedTarballUrl =
         `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${version}.tgz`;
     }
@@ -268,6 +285,45 @@ test("schema v3 binds exact/latest public registry origin, URL, SRI, and artifac
   ];
   for (const [name, mutate, code] of fixtures) {
     const value = validV3Receipt();
+    mutate(value);
+    assert.throws(
+      () => receipt.verifyPublishReceipt(value),
+      (error: unknown) => {
+        assert.equal((error as Error & { code?: string }).code, code, name);
+        return true;
+      },
+    );
+  }
+});
+
+test("schema v4 closes implementation subject, evidence commit, and release commit lineage", () => {
+  const input = validV4Receipt();
+  assert.deepEqual(receipt.verifyPublishReceipt(input), input);
+
+  const fixtures: Array<[name: string, mutate: (value: JsonMap) => void, code: string]> = [
+    ["evidence parent drift", (value) => {
+      value.evidence_commit.parent_sha = "4".repeat(40);
+    }, "receipt_lineage_mismatch"],
+    ["release parent drift", (value) => {
+      value.release_parent_sha = "4".repeat(40);
+    }, "receipt_lineage_mismatch"],
+    ["subject equals evidence", (value) => {
+      value.evidence_commit.sha = value.implementation_subject.sha;
+      value.release_parent_sha = value.evidence_commit.sha;
+    }, "receipt_lineage_mismatch"],
+    ["evidence equals release", (value) => {
+      value.evidence_commit.sha = value.release_commit_sha;
+      value.release_parent_sha = value.evidence_commit.sha;
+    }, "receipt_lineage_mismatch"],
+    ["missing subject tree", (value) => {
+      delete value.implementation_subject.tree;
+    }, "invalid_receipt_schema"],
+    ["unexpected provenance field", (value) => {
+      value.evidence_commit.message = "release evidence";
+    }, "invalid_receipt_schema"],
+  ];
+  for (const [name, mutate, code] of fixtures) {
+    const value = validV4Receipt();
     mutate(value);
     assert.throws(
       () => receipt.verifyPublishReceipt(value),
@@ -383,7 +439,7 @@ test("all receipt schemas use strict bounded core SemVer at root and nested entr
     "^1.2.3",
     oversizedVersion,
   ];
-  const factories = [validReceipt, validV2Receipt, validV3Receipt];
+  const factories = [validReceipt, validV2Receipt, validV3Receipt, validV4Receipt];
   for (const factory of factories) {
     for (const invalidVersion of invalidVersions) {
       const value = factory();
@@ -401,7 +457,7 @@ test("all receipt schemas use strict bounded core SemVer at root and nested entr
     (value, version) => { value.lifecycle.latest.expectedVersion = version; },
     (value, version) => { value.lifecycle.latest.resolvedVersion = version; },
   ];
-  for (const factory of [validV2Receipt, validV3Receipt]) {
+  for (const factory of [validV2Receipt, validV3Receipt, validV4Receipt]) {
     for (const mutate of nestedEntrypoints) {
       for (const invalidVersion of ["01.2.3", " 1.2.3", oversizedVersion]) {
         const value = factory();
