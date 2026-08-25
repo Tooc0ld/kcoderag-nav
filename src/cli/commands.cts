@@ -21,6 +21,13 @@ import {
   type HostObservation,
 } from "../hosts/host-adapter.cjs";
 import { getHostAdapter, HOST_ADAPTERS } from "../hosts/index.cjs";
+import {
+  createSourceScanResult,
+  type NativeCleanupPlan,
+  type OwnedCleanupAuthority,
+  type SourceScanMode,
+  type SourceScanResult,
+} from "../hosts/user-sources.cjs";
 
 const QA_ENVIRONMENT: CurrentEnvironmentId = "qa";
 
@@ -49,6 +56,8 @@ interface ParsedArguments {
   readonly json: boolean;
   readonly allowLegacyUserRemoval: boolean;
   readonly allowLegacyDevMigration: boolean;
+  readonly allowOwnedSourceCleanup: boolean;
+  readonly cleanupFingerprint?: string;
 }
 
 export interface TargetConfirmation {
@@ -59,6 +68,12 @@ export interface TargetConfirmation {
 
 export interface LegacyRemovalConfirmation extends TargetConfirmation {
   readonly legacyPath: string;
+}
+
+export interface OwnedSourceCleanupConfirmation extends TargetConfirmation {
+  readonly cleanupCommand: string;
+  readonly cleanupFingerprint: string;
+  readonly safePath: string;
 }
 
 export interface CommandDependencies {
@@ -78,6 +93,10 @@ export interface CommandDependencies {
   readonly confirmLegacyUserRemoval?: (
     request: LegacyRemovalConfirmation,
   ) => boolean | Promise<boolean>;
+  /** Return the displayed fingerprint verbatim; boolean confirmation is intentionally insufficient. */
+  readonly confirmOwnedSourceCleanup?: (
+    request: OwnedSourceCleanupConfirmation,
+  ) => string | undefined | Promise<string | undefined>;
   readonly getAdapter?: (host: HostId) => HostAdapter;
 }
 
@@ -106,6 +125,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let json = false;
   let allowLegacyUserRemoval = false;
   let allowLegacyDevMigration = false;
+  let allowOwnedSourceCleanup = false;
+  let cleanupFingerprint: string | undefined;
   const seen = new Set<string>();
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -116,6 +137,11 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     else if (argument === "--json") json = true;
     else if (argument === "--allow-legacy-user-removal") allowLegacyUserRemoval = true;
     else if (argument === "--allow-legacy-dev-migration") allowLegacyDevMigration = true;
+    else if (argument === "--allow-owned-source-cleanup") allowOwnedSourceCleanup = true;
+    else if (argument === "--cleanup-fingerprint") cleanupFingerprint = requireFlagValue(argv, index++);
+    else if (argument === "--fix" || argument.startsWith("--fix=")) {
+      throw new InstallError("owned_source_cleanup_authority_invalid");
+    }
     else if (argument === "--host") {
       const value = requireFlagValue(argv, index++);
       if (!isHost(value)) throw new InstallError("unsupported_host");
@@ -138,9 +164,19 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     json: boolean;
     allowLegacyUserRemoval: boolean;
     allowLegacyDevMigration: boolean;
-  } = { command, yes, json, allowLegacyUserRemoval, allowLegacyDevMigration };
+    allowOwnedSourceCleanup: boolean;
+    cleanupFingerprint?: string;
+  } = {
+    command,
+    yes,
+    json,
+    allowLegacyUserRemoval,
+    allowLegacyDevMigration,
+    allowOwnedSourceCleanup,
+  };
   if (host !== undefined) parsed.host = host;
   if (target !== undefined) parsed.target = target;
+  if (cleanupFingerprint !== undefined) parsed.cleanupFingerprint = cleanupFingerprint;
   return parsed;
 }
 
@@ -192,6 +228,10 @@ function errorExitCode(code: string): number {
     "legacy_removal_authority_invalid",
     "legacy_dev_migration_authority_invalid",
     "legacy_dev_migration_authority_required",
+    "owned_source_cleanup_authority_invalid",
+    "owned_source_cleanup_authority_required",
+    "cleanup_fingerprint_required",
+    "cleanup_fingerprint_mismatch",
     "unsupported_environment",
     "unsupported_host",
   ]).has(code)
@@ -235,10 +275,68 @@ function withRuntimeIssue(
 ): StatusResult {
   if (issue === undefined) return status;
   return createStatusResult({
-    status: "invalid",
+    status: status.status === "source_conflict" ? "source_conflict" : "invalid",
     host,
     environment: status.environment ?? environment,
     issues: [...status.issues, issue],
+    findings: status.findings,
+  });
+}
+
+function emptySourceScan(mode: SourceScanMode): SourceScanResult {
+  return createSourceScanResult(mode, []);
+}
+
+async function scanUserSources(
+  adapter: HostAdapter,
+  mode: SourceScanMode,
+  target: ReturnType<typeof resolveProjectTarget>,
+  packageRoot: string,
+  observation: HostObservation,
+): Promise<SourceScanResult> {
+  return adapter.scanUserSources === undefined
+    ? emptySourceScan(mode)
+    : await adapter.scanUserSources({ target, packageRoot, observation, mode });
+}
+
+function exactCleanupPlan(scan: SourceScanResult): NativeCleanupPlan | undefined {
+  if (scan.cleanupPlans.length === 0) return undefined;
+  if (scan.cleanupPlans.length !== 1 || scan.findings.some((finding) =>
+    finding.severity === "conflict" &&
+    (!finding.cleanupEligible || finding.cleanupFingerprint !== scan.cleanupPlans[0]?.fingerprint))) {
+    throw new InstallError("source_conflict");
+  }
+  return scan.cleanupPlans[0];
+}
+
+async function ownedCleanupAuthority(
+  args: ParsedArguments,
+  request: TargetConfirmation,
+  plan: NativeCleanupPlan,
+  dependencies: CommandDependencies,
+): Promise<OwnedCleanupAuthority> {
+  if (args.allowOwnedSourceCleanup) {
+    if (args.cleanupFingerprint === undefined) throw new InstallError("cleanup_fingerprint_required");
+    if (args.cleanupFingerprint !== plan.fingerprint) throw new InstallError("cleanup_fingerprint_mismatch");
+    return Object.freeze({
+      allowOwnedSourceCleanup: true,
+      cleanupFingerprint: args.cleanupFingerprint,
+    });
+  }
+  if (args.cleanupFingerprint !== undefined || args.json) {
+    throw new InstallError("owned_source_cleanup_authority_required");
+  }
+  const confirmedFingerprint = await (dependencies.confirmOwnedSourceCleanup?.({
+    ...request,
+    cleanupCommand: plan.command,
+    cleanupFingerprint: plan.fingerprint,
+    safePath: plan.safePath,
+  }) ?? undefined);
+  if (confirmedFingerprint === undefined) throw new InstallError("cancelled");
+  if (confirmedFingerprint !== plan.fingerprint) throw new InstallError("cleanup_fingerprint_mismatch");
+  return Object.freeze({
+    allowOwnedSourceCleanup: true,
+    cleanupFingerprint: confirmedFingerprint,
   });
 }
 
@@ -308,6 +406,12 @@ export async function executeCommand(
     if (args.allowLegacyUserRemoval && (host !== "cursor" || !isMutation(args.command))) {
       throw new InstallError("legacy_removal_authority_invalid");
     }
+    if (
+      (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined) &&
+      (args.command !== "install" && args.command !== "update")
+    ) {
+      throw new InstallError("owned_source_cleanup_authority_invalid");
+    }
     if (args.json && isMutation(args.command) && !args.yes) {
       throw new InstallError("confirmation_required");
     }
@@ -340,31 +444,68 @@ export async function executeCommand(
     }
 
     if (!isMutation(args.command)) {
+      const mode: SourceScanMode = args.command === "doctor" ? "deep" : "fast";
+      const sourceScan = await scanUserSources(adapter, mode, target, packageRoot, observation);
+      const adapterStatus = adapter.status({
+        target,
+        packageRoot,
+        environment: QA_ENVIRONMENT,
+        observation,
+        doctor: args.command === "doctor",
+      });
+      const normalizedStatus = createStatusResult({
+        status: sourceScan.hasConflict ? "source_conflict" : adapterStatus.status,
+        host,
+        environment: adapterStatus.environment ?? QA_ENVIRONMENT,
+        issues: adapterStatus.issues,
+        findings: sourceScan.findings,
+      });
       const status = withRuntimeIssue(
-        adapter.status({
-          target,
-          packageRoot,
-          environment: QA_ENVIRONMENT,
-          observation,
-          doctor: args.command === "doctor",
-        }),
+        normalizedStatus,
         runtimeStatusIssue(dependencies.nodeVersion ?? process.versions.node),
         host,
         QA_ENVIRONMENT,
       );
+      const ok = status.status !== "source_conflict";
       const payload = {
         schemaVersion: CORE_SCHEMA_VERSION,
-        ok: true,
+        ok,
         command: args.command,
         host,
         environment: QA_ENVIRONMENT,
         target: target.root,
         status: status.status,
         issues: status.issues,
+        findings: status.findings,
       };
       if (args.json) writeJson(stdout, payload);
-      else stdout(`${args.command}: ${status.status} ${host} at ${target.root}`);
-      return 0;
+      else {
+        stdout(`${args.command}: ${status.status} ${host} at ${target.root}`);
+        for (const finding of status.findings) {
+          stdout(`${finding.code}: ${finding.safePath}`);
+          if (finding.cleanupEligible) {
+            stdout(`${finding.cleanupCommand as string}\n${finding.cleanupFingerprint as string}`);
+          }
+        }
+      }
+      return ok ? 0 : 1;
+    }
+
+    if (args.command === "install" || args.command === "update") {
+      let sourceScan = await scanUserSources(adapter, "gate", target, packageRoot, observation);
+      if (sourceScan.hasConflict) {
+        const plan = exactCleanupPlan(sourceScan);
+        if (plan === undefined || adapter.cleanupOwnedSource === undefined) {
+          throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);
+        }
+        const authority = await ownedCleanupAuthority(args, request, plan, dependencies);
+        sourceScan = await adapter.cleanupOwnedSource(plan, authority);
+        if (sourceScan.mode !== "gate" || sourceScan.hasConflict || sourceScan.findings.length > 0) {
+          throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);
+        }
+      } else if (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined) {
+        throw new InstallError("cleanup_fingerprint_mismatch");
+      }
     }
 
     const allowLegacyUserRemoval = await legacyRemovalAuthority(
