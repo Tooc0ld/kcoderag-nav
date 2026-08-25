@@ -19,6 +19,16 @@ const commands = require("../../dist/cli/commands.cjs") as CommandModule;
 const coreState = require("../../dist/core/state.cjs") as {
   createDesiredState(input: Record<string, unknown>): unknown;
 };
+const userSources = require("../../dist/hosts/user-sources.cjs") as {
+  createNativeHostCapability(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
+  createNativeCleanupPlan(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
+  createSourceFinding(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
+  createSourceScanResult(
+    mode: string,
+    findings: readonly Readonly<Record<string, unknown>>[],
+    plans?: readonly Readonly<Record<string, unknown>>[],
+  ): Readonly<Record<string, unknown>>;
+};
 
 function fixture(): { root: string; target: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cli-red-"));
@@ -674,5 +684,221 @@ test("human mutation verbs are stable and read-only commands reject removal auth
     assert.equal(readOnly.stderr.length, 0);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+function sourceConflict(withCleanup = false): {
+  readonly finding: Readonly<Record<string, unknown>>;
+  readonly plan?: Readonly<Record<string, unknown>>;
+} {
+  if (!withCleanup) {
+    return {
+      finding: userSources.createSourceFinding({
+        code: "raw_mcp_source",
+        severity: "conflict",
+        sourceType: "raw_mcp",
+        scope: "user",
+        safePath: ".codex/mcp",
+        cleanupEligible: false,
+      }),
+    };
+  }
+  const capability = userSources.createNativeHostCapability({
+    host: "codex",
+    cli: "codex",
+    minimumVersion: "0.146.1",
+    observedVersion: "0.146.1",
+    inventorySchemaId: "codex-plugin-v1",
+    completeInventory: true,
+    route: "normal",
+  });
+  const plan = userSources.createNativeCleanupPlan({
+    host: "codex",
+    sourceType: "owned_plugin",
+    safePath: ".codex/plugins/kcoderag-nav@kcoderag-nav",
+    capability,
+    argv: ["codex", "plugin", "remove", "kcoderag-nav@kcoderag-nav", "--json"],
+    scope: "plugin:kcoderag-nav",
+    timeoutMs: 5_000,
+  });
+  return {
+    plan,
+    finding: userSources.createSourceFinding({
+      code: "owned_plugin_source",
+      severity: "conflict",
+      sourceType: "owned_plugin",
+      scope: "user",
+      safePath: ".codex/plugins/kcoderag-nav@kcoderag-nav",
+      cleanupEligible: true,
+      cleanupCommand: plan.command,
+      cleanupFingerprint: plan.fingerprint,
+    }),
+  };
+}
+
+test("status is fast, doctor is deep and read-only, and top-level health follows source conflicts", async () => {
+  for (const command of ["status", "doctor"] as const) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapter = makeAdapter("codex", calls);
+      adapter.scanUserSources = (context: Record<string, unknown>) => {
+        calls.push(`codex:scan:${String(context.mode)}`);
+        const conflict = sourceConflict();
+        return userSources.createSourceScanResult(String(context.mode), [conflict.finding]);
+      };
+      const adapters = { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) };
+      const captured = io(item.target, adapters);
+      const before = fs.readdirSync(item.target);
+      const exitCode = await commands.executeCommand(
+        [command, "--host", "codex", "--json"],
+        captured.dependencies,
+      );
+      assert.equal(exitCode, 1);
+      assert.deepEqual(calls, ["codex:detect", `codex:scan:${command === "status" ? "fast" : "deep"}`, "codex:status"]);
+      assert.deepEqual(fs.readdirSync(item.target), before);
+      const output = JSON.parse(captured.stdout[0] ?? "") as Record<string, any>;
+      assert.equal(output.ok, false);
+      assert.equal(output.status, "source_conflict");
+      assert.equal(output.findings[0].code, "raw_mcp_source");
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("doctor reports deep preinstall readiness while ordinary not-installed remains successful", async () => {
+  const item = fixture();
+  try {
+    const calls: string[] = [];
+    const adapter = makeAdapter("codex", calls);
+    adapter.scanUserSources = (context: Record<string, unknown>) => {
+      calls.push(`codex:scan:${String(context.mode)}`);
+      const residue = userSources.createSourceFinding({
+        code: "cache_residue",
+        severity: "info",
+        sourceType: "cache_residue",
+        scope: "user",
+        safePath: ".codex/plugins/cache/kcoderag-nav",
+        cleanupEligible: false,
+      });
+      return userSources.createSourceScanResult(String(context.mode), [residue]);
+    };
+    const captured = io(item.target, { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+    assert.equal(await commands.executeCommand(["doctor", "--host", "codex", "--json"], captured.dependencies), 0);
+    assert.deepEqual(calls, ["codex:detect", "codex:scan:deep", "codex:status"]);
+    const output = JSON.parse(captured.stdout[0] ?? "") as Record<string, any>;
+    assert.equal(output.ok, true);
+    assert.equal(output.status, "not_installed");
+    assert.equal(output.findings[0].severity, "info");
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("install and update run a full no-write source gate while uninstall remains project-only", async () => {
+  for (const command of ["install", "update"] as const) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapter = makeAdapter("codex", calls);
+      adapter.scanUserSources = (context: Record<string, unknown>) => {
+        calls.push(`codex:scan:${String(context.mode)}`);
+        const conflict = sourceConflict();
+        return userSources.createSourceScanResult(String(context.mode), [conflict.finding]);
+      };
+      const captured = io(item.target, { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+      const before = fs.readdirSync(item.target);
+      assert.equal(await commands.executeCommand([command, "--host", "codex", "--yes", "--json"], captured.dependencies), 1);
+      assert.deepEqual(calls, ["codex:detect", "codex:scan:gate"]);
+      assert.deepEqual(fs.readdirSync(item.target), before);
+      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, "source_conflict");
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+
+  const uninstall = fixture();
+  try {
+    fs.mkdirSync(path.join(uninstall.target, ".fixture-codex"));
+    fs.writeFileSync(path.join(uninstall.target, ".fixture-codex/payload.txt"), "before\n");
+    fs.writeFileSync(path.join(uninstall.target, ".fixture-codex/install-state.json"), "before-state\n");
+    const calls: string[] = [];
+    const adapter = makeAdapter("codex", calls);
+    adapter.scanUserSources = () => { throw new Error("uninstall must not scan unrelated user sources"); };
+    const captured = io(uninstall.target, { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+    assert.equal(await commands.executeCommand(["uninstall", "--host", "codex", "--yes", "--json"], captured.dependencies), 0);
+    assert.deepEqual(calls, ["codex:detect", "codex:renderUninstall"]);
+  } finally {
+    fs.rmSync(uninstall.root, { recursive: true, force: true });
+  }
+});
+
+test("owned cleanup needs its dedicated flag and exact fresh fingerprint before render", async () => {
+  const fixturePlan = sourceConflict(true);
+  const fingerprint = String(fixturePlan.plan?.fingerprint);
+  for (const scenario of [
+    { extra: [] as string[], code: "owned_source_cleanup_authority_required" },
+    { extra: ["--allow-owned-source-cleanup"], code: "cleanup_fingerprint_required" },
+    { extra: ["--allow-owned-source-cleanup", "--cleanup-fingerprint", `sha256:${"0".repeat(64)}`], code: "cleanup_fingerprint_mismatch" },
+    { extra: ["--cleanup-fingerprint", fingerprint], code: "owned_source_cleanup_authority_required" },
+  ]) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapter = makeAdapter("codex", calls);
+      adapter.scanUserSources = (context: Record<string, unknown>) => {
+        calls.push(`codex:scan:${String(context.mode)}`);
+        return userSources.createSourceScanResult(String(context.mode), [fixturePlan.finding], [fixturePlan.plan as Readonly<Record<string, unknown>>]);
+      };
+      adapter.cleanupOwnedSource = () => { calls.push("codex:cleanup"); return userSources.createSourceScanResult("gate", []); };
+      const captured = io(item.target, { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+      assert.equal(await commands.executeCommand(["install", "--host", "codex", "--yes", "--json", ...scenario.extra], captured.dependencies), 2);
+      assert.deepEqual(calls, ["codex:detect", "codex:scan:gate"]);
+      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, scenario.code);
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+
+  const allowed = fixture();
+  try {
+    const calls: string[] = [];
+    const adapter = makeAdapter("codex", calls);
+    adapter.scanUserSources = (context: Record<string, unknown>) => {
+      calls.push(`codex:scan:${String(context.mode)}`);
+      return userSources.createSourceScanResult(String(context.mode), [fixturePlan.finding], [fixturePlan.plan as Readonly<Record<string, unknown>>]);
+    };
+    adapter.cleanupOwnedSource = (_plan: unknown, authority: Record<string, unknown>) => {
+      calls.push(`codex:cleanup:${String(authority.allowOwnedSourceCleanup)}:${String(authority.cleanupFingerprint === fingerprint)}`);
+      return userSources.createSourceScanResult("gate", []);
+    };
+    const captured = io(allowed.target, { codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+    assert.equal(await commands.executeCommand([
+      "install", "--host", "codex", "--yes", "--json",
+      "--allow-owned-source-cleanup", "--cleanup-fingerprint", fingerprint,
+    ], captured.dependencies), 0);
+    assert.deepEqual(calls, ["codex:detect", "codex:scan:gate", "codex:cleanup:true:true", "codex:renderInstall:false:false"]);
+  } finally {
+    fs.rmSync(allowed.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup flags are mutation-only and doctor refuses every fix-like argument", async () => {
+  for (const argv of [
+    ["status", "--host", "codex", "--json", "--allow-owned-source-cleanup"],
+    ["doctor", "--host", "codex", "--json", "--cleanup-fingerprint", `sha256:${"0".repeat(64)}`],
+    ["doctor", "--host", "codex", "--json", "--fix"],
+  ]) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const captured = io(item.target, { codex: makeAdapter("codex", calls), claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls) });
+      assert.equal(await commands.executeCommand(argv, captured.dependencies), 2);
+      assert.deepEqual(calls, []);
+      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, "owned_source_cleanup_authority_invalid");
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
   }
 });
