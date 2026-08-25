@@ -14,6 +14,29 @@ interface GeneratorModule {
   }): { readonly ok: boolean };
 }
 
+interface CursorManifest {
+  readonly name?: string;
+  readonly version?: string;
+  readonly description?: string;
+  readonly mcpServers?: string;
+  readonly rules?: string;
+  readonly skills?: string;
+}
+
+interface MemberEvidence {
+  readonly member: string;
+  readonly size: number;
+  readonly sha256: string;
+}
+
+interface CursorEvidence {
+  readonly members: readonly MemberEvidence[];
+  readonly version: string;
+  readonly qaOnly: boolean;
+  readonly ruleBoundary: boolean;
+  readonly referencesResolve: boolean;
+}
+
 const repositoryRoot = path.resolve(__dirname, "../..");
 const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 const EXPECTED_NON_DOCUMENT = Object.freeze([
@@ -44,46 +67,182 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-test("Cursor non-document product is a closed deterministic four-file inventory", () => {
-  const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
-  assert.deepEqual(filesBelow(cursorRoot).filter((member) => member !== "README.md"), EXPECTED_NON_DOCUMENT);
+function fail(code: string): never {
+  throw new Error(code);
+}
 
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-product-"));
-  try {
-    const generated = generator.generatePackage({
-      package: "cursor",
-      group: "all",
-      sourceRoot: repositoryRoot,
-      outputRoot: temporary,
-    });
-    assert.equal(generated.ok, true);
-    for (const member of EXPECTED_NON_DOCUMENT) {
-      assert.equal(
-        sha256(path.join(temporary, "kcoderag-cursor", ...member.split("/"))),
-        sha256(path.join(cursorRoot, ...member.split("/"))),
-        member,
-      );
-    }
-  } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+function productPath(root: string, member: string): string {
+  return path.join(root, ...member.split("/"));
+}
+
+function safeReference(root: string, reference: string, expected: "file" | "directory"): boolean {
+  if (!/^\.\/[A-Za-z0-9._/-]+$/u.test(reference)) return false;
+  const resolved = path.resolve(root, reference);
+  const relative = path.relative(root, resolved);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return false;
   }
-});
+  try {
+    const stat = fs.lstatSync(resolved);
+    return expected === "file" ? stat.isFile() : stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
 
-test("Cursor keeps the QA Rule, skill, and MCP capability boundary", () => {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor", ".cursor-plugin", "plugin.json"), "utf8"),
-  ) as { name?: string; version?: string };
-  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
-    version: string;
-  }).version;
-  assert.equal(manifest.name, "kcoderag-nav");
-  assert.equal(manifest.version, packageVersion);
+function inspectCursorProduct(root: string, expectedVersion: string): CursorEvidence {
+  const members = filesBelow(root).filter((member) => member !== "README.md");
+  if (JSON.stringify(members) !== JSON.stringify(EXPECTED_NON_DOCUMENT)) fail("closed_inventory");
+
+  const manifest = JSON.parse(fs.readFileSync(productPath(root, ".cursor-plugin/plugin.json"), "utf8")) as CursorManifest;
+  if (manifest.name !== "kcoderag-nav" || manifest.version !== expectedVersion) fail("version_identity");
+  if (manifest.mcpServers !== "./mcp.json" || manifest.rules !== "./rules/" || manifest.skills !== "./skills/") {
+    fail("manifest_reference");
+  }
+  const referencesResolve = safeReference(root, manifest.mcpServers, "file")
+    && safeReference(root, manifest.rules, "directory")
+    && safeReference(root, manifest.skills, "directory");
+  if (!referencesResolve) fail("reference_resolution");
 
   const activeText = [
     "rules/kcoderag-navigation.mdc",
     "skills/code-lookup-discipline/SKILL.md",
-  ].map((member) => fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor", ...member.split("/")), "utf8")).join("\n");
-  assert.match(activeText, /QA/u);
-  assert.match(activeText, /Rule|alwaysApply/u);
-  assert.doesNotMatch(activeText, /kcoderag-dev|--environment\s+dev|PreToolUse/iu);
+  ].map((member) => fs.readFileSync(productPath(root, member), "utf8")).join("\n");
+  const qaOnly = /QA/u.test(`${manifest.description ?? ""}\n${activeText}`)
+    && !/kcoderag-dev|--environment\s+dev/iu.test(activeText);
+  if (!qaOnly) fail("qa_only_boundary");
+  const ruleBoundary = /Rule|alwaysApply/u.test(activeText) && !/PreToolUse|Hook[- ]equivalent/iu.test(activeText);
+  if (!ruleBoundary) fail("rule_capability_boundary");
+
+  return Object.freeze({
+    members: Object.freeze(EXPECTED_NON_DOCUMENT.map((member) => Object.freeze({
+      member,
+      size: fs.statSync(productPath(root, member)).size,
+      sha256: sha256(productPath(root, member)),
+    }))),
+    version: manifest.version,
+    qaOnly,
+    ruleBoundary,
+    referencesResolve,
+  });
+}
+
+function assertEvidenceSafe(value: unknown): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail("unsafe_evidence");
+  const record = value as Record<string, unknown>;
+  if (JSON.stringify(Object.keys(record).sort()) !== JSON.stringify([
+    "members",
+    "qaOnly",
+    "referencesResolve",
+    "ruleBoundary",
+    "version",
+  ])) fail("unsafe_evidence");
+  if (!Array.isArray(record.members)) fail("unsafe_evidence");
+  for (const item of record.members) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) fail("unsafe_evidence");
+    const member = item as Record<string, unknown>;
+    if (JSON.stringify(Object.keys(member).sort()) !== JSON.stringify(["member", "sha256", "size"])) {
+      fail("unsafe_evidence");
+    }
+    if (typeof member.member !== "string" || !EXPECTED_NON_DOCUMENT.includes(member.member)) fail("unsafe_evidence");
+    if (typeof member.size !== "number" || !Number.isSafeInteger(member.size) || member.size < 0) fail("unsafe_evidence");
+    if (typeof member.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(member.sha256)) fail("unsafe_evidence");
+  }
+  if (typeof record.version !== "string" || !/^\d+\.\d+\.\d+$/u.test(record.version)) fail("unsafe_evidence");
+  for (const field of ["qaOnly", "ruleBoundary", "referencesResolve"] as const) {
+    if (typeof record[field] !== "boolean") fail("unsafe_evidence");
+  }
+}
+
+function generateCursorFixture(): { readonly root: string; readonly productRoot: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-product-"));
+  const generated = generator.generatePackage({
+    package: "cursor",
+    group: "all",
+    sourceRoot: repositoryRoot,
+    outputRoot: root,
+  });
+  if (!generated.ok) {
+    fs.rmSync(root, { recursive: true, force: true });
+    fail("fixture_generation");
+  }
+  return Object.freeze({ root, productRoot: path.join(root, "kcoderag-cursor") });
+}
+
+test("Cursor non-document product is a closed deterministic four-file inventory", () => {
+  const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
+  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    version: string;
+  }).version;
+  const repositoryEvidence = inspectCursorProduct(cursorRoot, packageVersion);
+  assertEvidenceSafe(repositoryEvidence);
+
+  const fixture = generateCursorFixture();
+  try {
+    const fixtureEvidence = inspectCursorProduct(fixture.productRoot, packageVersion);
+    assertEvidenceSafe(fixtureEvidence);
+    assert.deepEqual(fixtureEvidence, repositoryEvidence);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Cursor keeps the QA Rule, skill, and MCP capability boundary", () => {
+  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    version: string;
+  }).version;
+  const evidence = inspectCursorProduct(path.join(repositoryRoot, "kcoderag-cursor"), packageVersion);
+  assert.equal(evidence.qaOnly, true);
+  assert.equal(evidence.ruleBoundary, true);
+  assert.equal(evidence.referencesResolve, true);
+});
+
+test("Cursor product rejects missing or extra members with stable metadata-only failures", () => {
+  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    version: string;
+  }).version;
+  for (const mutation of ["missing", "extra"] as const) {
+    const fixture = generateCursorFixture();
+    try {
+      if (mutation === "missing") fs.rmSync(productPath(fixture.productRoot, "mcp.json"));
+      if (mutation === "extra") fs.writeFileSync(productPath(fixture.productRoot, "unexpected.txt"), "fixture\n");
+      assert.throws(() => inspectCursorProduct(fixture.productRoot, packageVersion), /^Error: closed_inventory$/u);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Cursor product rejects Dev and Hook-equivalence wording deterministically", () => {
+  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    version: string;
+  }).version;
+  const fixtures = [
+    { member: "rules/kcoderag-navigation.mdc", text: "\nInstall kcoderag-dev.\n", code: "qa_only_boundary" },
+    { member: "skills/code-lookup-discipline/SKILL.md", text: "\nPreToolUse Hook-equivalent.\n", code: "rule_capability_boundary" },
+  ] as const;
+  for (const mutation of fixtures) {
+    const fixture = generateCursorFixture();
+    try {
+      fs.appendFileSync(productPath(fixture.productRoot, mutation.member), mutation.text);
+      assert.throws(
+        () => inspectCursorProduct(fixture.productRoot, packageVersion),
+        new RegExp(`^Error: ${mutation.code}$`, "u"),
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Cursor evidence schema rejects any content-bearing field", () => {
+  const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    version: string;
+  }).version;
+  const evidence = inspectCursorProduct(path.join(repositoryRoot, "kcoderag-cursor"), packageVersion);
+  assertEvidenceSafe(evidence);
+  assert.throws(
+    () => assertEvidenceSafe({ ...evidence, contents: "SENSITIVE-CURSOR-FIXTURE" }),
+    /^Error: unsafe_evidence$/u,
+  );
 });
