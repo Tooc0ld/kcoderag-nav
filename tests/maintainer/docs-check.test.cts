@@ -254,9 +254,30 @@ test("active docs reject public Dev, catalog, clone, Python, unsafe cleanup, and
 });
 
 test("zero-argument CLI checks the canonical repository and sibling guide together", () => {
-  const result = runCli([]);
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(cliPayload(result), { ok: true, checkedFiles: 6 });
+  const parent = temporaryDirectory("kcoderag-docs-zero-argument-");
+  const repo = path.join(parent, "kcoderag-nav");
+  const sibling = path.join(parent, "KCodeRag");
+  const guide = path.join(sibling, "MCP_QA_EXPERIENCE_GUIDE.md");
+  try {
+    fs.mkdirSync(sibling, { recursive: true });
+    writeCanonicalContract(repo, guide);
+    const compiledEntry = path.join(repo, "dist", "maintainer", "docs-check.cjs");
+    write(repo, "dist/maintainer/docs-check.cjs", fs.readFileSync(path.resolve("dist/maintainer/docs-check.cjs"), "utf8"));
+    const completed = childProcess.spawnSync(process.execPath, [compiledEntry], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.equal(completed.error, undefined);
+    const result = {
+      status: completed.status,
+      stdout: completed.stdout,
+      stderr: completed.stderr,
+    };
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(cliPayload(result), { ok: true, checkedFiles: 6 });
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test("does not treat explanatory history or HTML comments as active user instructions", () => {
