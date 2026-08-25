@@ -339,6 +339,7 @@ test("hook registration is limited to the required PreToolUse tools and launcher
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /install-state\.json/);
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /install-state\.json/);
   assert.doesNotMatch(JSON.stringify(registration), /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/);
+  assert.ok((registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows.length ?? 8_192) < 8_192);
 
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
@@ -429,6 +430,90 @@ test("exact registered commands stop silently at a schema-damaged nearest projec
       }
       if (shellExecutable !== undefined) {
         assertSilentSuccess(runRenderedPosix(shellExecutable, outer.command.command, deep));
+      }
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("complete project copies and renames keep root and deep registered commands operational", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-rendered-move-"));
+  try {
+    const packageRoot = adapterPackage(base);
+    for (const host of ["codex", "claude"] as const) {
+      const installed = installHost(base, host, packageRoot);
+      const copied = path.join(base, `${host} copied project`);
+      const moved = path.join(base, `${host} renamed project`);
+      fs.cpSync(installed.root, copied, { recursive: true });
+      fs.renameSync(copied, moved);
+      const deep = path.join(moved, "workspace with spaces", "深层", "src");
+      fs.mkdirSync(deep, { recursive: true });
+
+      const launcherName = process.platform === "win32" ? "run_hook.cmd" : "run_hook.sh";
+      const resolution = projectRoot.findNearestProjectHook(discoveryOptions(deep, host, launcherName));
+      assert.equal(resolution?.projectRoot, moved);
+
+      if (process.platform === "win32") {
+        assertProtocolResult(
+          runRenderedWindows(installed.command.commandWindows, moved),
+          `${host} moved Windows root`,
+        );
+        assertProtocolResult(
+          runRenderedWindows(installed.command.commandWindows, deep),
+          `${host} moved Windows deep`,
+        );
+        assertSilentSuccess(runRenderedWindows(installed.command.commandWindows, moved, "not-json"));
+        const emptyPath = path.join(base, `${host}-empty-path`);
+        fs.mkdirSync(emptyPath);
+        assertSilentSuccess(runRenderedWindows(
+          installed.command.commandWindows,
+          moved,
+          structuralPayload,
+          environment({ PATH: emptyPath }),
+        ));
+      }
+      const shellExecutable = posixShell();
+      if (shellExecutable !== undefined) {
+        assertProtocolResult(
+          runRenderedPosix(shellExecutable, installed.command.command, moved),
+          `${host} moved POSIX root`,
+        );
+        assertProtocolResult(
+          runRenderedPosix(shellExecutable, installed.command.command, deep),
+          `${host} moved POSIX deep`,
+        );
+        assertSilentSuccess(runRenderedPosix(shellExecutable, installed.command.command, moved, "not-json"));
+        const emptyPath = path.join(base, `${host}-empty-posix-path`);
+        fs.mkdirSync(emptyPath);
+        assertSilentSuccess(runRenderedPosix(
+          shellExecutable,
+          installed.command.command,
+          moved,
+          structuralPayload,
+          environment({ PATH: emptyPath }),
+        ));
+      }
+
+      const hostRoot = host === "codex" ? ".codex" : ".claude";
+      const launcherPaths = ["run_hook.cmd", "run_hook.sh"].map((name) =>
+        path.join(moved, hostRoot, "kcoderag-nav", "qa", "hooks", name));
+      const launcherBytes = new Map(launcherPaths.map((launcherPath) =>
+        [launcherPath, fs.readFileSync(launcherPath)] as const));
+      for (const launcherPath of launcherPaths) fs.rmSync(launcherPath);
+      if (process.platform === "win32") {
+        assertSilentSuccess(runRenderedWindows(installed.command.commandWindows, deep));
+      }
+      if (shellExecutable !== undefined) {
+        assertSilentSuccess(runRenderedPosix(shellExecutable, installed.command.command, deep));
+      }
+      for (const [launcherPath, bytes] of launcherBytes) fs.writeFileSync(launcherPath, bytes);
+      fs.rmSync(installedStatePath(moved, host));
+      if (process.platform === "win32") {
+        assertSilentSuccess(runRenderedWindows(installed.command.commandWindows, deep));
+      }
+      if (shellExecutable !== undefined) {
+        assertSilentSuccess(runRenderedPosix(shellExecutable, installed.command.command, deep));
       }
     }
   } finally {
