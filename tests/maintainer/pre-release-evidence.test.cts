@@ -123,6 +123,6 @@ test("rejects missing, extra, duplicate, failed, or stale CI lanes", () => {
 test("schema and diagnostics stay closed when untrusted fields or values are supplied", () => {
   expectCode((fixture) => { fixture.rawGithubResponse = "untrusted"; }, "invalid_evidence_schema");
   expectCode((fixture) => { fixture.ci.jobs[0].url = "https://example.invalid/run/1"; }, "invalid_evidence_schema");
-  expectCode((fixture) => { fixture.artifacts.review.subjectSha = SUBJECT_SHA.toUpperCase(); }, "invalid_subject");
+  expectCode((fixture) => { fixture.artifacts.review.subjectSha = "A".repeat(40); }, "invalid_evidence_schema");
   expectCode((fixture) => { fixture.authorization = "Bearer not-for-diagnostics"; }, "invalid_evidence_schema");
 });

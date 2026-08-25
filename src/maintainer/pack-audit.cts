@@ -71,6 +71,7 @@ const FORBIDDEN_PREFIXES = Object.freeze([
 ]);
 
 export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
+  "dist/maintainer/pre-release-evidence.cjs",
   "dist/maintainer/retirement-audit.cjs",
 ]);
 
