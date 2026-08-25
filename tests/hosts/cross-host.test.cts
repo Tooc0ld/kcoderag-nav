@@ -25,7 +25,7 @@ function packageFixture(base: string): string {
   const root = path.join(base, "package");
   const secret = `opaque-${crypto.randomUUID()}`;
   write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa", "dev"] as const) {
+  for (const environment of ["qa"] as const) {
     const name = `kcoderag-${environment}`;
     const server = {
       type: "http",
@@ -99,12 +99,11 @@ async function run(
   packageRoot: string,
   command: "install" | "status" | "doctor" | "update" | "uninstall",
   host: HostId | undefined,
-  environment = "qa",
   extraDependencies: Record<string, unknown> = {},
 ) {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const argv = [command, "--json", "--environment", environment];
+  const argv = [command, "--json"];
   if (host !== undefined) argv.push("--host", host);
   if (["install", "update", "uninstall"].includes(command)) argv.push("--yes");
   const exitCode = await commands.executeCommand(argv, {
@@ -156,19 +155,15 @@ test("Codex, Claude, and Cursor coexist while one-host update and uninstall leav
   }
 });
 
-test("same-host environment conflict and interactive selection affect only the selected adapter", async () => {
+test("interactive host selection installs only the selected QA adapter", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cross-select-"));
   try {
     const packageRoot = packageFixture(base);
     const target = targetFixture(base);
     assert.equal((await run(target, packageRoot, "install", "codex")).exitCode, 0);
     assert.equal((await run(target, packageRoot, "install", "cursor")).exitCode, 0);
-    const codexBefore = hostSnapshot(target, "codex");
-    const cursorBefore = hostSnapshot(target, "cursor");
-    const conflict = await run(target, packageRoot, "install", "codex", "dev");
-    assert.equal(conflict.output.code, "environment_conflict");
-    assert.deepEqual(hostSnapshot(target, "codex"), codexBefore);
-    assert.deepEqual(hostSnapshot(target, "cursor"), cursorBefore);
+    assert.equal((await run(target, packageRoot, "status", "codex")).output.status, "healthy");
+    assert.equal((await run(target, packageRoot, "status", "cursor")).output.status, "healthy");
 
     const interactiveTarget = path.join(base, "interactive");
     fs.mkdirSync(interactiveTarget);

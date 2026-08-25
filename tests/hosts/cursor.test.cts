@@ -59,7 +59,7 @@ function packageFixture(base: string) {
   const root = path.join(base, "package");
   const secret = `opaque-${crypto.randomUUID()}`;
   write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa", "dev"] as const) {
+  for (const environment of ["qa"] as const) {
     const name = `kcoderag-${environment}`;
     write(root, `${name}/.mcp.json`, `${JSON.stringify({
       mcpServers: {
@@ -162,14 +162,15 @@ async function run(
   packageRoot: string,
   adapter: Record<string, unknown>,
   command: "install" | "status" | "doctor" | "update" | "uninstall",
-  environment: EnvironmentId = "qa",
-  allowLegacy = false,
+  allowLegacyUserRemoval = false,
+  allowLegacyDevMigration = false,
 ) {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const argv = [command, "--host", "cursor", "--json", "--environment", environment];
+  const argv = [command, "--host", "cursor", "--json"];
   if (["install", "update", "uninstall"].includes(command)) argv.push("--yes");
-  if (allowLegacy) argv.push("--allow-legacy-user-removal");
+  if (allowLegacyUserRemoval) argv.push("--allow-legacy-user-removal");
+  if (allowLegacyDevMigration) argv.push("--allow-legacy-dev-migration");
   const exitCode = await commands.executeCommand(argv, {
     cwd: target,
     packageRoot,
@@ -209,9 +210,8 @@ test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks
     assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
     assert.deepEqual(snapshot(target.root), installedTree);
 
-    const beforeConflict = snapshot(target.root);
-    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install", "dev")).output.code, "environment_conflict");
-    assert.deepEqual(snapshot(target.root), beforeConflict);
+    const state = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+    assert.equal(state.environment, "qa");
 
     write(pkg.root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "updated rule\n");
     assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "status")).output.status, "update_available");
@@ -220,6 +220,74 @@ test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks
     assert.deepEqual(fs.readFileSync(path.join(target.root, ".cursor/mcp.json")), target.mcp);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/rules/kcoderag-navigation.mdc")), false);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/skills/kcoderag-nav/SKILL.md")), false);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("Cursor exact project legacy Dev requires dedicated authority and converts to QA", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-project-legacy-dev-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
+
+    const mcpPath = path.join(target.root, ".cursor/mcp.json");
+    const mcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    mcp.mcpServers.kcoderag = {
+      type: "http",
+      url: "https://legacy-cursor-dev.invalid/mcp",
+      headers: { Authorization: "Bearer LEGACY_CURSOR_PROJECT_SECRET" },
+    };
+    fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 4)}\n`);
+    const statePath = path.join(target.root, ...STATE_PATH.split("/"));
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    state.environment = "dev";
+    state.sections[".cursor/mcp.json"].digest = sha256(
+      Buffer.from(JSON.stringify(mcp.mcpServers.kcoderag), "utf8"),
+    );
+    fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+
+    const before = snapshot(target.root);
+    const preview = await run(target.root, pkg.root, cursor.cursorAdapter, "doctor");
+    assert.equal(preview.output.status, "update_available");
+    assert.match(JSON.stringify(preview.output), /legacy_migration_available/);
+    assert.deepEqual(snapshot(target.root), before);
+
+    const denied = await run(target.root, pkg.root, cursor.cursorAdapter, "update");
+    assert.equal(denied.output.code, "legacy_dev_migration_authority_required");
+    assert.deepEqual(snapshot(target.root), before);
+
+    const resolvedTarget = targets.resolveProjectTarget(target.root);
+    const observation = cursor.cursorAdapter.detect({ target: resolvedTarget, packageRoot: pkg.root });
+    const desired = cursor.cursorAdapter.renderInstall({
+      target: resolvedTarget,
+      packageRoot: pkg.root,
+      command: "update",
+      environment: "qa",
+      observation,
+      allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: true,
+    });
+    for (let failAtCommit = 0; failAtCommit < desired.entries.length; failAtCommit += 1) {
+      assert.throws(
+        () => transaction.applyTransaction(desired, { failAtCommit }),
+        /transaction_failed/,
+      );
+      assert.deepEqual(snapshot(target.root), before, `failAtCommit=${failAtCommit}`);
+    }
+
+    const migrated = await run(target.root, pkg.root, cursor.cursorAdapter, "update", false, true);
+    assert.equal(migrated.exitCode, 0);
+    assert.doesNotMatch(migrated.stdout.join("\n") + migrated.stderr.join("\n"), /LEGACY_CURSOR_PROJECT_SECRET/);
+    const currentState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.equal(currentState.environment, "qa");
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "status")).output.status, "healthy");
+    const currentMcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    assert.deepEqual(currentMcp.mcpServers.unrelated, { command: "safe-command" });
+
+    assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "uninstall")).exitCode, 0);
+    assert.deepEqual(fs.readFileSync(mcpPath), target.mcp);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -340,11 +408,11 @@ test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write"
     }
 
     const drift = targetFixture(base, "drift");
-    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "install", "dev")).exitCode, 0);
+    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "install")).exitCode, 0);
     write(drift.root, ".cursor/rules/kcoderag-navigation.mdc", "edited\n");
     const beforeDrift = snapshot(drift.root);
-    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "doctor", "dev")).output.status, "drifted");
-    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "uninstall", "dev")).output.code, "managed_content_changed");
+    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "doctor")).output.status, "drifted");
+    assert.equal((await run(drift.root, pkg.root, cursor.cursorAdapter, "uninstall")).output.code, "managed_content_changed");
     assert.deepEqual(snapshot(drift.root), beforeDrift);
 
     const rollback = targetFixture(base, "rollback");
@@ -357,6 +425,7 @@ test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write"
       environment: "qa",
       observation,
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
     });
     const beforeRollback = snapshot(rollback.root);
     assert.throws(() => transaction.applyTransaction(desired, { failAtCommit: 1 }), /transaction_failed/);
@@ -381,7 +450,7 @@ test("Cursor conflicts, drift, symlinks, and transaction failure are zero-write"
   }
 });
 
-test("legacy Cursor migration requires independent authority and preserves environment", async () => {
+test("legacy Cursor user plugin removal requires independent authority and always installs QA", async () => {
   for (const environment of ["qa", "dev"] as const) {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-cursor-legacy-${environment}-`));
     try {
@@ -397,19 +466,20 @@ test("legacy Cursor migration requires independent authority and preserves envir
       const projectBefore = snapshot(target.root);
       const userBefore = snapshot(legacy.localRoot);
 
-      const denied = await run(target.root, pkg.root, adapter, "install", environment);
+      const denied = await run(target.root, pkg.root, adapter, "install");
       assert.equal(denied.output.code, "legacy_removal_authority_required");
       assert.deepEqual(snapshot(target.root), projectBefore);
       assert.deepEqual(snapshot(legacy.localRoot), userBefore);
 
-      const migrated = await run(target.root, pkg.root, adapter, "install", environment, true);
+      const migrated = await run(target.root, pkg.root, adapter, "install", true);
       assert.equal(migrated.exitCode, 0);
-      assert.equal((await run(target.root, pkg.root, adapter, "status", environment)).output.status, "healthy");
+      assert.doesNotMatch(migrated.stdout.join("\n") + migrated.stderr.join("\n"), new RegExp(pkg.secret));
+      assert.equal((await run(target.root, pkg.root, adapter, "status")).output.status, "healthy");
       assert.equal(fs.existsSync(path.join(legacy.localRoot, LEGACY_STATE)), false);
       assert.equal(fs.existsSync(legacy.pluginRoot), false);
       assert.equal(fs.readFileSync(path.join(legacy.localRoot, "other-plugin/keep.txt"), "utf8"), "keep\n");
       const state = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
-      assert.equal(state.environment, environment);
+      assert.equal(state.environment, "qa");
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
@@ -417,7 +487,7 @@ test("legacy Cursor migration requires independent authority and preserves envir
 });
 
 test("legacy drift, extra files, unknown environment, and delete failure preserve both trees", async () => {
-  const cases = ["invalid-state", "digest-drift", "extra-file", "extra-directory", "unknown-environment"] as const;
+  const cases = ["invalid-state", "digest-drift", "extra-file", "extra-directory"] as const;
   for (const kind of cases) {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-cursor-${kind}-`));
     try {
@@ -428,21 +498,10 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
       if (kind === "digest-drift") write(legacy.pluginRoot, "rules/kcoderag-navigation.mdc", "edited\n");
       if (kind === "extra-file") write(legacy.pluginRoot, "extra.txt", "extra\n");
       if (kind === "extra-directory") fs.mkdirSync(path.join(legacy.pluginRoot, "extra-empty"));
-      if (kind === "unknown-environment") {
-        const manifestPath = path.join(legacy.pluginRoot, ".cursor-plugin/plugin.json");
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-        manifest.variables.properties.KCODERAG_MCP_URL.default = "https://unknown.invalid/mcp";
-        fs.writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
-        const statePath = path.join(legacy.localRoot, LEGACY_STATE);
-        const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-        state.files[".cursor-plugin/plugin.json"] = sha256(fs.readFileSync(manifestPath));
-        state.tree_digest = treeDigest(state.files);
-        fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
-      }
       const adapter = cursor.createCursorAdapter({ legacyLocalRoot: legacy.localRoot });
       const projectBefore = snapshot(target.root);
       const userBefore = snapshot(legacy.localRoot);
-      const result = await run(target.root, pkg.root, adapter, "install", "qa", true);
+      const result = await run(target.root, pkg.root, adapter, "install", true);
       assert.notEqual(result.exitCode, 0, kind);
       assert.deepEqual(snapshot(target.root), projectBefore, kind);
       assert.deepEqual(snapshot(legacy.localRoot), userBefore, kind);
@@ -467,6 +526,7 @@ test("legacy drift, extra files, unknown environment, and delete failure preserv
         environment: "qa",
         observation,
         allowLegacyUserRemoval: true,
+        allowLegacyDevMigration: false,
       });
       const projectBefore = snapshot(targetFixtureValue.root);
       const userBefore = snapshot(legacy.localRoot);
@@ -503,6 +563,7 @@ test("legacy deletion failures after plugin removal restore both legacy and proj
         environment: "qa",
         observation,
         allowLegacyUserRemoval: true,
+        allowLegacyDevMigration: false,
       });
       const projectBefore = snapshot(targetFixtureValue.root);
       const userBefore = snapshot(legacy.localRoot);
@@ -545,6 +606,7 @@ test("unrestorable legacy conflicts retain a complete migration backup", () => {
       environment: "qa",
       observation,
       allowLegacyUserRemoval: true,
+      allowLegacyDevMigration: false,
     });
 
     assert.throws(
@@ -616,6 +678,7 @@ test("legacy migration refuses an ancestor swap in the final quarantine window w
       environment: "qa",
       observation,
       allowLegacyUserRemoval: true,
+      allowLegacyDevMigration: false,
     });
     const projectBefore = snapshot(targetFixtureValue.root);
     write(outside, "kcoderag-nav/replacement.txt", "outside-replacement\n");
