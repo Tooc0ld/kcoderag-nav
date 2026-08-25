@@ -795,6 +795,7 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
       details: Object.freeze({} satisfies CodexObservationDetails),
     });
   }
+  const encodedLegacyEnvironment = legacyEnvironment(stateBytes);
   try {
     let currentState: InstallState | undefined;
     try {
@@ -817,10 +818,9 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
         details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies CodexObservationDetails),
       });
     }
-    const legacyEnvironmentId = legacyEnvironment(stateBytes);
-    if (legacyEnvironmentId !== undefined) {
+    if (encodedLegacyEnvironment !== undefined) {
       const legacyState = parseLegacyInstallState(stateBytes, {
-        allowedPaths: legacyAllowedPaths(legacyEnvironmentId),
+        allowedPaths: legacyAllowedPaths(encodedLegacyEnvironment),
         requiredPaths: [CONFIG_PATH, HOOKS_PATH, SKILL_PATH],
       });
       validateLegacyState(context.target, legacyState);
@@ -842,12 +842,20 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
     }
     throw new InstallError("invalid_state", STATE_PATH);
   } catch (error) {
-    return Object.freeze({
+    const observation: {
+      host: "codex";
+      target: ProjectTarget;
+      issues: readonly StatusIssue[];
+      legacyEnvironment?: LegacyEnvironmentId;
+      details: Readonly<CodexObservationDetails>;
+    } = {
       host: "codex" as const,
       target: context.target,
       issues: Object.freeze([issueFrom(error)]),
       details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies CodexObservationDetails),
-    });
+    };
+    if (encodedLegacyEnvironment !== undefined) observation.legacyEnvironment = encodedLegacyEnvironment;
+    return Object.freeze(observation);
   }
 }
 
