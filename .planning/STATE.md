@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-08-25T05:41:02.270Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-08-25T06:15:11.564Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 732012c6a86c6d60b8a5aa9cc234cfe24ba22c88
+state_head: 57893b3952a524f48209ef72ba8e5a1fc7bf97d1
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 37
+  completed_plans: 38
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 4 of 19
+Plan: 5 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -91,6 +91,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P01 | 13min | 2 tasks | 4 files |
 | Phase 04 P14 | 5min | 2 tasks | 2 files |
 | Phase 04 P02 | 20 min | 3 tasks | 12 files |
+| Phase 04 P03 | 26min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -194,6 +195,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Current schema v1 is QA-only through parseInstallState; exact Python and Node QA/Dev records remain available only through parseLegacyInstallState.
 - [Phase 04]: General confirmation never implies legacy Dev conversion; install/update require independent observation-bound allowLegacyDevMigration authority.
 - [Phase 04]: Unsafe target boundaries are canonical and selected-host scoped, preserving ordinary non-VCS and other-host project directories.
+- [Phase 04]: Every public host lifecycle renders QA only; Dev identity is retained solely for exact legacy migration and uninstall compatibility.
+- [Phase 04]: Cursor user-local legacy ownership is filesystem and digest based, never credential-semantic.
+- [Phase 04]: Exactly decoded legacy identity remains attached to drift observations so managed drift is the primary refusal.
 
 ### Pending Todos
 
@@ -252,6 +256,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T05:41:01.976Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-08-25T06:15:11.246Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
