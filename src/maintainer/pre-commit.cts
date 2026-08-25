@@ -40,16 +40,21 @@ const CANONICAL_PATHS = Object.freeze([
   "src",
 ]);
 
-const GENERATED_PATHS = Object.freeze([
+const GENERATED_GROUPS = Object.freeze([
+  Object.freeze({ roots: Object.freeze(["kcoderag-qa"]), dirtyCode: "qa_generated_unstaged_changes" }),
+  Object.freeze({ roots: Object.freeze(["kcoderag-cursor"]), dirtyCode: "cursor_generated_unstaged_changes" }),
+]);
+
+const GENERATED_PATHS = Object.freeze(GENERATED_GROUPS.flatMap((group) => group.roots));
+
+const RETIRED_PATHS = Object.freeze([
   ".agents/plugins",
   ".claude-plugin",
   ".cursor-plugin",
-  "kcoderag-qa",
   "kcoderag-dev",
-  "kcoderag-cursor",
 ]);
 
-const MANAGED_PATHS = Object.freeze([...CANONICAL_PATHS, ...GENERATED_PATHS]);
+const MANAGED_PATHS = Object.freeze([...CANONICAL_PATHS, ...GENERATED_PATHS, ...RETIRED_PATHS]);
 
 function git(
   root: string,
@@ -79,6 +84,10 @@ function matchesRoot(relativePath: string, candidate: string): boolean {
 
 function isManaged(relativePath: string): boolean {
   return MANAGED_PATHS.some((candidate) => matchesRoot(relativePath, candidate));
+}
+
+function includesRoot(paths: readonly string[], roots: readonly string[]): boolean {
+  return paths.some((relativePath) => roots.some((candidate) => matchesRoot(relativePath, candidate)));
 }
 
 function resolveIndexPath(root: string, env: NodeJS.ProcessEnv): string {
@@ -200,13 +209,16 @@ export function runPreCommit(options: RunOptions): PreCommitResult {
     return result(false, "git_inspection_failed", []);
   }
   if (!paths.some(isManaged)) return result(true, "not_applicable", paths);
+  if (includesRoot(paths, RETIRED_PATHS)) return result(false, "retired_product_staged", paths);
 
   try {
     if (workingTreeIsDirty(root, env, CANONICAL_PATHS)) {
       return result(false, "canonical_unstaged_changes", paths);
     }
-    if (workingTreeIsDirty(root, env, GENERATED_PATHS)) {
-      return result(false, "generated_unstaged_changes", paths);
+    for (const group of GENERATED_GROUPS) {
+      if (workingTreeIsDirty(root, env, group.roots)) {
+        return result(false, group.dirtyCode, paths);
+      }
     }
   } catch {
     return result(false, "git_inspection_failed", paths);
@@ -227,8 +239,12 @@ const MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   git_inspection_failed: "Cannot inspect the staged KCodeRag files with Git.",
   canonical_unstaged_changes:
     "Canonical KCodeRag inputs have unstaged changes. Review and stage them explicitly.",
-  generated_unstaged_changes:
-    "Generated KCodeRag files have unstaged changes. Regenerate, review, and stage them explicitly.",
+  qa_generated_unstaged_changes:
+    "Generated KCodeRag QA files have unstaged changes. Regenerate, review, and stage the complete change explicitly.",
+  cursor_generated_unstaged_changes:
+    "Generated KCodeRag Cursor files have unstaged changes. Regenerate, review, and stage the complete change explicitly.",
+  retired_product_staged:
+    "Retired KCodeRag Dev or marketplace product files are staged; remove them from the public change.",
   build_failed: "KCodeRag Node build failed. Run npm run build for details.",
   generation_drift:
     "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",

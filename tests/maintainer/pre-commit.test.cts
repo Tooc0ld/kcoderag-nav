@@ -117,19 +117,25 @@ test("complete QA and Cursor staging runs checks while preserving unrelated dirt
 });
 
 test("staged retired Dev and marketplace roots fail before build without changing the alternate index", () => {
-  for (const relativePath of [
-    "kcoderag-dev/hooks/grep-nudge.cjs",
-    ".agents/plugins/kcoderag-nav/manifest.json",
-    ".claude-plugin/marketplace.json",
-    ".cursor-plugin/marketplace.json",
-  ]) {
+  for (const item of [
+    { relativePath: "kcoderag-dev/hooks/grep-nudge.cjs", deleted: true },
+    { relativePath: ".agents/plugins/kcoderag-nav/manifest.json", deleted: false },
+    { relativePath: ".claude-plugin/marketplace.json", deleted: false },
+    { relativePath: ".cursor-plugin/marketplace.json", deleted: false },
+  ] as const) {
+    const { relativePath } = item;
     const current = fixture("retired product");
     const destination = path.join(current.root, ...relativePath.split("/"));
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, "retired\n");
     git(current.root, ["add", relativePath], current.env);
+    if (item.deleted) {
+      git(current.root, ["commit", "--quiet", "-m", "retired baseline"], current.env);
+      fs.rmSync(destination);
+      git(current.root, ["add", "--update", "--", relativePath], current.env);
+    }
     const indexBefore = bytes(current.index);
-    const stagedBlob = git(current.root, ["rev-parse", `:${relativePath}`], current.env);
+    const stagedBlob = item.deleted ? undefined : git(current.root, ["rev-parse", `:${relativePath}`], current.env);
     let commands = 0;
 
     const result = preCommit.runPreCommit({
@@ -145,8 +151,12 @@ test("staged retired Dev and marketplace roots fail before build without changin
     assert.equal(result.code, "retired_product_staged", relativePath);
     assert.equal(commands, 0, relativePath);
     assert.deepEqual(bytes(current.index), indexBefore, relativePath);
-    assert.equal(git(current.root, ["rev-parse", `:${relativePath}`], current.env), stagedBlob, relativePath);
-    assert.equal(fs.readFileSync(destination, "utf8"), "retired\n", relativePath);
+    if (stagedBlob === undefined) {
+      assert.equal(fs.existsSync(destination), false, relativePath);
+    } else {
+      assert.equal(git(current.root, ["rev-parse", `:${relativePath}`], current.env), stagedBlob, relativePath);
+      assert.equal(fs.readFileSync(destination, "utf8"), "retired\n", relativePath);
+    }
   }
 });
 
