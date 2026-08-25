@@ -834,6 +834,79 @@ test("install and update run a full no-write source gate while uninstall remains
   }
 });
 
+test("source diagnosis invokes only the selected host and never lets another host conflict block it", async () => {
+  for (const selected of ["codex", "claude", "cursor"] as const) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapters = {
+        codex: makeAdapter("codex", calls),
+        claude: makeAdapter("claude", calls),
+        cursor: makeAdapter("cursor", calls),
+      };
+      for (const host of ["codex", "claude", "cursor"] as const) {
+        adapters[host].scanUserSources = (context: Record<string, unknown>) => {
+          calls.push(`${host}:scan:${String(context.mode)}`);
+          return host === selected
+            ? userSources.createSourceScanResult(String(context.mode), [])
+            : userSources.createSourceScanResult(String(context.mode), [sourceConflict().finding]);
+        };
+      }
+      const captured = io(item.target, adapters);
+      assert.equal(
+        await commands.executeCommand(
+          ["install", "--host", selected, "--yes", "--json"],
+          captured.dependencies,
+        ),
+        0,
+      );
+      assert.deepEqual(calls, [
+        `${selected}:detect`,
+        `${selected}:scan:gate`,
+        `${selected}:renderInstall:false:false`,
+      ]);
+      for (const sibling of ["codex", "claude", "cursor"].filter((host) => host !== selected)) {
+        assert.equal(fs.existsSync(path.join(item.target, `.fixture-${sibling}`)), false);
+      }
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("owned cleanup authority cannot be combined with legacy Dev migration authority", async () => {
+  const item = fixture();
+  try {
+    const calls: string[] = [];
+    const adapters = {
+      codex: makeAdapter("codex", calls, { legacyDev: true }),
+      claude: makeAdapter("claude", calls),
+      cursor: makeAdapter("cursor", calls),
+    };
+    const captured = io(item.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        [
+          "install", "--host", "codex", "--yes", "--json",
+          "--allow-legacy-dev-migration",
+          "--allow-owned-source-cleanup",
+          "--cleanup-fingerprint", `sha256:${"0".repeat(64)}`,
+        ],
+        captured.dependencies,
+      ),
+      2,
+    );
+    assert.deepEqual(calls, []);
+    assert.equal(
+      JSON.parse(captured.stdout[0] ?? "").error.code,
+      "owned_source_cleanup_authority_invalid",
+    );
+    assert.deepEqual(fs.readdirSync(item.target), []);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
 test("owned cleanup needs its dedicated flag and exact fresh fingerprint before render", async () => {
   const fixturePlan = sourceConflict(true);
   const fingerprint = String(fixturePlan.plan?.fingerprint);

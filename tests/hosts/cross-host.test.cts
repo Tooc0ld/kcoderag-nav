@@ -17,6 +17,12 @@ const registry = require("../../dist/hosts/index.cjs") as {
 const codex = require("../../dist/hosts/codex.cjs") as {
   createCodexAdapter(options: Record<string, unknown>): Record<string, unknown>;
 };
+const claude = require("../../dist/hosts/claude.cjs") as {
+  createClaudeAdapter(options: Record<string, unknown>): Record<string, unknown>;
+};
+const cursor = require("../../dist/hosts/cursor.cjs") as {
+  createCursorAdapter(options: Record<string, unknown>): Record<string, unknown>;
+};
 
 const isolatedCodexAdapter = codex.createCodexAdapter({
   runner: async (request: { readonly executable: string; readonly args: readonly string[]; readonly timeoutMs: number }) => {
@@ -46,6 +52,41 @@ const isolatedCodexAdapter = codex.createCodexAdapter({
   readUserSources: () => ({
     registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
   }),
+});
+
+const isolatedClaudeAdapter = claude.createClaudeAdapter({
+  runner: async (request: { readonly executable: string; readonly args: readonly string[] }) => {
+    const command = [request.executable, ...request.args].join(" ");
+    if (command === "claude --version") {
+      return { exitCode: 0, timedOut: false, stdout: "2.1.241 (Claude Code)\n" };
+    }
+    if (command.endsWith(" --help")) {
+      return { exitCode: 0, timedOut: false, stdout: "Usage: native command --json --scope user project local" };
+    }
+    if (command === "claude plugin list --json") {
+      return { exitCode: 0, timedOut: false, stdout: "[]" };
+    }
+    if (command === "claude plugin marketplace list --json") {
+      return { exitCode: 0, timedOut: false, stdout: "[]" };
+    }
+    return { exitCode: 1, timedOut: false };
+  },
+  readUserSources: () => ({
+    registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+  }),
+});
+
+const isolatedCursorAdapter = cursor.createCursorAdapter({
+  readUserSources: () => ({
+    activePluginPaths: [], rawMcpPaths: [], manualRulePaths: [], cachePaths: [],
+    disabledPaths: [], ambiguousPaths: [],
+  }),
+});
+
+const isolatedAdapters: Readonly<Record<HostId, Record<string, unknown>>> = Object.freeze({
+  codex: isolatedCodexAdapter,
+  claude: isolatedClaudeAdapter,
+  cursor: isolatedCursorAdapter,
 });
 
 function write(root: string, relativePath: string, value: string | Buffer): void {
@@ -145,9 +186,7 @@ async function run(
     nodeVersion: "22.20.0",
     stdout: (text: string) => stdout.push(text),
     stderr: (text: string) => stderr.push(text),
-    getAdapter: (selectedHost: HostId) => selectedHost === "codex"
-      ? isolatedCodexAdapter
-      : registry.getHostAdapter(selectedHost),
+    getAdapter: (selectedHost: HostId) => isolatedAdapters[selectedHost],
     ...extraDependencies,
   });
   return { exitCode, output: JSON.parse(stdout[0] ?? "{}") as Record<string, unknown>, stderr };
@@ -215,6 +254,7 @@ test("interactive host selection installs only the selected QA adapter", async (
         seen.push([...hosts]);
         return "claude";
       },
+      getAdapter: (selectedHost: HostId) => isolatedAdapters[selectedHost],
     });
     assert.equal(selected, 0);
     assert.deepEqual(seen, [["codex", "claude", "cursor"]]);
