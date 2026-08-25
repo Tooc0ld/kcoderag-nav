@@ -10,7 +10,11 @@ type HostId = "codex" | "claude" | "cursor";
 
 interface CursorModule {
   readonly cursorAdapter: Record<string, any>;
-  createCursorAdapter(options: { readonly legacyLocalRoot: string }): Record<string, any>;
+  createCursorAdapter(options?: {
+    readonly legacyLocalRoot?: string;
+    readonly homeDirectory?: string;
+    readonly readUserSources?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+  }): Record<string, any>;
   migrateCursorLegacyInstall(
     desired: Record<string, unknown>,
     observation: Record<string, unknown>,
@@ -36,6 +40,32 @@ const transaction = require("../../dist/core/transaction.cjs") as {
 
 const STATE_PATH = ".cursor/kcoderag-nav/install-state.json";
 const LEGACY_STATE = ".kcoderag-nav.install-state.json";
+
+function emptyCursorUserSources(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    activePluginPaths: [],
+    rawMcpPaths: [],
+    manualRulePaths: [],
+    cachePaths: [],
+    disabledPaths: [],
+    ambiguousPaths: [],
+    ...overrides,
+  };
+}
+
+function cursorScannerContext(
+  adapter: Record<string, any>,
+  mode: "fast" | "deep" | "gate",
+): Promise<Record<string, any>> {
+  const target = { root: path.resolve(".") };
+  if (typeof adapter.scanUserSources !== "function") throw new Error("scanner missing");
+  return adapter.scanUserSources({
+    mode,
+    target,
+    packageRoot: path.resolve("."),
+    observation: { host: "cursor", target },
+  });
+}
 
 function sha256(bytes: Buffer | string): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -733,5 +763,88 @@ test("legacy migration refuses an ancestor swap in the final quarantine window w
     }
     fs.rmSync(base, { recursive: true, force: true });
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("Cursor source scans distinguish active plugin, raw MCP, and manual Rule without a Hook claim", async () => {
+  const adapter = cursor.createCursorAdapter({
+    legacyLocalRoot: path.resolve("absent-cursor-legacy"),
+    readUserSources: () => emptyCursorUserSources({
+      activePluginPaths: [".cursor/plugins/local/kcoderag-nav"],
+      rawMcpPaths: [".cursor/mcp.json"],
+      manualRulePaths: [".cursor/rules/kcoderag-navigation.mdc"],
+      cachePaths: [".cursor/plugins/cache/kcoderag-nav"],
+      disabledPaths: [".cursor/plugins/disabled/kcoderag-nav"],
+    }),
+  });
+
+  const fast = await cursorScannerContext(adapter, "fast");
+  assert.equal(fast.hasConflict, true);
+  assert.deepEqual(
+    new Set(fast.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
+    new Set(["active_plugin", "raw_mcp", "manual_rule"]),
+  );
+  assert.ok(fast.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));
+  assert.equal(fast.cleanupPlans.length, 0);
+  assert.doesNotMatch(JSON.stringify(fast), /manual_hook|PreToolUse/);
+
+  const deep = await cursorScannerContext(adapter, "deep");
+  assert.deepEqual(
+    new Set(deep.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
+    new Set(["active_plugin", "raw_mcp", "manual_rule", "cache_residue", "disabled_registration"]),
+  );
+  assert.equal(deep.findings.filter((finding: Record<string, unknown>) => finding.severity === "info").length, 2);
+  assert.equal(typeof adapter.cleanupOwnedSource, "undefined");
+});
+
+test("Cursor exact legacy metadata is diagnosed without exposing credential-bearing file bytes", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-source-legacy-"));
+  try {
+    const pkg = packageFixture(base);
+    const legacy = legacyFixture(base, pkg, "qa");
+    const adapter = cursor.createCursorAdapter({
+      legacyLocalRoot: legacy.localRoot,
+      homeDirectory: base,
+    });
+    const scan = await cursorScannerContext(adapter, "deep");
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.deepEqual(scan.findings.map((finding: Record<string, unknown>) => finding.sourceType), [
+      "active_plugin",
+    ]);
+    assert.deepEqual(scan.findings.map((finding: Record<string, unknown>) => finding.safePath), [
+      ".cursor/plugins/local/kcoderag-nav",
+    ]);
+    assert.doesNotMatch(JSON.stringify(scan), new RegExp(pkg.secret));
+    assert.doesNotMatch(JSON.stringify(scan), /https:\/\//);
+
+    write(legacy.pluginRoot, "rules/kcoderag-navigation.mdc", "drifted without reading values\n");
+    const ambiguous = await cursorScannerContext(adapter, "gate");
+    assert.equal(ambiguous.hasConflict, true);
+    assert.equal(ambiguous.cleanupPlans.length, 0);
+    assert.ok(ambiguous.findings.some((finding: Record<string, unknown>) =>
+      finding.sourceType === "ambiguous"));
+    assert.doesNotMatch(JSON.stringify(ambiguous), new RegExp(pkg.secret));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("Cursor malformed metadata stays manual-only and sentinel-safe", async () => {
+  const sentinel = `Bearer-${crypto.randomUUID()}`;
+  for (const metadata of [
+    { ...emptyCursorUserSources(), activePluginPaths: [sentinel] },
+    { ...emptyCursorUserSources(), manualRulePaths: [".cursor/hooks/kcoderag.json"] },
+    { ...emptyCursorUserSources(), rawMcpPaths: "not-an-array" },
+  ]) {
+    const adapter = cursor.createCursorAdapter({
+      legacyLocalRoot: path.resolve("absent-cursor-legacy"),
+      readUserSources: () => metadata,
+    });
+    const scan = await cursorScannerContext(adapter, "gate");
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.ok(scan.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));
+    assert.doesNotMatch(JSON.stringify(scan), new RegExp(sentinel));
   }
 });
