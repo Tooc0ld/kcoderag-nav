@@ -6,7 +6,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type Product = "qa" | "dev" | "cursor";
+type Product = "qa" | "cursor";
 type ProductSelection = Product | "all";
 type AssetGroup =
   | "runtime-cjs"
@@ -50,7 +50,7 @@ interface GeneratorModule {
 
 const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 
-const EXPECTED_GROUPS: GeneratorModule["ASSET_GROUP_PATHS"] = {
+const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
     "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/update-check.cjs", "hooks/update-worker.cjs"],
     "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh"],
@@ -103,7 +103,6 @@ const EXPECTED_GROUPS: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/code-lookup-discipline/SKILL.md",
     ],
   },
-  dev: {} as GeneratorModule["ASSET_GROUP_PATHS"]["dev"],
   cursor: {
     "runtime-cjs": [],
     "runtime-launcher": [],
@@ -129,10 +128,6 @@ const EXPECTED_GROUPS: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
   },
 };
-const expectedGroups = {
-  ...EXPECTED_GROUPS,
-  dev: EXPECTED_GROUPS.qa,
-} as GeneratorModule["ASSET_GROUP_PATHS"];
 
 interface Fixture {
   readonly root: string;
@@ -151,22 +146,21 @@ function canonicalJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function environment(id: "qa" | "dev"): Record<string, string> {
-  const title = id === "qa" ? "QA" : "Dev";
+function qaEnvironment(): Record<string, string> {
   return {
-    id,
-    plugin_name: `kcoderag-${id}`,
-    server_name: `kcoderag-${id}`,
-    mcp_source: `plugin-src/environments/${id}.mcp.json`,
-    permission_namespace: `mcp__plugin_kcoderag-${id}_kcoderag-${id}__*`,
-    agent_tool_prefix: `mcp__plugin_kcoderag-${id}_kcoderag-${id}__`,
-    display_name: `KCodeRag ${title}`,
-    short_description: `${title} short`,
-    long_description: `${title} long`,
-    manifest_description: `${title} manifest`,
-    claude_description: `${title} claude`,
-    marketplace_description: `${title} marketplace`,
-    brand_color: id === "qa" ? "#111111" : "#222222",
+    id: "qa",
+    plugin_name: "kcoderag-qa",
+    server_name: "kcoderag-qa",
+    mcp_source: "plugin-src/environments/qa.mcp.json",
+    permission_namespace: "mcp__plugin_kcoderag-qa_kcoderag-qa__*",
+    agent_tool_prefix: "mcp__plugin_kcoderag-qa_kcoderag-qa__",
+    display_name: "KCodeRag QA",
+    short_description: "QA short",
+    long_description: "QA long",
+    manifest_description: "QA manifest",
+    claude_description: "QA claude",
+    marketplace_description: "QA marketplace",
+    brand_color: "#111111",
   };
 }
 
@@ -180,33 +174,28 @@ function createFixture(): Fixture {
   write(
     sourceRoot,
     "plugin-src/environments.json",
-    canonicalJson({ environments: [environment("qa"), environment("dev")] }),
+    canonicalJson({ environments: [qaEnvironment()] }),
   );
-  for (const id of ["qa", "dev"] as const) {
-    write(
-      sourceRoot,
-      `plugin-src/environments/${id}.mcp.json`,
-      canonicalJson({
-        mcpServers: {
-          [`kcoderag-${id}`]: {
-            type: "http",
-            url: `https://${id}.example.invalid/mcp`,
-            headers: { Authorization: `Bearer ${secret}-${id}` },
-          },
+  write(
+    sourceRoot,
+    "plugin-src/environments/qa.mcp.json",
+    canonicalJson({
+      mcpServers: {
+        "kcoderag-qa": {
+          type: "http",
+          url: "https://qa.example.invalid/mcp",
+          headers: { Authorization: `Bearer ${secret}-qa` },
         },
-      }),
-    );
-  }
+      },
+    }),
+  );
   write(
     sourceRoot,
     "plugin-src/routing.json",
     canonicalJson({
-      version: 2,
-      mutually_exclusive: ["qa", "dev"],
-      rules: [
-        { installed: ["qa"], intent: "default", routes: ["qa"] },
-        { installed: ["dev"], intent: "default", routes: ["dev"] },
-      ],
+      version: 3,
+      environment: "qa",
+      rule: { intent: "default", routes: ["qa"] },
     }),
   );
   write(sourceRoot, "plugin-src/hooks/hooks.json", canonicalJson({ hooks: { PreToolUse: [] } }));
@@ -323,7 +312,7 @@ test("writes only changed selected paths and keeps check mode byte-for-byte read
   }
 });
 
-test("renders all products deterministically from package.json without logging opaque values", () => {
+test("renders QA and Cursor deterministically from package.json without logging opaque values", () => {
   const fixture = createFixture();
   try {
     const first = generator.generatePackage({
@@ -333,7 +322,7 @@ test("renders all products deterministically from package.json without logging o
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 31);
+    assert.equal(first.writtenPaths.length, 18);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({
@@ -348,8 +337,6 @@ test("renders all products deterministically from package.json without logging o
     for (const manifest of [
       "kcoderag-qa/.codex-plugin/plugin.json",
       "kcoderag-qa/.claude-plugin/plugin.json",
-      "kcoderag-dev/.codex-plugin/plugin.json",
-      "kcoderag-dev/.claude-plugin/plugin.json",
       "kcoderag-cursor/.cursor-plugin/plugin.json",
     ]) {
       const document = JSON.parse(fs.readFileSync(path.join(fixture.outputRoot, ...manifest.split("/")), "utf8")) as {
@@ -407,7 +394,7 @@ test("rejects template tokens and source path escapes before any output mutation
 test("rolls back every changed path when an atomic commit fails", () => {
   const fixture = createFixture();
   try {
-    for (const relativePath of EXPECTED_GROUPS.qa["runtime-cjs"]) {
+    for (const relativePath of expectedGroups.qa["runtime-cjs"]) {
       write(fixture.outputRoot, `kcoderag-qa/${relativePath}`, `old:${relativePath}\n`);
     }
     const before = snapshot(fixture.outputRoot);
@@ -433,7 +420,7 @@ test("rolls back every changed path when an atomic commit fails", () => {
 
 function expectedSelected(product: ProductSelection, group: AssetGroup): readonly string[] {
   const products = product === "all"
-    ? (["qa", "dev", "cursor"] as const).filter((candidate) => expectedGroups[candidate][group].length > 0)
+    ? (["qa", "cursor"] as const).filter((candidate) => expectedGroups[candidate][group].length > 0)
     : [product];
   return products.flatMap((candidate) =>
     expectedGroups[candidate][group].map((asset) => `kcoderag-${candidate}/${asset}`)
@@ -441,7 +428,7 @@ function expectedSelected(product: ProductSelection, group: AssetGroup): readonl
 }
 
 test("every legal product and group reports the exact changed subset", () => {
-  const packages: readonly ProductSelection[] = ["qa", "dev", "cursor", "all"];
+  const packages: readonly ProductSelection[] = ["qa", "cursor", "all"];
   const groups = Object.keys(expectedGroups.qa) as AssetGroup[];
   for (const selectedPackage of packages) {
     for (const group of groups) {
@@ -548,6 +535,17 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
   try {
     write(fixture.outputRoot, "unrelated/keep.txt", "keep\n");
     const before = snapshot(fixture.outputRoot);
+    const retired = runGeneratorCli(fixture, ["--package", "dev", "--group", "docs"]);
+    assert.equal(retired.status, 2);
+    assert.deepEqual(JSON.parse(retired.stderr), {
+      ok: false,
+      code: "retired_product",
+      path: "kcoderag-dev",
+    });
+    assert.equal(retired.stdout, "");
+    assert.equal(retired.stderr.includes(fixture.secret), false);
+    assert.deepEqual(snapshot(fixture.outputRoot), before);
+
     const invalidArguments = [
       ["--package", "unknown", "--group", "docs"],
       ["--package", "qa", "--group", "unknown"],
@@ -567,12 +565,12 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
   }
 });
 
-test("all-product rendering validates every product before committing any result", () => {
+test("all-product rendering validates every public product before committing any result", () => {
   const fixture = createFixture();
   try {
     write(fixture.outputRoot, "unrelated/keep.txt", "keep\n");
     const before = snapshot(fixture.outputRoot);
-    fs.rmSync(path.join(fixture.sourceRoot, "plugin-src", "environments", "dev.mcp.json"));
+    fs.rmSync(path.join(fixture.sourceRoot, "plugin-src", "environments", "qa.mcp.json"));
     assert.throws(
       () => generator.generatePackage({
         package: "all",
@@ -583,6 +581,43 @@ test("all-product rendering validates every product before committing any result
       /missing_input/u,
     );
     assert.deepEqual(snapshot(fixture.outputRoot), before);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("full all/all check blocks a retired Dev directory while targeted checks ignore it", () => {
+  const fixture = createFixture();
+  try {
+    generator.generatePackage({
+      package: "all",
+      group: "all",
+      sourceRoot: fixture.sourceRoot,
+      outputRoot: fixture.outputRoot,
+    });
+    write(fixture.outputRoot, "kcoderag-dev/legacy.txt", "retired product fixture\n");
+
+    for (const selectedPackage of ["qa", "cursor"] as const) {
+      const targeted = generator.checkGenerated({
+        package: selectedPackage,
+        group: "all",
+        sourceRoot: fixture.sourceRoot,
+        outputRoot: fixture.outputRoot,
+      });
+      assert.equal(targeted.ok, true);
+      assert.deepEqual(targeted.diagnostics, []);
+    }
+
+    const repositoryCheck = generator.checkGenerated({
+      package: "all",
+      group: "all",
+      sourceRoot: fixture.sourceRoot,
+      outputRoot: fixture.outputRoot,
+    });
+    assert.equal(repositoryCheck.ok, false);
+    assert.deepEqual(repositoryCheck.changedPaths, ["kcoderag-dev"]);
+    assert.deepEqual(repositoryCheck.diagnostics, ["retired_product: kcoderag-dev"]);
+    assert.equal(JSON.stringify(repositoryCheck).includes(fixture.secret), false);
   } finally {
     cleanup(fixture);
   }
