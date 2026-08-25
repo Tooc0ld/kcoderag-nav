@@ -21,6 +21,16 @@ const projectTarget = require("../../dist/core/project-target.cjs") as {
 const transaction = require("../../dist/core/transaction.cjs") as {
   applyTransaction(desired: Record<string, unknown>, options?: { failAtCommit?: number }): unknown;
 };
+const coreState = require("../../dist/core/state.cjs") as {
+  parseInstallState(bytes: Buffer): Readonly<Record<string, unknown>> & {
+    readonly environment: "qa";
+    readonly managedFiles: readonly string[];
+  };
+  parseLegacyInstallState(
+    bytes: Buffer,
+    options: { allowedPaths: readonly string[]; requiredPaths: readonly string[] },
+  ): Readonly<Record<string, unknown>> & { environment: EnvironmentId };
+};
 
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".codex/config.toml";
@@ -68,6 +78,69 @@ function snapshot(root: string): readonly string[] {
   visit(root);
   return records;
 }
+
+function currentState(environment: EnvironmentId, extra: Record<string, unknown> = {}): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schemaVersion: 1,
+    packageVersion: "0.1.8",
+    host: "codex",
+    environment,
+    managedFiles: [".codex/kcoderag-nav/install-state.json"],
+    originals: {},
+    digests: {},
+    ...extra,
+  })}\n`, "utf8");
+}
+
+test("current state is exact, immutable, QA-only, and independent of the project path", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-current-state-"));
+  try {
+    const before = path.join(base, "before");
+    const after = path.join(base, "renamed");
+    fs.mkdirSync(before);
+    write(before, STATE_PATH, currentState("qa"));
+    fs.renameSync(before, after);
+
+    const parsed = coreState.parseInstallState(read(after, STATE_PATH));
+    assert.equal(parsed.environment, "qa");
+    assert.equal(Object.isFrozen(parsed), true);
+    assert.equal(Object.isFrozen(parsed.managedFiles), true);
+    assert.equal("projectRoot" in parsed, false);
+    assert.throws(() => coreState.parseInstallState(currentState("dev")), /invalid_state/);
+    assert.throws(
+      () => coreState.parseInstallState(currentState("qa", { projectRoot: "retired-absolute-binding" })),
+      /invalid_state/,
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("the named legacy decoder alone accepts exact Python and Node QA or Dev records", () => {
+  const relativePath = ".codex/kcoderag-nav/install-state.json";
+  const options = { allowedPaths: [relativePath], requiredPaths: [relativePath] };
+  for (const environment of ["qa", "dev"] as const) {
+    const python = Buffer.from(`${JSON.stringify({
+      version: 1,
+      active_environments: [environment],
+      originals: { [relativePath]: { existed: false, base64: "" } },
+      digests: { [relativePath]: "0".repeat(64) },
+    })}\n`, "utf8");
+    assert.equal(coreState.parseLegacyInstallState(python, options).environment, environment);
+    assert.equal(
+      coreState.parseLegacyInstallState(currentState(environment), options).environment,
+      environment,
+    );
+  }
+
+  assert.throws(
+    () => coreState.parseLegacyInstallState(
+      currentState("dev", { unknown: true }),
+      options,
+    ),
+    /invalid_state/,
+  );
+});
 
 function makePackage(base: string): string {
   const root = path.join(base, "package");
