@@ -12,16 +12,31 @@ type SmokeStatus = "PASS" | "FAIL" | "NOT_RUN";
 
 interface SmokeEvidence {
   readonly packageAcquired: boolean;
+  readonly preinstall: boolean;
   readonly install: boolean;
+  readonly qaOnly: boolean;
   readonly status: boolean;
+  readonly doctor: boolean;
   readonly toolRegistration: boolean;
   readonly navigation: boolean;
   readonly mcpInitialize: boolean;
   readonly mcpList: boolean;
   readonly mcpCall: boolean;
   readonly update: boolean;
+  readonly sourceConflict: boolean;
+  readonly conflictInstallBlocked: boolean;
+  readonly conflictUpdateBlocked: boolean;
+  readonly conflictUninstallAllowed: boolean;
   readonly uninstall: boolean;
   readonly stubReceipt: boolean;
+}
+
+interface NavigationContract {
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp";
+  readonly root: boolean;
+  readonly deep: boolean;
+  readonly sameProject: boolean;
+  readonly fingerprint: string;
 }
 
 interface HostSmokeResult {
@@ -31,6 +46,7 @@ interface HostSmokeResult {
   readonly status: SmokeStatus;
   readonly reason: string;
   readonly evidence: SmokeEvidence;
+  readonly navigationContract?: NavigationContract;
   readonly provenance?: PackageProvenance;
 }
 
@@ -235,14 +251,21 @@ async function postJson(url: string, payload: unknown): Promise<{ status: number
 test("required contract has an explicit all-evidence PASS matrix", () => {
   assert.deepEqual(smoke.EVIDENCE_KEYS, [
     "packageAcquired",
+    "preinstall",
     "install",
+    "qaOnly",
     "status",
+    "doctor",
     "toolRegistration",
     "navigation",
     "mcpInitialize",
     "mcpList",
     "mcpCall",
     "update",
+    "sourceConflict",
+    "conflictInstallBlocked",
+    "conflictUpdateBlocked",
+    "conflictUninstallAllowed",
     "uninstall",
     "stubReceipt",
   ]);
@@ -491,6 +514,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
       const requestedPackageSpec = selector === "exact" ? `kcoderag-nav@${fixture.version}` : "kcoderag-nav@latest";
       const sourceBytes = fs.readFileSync(fixture.tarball);
       const artifactSha512 = crypto.createHash("sha512").update(sourceBytes).digest("hex");
+      const lifecycleCommands = new Set<string>();
       const result = await smoke.runHostSmoke(
         {
           mode: "required-contract",
@@ -499,7 +523,17 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           temporaryRoot: root,
           hosts: ["codex", "claude", "cursor"],
         },
-        { runNpm: publicRegistryRunner(fixture.tarball, fixture.version) },
+        {
+          runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
+            if (args[0] !== "exec") return;
+            const executable = args.indexOf("kcoderag-nav");
+            const command = executable < 0 ? undefined : args[executable + 1];
+            if (command !== undefined) lifecycleCommands.add(command);
+            assert.equal(args.includes("--env"), false);
+            assert.equal(args.includes("--environment"), false);
+            assert.equal(args.some((argument) => argument === "dev"), false);
+          }),
+        },
       );
       assert.equal(result.status, "PASS", JSON.stringify(result));
       assert.deepEqual(result.provenance, {
@@ -530,9 +564,25 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
         assert.equal(host.status, "PASS");
         assert.equal(host.provenance, result.provenance);
         assert.deepEqual(host.evidence, smoke.completeEvidence());
+        assert.deepEqual(Object.keys(host.navigationContract ?? {}).sort(), [
+          "deep",
+          "fingerprint",
+          "kind",
+          "root",
+          "sameProject",
+        ]);
+        assert.equal(host.navigationContract?.kind, host.host === "cursor" ? "rule_skill_mcp" : "pretooluse_hook");
+        assert.equal(host.navigationContract?.root, true);
+        assert.equal(host.navigationContract?.deep, true);
+        assert.equal(host.navigationContract?.sameProject, true);
+        assert.match(host.navigationContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
       }
+      assert.deepEqual([...lifecycleCommands].sort(), ["doctor", "install", "status", "uninstall", "update"]);
       const serialized = JSON.stringify(result);
-      assert.doesNotMatch(serialized, /repository-fixture|node_modules|synthetic-pack|Authorization|Bearer/iu);
+      assert.doesNotMatch(
+        serialized,
+        /repository-fixture|node_modules|synthetic-pack|Authorization|Bearer|kcoderag-dev|"(?:config|command|absolutePath|stdout|stderr|body|headers?|token)"\s*:/iu,
+      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
