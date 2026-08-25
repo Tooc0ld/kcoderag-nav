@@ -17,6 +17,18 @@ const projectRoot = require("../../dist/core/project-root.cjs") as {
     readonly maxAncestors?: number;
   }): { readonly projectRoot: string; readonly launcherPath: string } | undefined;
 };
+const targets = require("../../dist/core/project-target.cjs") as {
+  resolveProjectTarget(target: string): Record<string, unknown>;
+};
+const transaction = require("../../dist/core/transaction.cjs") as {
+  applyTransaction(desired: Record<string, unknown>): unknown;
+};
+const codex = require("../../dist/hosts/codex.cjs") as {
+  codexAdapter: Record<string, any>;
+};
+const claude = require("../../dist/hosts/claude.cjs") as {
+  claudeAdapter: Record<string, any>;
+};
 const structuralPayload = JSON.stringify({
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
@@ -75,6 +87,107 @@ function discoveryOptions(
     stateRelativePath: `${hostRoot}/kcoderag-nav/install-state.json`,
     launcherRelativePath: `${hostRoot}/kcoderag-nav/qa/hooks/${launcherName}`,
   } as const;
+}
+
+function adapterPackage(base: string): string {
+  const root = path.join(base, "package");
+  write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.2.0" })}\n`);
+  write(root, "kcoderag-qa/.codex.mcp.json", `${JSON.stringify({
+    mcpServers: {
+      "kcoderag-qa": {
+        url: "https://qa.invalid/mcp",
+        http_headers: { Authorization: "opaque-test-value" },
+      },
+    },
+  })}\n`);
+  write(root, "kcoderag-qa/.mcp.json", `${JSON.stringify({
+    mcpServers: {
+      "kcoderag-qa": {
+        type: "http",
+        url: "https://qa.invalid/mcp",
+        headers: { Authorization: "opaque-test-value" },
+      },
+    },
+  })}\n`);
+  write(root, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md", "# QA lookup\n");
+  for (const asset of [
+    "grep-nudge.cjs",
+    "run_hook.cmd",
+    "run_hook.sh",
+    "update-check.cjs",
+    "update-worker.cjs",
+  ]) {
+    const source = path.resolve("kcoderag-qa", "hooks", asset);
+    write(root, `kcoderag-qa/hooks/${asset}`, fs.readFileSync(source));
+  }
+  return root;
+}
+
+interface InstalledCommand {
+  readonly command: string;
+  readonly commandWindows: string;
+}
+
+function installHost(
+  base: string,
+  host: "codex" | "claude",
+  packageRoot: string,
+): { readonly root: string; readonly command: InstalledCommand } {
+  const root = path.join(base, `${host}-project`);
+  fs.mkdirSync(root);
+  const target = targets.resolveProjectTarget(root);
+  const adapter = host === "codex" ? codex.codexAdapter : claude.claudeAdapter;
+  const observation = adapter.detect({ target, packageRoot });
+  const desired = adapter.renderInstall({
+    target,
+    packageRoot,
+    command: "install",
+    environment: "qa",
+    observation,
+    allowLegacyUserRemoval: false,
+    allowLegacyDevMigration: false,
+  });
+  transaction.applyTransaction(desired);
+  const settingsPath = host === "codex" ? ".codex/hooks.json" : ".claude/settings.json";
+  const document = JSON.parse(fs.readFileSync(path.join(root, ...settingsPath.split("/")), "utf8"));
+  const entries = document.hooks.PreToolUse as readonly Record<string, any>[];
+  const entry = entries.find((candidate) =>
+    JSON.stringify(candidate).includes("Checking code lookup strategy"));
+  const command = entry?.hooks?.[0] as InstalledCommand | undefined;
+  assert.ok(command);
+  return { root, command };
+}
+
+function runRenderedWindows(
+  command: string,
+  cwd: string,
+  input = structuralPayload,
+  env = environment(),
+): ReturnType<typeof childProcess.spawnSync> {
+  const comspec = process.env.COMSPEC ?? "cmd.exe";
+  return childProcess.spawnSync(comspec, ["/d", "/c", command], {
+    cwd,
+    input: `${input}\n`,
+    encoding: "utf8",
+    timeout: 7_000,
+    env,
+  });
+}
+
+function runRenderedPosix(
+  shellExecutable: string,
+  command: string,
+  cwd: string,
+  input = structuralPayload,
+  env = environment(),
+): ReturnType<typeof childProcess.spawnSync> {
+  return childProcess.spawnSync(shellExecutable, ["-c", command], {
+    cwd,
+    input,
+    encoding: "utf8",
+    timeout: 7_000,
+    env,
+  });
 }
 
 function deployment(): Deployment {
@@ -165,6 +278,9 @@ test("hook registration is limited to the required PreToolUse tools and launcher
   assert.equal(registration.hooks.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash)$");
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /run_hook\.sh/);
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /run_hook\.cmd/);
+  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /install-state\.json/);
+  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /install-state\.json/);
+  assert.doesNotMatch(JSON.stringify(registration), /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/);
 
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
@@ -173,6 +289,29 @@ test("hook registration is limited to the required PreToolUse tools and launcher
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
     assert.doesNotMatch(source, /%CD%|\$PWD/iu);
+  }
+});
+
+test("installed Codex and Claude commands run from project root and a Unicode deep child", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-rendered-command-"));
+  try {
+    const packageRoot = adapterPackage(base);
+    for (const host of ["codex", "claude"] as const) {
+      const installed = installHost(base, host, packageRoot);
+      const deep = path.join(installed.root, "workspace with spaces", "子目录", "src");
+      fs.mkdirSync(deep, { recursive: true });
+      if (process.platform === "win32") {
+        assertProtocolResult(runRenderedWindows(installed.command.commandWindows, installed.root));
+        assertProtocolResult(runRenderedWindows(installed.command.commandWindows, deep));
+      }
+      const shellExecutable = posixShell();
+      if (shellExecutable !== undefined) {
+        assertProtocolResult(runRenderedPosix(shellExecutable, installed.command.command, installed.root));
+        assertProtocolResult(runRenderedPosix(shellExecutable, installed.command.command, deep));
+      }
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
