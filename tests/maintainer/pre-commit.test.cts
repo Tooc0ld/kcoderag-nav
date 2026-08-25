@@ -83,6 +83,73 @@ test("unrelated staged files take the fast path without invoking build or genera
   assert.deepEqual(bytes(current.index), before);
 });
 
+test("complete QA and Cursor staging runs checks while preserving unrelated dirty and untracked work", () => {
+  for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
+    const current = fixture(`${product} complete group`);
+    const generated = path.join(current.root, product, "README.md");
+    const untracked = path.join(current.root, "local scratch.txt");
+    fs.mkdirSync(path.dirname(generated), { recursive: true });
+    fs.writeFileSync(generated, `${product}\n`);
+    git(current.root, ["add", `${product}/README.md`], current.env);
+    fs.writeFileSync(path.join(current.root, "notes.txt"), "unrelated dirty bytes\n");
+    fs.writeFileSync(untracked, "unrelated untracked bytes\n");
+    const indexBefore = bytes(current.index);
+    const dirtyBefore = bytes(path.join(current.root, "notes.txt"));
+    const untrackedBefore = bytes(untracked);
+    const commands: string[] = [];
+
+    const result = preCommit.runPreCommit({
+      root: current.root,
+      env: current.env,
+      runCommand: (command, args) => {
+        commands.push([command, ...args].join(" "));
+        return { status: 0 };
+      },
+    });
+
+    assert.equal(result.ok, true, product);
+    assert.equal(result.code, "verified", product);
+    assert.deepEqual(commands, ["npm run build", "npm run generate:check"], product);
+    assert.deepEqual(bytes(current.index), indexBefore, product);
+    assert.deepEqual(bytes(path.join(current.root, "notes.txt")), dirtyBefore, product);
+    assert.deepEqual(bytes(untracked), untrackedBefore, product);
+  }
+});
+
+test("staged retired Dev and marketplace roots fail before build without changing the alternate index", () => {
+  for (const relativePath of [
+    "kcoderag-dev/hooks/grep-nudge.cjs",
+    ".agents/plugins/kcoderag-nav/manifest.json",
+    ".claude-plugin/marketplace.json",
+    ".cursor-plugin/marketplace.json",
+  ]) {
+    const current = fixture("retired product");
+    const destination = path.join(current.root, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, "retired\n");
+    git(current.root, ["add", relativePath], current.env);
+    const indexBefore = bytes(current.index);
+    const stagedBlob = git(current.root, ["rev-parse", `:${relativePath}`], current.env);
+    let commands = 0;
+
+    const result = preCommit.runPreCommit({
+      root: current.root,
+      env: current.env,
+      runCommand: () => {
+        commands += 1;
+        return { status: 0 };
+      },
+    });
+
+    assert.equal(result.ok, false, relativePath);
+    assert.equal(result.code, "retired_product_staged", relativePath);
+    assert.equal(commands, 0, relativePath);
+    assert.deepEqual(bytes(current.index), indexBefore, relativePath);
+    assert.equal(git(current.root, ["rev-parse", `:${relativePath}`], current.env), stagedBlob, relativePath);
+    assert.equal(fs.readFileSync(destination, "utf8"), "retired\n", relativePath);
+  }
+});
+
 test("partial staging preserves index bytes, staged blob A, and working bytes B exactly", () => {
   const current = fixture("partial stage");
   fs.writeFileSync(path.join(current.root, "package.json"), '{"name":"fixture","version":"1.0.1"}\n');
@@ -111,37 +178,40 @@ test("partial staging preserves index bytes, staged blob A, and working bytes B 
   assert.deepEqual(bytes(path.join(current.root, "package.json")), workingBefore);
 });
 
-test("stale generated blob A cannot be approved through working generated blob B", () => {
-  const current = fixture("generated partial stage");
-  const generated = path.join(current.root, "kcoderag-qa", "README.md");
-  fs.mkdirSync(path.dirname(generated), { recursive: true });
-  fs.writeFileSync(generated, "base\n");
-  git(current.root, ["add", "kcoderag-qa/README.md"], current.env);
-  git(current.root, ["commit", "--quiet", "-m", "generated base"], current.env);
+test("stale staged QA or Cursor blob cannot be approved through a fresh working blob", () => {
+  for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
+    const current = fixture(`${product} partial stage`);
+    const relativePath = `${product}/README.md`;
+    const generated = path.join(current.root, product, "README.md");
+    fs.mkdirSync(path.dirname(generated), { recursive: true });
+    fs.writeFileSync(generated, "base\n");
+    git(current.root, ["add", relativePath], current.env);
+    git(current.root, ["commit", "--quiet", "-m", "generated base"], current.env);
 
-  fs.writeFileSync(generated, "staged-A\n");
-  git(current.root, ["add", "kcoderag-qa/README.md"], current.env);
-  const stagedBlob = git(current.root, ["rev-parse", ":kcoderag-qa/README.md"], current.env);
-  fs.writeFileSync(generated, "working-B\n");
-  const workingBefore = bytes(generated);
-  const indexBefore = bytes(current.index);
-  let commands = 0;
+    fs.writeFileSync(generated, "staged-A\n");
+    git(current.root, ["add", relativePath], current.env);
+    const stagedBlob = git(current.root, ["rev-parse", `:${relativePath}`], current.env);
+    fs.writeFileSync(generated, "working-B\n");
+    const workingBefore = bytes(generated);
+    const indexBefore = bytes(current.index);
+    let commands = 0;
 
-  const result = preCommit.runPreCommit({
-    root: current.root,
-    env: current.env,
-    runCommand: () => {
-      commands += 1;
-      return { status: 0 };
-    },
-  });
+    const result = preCommit.runPreCommit({
+      root: current.root,
+      env: current.env,
+      runCommand: () => {
+        commands += 1;
+        return { status: 0 };
+      },
+    });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "generated_unstaged_changes");
-  assert.equal(commands, 0);
-  assert.deepEqual(bytes(current.index), indexBefore);
-  assert.equal(git(current.root, ["rev-parse", ":kcoderag-qa/README.md"], current.env), stagedBlob);
-  assert.deepEqual(bytes(generated), workingBefore);
+    assert.equal(result.ok, false, product);
+    assert.equal(result.code, `${product === "kcoderag-qa" ? "qa" : "cursor"}_generated_unstaged_changes`, product);
+    assert.equal(commands, 0, product);
+    assert.deepEqual(bytes(current.index), indexBefore, product);
+    assert.equal(git(current.root, ["rev-parse", `:${relativePath}`], current.env), stagedBlob, product);
+    assert.deepEqual(bytes(generated), workingBefore, product);
+  }
 });
 
 
