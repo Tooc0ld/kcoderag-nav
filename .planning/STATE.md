@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-08-25T05:07:00.671Z"
+stopped_at: Completed 04-14-PLAN.md
+last_updated: "2026-08-25T05:22:20.320Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: d9830e586ef9bd7ba8255380ab8e9864acd0de34
+state_head: 737c06c2097bc1ba6e2f1be8a0ccb780231d83f1
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 35
+  completed_plans: 36
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 2 of 19
+Plan: 3 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -89,6 +89,7 @@ Progress: [████░░░░░░] 44%
 | Phase 03.1 P21 | 18min | 2 tasks | 3 files |
 | Phase 03.1 P14 | 25 min | 3 tasks | 12 files |
 | Phase 04 P01 | 13min | 2 tasks | 4 files |
+| Phase 04 P14 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Phase 04 supersedes the former public QA/Dev contract with QA-only 0.2.0 behavior while preserving completed history.
 - [Phase 04]: Legacy Dev remains exact decode-only input for digest-verified migration or uninstall, never a hidden public product.
 - [Phase 04]: Owned user-source cleanup authority is independent and bound to a frozen exact fingerprint.
+- [Phase 04]: Public documentation exposes QA as the sole environment while retaining exact legacy Dev migration and uninstall instructions only.
+- [Phase 04]: Owned user-source cleanup remains native-command, capability, scope, rescan, and frozen-fingerprint bound; ambiguous sources remain manual-only.
+- [Phase 04]: Phase 04 documentation claims lifecycle and Hook/Rule evidence only; authenticated real-host MCP evidence remains Phase 06 ownership.
 
 ### Pending Todos
 
@@ -244,6 +248,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T05:07:00.373Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-08-25T05:22:20.030Z
+Stopped at: Completed 04-14-PLAN.md
 Resume file: None
