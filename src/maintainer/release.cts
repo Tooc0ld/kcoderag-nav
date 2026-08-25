@@ -39,8 +39,6 @@ interface ReleaseResult {
 export const VERSION_MANIFEST_PATHS = Object.freeze([
   "kcoderag-qa/.codex-plugin/plugin.json",
   "kcoderag-qa/.claude-plugin/plugin.json",
-  "kcoderag-dev/.codex-plugin/plugin.json",
-  "kcoderag-dev/.claude-plugin/plugin.json",
   "kcoderag-cursor/.cursor-plugin/plugin.json",
 ]);
 

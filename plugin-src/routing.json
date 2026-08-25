@@ -1,8 +1,5 @@
 {
-  "version": 2,
-  "mutually_exclusive": ["qa", "dev"],
-  "rules": [
-    {"installed": ["qa"], "intent": "default", "routes": ["qa"]},
-    {"installed": ["dev"], "intent": "default", "routes": ["dev"]}
-  ]
+  "version": 3,
+  "environment": "qa",
+  "rule": {"intent": "default", "routes": ["qa"]}
 }

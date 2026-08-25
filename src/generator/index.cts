@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-/** Deterministic, product-scoped renderer for the three KCodeRag distributions. */
+/** Deterministic, product-scoped renderer for the QA and Cursor distributions. */
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
-export type Product = "qa" | "dev" | "cursor";
+export type Product = "qa" | "cursor";
 export type ProductSelection = Product | "all";
 export type AssetGroup =
   | "runtime-cjs"
@@ -43,7 +43,7 @@ export interface GenerationResult {
   readonly diagnostics: readonly string[];
 }
 
-type EnvironmentId = "qa" | "dev";
+type EnvironmentId = "qa";
 
 interface EnvironmentMetadata {
   readonly id: EnvironmentId;
@@ -86,12 +86,12 @@ export class GenerationError extends Error {
   }
 }
 
-const PRODUCTS = Object.freeze(["qa", "dev", "cursor"] as const);
+const PRODUCTS = Object.freeze(["qa", "cursor"] as const);
 const PRODUCT_DIRECTORIES: Readonly<Record<Product, string>> = Object.freeze({
   qa: "kcoderag-qa",
-  dev: "kcoderag-dev",
   cursor: "kcoderag-cursor",
 });
+const RETIRED_DEV_DIRECTORY = "kcoderag-dev";
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const TOKEN_RE = /\{\{([a-z_]+)\}\}/gu;
 const ANY_TOKEN_RE = /\{\{[^{}]*\}\}/u;
@@ -104,45 +104,45 @@ function sortedUnion(...groups: readonly (readonly string[])[]): readonly string
   return Object.freeze([...new Set(groups.flat())].sort(compareCodeUnits));
 }
 
-const QA_DEV_RUNTIME_CJS = Object.freeze([
+const QA_RUNTIME_CJS = Object.freeze([
   "hooks/grep-nudge.cjs",
   "hooks/update-check.cjs",
   "hooks/update-worker.cjs",
 ]);
-const QA_DEV_RUNTIME_LAUNCHER = Object.freeze(["hooks/run_hook.cmd", "hooks/run_hook.sh"]);
-const QA_DEV_RUNTIME_REGISTRATION = Object.freeze(["hooks/hooks.json"]);
-const QA_DEV_METADATA_CONFIG = Object.freeze([
+const QA_RUNTIME_LAUNCHER = Object.freeze(["hooks/run_hook.cmd", "hooks/run_hook.sh"]);
+const QA_RUNTIME_REGISTRATION = Object.freeze(["hooks/hooks.json"]);
+const QA_METADATA_CONFIG = Object.freeze([
   ".claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
   ".codex.mcp.json",
   ".mcp.json",
 ]);
-const QA_DEV_METADATA_GUIDANCE = Object.freeze([
+const QA_METADATA_GUIDANCE = Object.freeze([
   "agents/kcode-explorer.md",
   "skills/code-lookup-discipline/SKILL.md",
 ]);
-const QA_DEV_DOCS = Object.freeze(["README.md"]);
-const QA_DEV_VERSION = Object.freeze([
+const QA_DOCS = Object.freeze(["README.md"]);
+const QA_VERSION = Object.freeze([
   ".claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
 ]);
 
-function qaDevGroups(): Readonly<Record<AssetGroup, readonly string[]>> {
-  const runtimeCode = sortedUnion(QA_DEV_RUNTIME_CJS, QA_DEV_RUNTIME_LAUNCHER);
-  const runtime = sortedUnion(runtimeCode, QA_DEV_RUNTIME_REGISTRATION);
-  const metadata = sortedUnion(QA_DEV_METADATA_CONFIG, QA_DEV_METADATA_GUIDANCE);
+function qaGroups(): Readonly<Record<AssetGroup, readonly string[]>> {
+  const runtimeCode = sortedUnion(QA_RUNTIME_CJS, QA_RUNTIME_LAUNCHER);
+  const runtime = sortedUnion(runtimeCode, QA_RUNTIME_REGISTRATION);
+  const metadata = sortedUnion(QA_METADATA_CONFIG, QA_METADATA_GUIDANCE);
   return Object.freeze({
-    "runtime-cjs": QA_DEV_RUNTIME_CJS,
-    "runtime-launcher": QA_DEV_RUNTIME_LAUNCHER,
-    "runtime-registration": QA_DEV_RUNTIME_REGISTRATION,
+    "runtime-cjs": QA_RUNTIME_CJS,
+    "runtime-launcher": QA_RUNTIME_LAUNCHER,
+    "runtime-registration": QA_RUNTIME_REGISTRATION,
     "runtime-code": runtimeCode,
     runtime,
-    "metadata-config": QA_DEV_METADATA_CONFIG,
-    "metadata-guidance": QA_DEV_METADATA_GUIDANCE,
+    "metadata-config": QA_METADATA_CONFIG,
+    "metadata-guidance": QA_METADATA_GUIDANCE,
     metadata,
-    docs: QA_DEV_DOCS,
-    version: QA_DEV_VERSION,
-    all: sortedUnion(runtime, metadata, QA_DEV_DOCS, QA_DEV_VERSION),
+    docs: QA_DOCS,
+    version: QA_VERSION,
+    all: sortedUnion(runtime, metadata, QA_DOCS, QA_VERSION),
   });
 }
 
@@ -172,9 +172,9 @@ function cursorGroups(): Readonly<Record<AssetGroup, readonly string[]>> {
   });
 }
 
-const qaGroups = qaDevGroups();
+const QA_GROUPS = qaGroups();
 export const ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>> =
-  Object.freeze({ qa: qaGroups, dev: qaGroups, cursor: cursorGroups() });
+  Object.freeze({ qa: QA_GROUPS, cursor: cursorGroups() });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -316,11 +316,16 @@ const ENVIRONMENT_FIELDS = Object.freeze([
 
 function loadEnvironments(sourceRoot: string): Readonly<Record<EnvironmentId, EnvironmentMetadata>> {
   const document = readJson(sourceRoot, "plugin-src/environments.json");
-  if (!isRecord(document) || !Array.isArray(document.environments) || document.environments.length !== 2) {
+  if (
+    !isRecord(document)
+    || Object.keys(document).join("") !== "environments"
+    || !Array.isArray(document.environments)
+    || document.environments.length !== 1
+  ) {
     throw new GenerationError("invalid_metadata", "plugin-src/environments.json");
   }
   const result = {} as Record<EnvironmentId, EnvironmentMetadata>;
-  for (const [index, raw] of document.environments.entries()) {
+  for (const raw of document.environments) {
     if (!isRecord(raw) || Object.keys(raw).sort().join("\0") !== [...ENVIRONMENT_FIELDS].sort().join("\0")) {
       throw new GenerationError("invalid_metadata", "plugin-src/environments.json");
     }
@@ -328,7 +333,7 @@ function loadEnvironments(sourceRoot: string): Readonly<Record<EnvironmentId, En
       throw new GenerationError("invalid_metadata", "plugin-src/environments.json");
     }
     const metadata = raw as unknown as EnvironmentMetadata;
-    const expectedId = index === 0 ? "qa" : "dev";
+    const expectedId = "qa";
     const expectedName = `kcoderag-${expectedId}`;
     const expectedPrefix = `mcp__plugin_${expectedName}_${expectedName}__`;
     if (
@@ -349,7 +354,7 @@ function loadEnvironments(sourceRoot: string): Readonly<Record<EnvironmentId, En
 function loadInputs(sourceRoot: string): LoadedInputs {
   const resolved = fs.realpathSync(path.resolve(sourceRoot));
   const version = loadVersion(resolved);
-  for (const runtime of QA_DEV_RUNTIME_CJS) readBytes(resolved, `dist/${runtime}`);
+  for (const runtime of QA_RUNTIME_CJS) readBytes(resolved, `dist/${runtime}`);
   return Object.freeze({ sourceRoot: resolved, version, environments: loadEnvironments(resolved) });
 }
 
@@ -357,40 +362,23 @@ function loadRoutingPolicy(sourceRoot: string): string {
   const document = readJson(sourceRoot, "plugin-src/routing.json");
   if (
     !isRecord(document)
-    || document.version !== 2
-    || !Array.isArray(document.mutually_exclusive)
-    || document.mutually_exclusive.join("\0") !== "qa\0dev"
-    || !Array.isArray(document.rules)
-    || document.rules.length !== 2
+    || Object.keys(document).sort(compareCodeUnits).join("\0") !== "environment\0rule\0version"
+    || document.version !== 3
+    || document.environment !== "qa"
+    || !isRecord(document.rule)
+    || Object.keys(document.rule).sort(compareCodeUnits).join("\0") !== "intent\0routes"
+    || document.rule.intent !== "default"
+    || !Array.isArray(document.rule.routes)
+    || document.rule.routes.join("") !== "qa"
   ) {
     throw new GenerationError("invalid_routing", "plugin-src/routing.json");
   }
-  for (const [index, rule] of document.rules.entries()) {
-    const id = index === 0 ? "qa" : "dev";
-    if (
-      !isRecord(rule)
-      || !Array.isArray(rule.installed)
-      || rule.installed.join("") !== id
-      || rule.intent !== "default"
-      || !Array.isArray(rule.routes)
-      || rule.routes.join("") !== id
-    ) {
-      throw new GenerationError("invalid_routing", "plugin-src/routing.json");
-    }
-  }
   return [
-    "## Environment selection",
+    "## QA routing",
     "",
-    "QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.",
-    "",
-    "| Installed plugin | Query environment |",
-    "|---|---|",
-    "| QA | QA |",
-    "| Dev | Dev |",
-    "",
-    "If the installed KCodeRag environment is unreachable, report it instead of querying",
-    "the other environment. Local search remains an explicit fallback when the index is",
-    "unavailable or stale.",
+    "Use the installed KCodeRag QA service for graph lookup. If QA is unreachable, report",
+    "that state; local search remains an explicit fallback when the index is unavailable",
+    "or stale.",
   ].join("\n");
 }
 
@@ -463,7 +451,7 @@ function cursorManifest(inputs: LoadedInputs): unknown {
   return {
     name: "kcoderag-nav",
     version: inputs.version,
-    description: "Graph-first structural code navigation with one configured KCodeRag environment.",
+    description: "Graph-first structural code navigation with the KCodeRag QA service.",
     author: { name: "KCodeRag" },
     keywords: ["code-navigation", "knowledge-graph", "mcp"],
     skills: "./skills/",
@@ -475,13 +463,13 @@ function cursorManifest(inputs: LoadedInputs): unknown {
         KCODERAG_MCP_URL: {
           type: "string",
           title: "KCodeRag MCP URL",
-          description: "Internal QA by default; replace together with the bearer token for Dev.",
+          description: "Internal KCodeRag QA MCP endpoint.",
           default: defaults.url,
         },
         KCODERAG_BEARER_TOKEN: {
           type: "string",
           title: "KCodeRag bearer token",
-          description: "Internal QA by default; replace together with the MCP URL for Dev.",
+          description: "Internal KCodeRag QA bearer credential.",
           default: defaults.bearer,
         },
       },
@@ -502,7 +490,7 @@ function cursorMcp(): unknown {
   };
 }
 
-function environmentReplacements(inputs: LoadedInputs, environment: EnvironmentMetadata): Readonly<Record<string, string>> {
+function qaReplacements(inputs: LoadedInputs, environment: EnvironmentMetadata): Readonly<Record<string, string>> {
   return Object.freeze({
     environment: environment.id,
     environment_upper: environment.id.toUpperCase(),
@@ -514,7 +502,7 @@ function environmentReplacements(inputs: LoadedInputs, environment: EnvironmentM
   });
 }
 
-function renderEnvironmentAsset(
+function renderQaAsset(
   inputs: LoadedInputs,
   environment: EnvironmentMetadata,
   relativePath: string,
@@ -536,7 +524,7 @@ function renderEnvironmentAsset(
   }
   if (relativePath === ".codex-plugin/plugin.json") return canonicalJson(codexManifest(environment, inputs.version));
   if (relativePath === ".claude-plugin/plugin.json") return canonicalJson(claudeManifest(environment, inputs.version));
-  const replacements = environmentReplacements(inputs, environment);
+  const replacements = qaReplacements(inputs, environment);
   if (relativePath === "agents/kcode-explorer.md") {
     return renderTemplate(
       inputs.sourceRoot,
@@ -576,12 +564,12 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
       "plugin-src/skills/code-lookup-discipline/SKILL.md",
       ["display_name", "routing_policy"],
       {
-        display_name: "configured KCodeRag",
+        display_name: "KCodeRag QA",
         routing_policy: [
-          "## Environment selection",
+          "## QA routing",
           "",
-          "This Cursor plugin exposes exactly one configured KCodeRag environment.",
-          "Use local search when that environment is unavailable or stale.",
+          "This Cursor integration exposes only the KCodeRag QA service.",
+          "Use local search when QA is unavailable or stale.",
         ].join("\n"),
       },
     );
@@ -610,6 +598,7 @@ function selectedProducts(product: ProductSelection, group: AssetGroup): readonl
 function validateOptions(options: GeneratorOptions): { readonly product: ProductSelection; readonly group: AssetGroup } {
   const product = options.package as unknown;
   const group = options.group as unknown;
+  if (product === "dev") throw new GenerationError("retired_product", RETIRED_DEV_DIRECTORY);
   if (product !== "all" && !isProduct(product)) throw new GenerationError("unknown_package");
   if (!isAssetGroup(group)) throw new GenerationError("unknown_group");
   selectedProducts(product, group);
@@ -641,7 +630,7 @@ function renderSelected(options: GeneratorOptions): {
       const outputPath = validateRelativePath(`${packageDirectory}/${assetPath}`);
       const bytes = product === "cursor"
         ? renderCursorAsset(inputs, assetPath)
-        : renderEnvironmentAsset(inputs, inputs.environments[product], assetPath);
+        : renderQaAsset(inputs, inputs.environments.qa, assetPath);
       rendered.set(outputPath, bytes);
     }
   }
@@ -706,6 +695,26 @@ function inspectChanges(root: string, outputs: ReadonlyMap<string, Buffer>): {
     }
   }
   return Object.freeze({ changedPaths: Object.freeze(changed), diagnostics: Object.freeze(diagnostics) });
+}
+
+function inspectRetiredDevOutput(root: string): {
+  readonly changedPaths: readonly string[];
+  readonly diagnostics: readonly string[];
+} {
+  const absolute = path.resolve(root, RETIRED_DEV_DIRECTORY);
+  if (!insideRoot(root, absolute)) throw new GenerationError("path_escape", ".");
+  try {
+    fs.lstatSync(absolute);
+    return Object.freeze({
+      changedPaths: Object.freeze([RETIRED_DEV_DIRECTORY]),
+      diagnostics: Object.freeze([`retired_product: ${RETIRED_DEV_DIRECTORY}`]),
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return Object.freeze({ changedPaths: Object.freeze([]), diagnostics: Object.freeze([]) });
+    }
+    throw new GenerationError("unreadable_output", RETIRED_DEV_DIRECTORY);
+  }
 }
 
 function ensureParents(root: string, relativePath: string, createdDirectories: string[]): void {
@@ -853,7 +862,12 @@ function result(
 export function checkGenerated(options: GeneratorOptions): GenerationResult {
   const rendered = renderSelected(options);
   const compared = inspectChanges(rendered.root, rendered.outputs);
-  return result(rendered, compared.changedPaths, [], compared.diagnostics, compared.changedPaths.length === 0);
+  const retired = rendered.product === "all" && rendered.group === "all"
+    ? inspectRetiredDevOutput(rendered.root)
+    : { changedPaths: Object.freeze([] as string[]), diagnostics: Object.freeze([] as string[]) };
+  const changedPaths = sortedUnion(compared.changedPaths, retired.changedPaths);
+  const diagnostics = sortedUnion(compared.diagnostics, retired.diagnostics);
+  return result(rendered, changedPaths, [], diagnostics, changedPaths.length === 0);
 }
 
 export function generatePackage(options: GeneratorOptions): GenerationResult {

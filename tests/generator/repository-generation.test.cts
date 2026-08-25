@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type Product = "qa" | "dev" | "cursor";
+type Product = "qa" | "cursor";
 type AssetGroup =
   | "runtime-cjs"
   | "runtime-launcher"
@@ -43,7 +43,7 @@ interface FileEvidence {
 
 const repositoryRoot = path.resolve(__dirname, "..", "..");
 const generator = require(path.join(repositoryRoot, "dist", "generator", "index.cjs")) as GeneratorModule;
-const products = ["qa", "dev", "cursor"] as const;
+const products = ["qa", "cursor"] as const;
 
 function productPath(product: Product, relativePath: string): string {
   return path.join(repositoryRoot, `kcoderag-${product}`, ...relativePath.split("/"));
@@ -93,50 +93,50 @@ function assertNoTemplateTokens(): void {
   }
 }
 
-function assertEnvironmentStructure(product: "qa" | "dev", version: string): void {
-  const expectedName = `kcoderag-${product}`;
-  const codexManifest = readJson(`kcoderag-${product}/.codex-plugin/plugin.json`);
-  const claudeManifest = readJson(`kcoderag-${product}/.claude-plugin/plugin.json`);
-  assert.equal(codexManifest.name === expectedName && codexManifest.version === version, true, `${product}:codex`);
-  assert.equal(claudeManifest.name === expectedName && claudeManifest.version === version, true, `${product}:claude`);
+function assertQaStructure(version: string): void {
+  const expectedName = "kcoderag-qa";
+  const codexManifest = readJson("kcoderag-qa/.codex-plugin/plugin.json");
+  const claudeManifest = readJson("kcoderag-qa/.claude-plugin/plugin.json");
+  assert.equal(codexManifest.name === expectedName && codexManifest.version === version, true, "qa:codex");
+  assert.equal(claudeManifest.name === expectedName && claudeManifest.version === version, true, "qa:claude");
 
-  const codexMcp = readJson(`kcoderag-${product}/.codex.mcp.json`);
-  const claudeMcp = readJson(`kcoderag-${product}/.mcp.json`);
-  assert.deepEqual(sortedKeys(codexMcp), [expectedName], `${product}:codex-mcp-namespace`);
+  const codexMcp = readJson("kcoderag-qa/.codex.mcp.json");
+  const claudeMcp = readJson("kcoderag-qa/.mcp.json");
+  assert.deepEqual(sortedKeys(codexMcp), [expectedName], "qa:codex-mcp-namespace");
   const claudeServers = claudeMcp.mcpServers;
-  assert.deepEqual(sortedKeys(claudeServers), [expectedName], `${product}:claude-mcp-namespace`);
+  assert.deepEqual(sortedKeys(claudeServers), [expectedName], "qa:claude-mcp-namespace");
 
   for (const runtime of ["grep-nudge.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
     assert.equal(
-      fs.readFileSync(productPath(product, `hooks/${runtime}`)).equals(
+      fs.readFileSync(productPath("qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
       ),
       true,
-      `${product}:${runtime}`,
+      `qa:${runtime}`,
     );
   }
   for (const launcher of ["run_hook.cmd", "run_hook.sh"] as const) {
     assert.equal(
-      fs.readFileSync(productPath(product, `hooks/${launcher}`)).equals(
+      fs.readFileSync(productPath("qa", `hooks/${launcher}`)).equals(
         normalizeText(fs.readFileSync(path.join(repositoryRoot, "plugin-src", "hooks", launcher))),
       ),
       true,
-      `${product}:${launcher}`,
+      `qa:${launcher}`,
     );
   }
 
-  const registration = readJson(`kcoderag-${product}/hooks/hooks.json`);
+  const registration = readJson("kcoderag-qa/hooks/hooks.json");
   const hooks = registration.hooks;
-  assert.equal(typeof hooks === "object" && hooks !== null && !Array.isArray(hooks), true, `${product}:hooks`);
+  assert.equal(typeof hooks === "object" && hooks !== null && !Array.isArray(hooks), true, "qa:hooks");
   const preToolUse = (hooks as Record<string, unknown>).PreToolUse;
-  assert.equal(Array.isArray(preToolUse) && preToolUse.length === 1, true, `${product}:pre-tool-use`);
+  assert.equal(Array.isArray(preToolUse) && preToolUse.length === 1, true, "qa:pre-tool-use");
 
   for (const relativePath of [
     "agents/kcode-explorer.md",
     "skills/code-lookup-discipline/SKILL.md",
     "README.md",
   ]) {
-    assert.equal(fs.statSync(productPath(product, relativePath)).size > 0, true, `${product}:${relativePath}`);
+    assert.equal(fs.statSync(productPath("qa", relativePath)).size > 0, true, `qa:${relativePath}`);
   }
 }
 
@@ -160,8 +160,8 @@ test("compiled repository gate proves all generated products canonical without r
   assert.deepEqual(checked.writtenPaths, []);
   assert.deepEqual(after, before);
 
-  assertEnvironmentStructure("qa", version as string);
-  assertEnvironmentStructure("dev", version as string);
+  assertQaStructure(version as string);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false, "retired Dev tree");
 
   const cursorManifest = readJson("kcoderag-cursor/.cursor-plugin/plugin.json");
   assert.equal(cursorManifest.name === "kcoderag-nav" && cursorManifest.version === version, true, "cursor:manifest");

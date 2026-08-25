@@ -11,18 +11,11 @@ of inventing a fully qualified prefix.
 
 This package supplies the **KCodeRag QA** environment.
 
-## Environment selection
+## QA routing
 
-QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
-
-| Installed plugin | Query environment |
-|---|---|
-| QA | QA |
-| Dev | Dev |
-
-If the installed KCodeRag environment is unreachable, report it instead of querying
-the other environment. Local search remains an explicit fallback when the index is
-unavailable or stale.
+Use the installed KCodeRag QA service for graph lookup. If QA is unreachable, report
+that state; local search remains an explicit fallback when the index is unavailable
+or stale.
 
 ## Choose the right lookup
 

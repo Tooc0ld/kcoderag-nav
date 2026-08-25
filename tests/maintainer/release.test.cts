@@ -113,7 +113,7 @@ function expectCode(run: () => unknown, code: string): void {
   );
 }
 
-test("creates one exact seven-path release commit and matching immutable tag", () => {
+test("creates one exact QA/Cursor release commit and matching immutable tag", () => {
   const root = createFixture();
   const result = release.prepareRelease({
     root,
@@ -218,7 +218,7 @@ test("accepts the canonical repository root through a filesystem alias", (contex
   }
 });
 
-test("release commit preserves tracked local planning changes outside the exact seven paths", () => {
+test("release commit preserves tracked local planning changes outside the exact release paths", () => {
   const root = createFixture();
   const trackedState = path.join(root, ".planning", "tracked.json");
   fs.writeFileSync(trackedState, "baseline\n", "utf8");

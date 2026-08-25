@@ -6,14 +6,12 @@ source. Use Node.js 22 or newer and the public npm CLI.
 
 ## Install
 
-Ordinary users omit `--environment` and receive QA. Dev is only for development and testing and
-must be selected explicitly. This tree represents QA; install that environment
-into one selected host with:
+QA is the only public environment. Install it into one selected host with:
 
 ```powershell
-npx kcoderag-nav@latest install --host codex --environment qa
-npx kcoderag-nav@latest install --host claude --environment qa
-npx kcoderag-nav@latest install --host cursor --environment qa
+npx kcoderag-nav@latest install --host codex
+npx kcoderag-nav@latest install --host claude
+npx kcoderag-nav@latest install --host cursor
 ```
 
 Without `--host`, the CLI interactively offers Codex, Claude Code, and Cursor. Automation should
@@ -28,24 +26,23 @@ The hosts use their native project locations:
   `.mcp.json`.
 - Cursor: `.cursor/rules/`, `.cursor/skills/`, and the KCodeRag section in `.cursor/mcp.json`.
 
-QA and Dev are mutually exclusive only within one host. The installer never switches environments
-or uninstalls another host automatically. To switch, explicitly uninstall the current environment
-for that host, then install the other one. Independent installations for different hosts can
-coexist in the same project.
+Independent QA installations for different hosts can coexist in the same project. Exact legacy
+Dev state is accepted only for an explicitly authorized, digest-verified migration to QA or
+uninstall; Dev is not installable or selectable.
 
 ## Lifecycle
 
 Use the same public `@latest` entry for every lifecycle command:
 
 ```powershell
-npx kcoderag-nav@latest install --host codex --environment qa
+npx kcoderag-nav@latest install --host codex
 npx kcoderag-nav@latest status --host codex
 npx kcoderag-nav@latest doctor --host codex
-npx kcoderag-nav@latest update --host codex --environment qa
-npx kcoderag-nav@latest uninstall --host codex --environment qa
+npx kcoderag-nav@latest update --host codex
+npx kcoderag-nav@latest uninstall --host codex
 ```
 
-`status` and `doctor` are read-only. `update` preserves the selected environment. Update and
+`status` and `doctor` are read-only. Update and
 uninstall refuse drift, symlinks, special files, and ambiguous ownership before any project write;
 failed transactions restore the selected host without touching the other hosts.
 
@@ -63,18 +60,11 @@ window. A first `npx` acquisition failure cannot write the project because the C
 - Cursor uses an always-on Rule, shared skill, and MCP configuration; it does not claim an
   equivalent `PreToolUse` hook.
 
-## Environment selection
+## QA routing
 
-QA and Dev plugins are mutually exclusive. Install exactly one environment at a time.
-
-| Installed plugin | Query environment |
-|---|---|
-| QA | QA |
-| Dev | Dev |
-
-If the installed KCodeRag environment is unreachable, report it instead of querying
-the other environment. Local search remains an explicit fallback when the index is
-unavailable or stale.
+Use the installed KCodeRag QA service for graph lookup. If QA is unreachable, report
+that state; local search remains an explicit fallback when the index is unavailable
+or stale.
 
 ## Update awareness
 
@@ -89,6 +79,6 @@ npx kcoderag-nav@latest update
 
 ## Internal profile boundary
 
-The internal QA connection profile includes its shared Bearer credential, so
-QA/Dev testing requires no additional credential setup. The value remains opaque: generation,
+The internal QA connection profile includes its shared Bearer credential, so QA testing requires
+no additional credential setup. The value remains opaque: generation,
 installation, status, diagnostics, tests, and documentation must never print it.

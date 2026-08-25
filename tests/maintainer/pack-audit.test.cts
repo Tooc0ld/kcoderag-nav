@@ -47,8 +47,6 @@ function baseline(input = packageJson()): {
   for (const manifest of [
     "kcoderag-qa/.codex-plugin/plugin.json",
     "kcoderag-qa/.claude-plugin/plugin.json",
-    "kcoderag-dev/.codex-plugin/plugin.json",
-    "kcoderag-dev/.claude-plugin/plugin.json",
     "kcoderag-cursor/.cursor-plugin/plugin.json",
   ]) {
     archiveEntries.set(manifest, Buffer.from(`${JSON.stringify({ version: input.version })}\n`));
@@ -76,7 +74,7 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
   });
 
   assert.equal(result.version, packageJson().version);
-  assert.ok(result.entryCount > 40);
+  assert.ok(result.entryCount > 25);
   assert.equal(result.statusPreserved, true);
   assert.equal(result.treePreserved, true);
   assert.equal(statusAfter, statusBefore);
@@ -207,7 +205,7 @@ test("rejects unexpected ignored compiled outputs and scans compiled runtime byt
 
 test("rejects broad product files entries, missing entries, engine drift, and bin drift", () => {
   const broad = packageJson();
-  broad.files = ["dist/", "kcoderag-qa/", "kcoderag-dev/", "kcoderag-cursor/"];
+  broad.files = ["dist/", "kcoderag-qa/", "kcoderag-cursor/"];
   expectCode(() => packAudit.expandPackageFiles(repositoryRoot, broad), "files_policy_invalid");
 
   const missing = packageJson();

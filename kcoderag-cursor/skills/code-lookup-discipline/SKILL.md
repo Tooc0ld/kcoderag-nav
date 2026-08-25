@@ -9,12 +9,12 @@ Use the installed KCodeRag knowledge graph as the first stop for structural ques
 Tool namespaces differ by host, so call the tool names exposed by the current host instead
 of inventing a fully qualified prefix.
 
-This package supplies the **configured KCodeRag** environment.
+This package supplies the **KCodeRag QA** environment.
 
-## Environment selection
+## QA routing
 
-This Cursor plugin exposes exactly one configured KCodeRag environment.
-Use local search when that environment is unavailable or stale.
+This Cursor integration exposes only the KCodeRag QA service.
+Use local search when QA is unavailable or stale.
 
 ## Choose the right lookup
 

@@ -6,16 +6,10 @@ always-on Cursor Rule. It is not a standalone marketplace or user-directory inst
 
 ## Install
 
-Use Node.js 22 or newer. From the target project, install the default QA environment with:
+Use Node.js 22 or newer. From the target project, install QA with:
 
 ```powershell
 npx kcoderag-nav@latest install --host cursor
-```
-
-Dev is only for development and testing and must be selected explicitly:
-
-```powershell
-npx kcoderag-nav@latest install --host cursor --environment dev
 ```
 
 Without `--host`, the CLI interactively offers Codex, Claude Code, and Cursor. Automation should
@@ -27,7 +21,7 @@ The Cursor adapter owns only its declared files and KCodeRag section under `.cur
 `.cursor/skills/`, and `.cursor/mcp.json`. It preserves unrelated Cursor configuration and never
 modifies Codex or Claude Code installations in the same project.
 
-## Lifecycle and environment switching
+## Lifecycle
 
 Use the public `@latest` entry for the complete lifecycle:
 
@@ -39,9 +33,9 @@ npx kcoderag-nav@latest update --host cursor
 npx kcoderag-nav@latest uninstall --host cursor
 ```
 
-QA and Dev are mutually exclusive within Cursor, and the installer never switches them
-automatically. Explicitly uninstall the current environment before installing the other one.
-Cursor may still coexist with independently managed Codex and Claude Code installations.
+QA is the only public environment. Cursor may coexist with independently managed Codex and
+Claude Code QA installations in the same project. Exact legacy Dev state can only be migrated to
+QA or uninstalled after dedicated authorization and complete digest validation.
 
 `status` and `doctor` are read-only. Update and uninstall refuse drift, symlinks, special files,
 and ambiguous ownership before any write. A failed transaction restores Cursor without touching
@@ -68,5 +62,5 @@ configured MCP server directly. It does not use or claim a Codex/Claude Code-sty
 hook. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
 scoped local search.
 
-The internal profile bundles the current QA/Dev testing credential. Its value stays opaque and is
+The internal profile bundles the current QA testing credential. Its value stays opaque and is
 never printed by generation, installation, status, diagnostics, tests, or documentation.
