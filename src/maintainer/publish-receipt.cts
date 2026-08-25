@@ -124,7 +124,20 @@ export interface PublishReceiptV3 extends Omit<PublishReceiptV2, "schema_version
   };
 }
 
-export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2 | PublishReceiptV3;
+export interface PublishReceiptV4 extends Omit<PublishReceiptV3, "schema_version"> {
+  readonly schema_version: 4;
+  readonly implementation_subject: {
+    readonly sha: string;
+    readonly tree: string;
+  };
+  readonly evidence_commit: {
+    readonly sha: string;
+    readonly parent_sha: string;
+  };
+  readonly release_parent_sha: string;
+}
+
+export type PublishReceipt = PublishReceiptV1 | PublishReceiptV2 | PublishReceiptV3 | PublishReceiptV4;
 
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const MAX_VERSION_LENGTH = 64;
@@ -499,12 +512,59 @@ function verifyPublishReceiptV3(value: JsonMap): PublishReceiptV3 {
   return value as PublishReceiptV3;
 }
 
+function verifyPublishReceiptV4(value: JsonMap): PublishReceiptV4 {
+  failUnless(exactKeys(value, [
+    "schema_version",
+    "package",
+    "version",
+    "tag",
+    "release_commit_sha",
+    "implementation_subject",
+    "evidence_commit",
+    "release_parent_sha",
+    "registry",
+    "workflow",
+    "lifecycle",
+    "timestamp",
+  ]), "invalid_receipt_schema");
+  failUnless(value.schema_version === 4 && value.package === "kcoderag-nav", "invalid_receipt_schema");
+  failUnless(exactKeys(value.implementation_subject, ["sha", "tree"]), "invalid_receipt_schema");
+  failUnless(exactKeys(value.evidence_commit, ["sha", "parent_sha"]), "invalid_receipt_schema");
+  failUnless(
+    SHA_RE.test(value.implementation_subject.sha)
+      && SHA_RE.test(value.implementation_subject.tree)
+      && SHA_RE.test(value.evidence_commit.sha)
+      && SHA_RE.test(value.evidence_commit.parent_sha)
+      && typeof value.release_parent_sha === "string"
+      && SHA_RE.test(value.release_parent_sha),
+    "invalid_receipt_schema",
+  );
+
+  const {
+    implementation_subject: _implementationSubject,
+    evidence_commit: _evidenceCommit,
+    release_parent_sha: _releaseParentSha,
+    ...legacyReceipt
+  } = value;
+  verifyPublishReceiptV3({ ...legacyReceipt, schema_version: 3 });
+  failUnless(
+    value.evidence_commit.parent_sha === value.implementation_subject.sha
+      && value.release_parent_sha === value.evidence_commit.sha
+      && value.implementation_subject.sha !== value.evidence_commit.sha
+      && value.evidence_commit.sha !== value.release_commit_sha
+      && value.implementation_subject.sha !== value.release_commit_sha,
+    "receipt_lineage_mismatch",
+  );
+  return value as PublishReceiptV4;
+}
+
 export function verifyPublishReceipt(value: unknown): PublishReceipt {
   assertNoSecretLikeValue(value);
   failUnless(isRecord(value), "invalid_receipt_schema");
   if (value.schema_version === 1) return verifyPublishReceiptV1(value);
   if (value.schema_version === 2) return verifyPublishReceiptV2(value);
   if (value.schema_version === 3) return verifyPublishReceiptV3(value);
+  if (value.schema_version === 4) return verifyPublishReceiptV4(value);
   throw new PublishReceiptError("invalid_receipt_schema");
 }
 
