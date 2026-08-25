@@ -508,9 +508,11 @@ function ownedRegistration(sourcePath: string, overrides: Record<string, unknown
     sourceType: "owned_marketplace_registration",
     marketplaceName: "kcoderag-nav",
     sourcePath,
+    recognizedSourcePath: sourcePath,
     provenanceId: "kcoderag-nav-repository-v1",
     safePath: ".codex/config.toml",
     failureAttribution: "marketplace_load",
+    exclusiveUserMarketplace: true,
     ...overrides,
   };
 }
@@ -721,6 +723,43 @@ test("Codex rejects incomplete or shared inventories instead of widening marketp
   }
 });
 
+test("Codex treats unsupported version, unknown help, timeout, and runner errors as manual-only", async () => {
+  const scenarios = [
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "--version") {
+        return { exitCode: 0, timedOut: false, stdout: "codex-cli 0.145.9\n" };
+      }
+      return healthyNativeResult(request);
+    },
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "plugin marketplace remove --help") {
+        return { exitCode: 0, timedOut: false, stdout: "unknown help" };
+      }
+      return healthyNativeResult(request);
+    },
+    async (request: NativeRequest): Promise<NativeResult> => {
+      if (request.args.join(" ") === "plugin list --json") {
+        return { exitCode: 1, timedOut: true, stdout: "Bearer sentinel" };
+      }
+      return healthyNativeResult(request);
+    },
+    async (_request: NativeRequest): Promise<NativeResult> => { throw new Error("Bearer sentinel"); },
+  ];
+  for (const runner of scenarios) {
+    const adapter = codex.createCodexAdapter({
+      runner,
+      readUserSources: () => ({
+        registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+      }),
+    });
+    const scan = await scannerContext(adapter, "gate");
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.ok(scan.findings.some((finding: Record<string, unknown>) => finding.code === "source_scan_unavailable"));
+    assert.doesNotMatch(JSON.stringify(scan), /Bearer sentinel/);
+  }
+});
+
 test("Codex cleanup executes fixed argv then requires a complete clean rescan before project writes", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-source-clean-"));
   try {
@@ -747,7 +786,7 @@ test("Codex cleanup executes fixed argv then requires a complete clean rescan be
       },
       readUserSources: () => ({
         registrations: removed ? [] : [ownedRegistration(sourcePath)],
-        rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+        rawMcpPaths: [], manualHookPaths: [], cachePaths: [".codex/.tmp/marketplaces/kcoderag-nav"], ambiguousPaths: [],
       }),
     });
     const initial = await scannerContext(adapter, "gate");

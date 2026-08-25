@@ -24,6 +24,7 @@
     "dist/hosts/cursor.cjs",
     "dist/hosts/host-adapter.cjs",
     "dist/hosts/index.cjs",
+    "dist/hosts/user-sources.cjs",
     "dist/maintainer/cache-cleanup.cjs",
     "dist/maintainer/dependency-audit.cjs",
     "dist/maintainer/docs-check.cjs",

@@ -35,6 +35,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "dist/hosts/codex.cjs",
   "dist/hosts/claude.cjs",
   "dist/hosts/cursor.cjs",
+  "dist/hosts/user-sources.cjs",
   "kcoderag-qa/.codex.mcp.json",
   "kcoderag-qa/.mcp.json",
   "kcoderag-qa/hooks/grep-nudge.cjs",

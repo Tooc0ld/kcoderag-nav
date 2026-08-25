@@ -500,7 +500,7 @@ export async function executeCommand(
         }
         const authority = await ownedCleanupAuthority(args, request, plan, dependencies);
         sourceScan = await adapter.cleanupOwnedSource(plan, authority);
-        if (sourceScan.mode !== "gate" || sourceScan.hasConflict || sourceScan.findings.length > 0) {
+        if (sourceScan.mode !== "gate" || sourceScan.hasConflict) {
           throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);
         }
       } else if (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined) {

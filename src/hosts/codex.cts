@@ -1,7 +1,9 @@
 /** Codex project-native adapter with narrow section/file ownership. */
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const { TextDecoder } = require("node:util") as typeof import("node:util");
 
@@ -36,9 +38,23 @@ import type {
   HostAdapter,
   HostInstallContext,
   HostObservation,
+  HostSourceScanContext,
   HostStatusContext,
   HostUninstallContext,
 } from "./host-adapter.cjs";
+import {
+  createNativeCleanupPlan,
+  createNativeHostCapability,
+  createSourceFinding,
+  createSourceScanResult,
+  runOwnedSourceCleanup,
+  type NativeCleanupPlan,
+  type NativeHostCapability,
+  type NativeRunRequest,
+  type OwnedCleanupAuthority,
+  type SourceScanMode,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 
@@ -47,11 +63,59 @@ interface CodexObservationDetails {
   readonly legacyState?: LegacyInstallState;
 }
 
+export interface CodexNativeResult {
+  readonly exitCode: number;
+  readonly timedOut: boolean;
+  readonly stdout?: string;
+  /** Closed classification only; raw stderr is never retained or returned. */
+  readonly failureAttribution?: "marketplace_load" | "unrelated_failure";
+}
+
+export type CodexNativeRunner = (request: NativeRunRequest) => Promise<CodexNativeResult>;
+
+export interface CodexRegistrationMetadata {
+  readonly host: "codex";
+  readonly sourceType: "owned_marketplace_registration";
+  readonly marketplaceName: "kcoderag-nav";
+  readonly sourcePath: string;
+  readonly recognizedSourcePath: string;
+  readonly provenanceId: "kcoderag-nav-repository-v1";
+  readonly safePath: ".codex/config.toml";
+  readonly failureAttribution: "marketplace_load";
+  readonly exclusiveUserMarketplace: boolean;
+}
+
+export interface CodexUserSourceMetadata {
+  readonly registrations: readonly CodexRegistrationMetadata[];
+  readonly rawMcpPaths: readonly string[];
+  readonly manualHookPaths: readonly string[];
+  readonly cachePaths: readonly string[];
+  readonly ambiguousPaths: readonly string[];
+}
+
+export type CodexUserSourceReader = () => CodexUserSourceMetadata | Promise<CodexUserSourceMetadata>;
+
+export interface CodexAdapterOptions {
+  readonly runner?: CodexNativeRunner;
+  readonly readUserSources?: CodexUserSourceReader;
+  readonly homeDirectory?: string;
+}
+
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".codex/config.toml";
 const HOOKS_PATH = ".codex/hooks.json";
 const SKILL_PATH = ".agents/skills/kcoderag-nav/SKILL.md";
 const MANAGED_ROOTS = Object.freeze([".agents", ".codex"] as const);
+const CODEX_TIMEOUT_MS = 5_000;
+const CODEX_MINIMUM_VERSION = "0.146.1";
+const CODEX_INVENTORY_SCHEMA = "codex-plugin-v1";
+const LEGACY_PROVENANCE_ID = "kcoderag-nav-repository-v1";
+const LEGACY_REPOSITORY_URL = "git+https://github.com/Tooc0ld/kcoderag-nav.git";
+const USER_CONFIG_SAFE_PATH = ".codex/config.toml";
+const USER_HOOKS_SAFE_PATH = ".codex/hooks.json";
+const USER_CACHE_SAFE_PATH = ".codex/.tmp/marketplaces/kcoderag-nav";
+const OWNED_MARKETPLACE = "kcoderag-nav";
+const OWNED_PLUGIN_NAMES = new Set(["kcoderag-nav", "kcoderag-qa", "kcoderag-dev"]);
 const HOOK_ASSETS = Object.freeze([
   "grep-nudge.cjs",
   "run_hook.cmd",
@@ -394,7 +458,8 @@ function inlineTableDefinesManaged(input: string, start: number): boolean {
       if (parsed !== undefined) {
         const equals = skipTomlWhitespace(input, parsed.end);
         if (input[equals] === "=") {
-          if (parsed.keys[0] === "kcoderag-qa" || parsed.keys[0] === "kcoderag-dev") {
+          if (parsed.keys[0] === "kcoderag-qa" || parsed.keys[0] === "kcoderag-dev" ||
+              parsed.keys[0] === "kcoderag-nav") {
             return true;
           }
           index = equals + 1;
@@ -743,6 +808,11 @@ function legacyEnvironment(bytes: Buffer): LegacyEnvironmentId | undefined {
     // The schema parser below produces the stable invalid_state refusal.
   }
   return undefined;
+}
+
+function isUserKCodeRagTomlPath(keys: readonly string[]): boolean {
+  return keys[0] === "mcp_servers" &&
+    (keys[1] === "kcoderag-qa" || keys[1] === "kcoderag-dev" || keys[1] === "kcoderag-nav");
 }
 
 function validateLegacyState(target: ProjectTarget, legacy: LegacyInstallState): void {
@@ -1233,6 +1303,788 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   });
 }
 
+function defaultCodexRunner(request: NativeRunRequest): Promise<CodexNativeResult> {
+  return new Promise((resolve) => {
+    childProcess.execFile(
+      request.executable,
+      [...request.args],
+      {
+        encoding: "utf8",
+        timeout: request.timeoutMs,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+        shell: false,
+      },
+      (error, stdout, stderr) => {
+        const timedOut = error !== null && (
+          error.killed === true ||
+          error.code === "ETIMEDOUT" ||
+          error.signal === "SIGTERM"
+        );
+        const exitCode = error === null
+          ? 0
+          : typeof error.code === "number"
+            ? error.code
+            : 1;
+        const result: {
+          exitCode: number;
+          timedOut: boolean;
+          stdout?: string;
+          failureAttribution?: "marketplace_load" | "unrelated_failure";
+        } = { exitCode, timedOut };
+        if (typeof stdout === "string" && Buffer.byteLength(stdout, "utf8") <= 1024 * 1024) {
+          result.stdout = stdout;
+        }
+        if (error !== null) {
+          const diagnostic = typeof stderr === "string" && Buffer.byteLength(stderr, "utf8") <= 1024 * 1024
+            ? stderr
+            : "";
+          result.failureAttribution =
+            /kcoderag-nav/i.test(diagnostic) &&
+            /failed to load marketplace|supported (?:marketplace )?manifest/i.test(diagnostic)
+              ? "marketplace_load"
+              : "unrelated_failure";
+        }
+        resolve(Object.freeze(result));
+      },
+    );
+  });
+}
+
+function readBoundedRegularText(filePath: string, maximumBytes: number): string | undefined {
+  try {
+    const metadata = fs.lstatSync(filePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > maximumBytes) return undefined;
+    return new TextDecoder("utf-8", { fatal: true }).decode(fs.readFileSync(filePath));
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedAbsolute(input: string): string | undefined {
+  if (typeof input !== "string" || input.length === 0 || input.length > 4096 || /[\r\n\0]/.test(input)) {
+    return undefined;
+  }
+  const normalized = path.resolve(input);
+  return path.normalize(input) === normalized ? normalized : undefined;
+}
+
+function samePlatformPath(left: string, right: string): boolean {
+  return process.platform === "win32"
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
+}
+
+function recognizedLegacySource(input: string): string | undefined {
+  const normalized = normalizedAbsolute(input);
+  if (normalized === undefined) return undefined;
+  try {
+    const rootMetadata = fs.lstatSync(normalized);
+    const packagePath = path.join(normalized, "package.json");
+    const packageMetadata = fs.lstatSync(packagePath);
+    if (
+      rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory() ||
+      packageMetadata.isSymbolicLink() || !packageMetadata.isFile() ||
+      packageMetadata.size > 64 * 1024
+    ) return undefined;
+    const value: unknown = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    if (!isRecord(value) || value.name !== "kcoderag-nav" || !isRecord(value.repository) ||
+        value.repository.type !== "git" || value.repository.url !== LEGACY_REPOSITORY_URL) {
+      return undefined;
+    }
+    const retiredManifests = [
+      path.join(normalized, ".codex-plugin", "marketplace.json"),
+      path.join(normalized, ".claude-plugin", "marketplace.json"),
+    ];
+    if (retiredManifests.some((candidate) => fs.existsSync(candidate))) return undefined;
+    return normalized;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseTomlStringLiteral(input: string): string | undefined {
+  const value = input.trim();
+  if (value.startsWith("\"") && value.endsWith("\"")) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return typeof parsed === "string" ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'") && !value.slice(1, -1).includes("'")) {
+    return value.slice(1, -1);
+  }
+  return undefined;
+}
+
+function defaultUserSourceReader(homeDirectory: string): CodexUserSourceReader {
+  return () => {
+    const codexHome = path.join(homeDirectory, ".codex");
+    const configPath = path.join(codexHome, "config.toml");
+    const hooksPath = path.join(codexHome, "hooks.json");
+    const cachePath = path.join(codexHome, ".tmp", "marketplaces", OWNED_MARKETPLACE);
+    const rawMcpPaths = new Set<string>();
+    const manualHookPaths = new Set<string>();
+    const cachePaths = new Set<string>();
+    const ambiguousPaths = new Set<string>();
+    const registrations: CodexRegistrationMetadata[] = [];
+    const config = readBoundedRegularText(configPath, 1024 * 1024);
+    if (fs.existsSync(configPath) && config === undefined) ambiguousPaths.add(USER_CONFIG_SAFE_PATH);
+    if (config !== undefined) {
+      let section: readonly string[] = [];
+      let ownedSectionCount = 0;
+      let marketplaceCount = 0;
+      let sourceType: string | undefined;
+      let source: string | undefined;
+      for (const rawLine of config.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (line.length === 0 || line.startsWith("#")) continue;
+        if (line.startsWith("[") && line.endsWith("]")) {
+          const offset = line.startsWith("[[") ? 2 : 1;
+          const endOffset = line.endsWith("]]" ) ? 2 : 1;
+          const parsed = parseTomlKeyPath(line.slice(offset, line.length - endOffset));
+          section = parsed?.keys ?? [];
+          if (section[0] === "marketplaces" && section.length === 2) {
+            marketplaceCount += 1;
+            if (section[1] === OWNED_MARKETPLACE) ownedSectionCount += 1;
+          }
+          if (isUserKCodeRagTomlPath(section)) rawMcpPaths.add(USER_CONFIG_SAFE_PATH);
+          continue;
+        }
+        const parsed = parseTomlKeyPath(line);
+        if (parsed === undefined) continue;
+        const equals = skipTomlWhitespace(line, parsed.end);
+        if (line[equals] !== "=") continue;
+        const completePath = [...section, ...parsed.keys];
+        if (isUserKCodeRagTomlPath(completePath) || (
+          completePath.length === 1 && completePath[0] === "mcp_servers" &&
+          inlineTableDefinesManaged(line, equals + 1)
+        )) rawMcpPaths.add(USER_CONFIG_SAFE_PATH);
+        if (section[0] === "marketplaces" && section[1] === OWNED_MARKETPLACE && section.length === 2) {
+          const key = parsed.keys.length === 1 ? parsed.keys[0] : undefined;
+          if (key === "source_type") sourceType = parseTomlStringLiteral(line.slice(equals + 1));
+          if (key === "source") source = parseTomlStringLiteral(line.slice(equals + 1));
+        }
+      }
+      if (ownedSectionCount > 1) ambiguousPaths.add(USER_CONFIG_SAFE_PATH);
+      if (ownedSectionCount === 1) {
+        const recognized = sourceType === "local" && source !== undefined
+          ? recognizedLegacySource(source)
+          : undefined;
+        if (recognized === undefined) {
+          ambiguousPaths.add(USER_CONFIG_SAFE_PATH);
+        } else {
+          registrations.push(Object.freeze({
+            host: "codex",
+            sourceType: "owned_marketplace_registration",
+            marketplaceName: OWNED_MARKETPLACE,
+            sourcePath: recognized,
+            recognizedSourcePath: recognized,
+            provenanceId: LEGACY_PROVENANCE_ID,
+            safePath: USER_CONFIG_SAFE_PATH,
+            failureAttribution: "marketplace_load",
+            exclusiveUserMarketplace: marketplaceCount === 1,
+          }));
+        }
+      }
+    }
+    const hooks = readBoundedRegularText(hooksPath, 1024 * 1024);
+    if (fs.existsSync(hooksPath) && hooks === undefined) ambiguousPaths.add(USER_HOOKS_SAFE_PATH);
+    if (hooks !== undefined) {
+      try {
+        const document: unknown = JSON.parse(hooks);
+        if (!isRecord(document) || (document.hooks !== undefined && !isRecord(document.hooks))) {
+          ambiguousPaths.add(USER_HOOKS_SAFE_PATH);
+        } else if (document.hooks !== undefined && /kcoderag-(?:nav|qa|dev)|kcoderag_nav/i.test(JSON.stringify(document.hooks))) {
+          manualHookPaths.add(USER_HOOKS_SAFE_PATH);
+        }
+      } catch {
+        ambiguousPaths.add(USER_HOOKS_SAFE_PATH);
+      }
+    }
+    try {
+      const metadata = fs.lstatSync(cachePath);
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) ambiguousPaths.add(USER_CACHE_SAFE_PATH);
+      else cachePaths.add(USER_CACHE_SAFE_PATH);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") ambiguousPaths.add(USER_CACHE_SAFE_PATH);
+    }
+    return Object.freeze({
+      registrations: Object.freeze(registrations),
+      rawMcpPaths: Object.freeze([...rawMcpPaths]),
+      manualHookPaths: Object.freeze([...manualHookPaths]),
+      cachePaths: Object.freeze([...cachePaths]),
+      ambiguousPaths: Object.freeze([...ambiguousPaths]),
+    });
+  };
+}
+
+interface ParsedPluginEntry {
+  readonly pluginId: string;
+  readonly name: string;
+  readonly marketplaceName: string;
+  readonly installed: boolean;
+  readonly enabled: boolean;
+  readonly sourceKind: string;
+  readonly localPath?: string;
+  readonly marketplaceSourceType?: string;
+  readonly marketplaceLocalSource?: string;
+}
+
+interface ParsedMarketplaceEntry {
+  readonly name: string;
+  readonly root: string;
+  readonly marketplaceSourceType?: string;
+  readonly marketplaceLocalSource?: string;
+}
+
+function exactKeys(value: JsonMap, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key));
+}
+
+function boundedString(value: unknown, maximum = 4096): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum && !/[\r\n\0]/.test(value);
+}
+
+function parseMarketplaceSource(value: unknown): {
+  readonly sourceType: string;
+  readonly localSource?: string;
+} | undefined {
+  if (!isRecord(value) || !exactKeys(value, ["sourceType", "source"]) ||
+      !boundedString(value.sourceType, 32) || !boundedString(value.source)) return undefined;
+  if (value.sourceType !== "local" && value.sourceType !== "git") return undefined;
+  return value.sourceType === "local"
+    ? { sourceType: value.sourceType, localSource: value.source }
+    : { sourceType: value.sourceType };
+}
+
+function parsePluginSource(value: unknown): { readonly kind: string; readonly localPath?: string } | undefined {
+  if (!isRecord(value) || !boundedString(value.source, 32)) return undefined;
+  if (value.source === "local") {
+    return exactKeys(value, ["source", "path"]) && boundedString(value.path)
+      ? { kind: "local", localPath: value.path }
+      : undefined;
+  }
+  if (value.source === "git") {
+    return exactKeys(value, ["source", "url"], ["ref", "sha"]) &&
+      boundedString(value.url) &&
+      (value.ref === undefined || boundedString(value.ref, 256)) &&
+      (value.sha === undefined || boundedString(value.sha, 128))
+      ? { kind: "git" }
+      : undefined;
+  }
+  if (value.source === "git-subdir") {
+    return exactKeys(value, ["source", "url", "path"], ["ref", "sha"]) &&
+      boundedString(value.url) && boundedString(value.path) &&
+      (value.ref === undefined || boundedString(value.ref, 256)) &&
+      (value.sha === undefined || boundedString(value.sha, 128))
+      ? { kind: "git-subdir" }
+      : undefined;
+  }
+  if (value.source === "npm") {
+    return exactKeys(value, ["source", "package"], ["version", "registry"]) &&
+      boundedString(value.package, 256) &&
+      (value.version === undefined || boundedString(value.version, 128)) &&
+      (value.registry === undefined || boundedString(value.registry))
+      ? { kind: "npm" }
+      : undefined;
+  }
+  return undefined;
+}
+
+function parsePluginEntry(value: unknown): ParsedPluginEntry | undefined {
+  if (!isRecord(value) || !exactKeys(
+    value,
+    ["pluginId", "name", "marketplaceName", "version", "installed", "enabled", "source", "installPolicy", "authPolicy"],
+    ["marketplaceSource"],
+  ) ||
+      !boundedString(value.pluginId, 320) || !boundedString(value.name, 160) ||
+      !boundedString(value.marketplaceName, 160) ||
+      (value.version !== null && !boundedString(value.version, 128)) ||
+      typeof value.installed !== "boolean" || typeof value.enabled !== "boolean" ||
+      !boundedString(value.installPolicy, 64) || !boundedString(value.authPolicy, 64)) {
+    return undefined;
+  }
+  const source = parsePluginSource(value.source);
+  if (source === undefined) return undefined;
+  const marketplace = value.marketplaceSource === undefined
+    ? undefined
+    : parseMarketplaceSource(value.marketplaceSource);
+  if (value.marketplaceSource !== undefined && marketplace === undefined) return undefined;
+  const result: {
+    pluginId: string;
+    name: string;
+    marketplaceName: string;
+    installed: boolean;
+    enabled: boolean;
+    sourceKind: string;
+    localPath?: string;
+    marketplaceSourceType?: string;
+    marketplaceLocalSource?: string;
+  } = {
+    pluginId: value.pluginId,
+    name: value.name,
+    marketplaceName: value.marketplaceName,
+    installed: value.installed,
+    enabled: value.enabled,
+    sourceKind: source.kind,
+  };
+  if (source.localPath !== undefined) result.localPath = source.localPath;
+  if (marketplace !== undefined) result.marketplaceSourceType = marketplace.sourceType;
+  if (marketplace?.localSource !== undefined) result.marketplaceLocalSource = marketplace.localSource;
+  return Object.freeze(result);
+}
+
+function parsePluginInventory(stdout: string): readonly ParsedPluginEntry[] | undefined {
+  if (Buffer.byteLength(stdout, "utf8") > 1024 * 1024) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(stdout); } catch { return undefined; }
+  if (!isRecord(value) || !exactKeys(value, ["installed", "available"]) ||
+      !Array.isArray(value.installed) || !Array.isArray(value.available)) return undefined;
+  const installed = value.installed.map(parsePluginEntry);
+  const available = value.available.map(parsePluginEntry);
+  if (installed.some((entry) => entry === undefined) || available.some((entry) => entry === undefined)) return undefined;
+  const normalizedInstalled = installed as ParsedPluginEntry[];
+  const normalizedAvailable = available as ParsedPluginEntry[];
+  if (normalizedInstalled.some((entry) => !entry.installed) || normalizedAvailable.some((entry) => entry.installed)) {
+    return undefined;
+  }
+  const all = [...normalizedInstalled, ...normalizedAvailable];
+  if (new Set(all.map((entry) => entry.pluginId)).size !== all.length) return undefined;
+  return Object.freeze(all);
+}
+
+function parseMarketplaceEntry(value: unknown): ParsedMarketplaceEntry | undefined {
+  if (!isRecord(value) || !exactKeys(value, ["name", "root"], ["marketplaceSource"]) ||
+      !boundedString(value.name, 160) || !boundedString(value.root)) return undefined;
+  const source = value.marketplaceSource === undefined
+    ? undefined
+    : parseMarketplaceSource(value.marketplaceSource);
+  if (value.marketplaceSource !== undefined && source === undefined) return undefined;
+  const result: {
+    name: string;
+    root: string;
+    marketplaceSourceType?: string;
+    marketplaceLocalSource?: string;
+  } = { name: value.name, root: value.root };
+  if (source !== undefined) result.marketplaceSourceType = source.sourceType;
+  if (source?.localSource !== undefined) result.marketplaceLocalSource = source.localSource;
+  return Object.freeze(result);
+}
+
+function parseMarketplaceInventory(stdout: string): readonly ParsedMarketplaceEntry[] | undefined {
+  if (Buffer.byteLength(stdout, "utf8") > 1024 * 1024) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(stdout); } catch { return undefined; }
+  if (!isRecord(value) || !exactKeys(value, ["marketplaces"]) || !Array.isArray(value.marketplaces)) {
+    return undefined;
+  }
+  const entries = value.marketplaces.map(parseMarketplaceEntry);
+  if (entries.some((entry) => entry === undefined)) return undefined;
+  const normalized = entries as ParsedMarketplaceEntry[];
+  if (new Set(normalized.map((entry) => entry.name)).size !== normalized.length ||
+      new Set(normalized.map((entry) => entry.root)).size !== normalized.length) return undefined;
+  return Object.freeze(normalized);
+}
+
+function semverTuple(value: string): readonly [number, number, number] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  if (match === null) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])] as const;
+}
+
+function versionAtLeast(value: string, minimum: string): boolean {
+  const left = semverTuple(value);
+  const right = semverTuple(minimum);
+  if (left === undefined || right === undefined) return false;
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (left[index] as number) - (right[index] as number);
+    if (delta !== 0) return delta > 0;
+  }
+  return true;
+}
+
+function observedCodexVersion(stdout: string | undefined): string | undefined {
+  if (stdout === undefined || Buffer.byteLength(stdout, "utf8") > 1024) return undefined;
+  const match = /^codex-cli (\d+\.\d+\.\d+)\s*$/.exec(stdout);
+  return match?.[1];
+}
+
+function helpMatches(command: string, stdout: string | undefined): boolean {
+  if (stdout === undefined || Buffer.byteLength(stdout, "utf8") > 64 * 1024) return false;
+  if (!stdout.includes("--json")) return false;
+  if (command === "plugin remove") return /PLUGIN/i.test(stdout);
+  if (command === "plugin marketplace remove") return /MARKETPLACE/i.test(stdout);
+  return true;
+}
+
+async function observeCapability(
+  runner: CodexNativeRunner,
+  mode: SourceScanMode,
+): Promise<NativeHostCapability | undefined> {
+  const versionResult = await runner(Object.freeze({
+    executable: "codex",
+    args: Object.freeze(["--version"]),
+    timeoutMs: CODEX_TIMEOUT_MS,
+  }));
+  const version = versionResult.exitCode === 0 && !versionResult.timedOut
+    ? observedCodexVersion(versionResult.stdout)
+    : undefined;
+  if (version === undefined || !versionAtLeast(version, CODEX_MINIMUM_VERSION)) return undefined;
+  if (mode !== "fast") {
+    const helpCommands = [
+      ["plugin", "list"],
+      ["plugin", "marketplace", "list"],
+      ["plugin", "remove"],
+      ["plugin", "marketplace", "remove"],
+    ] as const;
+    for (const parts of helpCommands) {
+      const result = await runner(Object.freeze({
+        executable: "codex",
+        args: Object.freeze([...parts, "--help"]),
+        timeoutMs: CODEX_TIMEOUT_MS,
+      }));
+      if (result.exitCode !== 0 || result.timedOut || !helpMatches(parts.join(" "), result.stdout)) {
+        return undefined;
+      }
+    }
+  }
+  return createNativeHostCapability({
+    host: "codex",
+    cli: "codex",
+    minimumVersion: CODEX_MINIMUM_VERSION,
+    observedVersion: version,
+    inventorySchemaId: CODEX_INVENTORY_SCHEMA,
+    completeInventory: true,
+    route: "normal",
+  });
+}
+
+function safeMetadataPath(value: unknown): value is string {
+  return typeof value === "string" && [
+    USER_CONFIG_SAFE_PATH,
+    USER_HOOKS_SAFE_PATH,
+    USER_CACHE_SAFE_PATH,
+  ].includes(value);
+}
+
+function normalizeUserSourceMetadata(value: unknown): CodexUserSourceMetadata {
+  const ambiguous = (): CodexUserSourceMetadata => Object.freeze({
+    registrations: Object.freeze([]),
+    rawMcpPaths: Object.freeze([]),
+    manualHookPaths: Object.freeze([]),
+    cachePaths: Object.freeze([]),
+    ambiguousPaths: Object.freeze([USER_CONFIG_SAFE_PATH]),
+  });
+  if (!isRecord(value) || !exactKeys(value, [
+    "registrations", "rawMcpPaths", "manualHookPaths", "cachePaths", "ambiguousPaths",
+  ]) ||
+      !Array.isArray(value.registrations) || !Array.isArray(value.rawMcpPaths) ||
+      !Array.isArray(value.manualHookPaths) || !Array.isArray(value.cachePaths) ||
+      !Array.isArray(value.ambiguousPaths)) return ambiguous();
+  const pathGroups = [value.rawMcpPaths, value.manualHookPaths, value.cachePaths, value.ambiguousPaths];
+  if (pathGroups.some((group) => group.some((item) => !safeMetadataPath(item)))) return ambiguous();
+  const registrations: CodexRegistrationMetadata[] = [];
+  for (const item of value.registrations) {
+    if (!isRecord(item) || !exactKeys(item, [
+      "host", "sourceType", "marketplaceName", "sourcePath", "recognizedSourcePath",
+      "provenanceId", "safePath", "failureAttribution", "exclusiveUserMarketplace",
+    ]) ||
+        item.host !== "codex" || item.sourceType !== "owned_marketplace_registration" ||
+        item.marketplaceName !== OWNED_MARKETPLACE || item.provenanceId !== LEGACY_PROVENANCE_ID ||
+        item.safePath !== USER_CONFIG_SAFE_PATH || item.failureAttribution !== "marketplace_load" ||
+        typeof item.exclusiveUserMarketplace !== "boolean" ||
+        typeof item.sourcePath !== "string" || typeof item.recognizedSourcePath !== "string") {
+      return ambiguous();
+    }
+    const sourcePath = normalizedAbsolute(item.sourcePath);
+    const recognizedSourcePath = normalizedAbsolute(item.recognizedSourcePath);
+    if (sourcePath === undefined || recognizedSourcePath === undefined ||
+        !samePlatformPath(sourcePath, recognizedSourcePath)) return ambiguous();
+    registrations.push(Object.freeze({
+      host: "codex",
+      sourceType: "owned_marketplace_registration",
+      marketplaceName: OWNED_MARKETPLACE,
+      sourcePath,
+      recognizedSourcePath,
+      provenanceId: LEGACY_PROVENANCE_ID,
+      safePath: USER_CONFIG_SAFE_PATH,
+      failureAttribution: "marketplace_load",
+      exclusiveUserMarketplace: item.exclusiveUserMarketplace,
+    }));
+  }
+  return Object.freeze({
+    registrations: Object.freeze(registrations),
+    rawMcpPaths: Object.freeze([...(value.rawMcpPaths as string[])]),
+    manualHookPaths: Object.freeze([...(value.manualHookPaths as string[])]),
+    cachePaths: Object.freeze([...(value.cachePaths as string[])]),
+    ambiguousPaths: Object.freeze([...(value.ambiguousPaths as string[])]),
+  });
+}
+
+function conflictFinding(
+  code: "raw_mcp_source" | "manual_hook_source" | "ambiguous_source" | "source_scan_unavailable",
+  sourceType: "raw_mcp" | "manual_hook" | "ambiguous",
+  safePath: string,
+) {
+  return createSourceFinding({
+    code,
+    severity: "conflict",
+    sourceType,
+    scope: "user",
+    safePath,
+    cleanupEligible: false,
+  });
+}
+
+function metadataFindings(metadata: CodexUserSourceMetadata, mode: SourceScanMode) {
+  const findings = [
+    ...metadata.rawMcpPaths.map((safePath) => conflictFinding("raw_mcp_source", "raw_mcp", safePath)),
+    ...metadata.manualHookPaths.map((safePath) => conflictFinding("manual_hook_source", "manual_hook", safePath)),
+    ...metadata.ambiguousPaths.map((safePath) => conflictFinding("ambiguous_source", "ambiguous", safePath)),
+  ];
+  if (mode !== "fast") {
+    findings.push(...metadata.cachePaths.map((safePath) => createSourceFinding({
+      code: "cache_residue",
+      severity: "info",
+      sourceType: "cache_residue",
+      scope: "user",
+      safePath,
+      cleanupEligible: false,
+    })));
+  }
+  return findings;
+}
+
+function matchesRegistrationSource(
+  registration: CodexRegistrationMetadata | undefined,
+  source: string | undefined,
+): boolean {
+  if (registration === undefined || source === undefined) return false;
+  const normalized = normalizedAbsolute(source);
+  return normalized !== undefined && samePlatformPath(normalized, registration.sourcePath);
+}
+
+function containedPluginPath(registration: CodexRegistrationMetadata, pluginPath: string | undefined): boolean {
+  if (pluginPath === undefined) return false;
+  const normalized = normalizedAbsolute(pluginPath);
+  if (normalized === undefined) return false;
+  const relative = path.relative(registration.sourcePath, normalized);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function exactOwnedPlugin(entry: ParsedPluginEntry, registration: CodexRegistrationMetadata | undefined): boolean {
+  return registration !== undefined &&
+    OWNED_PLUGIN_NAMES.has(entry.name) &&
+    entry.marketplaceName === OWNED_MARKETPLACE &&
+    entry.pluginId === `${entry.name}@${OWNED_MARKETPLACE}` &&
+    entry.sourceKind === "local" &&
+    containedPluginPath(registration, entry.localPath) &&
+    entry.marketplaceSourceType === "local" &&
+    matchesRegistrationSource(registration, entry.marketplaceLocalSource);
+}
+
+function exactOwnedMarketplace(
+  entry: ParsedMarketplaceEntry,
+  registration: CodexRegistrationMetadata | undefined,
+): boolean {
+  return entry.name === OWNED_MARKETPLACE &&
+    entry.marketplaceSourceType === "local" &&
+    matchesRegistrationSource(registration, entry.marketplaceLocalSource);
+}
+
+function findingWithPlan(
+  plan: NativeCleanupPlan,
+  code: "owned_plugin_source" | "owned_marketplace_source",
+) {
+  return createSourceFinding({
+    code,
+    severity: "conflict",
+    sourceType: plan.sourceType,
+    scope: "user",
+    safePath: plan.safePath,
+    cleanupEligible: true,
+    cleanupCommand: plan.command,
+    cleanupFingerprint: plan.fingerprint,
+  });
+}
+
+function manualOwnedFinding(
+  sourceType: "owned_plugin" | "owned_marketplace_registration",
+  safePath: string,
+) {
+  return createSourceFinding({
+    code: sourceType === "owned_plugin" ? "owned_plugin_source" : "owned_marketplace_source",
+    severity: "conflict",
+    sourceType,
+    scope: "user",
+    safePath,
+    cleanupEligible: false,
+  });
+}
+
+function sourceScanUnavailable(mode: SourceScanMode, findings: readonly ReturnType<typeof createSourceFinding>[]) {
+  return createSourceScanResult(mode, [
+    ...findings,
+    conflictFinding("source_scan_unavailable", "ambiguous", ".codex/plugins"),
+  ]);
+}
+
+async function nativeInventory(runner: CodexNativeRunner): Promise<{
+  readonly pluginResult: CodexNativeResult;
+  readonly marketplaceResult: CodexNativeResult;
+}> {
+  const pluginResult = await runner(Object.freeze({
+    executable: "codex",
+    args: Object.freeze(["plugin", "list", "--json"]),
+    timeoutMs: CODEX_TIMEOUT_MS,
+  }));
+  const marketplaceResult = await runner(Object.freeze({
+    executable: "codex",
+    args: Object.freeze(["plugin", "marketplace", "list", "--json"]),
+    timeoutMs: CODEX_TIMEOUT_MS,
+  }));
+  return { pluginResult, marketplaceResult };
+}
+
+async function scanCodexUserSources(
+  mode: SourceScanMode,
+  runner: CodexNativeRunner,
+  readUserSources: CodexUserSourceReader,
+  allowDegraded: boolean,
+): Promise<SourceScanResult> {
+  let metadata: CodexUserSourceMetadata;
+  try {
+    metadata = normalizeUserSourceMetadata(await readUserSources());
+  } catch {
+    metadata = normalizeUserSourceMetadata({});
+  }
+  const findings = metadataFindings(metadata, mode);
+  let capability: NativeHostCapability | undefined;
+  try {
+    capability = await observeCapability(runner, mode);
+  } catch {
+    capability = undefined;
+  }
+  if (capability === undefined) return sourceScanUnavailable(mode, findings);
+  let pluginResult: CodexNativeResult;
+  let marketplaceResult: CodexNativeResult;
+  try {
+    ({ pluginResult, marketplaceResult } = await nativeInventory(runner));
+  } catch {
+    return sourceScanUnavailable(mode, findings);
+  }
+  const pluginSucceeded = pluginResult.exitCode === 0 && !pluginResult.timedOut && pluginResult.stdout !== undefined;
+  const marketplaceSucceeded = marketplaceResult.exitCode === 0 && !marketplaceResult.timedOut &&
+    marketplaceResult.stdout !== undefined;
+  if (!pluginSucceeded || !marketplaceSucceeded) {
+    const registration = metadata.registrations.length === 1 ? metadata.registrations[0] : undefined;
+    const degradedExact = allowDegraded && mode !== "fast" &&
+      !pluginSucceeded && !marketplaceSucceeded && !pluginResult.timedOut && !marketplaceResult.timedOut &&
+      pluginResult.failureAttribution === "marketplace_load" &&
+      marketplaceResult.failureAttribution === "marketplace_load" &&
+      registration !== undefined && registration.exclusiveUserMarketplace &&
+      metadata.rawMcpPaths.length === 0 && metadata.manualHookPaths.length === 0 &&
+      metadata.ambiguousPaths.length === 0;
+    if (!degradedExact || registration === undefined) return sourceScanUnavailable(mode, findings);
+    const degradedCapability = createNativeHostCapability({
+      host: "codex",
+      cli: "codex",
+      minimumVersion: capability.minimumVersion,
+      observedVersion: capability.observedVersion,
+      inventorySchemaId: capability.inventorySchemaId,
+      completeInventory: false,
+      route: "degraded_owned_registration",
+    });
+    const plan = createNativeCleanupPlan({
+      host: "codex",
+      sourceType: "owned_marketplace_registration",
+      safePath: USER_CONFIG_SAFE_PATH,
+      capability: degradedCapability,
+      argv: ["codex", "plugin", "marketplace", "remove", OWNED_MARKETPLACE, "--json"],
+      scope: "marketplace:kcoderag-nav",
+      timeoutMs: CODEX_TIMEOUT_MS,
+    });
+    return createSourceScanResult(mode, [...findings, findingWithPlan(plan, "owned_marketplace_source")], [plan]);
+  }
+  const plugins = parsePluginInventory(pluginResult.stdout as string);
+  const marketplaces = parseMarketplaceInventory(marketplaceResult.stdout as string);
+  if (plugins === undefined || marketplaces === undefined) return sourceScanUnavailable(mode, findings);
+  const registration = metadata.registrations.length === 1 ? metadata.registrations[0] : undefined;
+  const relatedPlugins = plugins.filter((entry) =>
+    /kcoderag/i.test(entry.name) || entry.marketplaceName === OWNED_MARKETPLACE || /kcoderag/i.test(entry.pluginId));
+  const relatedMarketplaces = marketplaces.filter((entry) => /kcoderag/i.test(entry.name));
+  const malformedRelated = relatedPlugins.some((entry) => entry.installed && entry.enabled &&
+    !exactOwnedPlugin(entry, registration)) ||
+    relatedMarketplaces.some((entry) => !exactOwnedMarketplace(entry, registration)) ||
+    metadata.registrations.length > 1 ||
+    (registration !== undefined && relatedMarketplaces.length !== 1);
+  if (malformedRelated) {
+    return createSourceScanResult(mode, [
+      ...findings,
+      conflictFinding("ambiguous_source", "ambiguous", ".codex/plugins"),
+    ]);
+  }
+  const activePlugins = relatedPlugins.filter((entry) => entry.installed && entry.enabled);
+  const disabledPlugins = relatedPlugins.filter((entry) => entry.installed && !entry.enabled);
+  if (mode !== "fast") {
+    findings.push(...disabledPlugins.map(() => createSourceFinding({
+      code: "disabled_source",
+      severity: "info",
+      sourceType: "disabled_registration",
+      scope: "user",
+      safePath: ".codex/plugins",
+      cleanupEligible: false,
+    })));
+  }
+  const hasManualConflict = findings.some((finding) => finding.severity === "conflict");
+  if (activePlugins.length > 1) {
+    return createSourceScanResult(mode, [
+      ...findings,
+      conflictFinding("ambiguous_source", "ambiguous", ".codex/plugins"),
+    ]);
+  }
+  if (activePlugins[0] !== undefined) {
+    const entry = activePlugins[0];
+    if (mode === "fast" || hasManualConflict) {
+      return createSourceScanResult(mode, [...findings, manualOwnedFinding("owned_plugin", ".codex/plugins")]);
+    }
+    const plan = createNativeCleanupPlan({
+      host: "codex",
+      sourceType: "owned_plugin",
+      safePath: ".codex/plugins",
+      capability,
+      argv: ["codex", "plugin", "remove", `${entry.name}@${OWNED_MARKETPLACE}`, "--json"],
+      scope: `plugin:${entry.name}`,
+      timeoutMs: CODEX_TIMEOUT_MS,
+    });
+    return createSourceScanResult(mode, [...findings, findingWithPlan(plan, "owned_plugin_source")], [plan]);
+  }
+  if (relatedMarketplaces[0] !== undefined || registration !== undefined) {
+    if (mode === "fast" || hasManualConflict || relatedMarketplaces.length !== 1) {
+      return createSourceScanResult(mode, [
+        ...findings,
+        manualOwnedFinding("owned_marketplace_registration", USER_CONFIG_SAFE_PATH),
+      ]);
+    }
+    const plan = createNativeCleanupPlan({
+      host: "codex",
+      sourceType: "owned_marketplace_registration",
+      safePath: USER_CONFIG_SAFE_PATH,
+      capability,
+      argv: ["codex", "plugin", "marketplace", "remove", OWNED_MARKETPLACE, "--json"],
+      scope: "marketplace:kcoderag-nav",
+      timeoutMs: CODEX_TIMEOUT_MS,
+    });
+    return createSourceScanResult(mode, [...findings, findingWithPlan(plan, "owned_marketplace_source")], [plan]);
+  }
+  return createSourceScanResult(mode, findings);
+}
+
 function codexStatus(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
   if (issue !== undefined) {
@@ -1302,14 +2154,54 @@ function codexStatus(context: HostStatusContext) {
   }
 }
 
-export const codexAdapter: HostAdapter = Object.freeze({
-  id: "codex",
-  managedRoots: MANAGED_ROOTS,
-  detect: detectCodex,
-  renderInstall,
-  renderUninstall,
-  status: codexStatus,
-});
+export function createCodexAdapter(options: CodexAdapterOptions = {}): HostAdapter {
+  const runner = options.runner ?? defaultCodexRunner;
+  const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir());
+  const readUserSources = options.readUserSources ?? defaultUserSourceReader(homeDirectory);
+  const issuedPlans = new Map<string, NativeCleanupPlan>();
+
+  const scanUserSources = async (context: HostSourceScanContext): Promise<SourceScanResult> => {
+    if (context.observation.host !== "codex" || context.observation.target !== context.target) {
+      throw new InstallError("invalid_host_adapter");
+    }
+    const result = await scanCodexUserSources(context.mode, runner, readUserSources, true);
+    issuedPlans.clear();
+    for (const plan of result.cleanupPlans) issuedPlans.set(plan.fingerprint, plan);
+    return result;
+  };
+
+  const cleanupOwnedSource = async (
+    plan: NativeCleanupPlan,
+    authority: OwnedCleanupAuthority,
+  ): Promise<SourceScanResult> => {
+    if (plan.host !== "codex" || issuedPlans.get(plan.fingerprint) !== plan) {
+      throw new InstallError("cleanup_fingerprint_mismatch");
+    }
+    issuedPlans.delete(plan.fingerprint);
+    await runOwnedSourceCleanup(plan, authority, async (request) => {
+      const result = await runner(request);
+      return Object.freeze({ exitCode: result.exitCode, timedOut: result.timedOut });
+    });
+    const result = await scanCodexUserSources("gate", runner, readUserSources, false);
+    issuedPlans.clear();
+    for (const nextPlan of result.cleanupPlans) issuedPlans.set(nextPlan.fingerprint, nextPlan);
+    return result;
+  };
+
+  return Object.freeze({
+    id: "codex" as const,
+    managedRoots: MANAGED_ROOTS,
+    detect: detectCodex,
+    renderInstall,
+    renderUninstall,
+    status: codexStatus,
+    scanUserSources,
+    cleanupOwnedSource,
+  });
+}
+
+export const codexAdapter: HostAdapter = createCodexAdapter();
 
 exports.STATE_PATH = STATE_PATH;
 exports.managedPaths = managedPaths;
+exports.createCodexAdapter = createCodexAdapter;
