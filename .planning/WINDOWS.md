@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 1
 waived_count: 0
-fixed_count: 10
-total_count: 11
-last_updated: 2026-08-25T07:31:16.938Z
+fixed_count: 12
+total_count: 13
+last_updated: 2026-08-25T08:30:38.905Z
 ---
 
 # Broken Windows Ledger
@@ -26,6 +26,8 @@ last_updated: 2026-08-25T07:31:16.938Z
 | 9 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Retried the guide-only commit with an isolated temporary environment after shared virtual-environment reuse hit an in-use executable. | fixed |  | 2026-08-23T19:34:34.074Z | 2026-08-23T19:34:39.951Z |
 | 10 | 03.1 | lint-warning | .github/workflows/release.yml |  | Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins. | open |  | 2026-08-24T02:29:02.944Z |  |
 | 11 | 04 | deviation | package.json |  | Added the compiled project-root module to the public package inventory because host adapters import it. | fixed |  | 2026-08-25T07:30:31.828Z | 2026-08-25T07:31:16.938Z |
+| 12 | 04 | deviation | package.json |  | Added the shared source runtime module to the public archive contract | fixed |  | 2026-08-25T08:30:10.514Z | 2026-08-25T08:30:38.659Z |
+| 13 | 04 | deviation | src/hosts/codex.cts |  | Resolved Windows Codex execution without shell use and isolated source scans from real user state | fixed |  | 2026-08-25T08:30:10.765Z | 2026-08-25T08:30:38.905Z |
 
 ````json
 [
@@ -160,6 +162,30 @@ last_updated: 2026-08-25T07:31:16.938Z
     "reason": "",
     "recorded_at": "2026-08-25T07:30:31.828Z",
     "resolved_at": "2026-08-25T07:31:16.938Z"
+  },
+  {
+    "id": 12,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "package.json",
+    "line": null,
+    "description": "Added the shared source runtime module to the public archive contract",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T08:30:10.514Z",
+    "resolved_at": "2026-08-25T08:30:38.659Z"
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/hosts/codex.cts",
+    "line": null,
+    "description": "Resolved Windows Codex execution without shell use and isolated source scans from real user state",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T08:30:10.765Z",
+    "resolved_at": "2026-08-25T08:30:38.905Z"
   }
 ]
 ````

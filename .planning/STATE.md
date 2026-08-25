@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-09-PLAN.md
-last_updated: "2026-08-25T07:44:33.854Z"
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-08-25T08:31:04.865Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 08b6ce48b191aeee6170125ad14c2921291ad686
+state_head: fcf67e153e5112fa69463dde1c4d43651acd443c
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 41
+  completed_plans: 42
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 8 of 19
+Plan: 9 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -95,6 +95,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P07 | 26min | 2 tasks | 36 files |
 | Phase 04 P04 | 23min | 3 tasks | 11 files |
 | Phase 04 P09 | 10min | 2 tasks | 5 files |
+| Phase 04 P05 | 35min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: The rootless Hook validates exact current QA metadata and a contained launcher digest before execution.
 - [Phase 04]: The Windows rootless command remains below cmd.exe's 8192-character boundary.
 - [Phase 04]: Cursor product evidence is restricted to member names, versions, sizes, hashes, booleans, and stable non-content failure codes.
+- [Phase 04]: Codex cleanup capability requires supported runtime observation, exact native schemas, complete inventory, and fixed non-shell argv.
+- [Phase 04]: Owned source cleanup requires dedicated authority bound to a fresh canonical SHA-256 fingerprint and a complete clean rescan before project rendering.
+- [Phase 04]: The degraded Codex route recognizes only the exact owned kcoderag-nav marketplace registration; every ambiguous, raw, or manual source remains manual-only.
+- [Phase 04]: Status uses a bounded fast scan, doctor is deep and read-only, and install/update independently run the full selected-host gate.
 
 ### Pending Todos
 
@@ -268,6 +273,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T07:44:33.551Z
-Stopped at: Completed 04-09-PLAN.md
+Last session: 2026-08-25T08:31:04.543Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None
