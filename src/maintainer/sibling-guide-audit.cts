@@ -13,6 +13,8 @@ interface StatusEntry {
 interface AuditOptions {
   readonly siblingRepo: string;
   readonly navRepo: string;
+  readonly expectedGuideDigest?: string;
+  readonly expectedGuideCommit?: string;
 }
 
 interface CliOptions extends AuditOptions {
@@ -21,19 +23,22 @@ interface CliOptions extends AuditOptions {
 }
 
 interface Baseline {
-  readonly schemaVersion: 1;
-  readonly siblingRepo: string;
+  readonly schemaVersion: 2;
+  readonly siblingRepoDigest: string;
   readonly guide: string;
+  readonly guideDigest: string;
   readonly head: string;
   readonly status: readonly StatusEntry[];
   readonly guideClean: true;
 }
 
 interface Receipt {
-  readonly schemaVersion: 1;
-  readonly siblingRepo: string;
+  readonly schemaVersion: 2;
+  readonly siblingRepoDigest: string;
   readonly guide: string;
   readonly baselineDigest: string;
+  readonly baselineGuideDigest: string;
+  readonly guideDigest: string;
   readonly baselineHead: string;
   readonly commitParent: string;
   readonly beforeUnrelatedStatusDigest: string;
@@ -44,7 +49,24 @@ interface Receipt {
   readonly secret_scan: true;
 }
 
+interface AuthoritativeGuideAudit {
+  readonly schemaVersion: 1;
+  readonly guide: string;
+  readonly guideDigest: string;
+  readonly guideCommit: string;
+  readonly guideCommitParent: string;
+  readonly guideCommitFiles: readonly string[];
+  readonly guideCommitAncestor: true;
+  readonly guideUnchangedSinceCommit: true;
+  readonly navCopyAbsent: true;
+  readonly siblingHead: string;
+  readonly navHead: string;
+  readonly unrelatedStatusDigest: string;
+}
+
 const GUIDE = "MCP_QA_EXPERIENCE_GUIDE.md";
+const PLAN_14_GUIDE_DIGEST = "b2b9b6c3b68d71e1b95278059822915e2212a4767a87bc7c6911c02dd8af0144";
+const PLAN_14_GUIDE_COMMIT = "879c7df0453abc1c1927b908c0d8a0cd9356118d";
 const HASH_PATTERN = /^[0-9a-f]{40}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const SECRET_PATTERNS = [
@@ -55,6 +77,8 @@ const PACKAGE_ROOT = path.resolve(__dirname, "../..");
 const DEFAULT_OPTIONS: AuditOptions = Object.freeze({
   siblingRepo: path.resolve(PACKAGE_ROOT, "../KCodeRag"),
   navRepo: PACKAGE_ROOT,
+  expectedGuideDigest: PLAN_14_GUIDE_DIGEST,
+  expectedGuideCommit: PLAN_14_GUIDE_COMMIT,
 });
 
 class SiblingGuideAuditError extends Error {
@@ -81,6 +105,10 @@ function normalizeRepoPath(value: string): string {
   return path.resolve(value).replace(/\\/g, "/");
 }
 
+function repoIdentityDigest(value: string): string {
+  return crypto.createHash("sha256").update(normalizeRepoPath(value)).digest("hex");
+}
+
 function git(repo: string, args: readonly string[]): string {
   try {
     return childProcess.execFileSync("git", ["-C", repo, ...args], {
@@ -92,6 +120,15 @@ function git(repo: string, args: readonly string[]): string {
   } catch {
     throw new SiblingGuideAuditError("git_metadata_failed");
   }
+}
+
+function gitSucceeds(repo: string, args: readonly string[]): boolean {
+  const result = childProcess.spawnSync("git", ["-C", repo, ...args], {
+    stdio: "ignore",
+    windowsHide: true,
+    timeout: 10_000,
+  });
+  return result.status === 0;
 }
 
 function readHead(repo: string): string {
@@ -115,6 +152,10 @@ function isGuideStatus(entry: StatusEntry): boolean {
 
 function digest(value: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function fileDigest(filePath: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
 function unrelatedStatus(status: readonly StatusEntry[]): readonly StatusEntry[] {
@@ -157,9 +198,10 @@ function validateBaseline(value: unknown): Baseline {
   assertNoSecretLikeValue(value);
   failUnless(
     Object.keys(value).sort().join("\0") ===
-      ["guide", "guideClean", "head", "schemaVersion", "siblingRepo", "status"].sort().join("\0") &&
-      value.schemaVersion === 1 && value.guide === GUIDE && value.guideClean === true &&
-      typeof value.siblingRepo === "string" && path.isAbsolute(value.siblingRepo) &&
+      ["guide", "guideClean", "guideDigest", "head", "schemaVersion", "siblingRepoDigest", "status"].sort().join("\0") &&
+      value.schemaVersion === 2 && value.guide === GUIDE && value.guideClean === true &&
+      typeof value.siblingRepoDigest === "string" && DIGEST_PATTERN.test(value.siblingRepoDigest) &&
+      typeof value.guideDigest === "string" && DIGEST_PATTERN.test(value.guideDigest) &&
       typeof value.head === "string" && HASH_PATTERN.test(value.head),
     "invalid_baseline",
   );
@@ -175,16 +217,17 @@ function captureBaseline(options: AuditOptions = DEFAULT_OPTIONS): Baseline {
       !fs.lstatSync(options.siblingRepo).isSymbolicLink(),
     "invalid_sibling_repo",
   );
-  const siblingRepo = normalizeRepoPath(options.siblingRepo);
   const guidePath = path.join(options.siblingRepo, GUIDE);
   failUnless(fs.existsSync(guidePath) && fs.lstatSync(guidePath).isFile(), "guide_not_found", GUIDE);
   failUnless(!fs.lstatSync(guidePath).isSymbolicLink(), "symlink_not_allowed", GUIDE);
+  assertNoSecretLikeValue(fs.readFileSync(guidePath, "utf8"));
   const status = readStatus(options.siblingRepo);
   failUnless(!status.some(isGuideStatus), "guide_not_clean", GUIDE);
   return {
-    schemaVersion: 1,
-    siblingRepo,
+    schemaVersion: 2,
+    siblingRepoDigest: repoIdentityDigest(options.siblingRepo),
     guide: GUIDE,
+    guideDigest: fileDigest(guidePath),
     head: readHead(options.siblingRepo),
     status,
     guideClean: true,
@@ -192,23 +235,25 @@ function captureBaseline(options: AuditOptions = DEFAULT_OPTIONS): Baseline {
 }
 
 function baselineEvidenceDigest(input: {
-  readonly siblingRepo: string;
+  readonly siblingRepoDigest: string;
   readonly guide: string;
+  readonly guideDigest: string;
   readonly head: string;
   readonly unrelatedStatusDigest: string;
 }): string {
   return digest({
-    schemaVersion: 1,
-    siblingRepo: input.siblingRepo,
+    schemaVersion: 2,
+    siblingRepoDigest: input.siblingRepoDigest,
     guide: input.guide,
+    guideDigest: input.guideDigest,
     head: input.head,
     unrelatedStatusDigest: input.unrelatedStatusDigest,
     guideClean: true,
   });
 }
 
-function readCommitFiles(repo: string): readonly string[] {
-  const output = git(repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]);
+function readCommitFiles(repo: string, commit = "HEAD"): readonly string[] {
+  const output = git(repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", commit]);
   return output === "" ? [] : output.split(/\r?\n/).filter(Boolean).map((item) => item.replace(/\\/g, "/")).sort();
 }
 
@@ -222,7 +267,10 @@ function recordSiblingReceipt(
   options: AuditOptions = DEFAULT_OPTIONS,
 ): Receipt {
   const baseline = validateBaseline(baselineValue);
-  failUnless(normalizeRepoPath(options.siblingRepo) === baseline.siblingRepo, "baseline_repo_mismatch");
+  failUnless(repoIdentityDigest(options.siblingRepo) === baseline.siblingRepoDigest, "baseline_repo_mismatch");
+  const guidePath = path.join(options.siblingRepo, GUIDE);
+  failUnless(fs.existsSync(guidePath) && fs.lstatSync(guidePath).isFile(), "guide_not_found", GUIDE);
+  failUnless(!fs.lstatSync(guidePath).isSymbolicLink(), "symlink_not_allowed", GUIDE);
   const currentStatus = readStatus(options.siblingRepo);
   failUnless(!currentStatus.some(isGuideStatus), "guide_not_clean", GUIDE);
   const beforeDigest = digest(unrelatedStatus(baseline.status));
@@ -236,15 +284,18 @@ function recordSiblingReceipt(
   failUnless(HASH_PATTERN.test(commitParent), "invalid_hash");
   failUnless(currentHead !== baseline.head && commitParent === baseline.head, "baseline_head_mismatch");
   const receipt: Receipt = {
-    schemaVersion: 1,
-    siblingRepo: baseline.siblingRepo,
+    schemaVersion: 2,
+    siblingRepoDigest: baseline.siblingRepoDigest,
     guide: GUIDE,
     baselineDigest: baselineEvidenceDigest({
-      siblingRepo: baseline.siblingRepo,
+      siblingRepoDigest: baseline.siblingRepoDigest,
       guide: baseline.guide,
+      guideDigest: baseline.guideDigest,
       head: baseline.head,
       unrelatedStatusDigest: beforeDigest,
     }),
+    baselineGuideDigest: baseline.guideDigest,
+    guideDigest: fileDigest(guidePath),
     baselineHead: baseline.head,
     commitParent,
     beforeUnrelatedStatusDigest: beforeDigest,
@@ -263,27 +314,28 @@ function verifySiblingReceipt(value: unknown): Receipt {
   const expectedKeys = [
     "afterUnrelatedStatusDigest",
     "baselineDigest",
+    "baselineGuideDigest",
     "baselineHead",
     "beforeUnrelatedStatusDigest",
     "commitFiles",
     "commitParent",
     "guide",
+    "guideDigest",
     "kcoderag_head",
     "kcoderag_nav_head",
     "schemaVersion",
     "secret_scan",
-    "siblingRepo",
+    "siblingRepoDigest",
   ].sort().join("\0");
   failUnless(Object.keys(value).sort().join("\0") === expectedKeys, "invalid_receipt");
   failUnless(
-    value.schemaVersion === 1 && value.guide === GUIDE && value.secret_scan === true &&
-      typeof value.siblingRepo === "string" && path.isAbsolute(value.siblingRepo),
+    value.schemaVersion === 2 && value.guide === GUIDE && value.secret_scan === true,
     "invalid_receipt",
   );
   for (const key of ["baselineHead", "commitParent", "kcoderag_head", "kcoderag_nav_head"] as const) {
     failUnless(typeof value[key] === "string" && HASH_PATTERN.test(value[key]), "invalid_hash");
   }
-  for (const key of ["baselineDigest", "beforeUnrelatedStatusDigest", "afterUnrelatedStatusDigest"] as const) {
+  for (const key of ["baselineDigest", "baselineGuideDigest", "guideDigest", "siblingRepoDigest", "beforeUnrelatedStatusDigest", "afterUnrelatedStatusDigest"] as const) {
     failUnless(typeof value[key] === "string" && DIGEST_PATTERN.test(value[key]), "invalid_digest");
   }
   failUnless(
@@ -293,8 +345,9 @@ function verifySiblingReceipt(value: unknown): Receipt {
   failUnless(value.commitParent === value.baselineHead, "baseline_head_mismatch");
   failUnless(
     value.baselineDigest === baselineEvidenceDigest({
-      siblingRepo: value.siblingRepo,
+      siblingRepoDigest: value.siblingRepoDigest,
       guide: value.guide,
+      guideDigest: value.baselineGuideDigest,
       head: value.baselineHead,
       unrelatedStatusDigest: value.beforeUnrelatedStatusDigest,
     }),
@@ -305,6 +358,64 @@ function verifySiblingReceipt(value: unknown): Receipt {
     "invalid_commit_files",
   );
   return value as Receipt;
+}
+
+function auditAuthoritativeGuide(options: AuditOptions = DEFAULT_OPTIONS): AuthoritativeGuideAudit {
+  failUnless(
+    fs.existsSync(options.siblingRepo) && fs.lstatSync(options.siblingRepo).isDirectory() &&
+      !fs.lstatSync(options.siblingRepo).isSymbolicLink(),
+    "invalid_sibling_repo",
+  );
+  failUnless(
+    fs.existsSync(options.navRepo) && fs.lstatSync(options.navRepo).isDirectory() &&
+      !fs.lstatSync(options.navRepo).isSymbolicLink(),
+    "invalid_nav_repo",
+  );
+  failUnless(!fs.existsSync(path.join(options.navRepo, GUIDE)), "local_guide_copy", GUIDE);
+
+  const guidePath = path.join(options.siblingRepo, GUIDE);
+  failUnless(fs.existsSync(guidePath) && fs.lstatSync(guidePath).isFile(), "guide_not_found", GUIDE);
+  failUnless(!fs.lstatSync(guidePath).isSymbolicLink(), "symlink_not_allowed", GUIDE);
+  assertNoSecretLikeValue(fs.readFileSync(guidePath, "utf8"));
+
+  const expectedGuideDigest = options.expectedGuideDigest ?? PLAN_14_GUIDE_DIGEST;
+  const expectedGuideCommit = options.expectedGuideCommit ?? PLAN_14_GUIDE_COMMIT;
+  failUnless(DIGEST_PATTERN.test(expectedGuideDigest), "invalid_digest");
+  failUnless(HASH_PATTERN.test(expectedGuideCommit), "invalid_hash");
+  const guideDigest = fileDigest(guidePath);
+  failUnless(guideDigest === expectedGuideDigest, "guide_digest_mismatch", GUIDE);
+
+  const resolvedCommit = git(options.siblingRepo, ["rev-parse", `${expectedGuideCommit}^{commit}`]).trim();
+  failUnless(resolvedCommit === expectedGuideCommit, "guide_commit_mismatch");
+  const guideCommitFiles = readCommitFiles(options.siblingRepo, expectedGuideCommit);
+  failUnless(guideCommitFiles.length === 1 && guideCommitFiles[0] === GUIDE, "invalid_commit_files");
+  failUnless(
+    gitSucceeds(options.siblingRepo, ["merge-base", "--is-ancestor", expectedGuideCommit, "HEAD"]),
+    "guide_history_diverged",
+  );
+  failUnless(
+    gitSucceeds(options.siblingRepo, ["diff", "--quiet", expectedGuideCommit, "HEAD", "--", GUIDE]),
+    "guide_changed_since_commit",
+  );
+  const status = readStatus(options.siblingRepo);
+  failUnless(!status.some(isGuideStatus), "guide_not_clean", GUIDE);
+  const guideCommitParent = git(options.siblingRepo, ["rev-parse", `${expectedGuideCommit}^`]).trim();
+  failUnless(HASH_PATTERN.test(guideCommitParent), "invalid_hash");
+
+  return {
+    schemaVersion: 1,
+    guide: GUIDE,
+    guideDigest,
+    guideCommit: expectedGuideCommit,
+    guideCommitParent,
+    guideCommitFiles,
+    guideCommitAncestor: true,
+    guideUnchangedSinceCommit: true,
+    navCopyAbsent: true,
+    siblingHead: readHead(options.siblingRepo),
+    navHead: readHead(options.navRepo),
+    unrelatedStatusDigest: digest(unrelatedStatus(status)),
+  };
 }
 
 function summaryHash(summaryText: string, key: "kcoderag_nav_head" | "kcoderag_head"): string {
@@ -436,6 +547,7 @@ function runCli(argv: readonly string[], options: CliOptions = DEFAULT_OPTIONS):
 
 exports.SiblingGuideAuditError = SiblingGuideAuditError;
 exports.captureBaseline = captureBaseline;
+exports.auditAuthoritativeGuide = auditAuthoritativeGuide;
 exports.recordSiblingReceipt = recordSiblingReceipt;
 exports.verifySiblingReceipt = verifySiblingReceipt;
 exports.verifySiblingSummary = verifySiblingSummary;

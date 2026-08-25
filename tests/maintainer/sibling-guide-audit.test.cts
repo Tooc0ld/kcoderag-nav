@@ -201,6 +201,7 @@ test("authoritative audit rejects a guide commit from divergent history even whe
     const mainBranch = git(item.siblingRepo, ["branch", "--show-current"]);
     git(item.siblingRepo, ["switch", "--quiet", "-c", "side-guide"]);
     commitGuide(item.siblingRepo, "# QA guide\n\nShared final bytes.\n");
+    git(item.siblingRepo, ["commit", "--quiet", "--amend", "-m", "docs: side QA guide"]);
     const sideCommit = git(item.siblingRepo, ["rev-parse", "HEAD"]);
     git(item.siblingRepo, ["switch", "--quiet", mainBranch]);
     commitGuide(item.siblingRepo, "# QA guide\n\nShared final bytes.\n");
