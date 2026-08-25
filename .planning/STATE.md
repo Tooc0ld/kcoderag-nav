@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-13-PLAN.md
-last_updated: "2026-08-25T11:25:30.301Z"
+stopped_at: Completed 04-19-PLAN.md
+last_updated: "2026-08-25T11:52:22.026Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: fffc1670a90f0ed09615d64e1b34ca2134a307f7
+state_head: 724a8a3c3a627afb7f46825c6bb38ad55245ffad
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 50
+  completed_plans: 51
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 17 of 19
+Plan: 18 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -104,6 +104,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P11 | 17min | 3 tasks | 7 files |
 | Phase 04 P12 | 9min | 2 tasks | 2 files |
 | Phase 04-deployment-reliability P13 | 22min | 3 tasks | 8 files |
+| Phase 04 P19 | 20min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -244,6 +245,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Codex and Claude smoke executes the acquired package registered Hook command from root and deep cwd; Cursor remains Rule/skill/MCP-only.
 - [Phase 04]: Pre-commit separates QA/Cursor generated roots and rejects staged Dev or retired marketplace roots before build without index mutation.
 - [Phase 04]: CI and Release expose exact ubuntu/windows Node 22/24 lane tuples bound to github.sha; NPM_TOKEN remains publish-step-only after matrix success.
+- [Phase 04]: Generated package guides expose one project-scoped @latest QA lifecycle while keeping Dev solely in exact legacy migration and uninstall prose.
+- [Phase 04]: The authoritative KCodeRag guide is pinned to its Plan 14 digest and guide-only commit; audit evidence uses repository fingerprints rather than absolute paths.
+- [Phase 04]: Cursor documents Rule, skill, and MCP behavior without claiming a Codex or Claude Code PreToolUse equivalent.
 
 ### Pending Todos
 
@@ -302,6 +306,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T11:25:29.987Z
-Stopped at: Completed 04-13-PLAN.md
+Last session: 2026-08-25T11:52:21.709Z
+Stopped at: Completed 04-19-PLAN.md
 Resume file: None
