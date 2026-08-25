@@ -1,6 +1,7 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
@@ -20,7 +21,7 @@ interface ReleaseModule {
     readonly level: "patch" | "minor" | "major";
     readonly dryRun: boolean;
     readonly yes: boolean;
-    readonly failAfter?: "commit-before-rev-parse" | "commit" | "tag";
+    readonly failAfter?: "write" | "stage" | "commit-before-rev-parse" | "commit" | "tag-before-create" | "tag";
     readonly runGates?: (root: string) => void;
     readonly runGenerator?: (input: {
       readonly root: string;
@@ -134,7 +135,9 @@ function snapshotRepository(root: string): Readonly<Record<string, unknown>> {
     tags: git(root, ["tag", "--list"]),
     files: new Map(release.RELEASE_OWNED_PATHS.map((relativePath) => [
       relativePath,
-      fs.readFileSync(path.join(root, ...relativePath.split("/"))),
+      crypto.createHash("sha256")
+        .update(fs.readFileSync(path.join(root, ...relativePath.split("/"))))
+        .digest("hex"),
     ])),
   });
 }
@@ -237,7 +240,7 @@ test("missing, extra, or retired Dev compatibility manifests refuse before gates
 });
 
 test("creates one exact QA/Cursor release commit and matching immutable tag", () => {
-  const root = createFixture();
+  const root = createFixture("0.1.8");
   const result = release.prepareRelease({
     root,
     level: "minor",
@@ -247,17 +250,95 @@ test("creates one exact QA/Cursor release commit and matching immutable tag", ()
     runGenerator: generator(),
   });
 
-  assert.equal(result.previousVersion, "1.2.3");
-  assert.equal(result.version, "1.3.0");
-  assert.equal(result.tag, "v1.3.0");
+  assert.equal(result.previousVersion, "0.1.8");
+  assert.equal(result.version, "0.2.0");
+  assert.equal(result.tag, "v0.2.0");
   assert.match(result.commit ?? "", /^[0-9a-f]{40}$/u);
   assert.deepEqual(result.releasePaths, release.RELEASE_OWNED_PATHS);
   assert.deepEqual(
     git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split(/\r?\n/u).filter(Boolean).sort(),
     [...release.RELEASE_OWNED_PATHS].sort(),
   );
-  assert.equal(git(root, ["tag", "--points-at", "HEAD"]), "v1.3.0");
+  assert.equal(git(root, ["tag", "--points-at", "HEAD"]), "v0.2.0");
   assert.deepEqual(publicStatus(root), []);
+});
+
+test("write, stage, commit, and tag failure seams restore files, index, refs, and sibling work", () => {
+  const cases = [
+    ["write", "injected_after_write"],
+    ["stage", "injected_after_stage"],
+    ["commit-before-rev-parse", "injected_before_release_commit_discovery"],
+    ["commit", "injected_after_commit"],
+    ["tag-before-create", "injected_before_tag"],
+    ["tag", "injected_after_tag"],
+  ] as const;
+
+  for (const [failAfter, code] of cases) {
+    const root = createFixture("0.1.8");
+    const sibling = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-release-sibling-"));
+    const siblingPath = path.join(sibling, "user-work.txt");
+    fs.writeFileSync(siblingPath, "sibling baseline\n", "utf8");
+    const before = snapshotRepository(root);
+    const siblingDigest = crypto.createHash("sha256")
+      .update(fs.readFileSync(siblingPath))
+      .digest("hex");
+
+    expectCode(
+      () => release.prepareRelease({
+        root,
+        level: "minor",
+        dryRun: false,
+        yes: true,
+        failAfter,
+        runGates() {},
+        runGenerator: generator(),
+      }),
+      code,
+    );
+
+    assert.deepEqual(snapshotRepository(root), before, failAfter);
+    assert.equal(
+      crypto.createHash("sha256").update(fs.readFileSync(siblingPath)).digest("hex"),
+      siblingDigest,
+      failAfter,
+    );
+  }
+});
+
+test("unrelated staged planning work refuses without invoking release gates or changing state", () => {
+  const root = createFixture("0.1.8");
+  const trackedPlanning = path.join(root, ".planning", "tracked.json");
+  fs.writeFileSync(trackedPlanning, "baseline\n", "utf8");
+  git(root, ["add", ".planning/tracked.json"]);
+  git(root, ["commit", "-q", "-m", "track planning"]);
+  fs.writeFileSync(trackedPlanning, "staged user work\n", "utf8");
+  git(root, ["add", ".planning/tracked.json"]);
+  const before = snapshotRepository(root);
+  const events: string[] = [];
+
+  expectCode(
+    () => release.prepareRelease({
+      root,
+      level: "minor",
+      dryRun: false,
+      yes: true,
+      runGates() { events.push("gates"); },
+      runGenerator() {
+        events.push("generator");
+        return { ok: true, changedPaths: [], writtenPaths: [] };
+      },
+    }),
+    "dirty_index",
+  );
+
+  assert.deepEqual(events, []);
+  assert.deepEqual(snapshotRepository(root), before);
+});
+
+test("release helper contains no external publication command surface", () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, "src", "maintainer", "release.cts"), "utf8");
+  assert.doesNotMatch(source, /["'](?:push|publish|unpublish|dist-tag)["']/u);
+  assert.doesNotMatch(source, /["'](?:git|npm)\s+(?:push|publish|unpublish|dist-tag)\b/u);
 });
 
 test("post-commit discovery, post-commit, and post-tag failures restore every release mutation", () => {
