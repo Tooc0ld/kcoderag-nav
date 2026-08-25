@@ -5,7 +5,6 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type EnvironmentId = "qa" | "dev";
 type HostId = "codex" | "claude" | "cursor";
 
 interface HostAdapter {
@@ -46,7 +45,7 @@ function packageFixture(base: string): { readonly root: string; readonly secret:
   const root = path.join(base, "package");
   const secret = `opaque-${crypto.randomUUID()}`;
   write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa", "dev"] as const) {
+  for (const environment of ["qa"] as const) {
     const packageName = `kcoderag-${environment}`;
     write(
       root,
@@ -147,12 +146,12 @@ async function run(
   target: string,
   packageRoot: string,
   command: "install" | "status" | "doctor" | "update" | "uninstall",
-  environment?: EnvironmentId,
+  allowLegacyDevMigration = false,
 ) {
   const captured = io(target, packageRoot);
   const argv = [command, "--host", "codex", "--json"];
   if (command === "install" || command === "update" || command === "uninstall") argv.push("--yes");
-  if (environment !== undefined) argv.push("--environment", environment);
+  if (allowLegacyDevMigration) argv.push("--allow-legacy-dev-migration");
   const exitCode = await commands.executeCommand(argv, captured.dependencies);
   return {
     ...captured,
@@ -182,11 +181,9 @@ test("Codex QA lifecycle is idempotent, reports health, and restores unrelated b
     assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
     assert.deepEqual(snapshot(target.root), firstTree);
 
-    const conflictBefore = snapshot(target.root);
-    const conflict = await run(target.root, pkg.root, "install", "dev");
-    assert.equal(conflict.exitCode, 1);
-    assert.equal(conflict.output.code, "environment_conflict");
-    assert.deepEqual(snapshot(target.root), conflictBefore);
+    const state = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+    assert.equal(state.environment, "qa");
+    assert.ok(state.managedFiles.every((relativePath: string) => !relativePath.includes("/dev/")));
 
     write(pkg.root, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:grep-nudge.cjs:v2\n");
     assert.equal((await run(target.root, pkg.root, "status")).output.status, "update_available");
@@ -309,22 +306,22 @@ test("Codex update and uninstall preserve unrelated shared-config edits made aft
   }
 });
 
-test("Codex Dev is explicit and a managed drift blocks update and uninstall before writes", async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-dev-"));
+test("Codex QA managed drift blocks update and uninstall before writes", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-drift-"));
   try {
     const pkg = packageFixture(base);
     const target = targetFixture(base);
-    assert.equal((await run(target.root, pkg.root, "install", "dev")).exitCode, 0);
-    assert.equal((await run(target.root, pkg.root, "status", "dev")).output.status, "healthy");
-    write(target.root, ".codex/kcoderag-nav/dev/hooks/grep-nudge.cjs", "locally edited\n");
+    assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
+    assert.equal((await run(target.root, pkg.root, "status")).output.status, "healthy");
+    write(target.root, ".codex/kcoderag-nav/qa/hooks/grep-nudge.cjs", "locally edited\n");
     const before = snapshot(target.root);
     for (const command of ["update", "uninstall"] as const) {
-      const result = await run(target.root, pkg.root, command, "dev");
+      const result = await run(target.root, pkg.root, command);
       assert.equal(result.exitCode, 1);
       assert.equal(result.output.code, "managed_content_changed");
       assert.deepEqual(snapshot(target.root), before);
     }
-    assert.equal((await run(target.root, pkg.root, "doctor", "dev")).output.status, "drifted");
+    assert.equal((await run(target.root, pkg.root, "doctor")).output.status, "drifted");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -397,6 +394,7 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
         environment: "qa",
         observation: invalidObservation,
         allowLegacyUserRemoval: false,
+        allowLegacyDevMigration: false,
       }),
       (error: unknown) => error instanceof Error && "code" in error &&
         (error as Error & { code: string }).code === "invalid_json",
@@ -415,6 +413,7 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
       environment: "qa",
       observation: ownedObservation,
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
     }), /unmanaged_name_conflict/);
     assert.deepEqual(snapshot(ownedName.root), ownedBefore);
 
@@ -427,6 +426,7 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
       environment: "qa",
       observation: codex.codexAdapter.detect({ target: rollbackTarget, packageRoot: pkg.root }),
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
     });
     const beforeRollback = snapshot(rollback.root);
     assert.throws(() => transaction.applyTransaction(desired, { failAtCommit: 2 }), /transaction_failed/);

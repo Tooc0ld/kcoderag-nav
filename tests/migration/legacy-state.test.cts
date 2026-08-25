@@ -145,7 +145,7 @@ test("the named legacy decoder alone accepts exact Python and Node QA or Dev rec
 function makePackage(base: string): string {
   const root = path.join(base, "package");
   write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa", "dev"] as const) {
+  for (const environment of ["qa"] as const) {
     const name = `kcoderag-${environment}`;
     write(
       root,
@@ -236,7 +236,7 @@ function observe(root: string, packageRoot: string): {
   };
 }
 
-function renderMigration(root: string, packageRoot: string, environment: EnvironmentId) {
+function renderMigration(root: string, packageRoot: string, allowLegacyDevMigration = false) {
   const { target, observation } = observe(root, packageRoot);
   return {
     target,
@@ -245,16 +245,16 @@ function renderMigration(root: string, packageRoot: string, environment: Environ
       target,
       packageRoot,
       command: "update",
-      environment,
+      environment: "qa",
       observation,
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration,
     }),
   };
 }
 
-// Public desired-state migration remains QA-only; Plan 04-03 adds host-specific Dev-to-QA conversion.
-for (const environment of ["qa"] as const) {
-  test(`legacy ${environment.toUpperCase()} state previews migration, migrates in place, and uninstalls cleanly`, () => {
+for (const environment of ["qa", "dev"] as const) {
+  test(`legacy ${environment.toUpperCase()} state previews migration, migrates to QA, and uninstalls cleanly`, () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-legacy-${environment}-`));
     try {
       const packageRoot = makePackage(base);
@@ -270,9 +270,17 @@ for (const environment of ["qa"] as const) {
       });
       assert.equal(preview.status, "update_available");
       assert.match(JSON.stringify(preview), /legacy_migration_available/);
+      assert.equal(initial.observation.legacyEnvironment, environment);
       assert.deepEqual(snapshot(fixture.root), beforePreview);
 
-      const migration = renderMigration(fixture.root, packageRoot, environment);
+      if (environment === "dev") {
+        assert.throws(
+          () => renderMigration(fixture.root, packageRoot),
+          /legacy_dev_migration_authority_required/,
+        );
+        assert.deepEqual(snapshot(fixture.root), beforePreview);
+      }
+      const migration = renderMigration(fixture.root, packageRoot, environment === "dev");
       transaction.applyTransaction(migration.desired);
       const state = JSON.parse(read(fixture.root, STATE_PATH).toString("utf8")) as {
         schemaVersion: number;
@@ -282,8 +290,9 @@ for (const environment of ["qa"] as const) {
       };
       assert.equal(state.schemaVersion, 1);
       assert.equal(state.host, "codex");
-      assert.equal(state.environment, environment);
+      assert.equal(state.environment, "qa");
       assert.ok(state.managedFiles.every((item) => !item.endsWith(".py")));
+      assert.ok(state.managedFiles.every((item) => !item.includes("/dev/")));
       for (const asset of PYTHON_ASSETS) {
         assert.equal(
           fs.existsSync(path.join(fixture.root, `.codex/kcoderag-nav/${environment}/hooks/${asset}`)),
@@ -294,11 +303,15 @@ for (const environment of ["qa"] as const) {
         fs.existsSync(path.join(fixture.root, `.codex/kcoderag-nav/${environment}/hooks/custom.py`)),
         true,
       );
+      assert.equal(
+        fs.existsSync(path.join(fixture.root, ".codex/kcoderag-nav/qa/hooks/grep-nudge.cjs")),
+        true,
+      );
       const healthy = observe(fixture.root, packageRoot);
       assert.equal(codex.codexAdapter.status({
         target: healthy.target,
         packageRoot,
-        environment,
+        environment: "qa",
         observation: healthy.observation,
         doctor: false,
       }).status, "healthy");
@@ -306,9 +319,10 @@ for (const environment of ["qa"] as const) {
       const uninstall = codex.codexAdapter.renderUninstall({
         target: healthy.target,
         packageRoot,
-        environment,
+        environment: "qa",
         observation: healthy.observation,
         allowLegacyUserRemoval: false,
+        allowLegacyDevMigration: false,
       });
       transaction.applyTransaction(uninstall);
       assert.deepEqual(read(fixture.root, CONFIG_PATH), fixture.configOriginal);
@@ -326,7 +340,7 @@ test("legacy migration refuses drift, unknown ownership, and partial state with 
     const drift = legacyFixture(base, "qa", "drift");
     write(drift.root, ".codex/kcoderag-nav/qa/hooks/grep_nudge.py", "changed\n");
     const driftBefore = snapshot(drift.root);
-    assert.throws(() => renderMigration(drift.root, packageRoot, "qa"), /managed_content_changed/);
+    assert.throws(() => renderMigration(drift.root, packageRoot), /managed_content_changed/);
     assert.deepEqual(snapshot(drift.root), driftBefore);
 
     const unknown = legacyFixture(base, "qa", "unknown");
@@ -336,7 +350,7 @@ test("legacy migration refuses drift, unknown ownership, and partial state with 
     unknownState.digests[".codex/kcoderag-nav/qa/hooks/unknown.py"] = "0".repeat(64);
     write(unknown.root, STATE_PATH, `${JSON.stringify(unknownState, null, 2)}\n`);
     const unknownBefore = snapshot(unknown.root);
-    assert.throws(() => renderMigration(unknown.root, packageRoot, "qa"), /invalid_state/);
+    assert.throws(() => renderMigration(unknown.root, packageRoot), /invalid_state/);
     assert.deepEqual(snapshot(unknown.root), unknownBefore);
 
     const partial = legacyFixture(base, "dev", "partial");
@@ -346,26 +360,29 @@ test("legacy migration refuses drift, unknown ownership, and partial state with 
     delete partialState.originals[SKILL_PATH];
     write(partial.root, STATE_PATH, `${JSON.stringify(partialState, null, 2)}\n`);
     const partialBefore = snapshot(partial.root);
-    assert.throws(() => renderMigration(partial.root, packageRoot, "dev"), /invalid_state/);
+    assert.throws(() => renderMigration(partial.root, packageRoot, true), /invalid_state/);
     assert.deepEqual(snapshot(partial.root), partialBefore);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
-test("legacy migration rollback restores the complete Python-managed tree", () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-legacy-rollback-"));
-  try {
-    const packageRoot = makePackage(base);
-    const fixture = legacyFixture(base, "qa");
-    const before = snapshot(fixture.root);
-    const migration = renderMigration(fixture.root, packageRoot, "qa");
-    assert.throws(
-      () => transaction.applyTransaction(migration.desired, { failAtCommit: 3 }),
-      /transaction_failed/,
-    );
-    assert.deepEqual(snapshot(fixture.root), before);
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+test("legacy Dev migration rollback restores the complete Python-managed tree at every commit stage", () => {
+  for (let failAtCommit = 1; failAtCommit <= 14; failAtCommit += 1) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-legacy-dev-rollback-"));
+    try {
+      const packageRoot = makePackage(base);
+      const fixture = legacyFixture(base, "dev");
+      const before = snapshot(fixture.root);
+      const migration = renderMigration(fixture.root, packageRoot, true);
+      if (failAtCommit > (migration.desired as { entries: readonly unknown[] }).entries.length) break;
+      assert.throws(
+        () => transaction.applyTransaction(migration.desired, { failAtCommit }),
+        /transaction_failed/,
+      );
+      assert.deepEqual(snapshot(fixture.root), before, `failAtCommit=${failAtCommit}`);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   }
 });
