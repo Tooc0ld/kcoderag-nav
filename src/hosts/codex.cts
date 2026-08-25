@@ -1303,11 +1303,34 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   });
 }
 
+function codexProcessInvocation(request: NativeRunRequest): {
+  readonly executable: string;
+  readonly args: readonly string[];
+} {
+  if (process.platform !== "win32" || request.executable !== "codex") {
+    return { executable: request.executable, args: request.args };
+  }
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (directory.length === 0) continue;
+    const bin = path.join(directory, "node_modules", "@openai", "codex", "bin", "codex.js");
+    try {
+      const metadata = fs.lstatSync(bin);
+      if (!metadata.isSymbolicLink() && metadata.isFile()) {
+        return { executable: process.execPath, args: Object.freeze([bin, ...request.args]) };
+      }
+    } catch {
+      // Continue to the next PATH root without exposing it.
+    }
+  }
+  return { executable: request.executable, args: request.args };
+}
+
 function defaultCodexRunner(request: NativeRunRequest): Promise<CodexNativeResult> {
   return new Promise((resolve) => {
+    const invocation = codexProcessInvocation(request);
     childProcess.execFile(
-      request.executable,
-      [...request.args],
+      invocation.executable,
+      [...invocation.args],
       {
         encoding: "utf8",
         timeout: request.timeoutMs,
@@ -1419,9 +1442,8 @@ function parseTomlStringLiteral(input: string): string | undefined {
   return undefined;
 }
 
-function defaultUserSourceReader(homeDirectory: string): CodexUserSourceReader {
+function defaultUserSourceReader(codexHome: string): CodexUserSourceReader {
   return () => {
-    const codexHome = path.join(homeDirectory, ".codex");
     const configPath = path.join(codexHome, "config.toml");
     const hooksPath = path.join(codexHome, "hooks.json");
     const cachePath = path.join(codexHome, ".tmp", "marketplaces", OWNED_MARKETPLACE);
@@ -2156,8 +2178,10 @@ function codexStatus(context: HostStatusContext) {
 
 export function createCodexAdapter(options: CodexAdapterOptions = {}): HostAdapter {
   const runner = options.runner ?? defaultCodexRunner;
-  const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir());
-  const readUserSources = options.readUserSources ?? defaultUserSourceReader(homeDirectory);
+  const codexHome = options.homeDirectory === undefined
+    ? path.resolve(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"))
+    : path.resolve(options.homeDirectory, ".codex");
+  const readUserSources = options.readUserSources ?? defaultUserSourceReader(codexHome);
   const issuedPlans = new Map<string, NativeCleanupPlan>();
 
   const scanUserSources = async (context: HostSourceScanContext): Promise<SourceScanResult> => {

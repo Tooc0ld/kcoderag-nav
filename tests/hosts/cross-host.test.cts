@@ -14,6 +14,39 @@ const registry = require("../../dist/hosts/index.cjs") as {
   readonly HOST_ADAPTERS: readonly Record<string, unknown>[];
   getHostAdapter(host: HostId): Record<string, unknown>;
 };
+const codex = require("../../dist/hosts/codex.cjs") as {
+  createCodexAdapter(options: Record<string, unknown>): Record<string, unknown>;
+};
+
+const isolatedCodexAdapter = codex.createCodexAdapter({
+  runner: async (request: { readonly executable: string; readonly args: readonly string[]; readonly timeoutMs: number }) => {
+    const command = [request.executable, ...request.args].join(" ");
+    if (command === "codex --version") {
+      return { exitCode: 0, timedOut: false, stdout: "codex-cli 0.146.1\n" };
+    }
+    if (command.endsWith(" --help")) {
+      return {
+        exitCode: 0,
+        timedOut: false,
+        stdout: command.includes("marketplace remove")
+          ? "Usage: marketplace remove <MARKETPLACE> --json"
+          : command.includes("plugin remove")
+            ? "Usage: plugin remove <PLUGIN> --json"
+            : "Usage: list --json",
+      };
+    }
+    if (command === "codex plugin list --json") {
+      return { exitCode: 0, timedOut: false, stdout: JSON.stringify({ installed: [], available: [] }) };
+    }
+    if (command === "codex plugin marketplace list --json") {
+      return { exitCode: 0, timedOut: false, stdout: JSON.stringify({ marketplaces: [] }) };
+    }
+    return { exitCode: 1, timedOut: false };
+  },
+  readUserSources: () => ({
+    registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+  }),
+});
 
 function write(root: string, relativePath: string, value: string | Buffer): void {
   const destination = path.join(root, ...relativePath.split("/"));
@@ -112,6 +145,9 @@ async function run(
     nodeVersion: "22.20.0",
     stdout: (text: string) => stdout.push(text),
     stderr: (text: string) => stderr.push(text),
+    getAdapter: (selectedHost: HostId) => selectedHost === "codex"
+      ? isolatedCodexAdapter
+      : registry.getHostAdapter(selectedHost),
     ...extraDependencies,
   });
   return { exitCode, output: JSON.parse(stdout[0] ?? "{}") as Record<string, unknown>, stderr };

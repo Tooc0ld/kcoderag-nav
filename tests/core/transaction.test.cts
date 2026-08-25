@@ -242,6 +242,7 @@ test("Node 22 is a write gate but an explicit read-only status issue", () => {
       status: "invalid",
       host: "codex",
       issues: [{ code: "unsupported_node", path: "." }],
+      findings: [],
     },
   );
 });
