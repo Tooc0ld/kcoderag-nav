@@ -21,6 +21,8 @@ import {
 } from "../hosts/host-adapter.cjs";
 import { getHostAdapter, HOST_ADAPTERS } from "../hosts/index.cjs";
 
+const QA_ENVIRONMENT: EnvironmentId = "qa";
+
 interface LegacyMigrationAdapter extends HostAdapter {
   migrateLegacy(desired: ReturnType<HostAdapter["renderInstall"]>, observation: HostObservation): ReturnType<typeof applyTransaction>;
 }
@@ -41,17 +43,16 @@ export type CommandName = (typeof COMMANDS)[number];
 interface ParsedArguments {
   readonly command: CommandName;
   readonly host?: HostId;
-  readonly environment: EnvironmentId;
   readonly target?: string;
   readonly yes: boolean;
   readonly json: boolean;
   readonly allowLegacyUserRemoval: boolean;
+  readonly allowLegacyDevMigration: boolean;
 }
 
 export interface TargetConfirmation {
   readonly command: CommandName;
   readonly host: HostId;
-  readonly environment: EnvironmentId;
   readonly target: string;
 }
 
@@ -97,11 +98,11 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (!isCommand(argv[0])) throw new InstallError("invalid_arguments");
   const command = argv[0];
   let host: HostId | undefined;
-  let environment: EnvironmentId = "qa";
   let target: string | undefined;
   let yes = false;
   let json = false;
   let allowLegacyUserRemoval = false;
+  let allowLegacyDevMigration = false;
   const seen = new Set<string>();
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -111,14 +112,14 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (argument === "--yes") yes = true;
     else if (argument === "--json") json = true;
     else if (argument === "--allow-legacy-user-removal") allowLegacyUserRemoval = true;
+    else if (argument === "--allow-legacy-dev-migration") allowLegacyDevMigration = true;
     else if (argument === "--host") {
       const value = requireFlagValue(argv, index++);
       if (!isHost(value)) throw new InstallError("unsupported_host");
       host = value;
     } else if (argument === "--environment") {
-      const value = requireFlagValue(argv, index++);
-      if (value !== "qa" && value !== "dev") throw new InstallError("unsupported_environment");
-      environment = value;
+      requireFlagValue(argv, index++);
+      throw new InstallError("environment_selector_retired");
     } else if (argument === "--target") {
       target = requireFlagValue(argv, index++);
     } else {
@@ -129,12 +130,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   const parsed: {
     command: CommandName;
     host?: HostId;
-    environment: EnvironmentId;
     target?: string;
     yes: boolean;
     json: boolean;
     allowLegacyUserRemoval: boolean;
-  } = { command, environment, yes, json, allowLegacyUserRemoval };
+    allowLegacyDevMigration: boolean;
+  } = { command, yes, json, allowLegacyUserRemoval, allowLegacyDevMigration };
   if (host !== undefined) parsed.host = host;
   if (target !== undefined) parsed.target = target;
   return parsed;
@@ -157,11 +158,14 @@ function errorExitCode(code: string): number {
   return new Set([
     "cancelled",
     "confirmation_required",
+    "environment_selector_retired",
     "host_required",
     "invalid_arguments",
     "legacy_removal_cancelled",
     "legacy_removal_authority_required",
     "legacy_removal_authority_invalid",
+    "legacy_dev_migration_authority_invalid",
+    "legacy_dev_migration_authority_required",
     "unsupported_environment",
     "unsupported_host",
   ]).has(code)
@@ -246,6 +250,22 @@ async function legacyRemovalAuthority(
   return true;
 }
 
+function legacyDevMigrationAuthority(
+  args: ParsedArguments,
+  observation: HostObservation,
+): boolean {
+  const legacyEnvironment = (observation as HostObservation & {
+    readonly legacyEnvironment?: unknown;
+  }).legacyEnvironment;
+  if (args.allowLegacyDevMigration && legacyEnvironment !== "dev") {
+    throw new InstallError("legacy_dev_migration_authority_invalid");
+  }
+  if (!args.allowLegacyDevMigration && legacyEnvironment === "dev") {
+    throw new InstallError("legacy_dev_migration_authority_required");
+  }
+  return args.allowLegacyDevMigration;
+}
+
 /** Execute exactly one command against exactly one selected adapter. */
 export async function executeCommand(
   argv: string[],
@@ -258,6 +278,9 @@ export async function executeCommand(
     const args = parseArguments(argv);
     json = args.json;
     const host = await selectHost(args, dependencies);
+    if (args.allowLegacyDevMigration && (args.command !== "install" && args.command !== "update")) {
+      throw new InstallError("legacy_dev_migration_authority_invalid");
+    }
     if (args.allowLegacyUserRemoval && (host !== "cursor" || !isMutation(args.command))) {
       throw new InstallError("legacy_removal_authority_invalid");
     }
@@ -272,7 +295,6 @@ export async function executeCommand(
     const request: TargetConfirmation = {
       command: args.command,
       host,
-      environment: args.environment,
       target: target.root,
     };
     if (isMutation(args.command) && !args.yes) {
@@ -292,20 +314,20 @@ export async function executeCommand(
         adapter.status({
           target,
           packageRoot,
-          environment: args.environment,
+          environment: QA_ENVIRONMENT,
           observation,
           doctor: args.command === "doctor",
         }),
         runtimeStatusIssue(dependencies.nodeVersion ?? process.versions.node),
         host,
-        args.environment,
+        QA_ENVIRONMENT,
       );
       const payload = {
         schemaVersion: CORE_SCHEMA_VERSION,
         ok: true,
         command: args.command,
         host,
-        environment: status.environment ?? args.environment,
+        environment: status.environment ?? QA_ENVIRONMENT,
         target: target.root,
         status: status.status,
         issues: status.issues,
@@ -322,21 +344,24 @@ export async function executeCommand(
       request,
       dependencies,
     );
+    const allowLegacyDevMigration = args.command === "install" || args.command === "update"
+      ? legacyDevMigrationAuthority(args, observation)
+      : false;
+    const sharedMutationContext = {
+      target,
+      packageRoot,
+      environment: QA_ENVIRONMENT,
+      observation,
+      allowLegacyUserRemoval,
+      allowLegacyDevMigration,
+    };
     const desired = args.command === "uninstall"
       ? adapter.renderUninstall({
-          target,
-          packageRoot,
-          environment: args.environment,
-          observation,
-          allowLegacyUserRemoval,
+          ...sharedMutationContext,
         })
       : adapter.renderInstall({
-          target,
-          packageRoot,
+          ...sharedMutationContext,
           command: args.command === "update" ? "update" : "install",
-          environment: args.environment,
-          observation,
-          allowLegacyUserRemoval,
         });
     if (desired.host !== host || desired.target !== target) {
       throw new InstallError("invalid_host_adapter");
@@ -357,14 +382,14 @@ export async function executeCommand(
       ok: true,
       command: args.command,
       host,
-      environment: args.environment,
+      environment: QA_ENVIRONMENT,
       target: target.root,
       changedPaths: transaction.changedPaths,
       managedFiles: desired.entries.map((entry) => entry.path.relativePath),
     };
     if (version !== undefined) payload.version = version;
     if (args.json) writeJson(stdout, payload);
-    else stdout(`${verb}: ${host}/${args.environment} at ${target.root}`);
+    else stdout(`${verb}: ${host} at ${target.root}`);
     return 0;
   } catch (error) {
     const safe = safeError(error);

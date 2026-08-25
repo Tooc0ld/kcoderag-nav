@@ -33,7 +33,7 @@ async function selectHost(hosts: readonly HostId[]): Promise<HostId | undefined>
 
 async function confirmTarget(request: TargetConfirmation): Promise<boolean> {
   const answer = await question(
-    `${request.command} KCodeRag Nav ${request.host}/${request.environment} in ${request.target}? [y/N] `,
+    `${request.command} KCodeRag Nav for ${request.host} in ${request.target}? [y/N] `,
   );
   return /^(?:y|yes)$/i.test(answer.trim());
 }

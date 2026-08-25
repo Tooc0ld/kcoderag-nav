@@ -424,6 +424,7 @@ test("interactive selection uses the fixed host list, cwd/target confirmation, a
     assert.equal(exitCode, 2);
     assert.deepEqual(hostLists, [["codex", "claude", "cursor"]]);
     assert.equal(confirmations[0]?.target, fs.realpathSync(explicit));
+    assert.equal("environment" in (confirmations[0] ?? {}), false);
     assert.deepEqual(calls, []);
     assert.equal(fs.readdirSync(explicit).length, 0);
   } finally {
@@ -602,7 +603,8 @@ test("human mutation verbs are stable and read-only commands reject removal auth
       ),
       0,
     );
-    assert.match(updated.stdout[0] ?? "", /^updated: codex\/qa at /);
+    assert.match(updated.stdout[0] ?? "", /^updated: codex at /);
+    assert.doesNotMatch(updated.stdout[0] ?? "", /\/(?:qa|dev)\b/i);
     assert.equal(updated.stderr.length, 0);
 
     const readOnly = io(item.target, adapters);
