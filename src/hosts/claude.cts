@@ -8,9 +8,10 @@ const { TextDecoder } = require("node:util") as typeof import("node:util");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
+  type CurrentEnvironmentId,
   type DesiredState,
-  type EnvironmentId,
   type InstallState,
+  type LegacyEnvironmentId,
   type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
@@ -23,7 +24,13 @@ import {
   upsertJsonArrayElement,
   upsertJsonObjectProperty,
 } from "../core/json-splice.cjs";
-import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
+import {
+  createDesiredState,
+  createStatusResult,
+  parseInstallState,
+  parseLegacyInstallState,
+  type LegacyInstallState,
+} from "../core/state.cjs";
 import type {
   HostAdapter,
   HostInstallContext,
@@ -36,6 +43,7 @@ type JsonMap = Record<string, unknown>;
 
 interface ClaudeObservationDetails {
   readonly stateBytes?: Buffer;
+  readonly legacyState?: LegacyInstallState;
 }
 
 const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
@@ -68,15 +76,29 @@ function sha256(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function packageName(environment: EnvironmentId): string {
+function packageName(environment: CurrentEnvironmentId): string {
   return `kcoderag-${environment}`;
 }
 
-function hookPrefix(environment: EnvironmentId): string {
+function hookPrefix(environment: LegacyEnvironmentId): string {
   return `.claude/kcoderag-nav/${environment}/hooks`;
 }
 
-function managedPaths(environment: EnvironmentId): readonly string[] {
+function managedPaths(environment: CurrentEnvironmentId = "qa"): readonly string[] {
+  return Object.freeze([
+    MCP_PATH,
+    SETTINGS_PATH,
+    SKILL_PATH,
+    ...HOOK_ASSETS.map((asset) => `${hookPrefix(environment)}/${asset}`),
+    STATE_PATH,
+  ].sort((left, right) => {
+    if (left === STATE_PATH) return 1;
+    if (right === STATE_PATH) return -1;
+    return left.localeCompare(right);
+  }));
+}
+
+function legacyManagedPaths(environment: LegacyEnvironmentId): readonly string[] {
   return Object.freeze([
     MCP_PATH,
     SETTINGS_PATH,
@@ -176,7 +198,7 @@ function readPackageVersion(packageRoot: string): string {
   return document.version;
 }
 
-function readMcpServer(packageRoot: string, environment: EnvironmentId): {
+function readMcpServer(packageRoot: string, environment: CurrentEnvironmentId): {
   readonly name: string;
   readonly entry: JsonMap;
 } {
@@ -201,15 +223,21 @@ function readMcpServer(packageRoot: string, environment: EnvironmentId): {
 function renderMcp(
   current: Buffer | undefined,
   packageRoot: string,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
   owned: ManagedSectionRecord | undefined,
   allowLegacyOwned: boolean,
   fileExisted: boolean,
+  ownershipBaseline?: Buffer,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
   const document = current === undefined
     ? { mcpServers: {} as JsonMap }
     : parseJsonBytes(current, "invalid_json", MCP_PATH);
-  const mcpServersExisted = current !== undefined && document.mcpServers !== undefined;
+  const baselineDocument = ownershipBaseline === undefined
+    ? undefined
+    : parseJsonBytes(ownershipBaseline, "invalid_state", MCP_PATH);
+  const mcpServersExisted = baselineDocument === undefined
+    ? current !== undefined && document.mcpServers !== undefined
+    : baselineDocument.mcpServers !== undefined;
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
   const currentName = owned?.id.split(".").at(-1);
@@ -261,7 +289,7 @@ function renderMcp(
   };
 }
 
-function managedHook(environment: EnvironmentId): JsonMap {
+function managedHook(environment: CurrentEnvironmentId): JsonMap {
   const prefix = hookPrefix(environment);
   return {
     matcher: "^(Grep|Glob|Bash)$",
@@ -276,7 +304,7 @@ function managedHook(environment: EnvironmentId): JsonMap {
   };
 }
 
-function hookEnvironment(entry: unknown): EnvironmentId | undefined {
+function hookEnvironment(entry: unknown): LegacyEnvironmentId | undefined {
   if (!isRecord(entry) || !Array.isArray(entry.hooks)) return undefined;
   const encoded = JSON.stringify(entry);
   for (const environment of ["qa", "dev"] as const) {
@@ -290,19 +318,30 @@ function hookEnvironment(entry: unknown): EnvironmentId | undefined {
 
 function renderSettings(
   current: Buffer | undefined,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
   owned: ManagedSectionRecord | undefined,
   allowLegacyOwned: boolean,
   fileExisted: boolean,
+  ownershipBaseline?: Buffer,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
   const document = current === undefined
     ? {}
     : parseJsonBytes(current, "invalid_json", SETTINGS_PATH);
-  const hooksExisted = document.hooks !== undefined;
+  const baselineDocument = ownershipBaseline === undefined
+    ? undefined
+    : parseJsonBytes(ownershipBaseline, "invalid_state", SETTINGS_PATH);
+  const hooksExisted = baselineDocument === undefined
+    ? document.hooks !== undefined
+    : baselineDocument.hooks !== undefined;
   if (document.hooks === undefined) document.hooks = {};
   if (!isRecord(document.hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
   const hooks = document.hooks;
-  const preToolUseExisted = hooks.PreToolUse !== undefined;
+  const baselineHooks = baselineDocument !== undefined && isRecord(baselineDocument.hooks)
+    ? baselineDocument.hooks
+    : undefined;
+  const preToolUseExisted = baselineDocument === undefined
+    ? hooks.PreToolUse !== undefined
+    : baselineHooks?.PreToolUse !== undefined;
   if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
   if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
     throw new InstallError("invalid_json", SETTINGS_PATH);
@@ -418,7 +457,10 @@ function validateCurrentState(state: InstallState): InstallState {
   return state;
 }
 
-function validateOwnedSections(target: ProjectTarget, state: InstallState): void {
+function validateOwnedSections(
+  target: ProjectTarget,
+  state: Pick<LegacyInstallState, "environment" | "sections"> | InstallState,
+): void {
   const mcpRecord = state.sections?.[MCP_PATH];
   const settingsRecord = state.sections?.[SETTINGS_PATH];
   const currentMcp = readManagedOptional(target, MCP_PATH);
@@ -457,6 +499,53 @@ function validateOwnedSections(target: ProjectTarget, state: InstallState): void
   );
 }
 
+function encodedLegacyEnvironment(bytes: Buffer): LegacyEnvironmentId | undefined {
+  try {
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!isRecord(value)) return undefined;
+    if (
+      value.schemaVersion === CORE_SCHEMA_VERSION &&
+      (value.environment === "qa" || value.environment === "dev")
+    ) return value.environment;
+    if (
+      value.version === 1 &&
+      !("schemaVersion" in value) &&
+      Array.isArray(value.active_environments) &&
+      value.active_environments.length === 1 &&
+      (value.active_environments[0] === "qa" || value.active_environments[0] === "dev")
+    ) return value.active_environments[0];
+  } catch {
+    // The strict state decoder below owns the stable invalid_state result.
+  }
+  return undefined;
+}
+
+function validateLegacyState(target: ProjectTarget, state: LegacyInstallState): void {
+  if (state.source !== "node" || state.host !== "claude") {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+  const paths = legacyManagedPaths(state.environment);
+  const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
+  const dedicated = owned.filter((relativePath) =>
+    !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]));
+  const secureState = state.sections !== undefined;
+  if (
+    state.managedFiles.join("\0") !== paths.join("\0") ||
+    Object.keys(state.originals).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    (secureState && Object.keys(state.sections ?? {}).sort().join("\0") !==
+      [...SHARED_PATHS].sort().join("\0")) ||
+    (secureState && state.sections?.[MCP_PATH]?.id !== `mcpServers.kcoderag-${state.environment}`) ||
+    (secureState && state.sections?.[SETTINGS_PATH]?.id !==
+      `hooks.PreToolUse.kcoderag-nav.${state.environment}`)
+  ) {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+  if (secureState) validateOwnedSections(target, state);
+}
+
 function detectClaude(context: { readonly target: ProjectTarget }): HostObservation {
   const stateBytes = readManagedOptional(context.target, STATE_PATH);
   if (stateBytes === undefined) {
@@ -466,10 +555,36 @@ function detectClaude(context: { readonly target: ProjectTarget }): HostObservat
       details: Object.freeze({} satisfies ClaudeObservationDetails),
     });
   }
+  const legacyEnvironment = encodedLegacyEnvironment(stateBytes);
   try {
-    const state = validateCurrentState(parseInstallState(stateBytes));
-    if (state.sections !== undefined) validateOwnedSections(context.target, state);
-    for (const [relativePath, digest] of Object.entries(state.digests)) {
+    let currentState: InstallState | undefined;
+    try {
+      currentState = validateCurrentState(parseInstallState(stateBytes));
+    } catch {
+      // Exact legacy decoding below owns compatibility; invalid inputs remain invalid.
+    }
+    if (currentState !== undefined) {
+      if (currentState.sections !== undefined) validateOwnedSections(context.target, currentState);
+      for (const [relativePath, digest] of Object.entries(currentState.digests)) {
+        const current = readManagedOptional(context.target, relativePath);
+        if (current === undefined || sha256(current) !== digest) {
+          throw new InstallError("managed_content_changed", relativePath);
+        }
+      }
+      return Object.freeze({
+        host: "claude" as const,
+        target: context.target,
+        currentState,
+        details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies ClaudeObservationDetails),
+      });
+    }
+    if (legacyEnvironment === undefined) throw new InstallError("invalid_state", STATE_PATH);
+    const legacyState = parseLegacyInstallState(stateBytes, {
+      allowedPaths: legacyManagedPaths(legacyEnvironment),
+      requiredPaths: [MCP_PATH, SETTINGS_PATH, SKILL_PATH],
+    });
+    validateLegacyState(context.target, legacyState);
+    for (const [relativePath, digest] of Object.entries(legacyState.digests)) {
       const current = readManagedOptional(context.target, relativePath);
       if (current === undefined || sha256(current) !== digest) {
         throw new InstallError("managed_content_changed", relativePath);
@@ -478,16 +593,27 @@ function detectClaude(context: { readonly target: ProjectTarget }): HostObservat
     return Object.freeze({
       host: "claude" as const,
       target: context.target,
-      currentState: state,
-      details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies ClaudeObservationDetails),
+      legacyEnvironment: legacyState.environment,
+      details: Object.freeze({
+        stateBytes: Buffer.from(stateBytes),
+        legacyState,
+      } satisfies ClaudeObservationDetails),
     });
   } catch (error) {
-    return Object.freeze({
+    const observation: {
+      host: "claude";
+      target: ProjectTarget;
+      issues: readonly StatusIssue[];
+      legacyEnvironment?: LegacyEnvironmentId;
+      details: Readonly<ClaudeObservationDetails>;
+    } = {
       host: "claude" as const,
       target: context.target,
       issues: Object.freeze([issueFrom(error)]),
       details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies ClaudeObservationDetails),
-    });
+    };
+    if (legacyEnvironment !== undefined) observation.legacyEnvironment = legacyEnvironment;
+    return Object.freeze(observation);
   }
 }
 
@@ -496,7 +622,7 @@ function refuseIssues(observation: HostObservation): void {
   if (issue !== undefined) throw new InstallError(issue.code, issue.path);
 }
 
-function captureOriginals(target: ProjectTarget, environment: EnvironmentId): Record<string, OriginalRecord> {
+function captureOriginals(target: ProjectTarget, environment: CurrentEnvironmentId): Record<string, OriginalRecord> {
   const originals: Record<string, OriginalRecord> = {};
   for (const relativePath of managedPaths(environment)) {
     if (relativePath === STATE_PATH) continue;
@@ -531,28 +657,44 @@ function expectedDigest(
 
 function desiredPayloads(
   context: HostInstallContext,
+  legacy?: LegacyInstallState,
 ): { readonly payloads: Map<string, Buffer>; readonly sections: Record<string, ManagedSectionRecord> } {
   const name = packageName(context.environment);
   const existing = context.observation.currentState;
   const currentMcp = readManagedOptional(context.target, MCP_PATH);
   const currentSettings = readManagedOptional(context.target, SETTINGS_PATH);
-  const legacyState = existing !== undefined && existing.sections === undefined;
+  const legacyWholeFile = legacy !== undefined
+    ? legacy.sections === undefined
+    : existing !== undefined && existing.sections === undefined;
+  const priorSections = legacy?.sections ?? existing?.sections;
+  const wholeFileOriginal = (relativePath: string): Buffer | undefined => {
+    if (!legacyWholeFile) return undefined;
+    const record = legacy?.originals[relativePath] ?? existing?.originals[relativePath];
+    const decoded = record === undefined ? null : decodeOriginal(record, relativePath);
+    return decoded ?? Buffer.from("{}", "utf8");
+  };
   const mcp = renderMcp(
     currentMcp,
     context.packageRoot,
     context.environment,
-    existing?.sections?.[MCP_PATH],
-    legacyState,
-    existing?.sections?.[MCP_PATH]?.fileExisted ??
-      (legacyState ? existing?.originals[MCP_PATH]?.kind !== "absent" : currentMcp !== undefined),
+    priorSections?.[MCP_PATH],
+    legacy !== undefined || legacyWholeFile,
+    priorSections?.[MCP_PATH]?.fileExisted ??
+      (legacyWholeFile
+        ? (legacy?.originals[MCP_PATH] ?? existing?.originals[MCP_PATH])?.kind !== "absent"
+        : currentMcp !== undefined),
+    wholeFileOriginal(MCP_PATH),
   );
   const settings = renderSettings(
     currentSettings,
     context.environment,
-    existing?.sections?.[SETTINGS_PATH],
-    legacyState,
-    existing?.sections?.[SETTINGS_PATH]?.fileExisted ??
-      (legacyState ? existing?.originals[SETTINGS_PATH]?.kind !== "absent" : currentSettings !== undefined),
+    priorSections?.[SETTINGS_PATH],
+    legacy !== undefined || legacyWholeFile,
+    priorSections?.[SETTINGS_PATH]?.fileExisted ??
+      (legacyWholeFile
+        ? (legacy?.originals[SETTINGS_PATH] ?? existing?.originals[SETTINGS_PATH])?.kind !== "absent"
+        : currentSettings !== undefined),
+    wholeFileOriginal(SETTINGS_PATH),
   );
   const payloads = new Map<string, Buffer>();
   payloads.set(MCP_PATH, mcp.bytes);
@@ -567,8 +709,102 @@ function desiredPayloads(
   };
 }
 
+function legacyMigrationOriginals(
+  target: ProjectTarget,
+  legacy: LegacyInstallState,
+): Record<string, OriginalRecord> {
+  const originals: Record<string, OriginalRecord> = {};
+  for (const relativePath of managedPaths()) {
+    if (relativePath === STATE_PATH) continue;
+    if (SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      if (legacy.sections !== undefined) continue;
+      const record = legacy.originals[relativePath];
+      if (record === undefined) throw new InstallError("invalid_state", STATE_PATH);
+      originals[relativePath] = record;
+      continue;
+    }
+    if (relativePath === SKILL_PATH || legacy.managedFiles.includes(relativePath)) {
+      const record = legacy.originals[relativePath];
+      if (record === undefined) throw new InstallError("invalid_state", STATE_PATH);
+      originals[relativePath] = record;
+      continue;
+    }
+    if (readManagedOptional(target, relativePath) !== undefined) {
+      throw new InstallError("unmanaged_name_conflict", relativePath);
+    }
+    originals[relativePath] = encodeOriginal(undefined);
+  }
+  return originals;
+}
+
+function renderLegacyInstall(
+  context: HostInstallContext,
+  legacy: LegacyInstallState,
+  stateBytes: Buffer,
+): DesiredState {
+  if (legacy.environment === "dev" && !context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_required", STATE_PATH);
+  }
+  if (legacy.environment !== "dev" && context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_invalid", STATE_PATH);
+  }
+  const paths = managedPaths();
+  const migrationOriginals = legacyMigrationOriginals(context.target, legacy);
+  const originals = Object.fromEntries(Object.entries(migrationOriginals).filter(([relativePath]) =>
+    !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])));
+  const rendered = desiredPayloads(context, legacy);
+  const payloads = rendered.payloads;
+  const digests: Record<string, string> = {};
+  for (const [relativePath, bytes] of payloads) {
+    if (!SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      digests[relativePath] = sha256(bytes);
+    }
+  }
+  const state: InstallState = {
+    schemaVersion: CORE_SCHEMA_VERSION,
+    packageVersion: readPackageVersion(context.packageRoot),
+    host: "claude",
+    environment: "qa",
+    managedFiles: [...paths],
+    originals,
+    digests,
+    sections: rendered.sections,
+  };
+  payloads.set(STATE_PATH, canonicalJson(state));
+  const replacements = new Set(paths);
+  const legacyOnlyPaths = legacy.managedFiles.filter((relativePath) =>
+    relativePath !== STATE_PATH && !replacements.has(relativePath));
+  const expectedCurrentDigest = (relativePath: string): string | null => {
+    const current = readManagedOptional(context.target, relativePath);
+    return current === undefined ? null : sha256(current);
+  };
+  return createDesiredState({
+    host: "claude",
+    target: context.target,
+    managedRoots: MANAGED_ROOTS,
+    statePath: STATE_PATH,
+    entries: [
+      ...paths.map((relativePath) => ({
+        relativePath,
+        expectedDigest: relativePath === STATE_PATH ? sha256(stateBytes) : expectedCurrentDigest(relativePath),
+        content: payloads.get(relativePath) ?? null,
+      })),
+      ...legacyOnlyPaths.map((relativePath) => ({
+        relativePath,
+        expectedDigest: expectedCurrentDigest(relativePath),
+        content: decodeOriginal(legacy.originals[relativePath], relativePath),
+      })),
+    ],
+  });
+}
+
 function renderInstall(context: HostInstallContext): DesiredState {
   refuseIssues(context.observation);
+  const observationDetails = details(context.observation);
+  if (observationDetails.legacyState !== undefined) {
+    if (observationDetails.stateBytes === undefined) throw new InstallError("invalid_state", STATE_PATH);
+    return renderLegacyInstall(context, observationDetails.legacyState, observationDetails.stateBytes);
+  }
   const existing = context.observation.currentState;
   if (context.command === "update" && existing === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (existing !== undefined && existing.environment !== context.environment) {
@@ -614,7 +850,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
 
 function uninstallShared(
   target: ProjectTarget,
-  state: InstallState,
+  state: Pick<LegacyInstallState, "sections"> | InstallState,
 ): Map<string, Buffer | null> {
   const result = new Map<string, Buffer | null>();
   const mcpRecord = state.sections?.[MCP_PATH];
@@ -699,8 +935,38 @@ function uninstallShared(
 
 function renderUninstall(context: HostUninstallContext): DesiredState {
   refuseIssues(context.observation);
+  const observationDetails = details(context.observation);
+  const legacy = observationDetails.legacyState;
+  if (legacy !== undefined) {
+    const stateBytes = observationDetails.stateBytes;
+    if (stateBytes === undefined) throw new InstallError("invalid_state", STATE_PATH);
+    const sharedPayloads = legacy.sections === undefined
+      ? new Map<string, Buffer | null>()
+      : uninstallShared(context.target, legacy);
+    return createDesiredState({
+      host: "claude",
+      target: context.target,
+      managedRoots: MANAGED_ROOTS,
+      statePath: STATE_PATH,
+      entries: [
+        ...legacy.managedFiles
+          .filter((relativePath) => relativePath !== STATE_PATH)
+          .map((relativePath) => ({
+            relativePath,
+            expectedDigest: (() => {
+              const current = readManagedOptional(context.target, relativePath);
+              return current === undefined ? null : sha256(current);
+            })(),
+            content: sharedPayloads.has(relativePath)
+              ? sharedPayloads.get(relativePath) ?? null
+              : decodeOriginal(legacy.originals[relativePath], relativePath),
+          })),
+        { relativePath: STATE_PATH, expectedDigest: sha256(stateBytes), content: null },
+      ],
+    });
+  }
   const state = context.observation.currentState;
-  const stateBytes = details(context.observation).stateBytes;
+  const stateBytes = observationDetails.stateBytes;
   if (state === undefined || stateBytes === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (state.environment !== context.environment) throw new InstallError("environment_not_installed", STATE_PATH);
   const sharedPayloads = state.sections === undefined
@@ -730,6 +996,15 @@ function claudeStatus(context: HostStatusContext) {
       status: issue.code === "managed_content_changed" ? "drifted" : "invalid",
       host: "claude",
       issues: [issue],
+    });
+  }
+  const legacy = details(context.observation).legacyState;
+  if (legacy !== undefined) {
+    return createStatusResult({
+      status: "update_available",
+      host: "claude",
+      environment: legacy.environment,
+      issues: [{ code: "legacy_migration_available", path: STATE_PATH }],
     });
   }
   const state = context.observation.currentState;

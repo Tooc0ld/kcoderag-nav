@@ -453,6 +453,15 @@ test("Claude exact legacy Dev requires authority and migrates shared JSON to QA 
       digests,
     }, null, 2)}\n`);
 
+    const legacyHookPath = ".claude/kcoderag-nav/dev/hooks/grep-nudge.cjs";
+    const legacyHookBytes = fs.readFileSync(path.join(target.root, ...legacyHookPath.split("/")));
+    write(target.root, legacyHookPath, "locally drifted\n");
+    const drifted = snapshot(target.root);
+    const driftRefusal = await run(target.root, pkg.root, "update", true);
+    assert.equal(driftRefusal.output.code, "managed_content_changed");
+    assert.deepEqual(snapshot(target.root), drifted);
+    write(target.root, legacyHookPath, legacyHookBytes);
+
     const before = snapshot(target.root);
     const preview = await run(target.root, pkg.root, "doctor");
     assert.equal(preview.output.status, "update_available");
@@ -462,6 +471,25 @@ test("Claude exact legacy Dev requires authority and migrates shared JSON to QA 
     const denied = await run(target.root, pkg.root, "update");
     assert.equal(denied.output.code, "legacy_dev_migration_authority_required");
     assert.deepEqual(snapshot(target.root), before);
+
+    const resolvedTarget = targets.resolveProjectTarget(target.root);
+    const observation = claude.claudeAdapter.detect({ target: resolvedTarget, packageRoot: pkg.root });
+    const desired = claude.claudeAdapter.renderInstall({
+      target: resolvedTarget,
+      packageRoot: pkg.root,
+      command: "update",
+      environment: "qa",
+      observation,
+      allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: true,
+    });
+    for (let failAtCommit = 0; failAtCommit < desired.entries.length; failAtCommit += 1) {
+      assert.throws(
+        () => transaction.applyTransaction(desired, { failAtCommit }),
+        /transaction_failed/,
+      );
+      assert.deepEqual(snapshot(target.root), before, `failAtCommit=${failAtCommit}`);
+    }
 
     const migrated = await run(target.root, pkg.root, "update", true);
     assert.equal(migrated.exitCode, 0);
