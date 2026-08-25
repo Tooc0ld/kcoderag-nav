@@ -7,6 +7,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 const sourceHooks = path.resolve("plugin-src/hooks");
+const generatedRegistration = path.resolve("kcoderag-qa/hooks/hooks.json");
 const compiledHook = path.resolve("dist/hooks/grep-nudge.cjs");
 const projectRoot = require("../../dist/core/project-root.cjs") as {
   findNearestProjectHook(options: {
@@ -165,7 +166,8 @@ function runRenderedWindows(
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
-  return childProcess.spawnSync(comspec, ["/d", "/c", command], {
+  return childProcess.spawnSync(command, [], {
+    shell: comspec,
     cwd,
     input: `${input}\n`,
     encoding: "utf8",
@@ -248,10 +250,14 @@ function runPosix(
   });
 }
 
-function assertProtocolResult(result: ReturnType<typeof childProcess.spawnSync>): void {
+function assertProtocolResult(
+  result: ReturnType<typeof childProcess.spawnSync>,
+  context = "hook command",
+): void {
   assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, String(result.stderr));
-  assert.equal(result.stderr, "");
+  assert.equal(result.status, 0, `${context}: ${String(result.stderr)}`);
+  assert.equal(result.stderr, "", context);
+  assert.notEqual(result.stdout, "", context);
   const parsed = JSON.parse(String(result.stdout)) as {
     hookSpecificOutput: { hookEventName: string; additionalContext: string };
   };
@@ -267,7 +273,7 @@ function assertSilentSuccess(result: ReturnType<typeof childProcess.spawnSync>):
 }
 
 test("hook registration is limited to the required PreToolUse tools and launchers", () => {
-  const registration = JSON.parse(fs.readFileSync(path.join(sourceHooks, "hooks.json"), "utf8")) as {
+  const registration = JSON.parse(fs.readFileSync(generatedRegistration, "utf8")) as {
     hooks: Record<string, readonly {
       matcher: string;
       hooks: readonly { command: string; commandWindows: string }[];
@@ -300,14 +306,31 @@ test("installed Codex and Claude commands run from project root and a Unicode de
       const installed = installHost(base, host, packageRoot);
       const deep = path.join(installed.root, "workspace with spaces", "子目录", "src");
       fs.mkdirSync(deep, { recursive: true });
+      const launcherName = process.platform === "win32" ? "run_hook.cmd" : "run_hook.sh";
+      assert.ok(
+        projectRoot.findNearestProjectHook(discoveryOptions(installed.root, host, launcherName)),
+        `${host} installed state must satisfy discovery`,
+      );
       if (process.platform === "win32") {
-        assertProtocolResult(runRenderedWindows(installed.command.commandWindows, installed.root));
-        assertProtocolResult(runRenderedWindows(installed.command.commandWindows, deep));
+        assertProtocolResult(
+          runRenderedWindows(installed.command.commandWindows, installed.root),
+          `${host} Windows root`,
+        );
+        assertProtocolResult(
+          runRenderedWindows(installed.command.commandWindows, deep),
+          `${host} Windows deep`,
+        );
       }
       const shellExecutable = posixShell();
       if (shellExecutable !== undefined) {
-        assertProtocolResult(runRenderedPosix(shellExecutable, installed.command.command, installed.root));
-        assertProtocolResult(runRenderedPosix(shellExecutable, installed.command.command, deep));
+        assertProtocolResult(
+          runRenderedPosix(shellExecutable, installed.command.command, installed.root),
+          `${host} POSIX root`,
+        );
+        assertProtocolResult(
+          runRenderedPosix(shellExecutable, installed.command.command, deep),
+          `${host} POSIX deep`,
+        );
       }
     }
   } finally {

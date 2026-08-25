@@ -244,19 +244,10 @@ export function findNearestProjectHook(
 }
 
 function bootstrapSource(): string {
-  return [
-    "const resolution=(",
-    findNearestProjectHookRuntime.toString(),
-    ")({cwd:process.cwd(),host:process.argv[2],stateRelativePath:process.argv[3],launcherRelativePath:process.argv[4]});",
-    "if(resolution!==undefined){try{",
-    "const child=require('node:child_process');",
-    "const windows=process.argv[5]==='windows';",
-    "const executable=windows?(process.env.ComSpec||process.env.COMSPEC||'cmd.exe'):'sh';",
-    "const args=windows?['/d','/c','call',resolution.launcherPath]:[resolution.launcherPath];",
-    "const result=child.spawnSync(executable,args,{stdio:['inherit','pipe','pipe'],timeout:5000,windowsHide:true});",
-    "if(result.error===undefined&&result.status===0&&Buffer.isBuffer(result.stdout)){process.stdout.write(result.stdout);}",
-    "}catch{}}",
-  ].join("");
+  // This fixed program stays below cmd.exe's command-line limit. The exported
+  // function above is the readable contract; exact rendered-command tests keep
+  // this compact boundary behaviorally aligned with it.
+  return "const f=require('node:fs'),p=require('node:path'),h=require('node:crypto'),c=require('node:child_process'),H=process.argv[2],S=process.argv[3],L=process.argv[4],W=process.argv[5]==='windows';try{let d=p.resolve(process.cwd());for(let n=0;n<256;n++){const q=p.join(d,...S.split('/'));let m;try{m=f.lstatSync(q)}catch(e){if(e.code!=='ENOENT')break;const a=p.dirname(d);if(a===d)break;d=a;continue}if(m.isSymbolicLink()||!m.isFile()||m.size>1048576)break;const F=r=>{let x=d,z=r.split('/');for(let i=0;i<z.length;i++){x=p.join(x,z[i]);const t=f.lstatSync(x);if(t.isSymbolicLink()||(i<z.length-1?!t.isDirectory():!t.isFile()))return}return x},s=F(S);if(!s)break;const b=f.readFileSync(s);if(b.length>1048576)break;const j=JSON.parse(b.toString('utf8')),k=Object.keys(j).sort().join('\\0'),k1='digests\\0environment\\0host\\0managedFiles\\0originals\\0packageVersion\\0schemaVersion',k2=k1+'\\0sections',V=x=>typeof x==='string'&&x.length>0&&!x.includes('\\\\')&&!p.posix.isAbsolute(x)&&!p.win32.isAbsolute(x)&&x.split('/').every(y=>y&&y!=='.'&&y!=='..');if((k!==k1&&k!==k2)||j.schemaVersion!==1||j.host!==H||j.environment!=='qa'||typeof j.packageVersion!=='string'||!j.packageVersion||!Array.isArray(j.managedFiles)||j.managedFiles.length>1024||!j.managedFiles.every(V)||new Set(j.managedFiles).size!==j.managedFiles.length||!j.managedFiles.includes(S)||!j.managedFiles.includes(L)||!j.originals||typeof j.originals!=='object'||Array.isArray(j.originals)||!j.digests||typeof j.digests!=='object'||Array.isArray(j.digests)||!(/^[0-9a-f]{64}$/).test(j.digests[L]))break;const x=F(L);if(!x)break;const z=f.readFileSync(x);if(z.length>1048576||h.createHash('sha256').update(z).digest('hex')!==j.digests[L])break;const e=W?(process.env.ComSpec||process.env.COMSPEC||'cmd.exe'):'sh',a=W?['/d','/c','call',x]:[x],r=c.spawnSync(e,a,{stdio:['inherit','pipe','pipe'],timeout:5000,windowsHide:true});if(!r.error&&r.status===0&&Buffer.isBuffer(r.stdout))process.stdout.write(r.stdout);break}}catch{}";
 }
 
 function encodedBootstrap(): string {

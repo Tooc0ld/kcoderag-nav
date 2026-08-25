@@ -18,6 +18,7 @@ import {
   type StatusIssue,
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
+import { renderProjectHookCommands } from "../core/project-root.cjs";
 import {
   removeJsonArrayElement,
   removeJsonObjectProperty,
@@ -290,13 +291,13 @@ function renderMcp(
 }
 
 function managedHook(environment: CurrentEnvironmentId): JsonMap {
-  const prefix = hookPrefix(environment);
+  const commands = renderProjectHookCommands("claude");
   return {
     matcher: "^(Grep|Glob|Bash)$",
     hooks: [{
       type: "command",
-      command: `sh \"${prefix}/run_hook.sh\"`,
-      commandWindows: `call \"${prefix.replaceAll("/", "\\\\")}\\\\run_hook.cmd\"`,
+      command: commands.command,
+      commandWindows: commands.commandWindows,
       timeout: 5,
       statusMessage: `Checking code lookup strategy (KCodeRag ${environment.toUpperCase()})`,
       additionalContextLimit: 600,

@@ -12,6 +12,7 @@
     "dist/core/contracts.cjs",
     "dist/core/json-splice.cjs",
     "dist/core/project-target.cjs",
+    "dist/core/project-root.cjs",
     "dist/core/state.cjs",
     "dist/core/transaction.cjs",
     "dist/generator/index.cjs",

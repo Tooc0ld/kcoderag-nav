@@ -5,6 +5,8 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
+import { renderProjectHookCommands } from "../core/project-root.cjs";
+
 export type Product = "qa" | "cursor";
 export type ProductSelection = Product | "all";
 export type AssetGroup =
@@ -513,7 +515,18 @@ function renderQaAsset(
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
   if (relativePath === "hooks/run_hook.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.sh");
   if (relativePath === "hooks/hooks.json") {
-    return canonicalJson(readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json"));
+    const commands = renderProjectHookCommands("claude");
+    const registration = readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json");
+    const renderCommand = (value: unknown): unknown => {
+      if (value === "{{project_hook_command_posix}}") return commands.command;
+      if (value === "{{project_hook_command_windows}}") return commands.commandWindows;
+      if (Array.isArray(value)) return value.map(renderCommand);
+      if (typeof value === "object" && value !== null) {
+        return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, renderCommand(nested)]));
+      }
+      return value;
+    };
+    return canonicalJson(renderCommand(registration));
   }
   if (relativePath === ".mcp.json") return readBytes(inputs.sourceRoot, environment.mcp_source);
   if (relativePath === ".codex.mcp.json") {

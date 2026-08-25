@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.sh\"",
-            "commandWindows": "call \"%PLUGIN_ROOT%\\hooks\\run_hook.cmd\"",
+            "command": "{{project_hook_command_posix}}",
+            "commandWindows": "{{project_hook_command_windows}}",
             "timeout": 5,
             "statusMessage": "Checking code lookup strategy",
             "additionalContextLimit": 600
