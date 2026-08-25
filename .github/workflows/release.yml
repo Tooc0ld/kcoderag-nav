@@ -14,17 +14,35 @@ concurrency:
 
 jobs:
   required-contracts:
-    name: Required release contracts (${{ matrix.os }}, Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    name: Required release contracts / ${{ matrix.lane }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        node: ["22", "24"]
+        include:
+          - lane: ubuntu-node-22
+            os: ubuntu
+            runner: ubuntu-latest
+            node: "22"
+          - lane: ubuntu-node-24
+            os: ubuntu
+            runner: ubuntu-latest
+            node: "24"
+          - lane: windows-node-22
+            os: windows
+            runner: windows-latest
+            node: "22"
+          - lane: windows-node-24
+            os: windows
+            runner: windows-latest
+            node: "24"
     steps:
       - name: Checkout immutable release commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Set up required Node runtime
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -60,6 +78,9 @@ jobs:
     steps:
       - name: Checkout immutable release commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Set up Node and npm registry
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
