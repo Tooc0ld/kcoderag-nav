@@ -19,6 +19,10 @@ interface DocsCheckModule {
     policy: Policy,
     options?: { readonly repoRoot?: string; readonly siblingGuidePath?: string },
   ): { readonly checkedFiles: number; readonly diagnostics: readonly Diagnostic[] };
+  checkCanonicalPublicDocs(options?: {
+    readonly repoRoot?: string;
+    readonly siblingGuidePath?: string;
+  }): { readonly checkedFiles: number; readonly diagnostics: readonly Diagnostic[] };
 }
 
 const docsCheck = require("../../dist/maintainer/docs-check.cjs") as DocsCheckModule;
@@ -62,6 +66,50 @@ function runCli(args: readonly string[]): CliResult {
 function cliPayload(result: CliResult): Record<string, unknown> {
   const raw = result.stdout.trim() || result.stderr.trim();
   return JSON.parse(raw) as Record<string, unknown>;
+}
+
+const CANONICAL_REPO_DOCS = Object.freeze([
+  "README.md",
+  "plugin-src/README.md.tmpl",
+  "plugin-src/cursor/README.md.tmpl",
+  "kcoderag-qa/README.md",
+  "kcoderag-cursor/README.md",
+] as const);
+
+function completePublicContract(): string {
+  return [
+    "# Install QA into one project",
+    "QA is the only public environment. The current directory is the exact project target.",
+    "status is a fast read-only project check; doctor is a read-only deep source scan.",
+    "An active source is source_conflict with ok: false. Ambiguous sources stay manual-only.",
+    "Cleanup requires a versioned capability preflight, exact sha256: fingerprint, and complete post-removal rescan.",
+    "The degraded path is exclusive legacy ownership; Claude marketplace removal needs exclusive ownership.",
+    "Codex and Claude find the nearest state; a damaged boundary never falls through; complete project move works.",
+    "Cursor uses an always-on Rule and does not use an equivalent PreToolUse Hook.",
+    "Phase 06 owns authenticated real-host MCP query evidence.",
+    "",
+    "```powershell",
+    "npx kcoderag-nav@latest install --host codex",
+    "npx kcoderag-nav@latest status --host codex",
+    "npx kcoderag-nav@latest doctor --host codex",
+    "npx kcoderag-nav@latest update --host codex",
+    "npx kcoderag-nav@latest uninstall --host codex",
+    "npx kcoderag-nav@latest update --host codex --yes --allow-owned-source-cleanup --cleanup-fingerprint sha256:<64-lowercase-hex>",
+    "codex plugin remove PLUGIN@MARKETPLACE --json",
+    "codex plugin marketplace remove kcoderag-nav --json",
+    "claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local",
+    "claude plugin marketplace remove MARKETPLACE --scope SCOPE",
+    "```",
+    "",
+    "# Exact legacy Dev migration",
+    "Dev is not installable; exact legacy state is accepted only for verified migration or uninstall.",
+    "",
+  ].join("\n");
+}
+
+function writeCanonicalContract(root: string, guidePath: string): void {
+  for (const relativePath of CANONICAL_REPO_DOCS) write(root, relativePath, completePublicContract());
+  fs.writeFileSync(guidePath, completePublicContract(), "utf8");
 }
 
 test("accepts valid scoped user documentation and local Markdown links", () => {
@@ -141,6 +189,74 @@ test("reports links, obsolete commands, host flags, Cursor hook claims, guide co
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("canonical public contract requires exact QA lifecycle, diagnostics, cleanup, Hook, and evidence topics", () => {
+  const root = temporaryDirectory("kcoderag-docs-contract-");
+  const sibling = temporaryDirectory("kcoderag-docs-contract-sibling-");
+  const guide = path.join(sibling, "MCP_QA_EXPERIENCE_GUIDE.md");
+  try {
+    writeCanonicalContract(root, guide);
+    assert.deepEqual(docsCheck.checkCanonicalPublicDocs({ repoRoot: root, siblingGuidePath: guide }), {
+      checkedFiles: 6,
+      diagnostics: [],
+    });
+
+    const cases: readonly [string, string, string][] = [
+      ["status is a fast read-only project check; doctor is a read-only deep source scan.", "status and doctor are commands.", "missing_topic_status_doctor"],
+      ["--allow-owned-source-cleanup --cleanup-fingerprint", "--allow-owned-source-cleanup", "missing_topic_fingerprint_cleanup"],
+      ["codex plugin marketplace remove kcoderag-nav --json", "codex cleanup is available", "missing_topic_codex_capability"],
+      ["claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local", "claude cleanup is available", "missing_topic_claude_capability"],
+      ["complete post-removal rescan", "rescan later", "missing_topic_post_cleanup_rescan"],
+      ["a damaged boundary never falls through; complete project move works", "a boundary exists", "missing_topic_nearest_state"],
+      ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary"],
+    ];
+    for (const [before, after, expectedCode] of cases) {
+      writeCanonicalContract(root, guide);
+      const target = path.join(root, "plugin-src", "README.md.tmpl");
+      fs.writeFileSync(target, fs.readFileSync(target, "utf8").replace(before, after), "utf8");
+      assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root, siblingGuidePath: guide })).includes(expectedCode));
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(sibling, { recursive: true, force: true });
+  }
+});
+
+test("active docs reject public Dev, catalog, clone, Python, unsafe cleanup, and doctor fix instructions", () => {
+  const root = temporaryDirectory("kcoderag-docs-active-policy-");
+  try {
+    const fixtures: readonly [string, string][] = [
+      ["npx kcoderag-nav@latest install --host codex --environment dev", "public_dev_instruction"],
+      ["Copy kcoderag-dev/hooks into the project.", "public_dev_instruction"],
+      ["Install from .claude-plugin/marketplace.json.", "forbidden_marketplace_catalog"],
+      ["git clone https://example.invalid/kcoderag-nav.git", "forbidden_clone_command"],
+      ["python scripts/manage_project_install.py install", "forbidden_python_command"],
+      ["codex plugin marketplace remove another-marketplace --json", "unsafe_cleanup_command"],
+      ["npx kcoderag-nav@latest doctor --host codex --fix", "doctor_fix_claim"],
+    ];
+    for (const [instruction, expectedCode] of fixtures) {
+      write(root, "README.md", `# Install\n\n${instruction}\n`);
+      assert.ok(codes(docsCheck.checkDocs(["README.md"], "user-docs", { repoRoot: root })).includes(expectedCode));
+    }
+
+    write(root, "README.md", [
+      "# Exact legacy Dev migration",
+      "Dev is not installable. An exact legacy Dev state may be migrated to QA or uninstalled.",
+      "```powershell",
+      "npx kcoderag-nav@latest update --host codex --yes --allow-legacy-dev-migration",
+      "```",
+    ].join("\n"));
+    assert.deepEqual(docsCheck.checkDocs(["README.md"], "user-docs", { repoRoot: root }).diagnostics, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("zero-argument CLI checks the canonical repository and sibling guide together", () => {
+  const result = runCli([]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(cliPayload(result), { ok: true, checkedFiles: 6 });
 });
 
 test("does not treat explanatory history or HTML comments as active user instructions", () => {
