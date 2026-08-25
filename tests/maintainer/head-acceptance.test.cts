@@ -10,7 +10,7 @@ const ACCEPTANCE_COMMIT_SHA = "2".repeat(40);
 const TAR_SHA256 = "3".repeat(64);
 const ARTIFACT_SHA512 = "ab".repeat(64);
 const DIST_INTEGRITY = `sha512-${Buffer.from(ARTIFACT_SHA512, "hex").toString("base64")}`;
-const CLEANUP_FINGERPRINT = `sha256:${"4".repeat(64)}`;
+const CLEANUP_FINGERPRINT = "sha256:612aca1ad8d2e4d370fa4755e5c15df2e5cb9d2d180f4afed8bbd7658bac0dac";
 const STATE_DIGEST = `sha256:${"5".repeat(64)}`;
 const LAUNCHER_DIGEST = `sha256:${"6".repeat(64)}`;
 const MANAGED_PATHS = Object.freeze([
@@ -211,6 +211,7 @@ test("rejects baseline drift or any degraded-owned identity substitution", () =>
   expectCode((fixture) => { fixture.baseline.finding.recognizedSourcePathDigest = `sha256:${"8".repeat(64)}`; }, "degraded_source_mismatch");
   expectCode((fixture) => { fixture.baseline.finding.provenanceId = "other"; }, "degraded_source_mismatch");
   expectCode((fixture) => { fixture.baseline.capability.route = "normal"; }, "cleanup_capability_mismatch");
+  expectCode((fixture) => { fixture.baseline.capability.observedVersion = "0.201.0"; }, "cleanup_fingerprint_mismatch");
 });
 
 test("rejects changed fingerprints, native identity drift, and incomplete post-removal inventories", () => {

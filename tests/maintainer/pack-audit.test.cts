@@ -26,6 +26,7 @@ const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditMo
 const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
+const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -158,17 +159,19 @@ test("accepts historical Python and parity vocabulary as data inside declared ar
   assert.equal(Object.hasOwn(historical.packageJson.scripts, "verify:parity-before-retire"), false);
 });
 
-test("keeps the pre-release evidence validator outside the public archive", () => {
-  for (const boundary of ["declared", "expected", "archive"] as const) {
-    const current = baseline();
-    if (boundary === "declared") current.packageJson.files.push(PRE_RELEASE_EVIDENCE_PATH);
-    if (boundary === "expected") {
-      current.expectedPaths = [...current.expectedPaths, PRE_RELEASE_EVIDENCE_PATH];
+test("keeps pre-release and Head evidence validators outside the public archive", () => {
+  for (const validatorPath of [PRE_RELEASE_EVIDENCE_PATH, HEAD_ACCEPTANCE_PATH]) {
+    for (const boundary of ["declared", "expected", "archive"] as const) {
+      const current = baseline();
+      if (boundary === "declared") current.packageJson.files.push(validatorPath);
+      if (boundary === "expected") {
+        current.expectedPaths = [...current.expectedPaths, validatorPath];
+      }
+      if (boundary === "archive") {
+        current.archiveEntries.set(validatorPath, Buffer.from("repository-only\n"));
+      }
+      expectCode(() => packAudit.validatePack(current), "non_publishable_compiled_output");
     }
-    if (boundary === "archive") {
-      current.archiveEntries.set(PRE_RELEASE_EVIDENCE_PATH, Buffer.from("repository-only\n"));
-    }
-    expectCode(() => packAudit.validatePack(current), "non_publishable_compiled_output");
   }
 });
 
