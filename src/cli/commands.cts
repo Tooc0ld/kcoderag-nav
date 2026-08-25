@@ -1,6 +1,7 @@
 /** Stable five-command controller. Host-specific paths and formats stay in adapters. */
 
 const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 import {
@@ -64,6 +65,8 @@ export interface CommandDependencies {
   readonly cwd?: string;
   readonly packageRoot?: string;
   readonly nodeVersion?: string;
+  readonly homeDirectory?: string;
+  readonly hostGlobalRoots?: (host: HostId, homeDirectory: string) => readonly string[];
   readonly stdout?: (text: string) => void;
   readonly stderr?: (text: string) => void;
   readonly selectHost?: (
@@ -143,6 +146,29 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
 function isMutation(command: CommandName): boolean {
   return command === "install" || command === "update" || command === "uninstall";
+}
+
+function defaultHostGlobalRoots(host: HostId, homeDirectory: string): readonly string[] {
+  if (host === "codex") return Object.freeze([path.join(homeDirectory, ".codex")]);
+  if (host === "claude") return Object.freeze([path.join(homeDirectory, ".claude")]);
+  const roots = [path.join(homeDirectory, ".cursor")];
+  if (process.platform === "win32") {
+    roots.push(
+      path.join(homeDirectory, "AppData", "Roaming", "Cursor"),
+      path.join(homeDirectory, "AppData", "Local", "Cursor"),
+    );
+  } else if (process.platform === "darwin") {
+    roots.push(
+      path.join(homeDirectory, "Library", "Application Support", "Cursor"),
+      path.join(homeDirectory, "Library", "Caches", "Cursor"),
+    );
+  } else {
+    roots.push(
+      path.join(homeDirectory, ".config", "Cursor"),
+      path.join(homeDirectory, ".cache", "Cursor"),
+    );
+  }
+  return Object.freeze(roots);
 }
 
 function safeError(error: unknown): StatusIssue {
@@ -289,7 +315,13 @@ export async function executeCommand(
       assertMutationRuntime(dependencies.nodeVersion ?? process.versions.node);
     }
 
-    const target = resolveProjectTarget(args.target ?? ".", dependencies.cwd ?? process.cwd());
+    const homeDirectory = path.resolve(dependencies.homeDirectory ?? os.homedir());
+    const forbiddenRoots = dependencies.hostGlobalRoots?.(host, homeDirectory) ??
+      defaultHostGlobalRoots(host, homeDirectory);
+    const target = resolveProjectTarget(args.target ?? ".", dependencies.cwd ?? process.cwd(), {
+      homeDirectory,
+      forbiddenRoots,
+    });
     const request: TargetConfirmation = {
       command: args.command,
       host,

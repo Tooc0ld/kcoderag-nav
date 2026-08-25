@@ -7,12 +7,45 @@ import { InstallError, type ProjectTarget, type ValidatedPath } from "./contract
 
 const validatedTargets = new WeakSet<object>();
 
+export interface ProjectTargetOptions {
+  readonly homeDirectory?: string;
+  readonly forbiddenRoots?: readonly string[];
+}
+
 function isRootPath(candidate: string): boolean {
   return candidate === path.parse(candidate).root;
 }
 
 function isAbsoluteOnAnyPlatform(candidate: string): boolean {
   return path.posix.isAbsolute(candidate) || path.win32.isAbsolute(candidate);
+}
+
+/** Compare canonical path boundaries without string-prefix sibling mistakes. */
+export function isPathAtOrWithin(
+  candidate: string,
+  boundary: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const implementation = platform === "win32" ? path.win32 : path.posix;
+  const normalize = (value: string): string => {
+    const normalized = implementation.normalize(value);
+    return platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const relation = implementation.relative(normalize(boundary), normalize(candidate));
+  return relation.length === 0 || (
+    relation !== ".." &&
+    !relation.startsWith(`..${implementation.sep}`) &&
+    !implementation.isAbsolute(relation)
+  );
+}
+
+function canonicalBoundary(candidate: string): string {
+  const absolute = path.resolve(candidate);
+  try {
+    return fs.realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
 }
 
 function validateRelativeSyntax(relativePath: string): readonly string[] {
@@ -37,7 +70,11 @@ function normalizedManagedRoots(managedRoots: readonly string[]): readonly strin
   return result.sort((left, right) => left.localeCompare(right));
 }
 
-export function resolveProjectTarget(rawTarget: string, cwd = process.cwd()): ProjectTarget {
+export function resolveProjectTarget(
+  rawTarget: string,
+  cwd = process.cwd(),
+  options: ProjectTargetOptions = {},
+): ProjectTarget {
   const candidate = path.resolve(cwd, rawTarget);
   let metadata: import("node:fs").Stats;
   try {
@@ -55,6 +92,18 @@ export function resolveProjectTarget(rawTarget: string, cwd = process.cwd()): Pr
     throw new InstallError("invalid_target");
   }
   if (isRootPath(canonical)) throw new InstallError("unsafe_target");
+  if (
+    options.homeDirectory !== undefined &&
+    isPathAtOrWithin(canonical, canonicalBoundary(options.homeDirectory)) &&
+    isPathAtOrWithin(canonicalBoundary(options.homeDirectory), canonical)
+  ) {
+    throw new InstallError("unsafe_target");
+  }
+  for (const forbiddenRoot of options.forbiddenRoots ?? []) {
+    if (isPathAtOrWithin(canonical, canonicalBoundary(forbiddenRoot))) {
+      throw new InstallError("unsafe_target");
+    }
+  }
 
   const target = Object.freeze({ root: canonical });
   validatedTargets.add(target);
