@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-08-PLAN.md
-last_updated: "2026-08-25T09:23:41.454Z"
+stopped_at: Completed 04-17-PLAN.md (earliest incomplete remains 04-10)
+last_updated: "2026-08-25T09:33:13.327Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 6a6847f436b959dfdeb069119c1e19f3bbdbbe26
+state_head: ebaa77b0e6e378760b3ba5e58c06d25d63acc8ba
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 44
+  completed_plans: 45
   percent: 44
 ---
 
@@ -98,6 +98,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P05 | 35min | 3 tasks | 13 files |
 | Phase 04 P08 | 12min | 2 tasks | 1 files |
 | Phase 04 P06 | 31min | 3 tasks | 10 files |
+| Phase 04 P17 | 11min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Claude cleanup requires observed 2.1.241+ exact help and inventory schemas; scoped plugin uninstall is preferred and marketplace removal requires exclusive ownership.
 - [Phase 04]: Cursor Rules use manual_rule and remain manual-only without a verified native uninstall capability.
 - [Phase 04]: Owned source cleanup and legacy Dev migration are independent, mutually exclusive authorities.
+- [Phase 04]: Plan 04-17 preserves absorbed QA product provenance when fresh canonical generation is byte-identical.
+- [Phase 04]: Plan 04-17 verifies opaque MCP projections only through safe metadata and digests.
 
 ### Pending Todos
 
@@ -280,6 +283,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T08:38:34.522Z
-Stopped at: Completed 04-08-PLAN.md
+Last session: 2026-08-25T09:33:12.978Z
+Stopped at: Completed 04-17-PLAN.md (earliest incomplete remains 04-10)
 Resume file: None
