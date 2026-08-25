@@ -2009,7 +2009,7 @@ async function scanCodexUserSources(
       !pluginSucceeded && !marketplaceSucceeded && !pluginResult.timedOut && !marketplaceResult.timedOut &&
       pluginResult.failureAttribution === "marketplace_load" &&
       marketplaceResult.failureAttribution === "marketplace_load" &&
-      registration !== undefined && registration.exclusiveUserMarketplace &&
+      registration !== undefined &&
       metadata.rawMcpPaths.length === 0 && metadata.manualHookPaths.length === 0 &&
       metadata.ambiguousPaths.length === 0;
     if (!degradedExact || registration === undefined) return sourceScanUnavailable(mode, findings);

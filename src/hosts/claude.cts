@@ -1085,7 +1085,16 @@ function containsKCodeRagMcpKey(text: string): boolean {
 }
 
 function containsKCodeRagHookSignature(text: string): boolean {
-  return /"hooks"\s*:\s*\{[\s\S]{0,262144}?(?:kcoderag-(?:qa|dev|nav)|kcoderag_nav)/i.test(text);
+  const signature = /kcoderag-(?:qa|dev|nav)|kcoderag_nav/i;
+  try {
+    const document: unknown = JSON.parse(text);
+    if (!isRecord(document) || document.hooks === undefined) return false;
+    return signature.test(JSON.stringify(document.hooks));
+  } catch {
+    // Preserve the prior fail-closed signal for malformed JSON without letting valid
+    // documents match KCodeRag identifiers outside the top-level hooks subtree.
+    return /"hooks"\s*:\s*\{[\s\S]{0,262144}?(?:kcoderag-(?:qa|dev|nav)|kcoderag_nav)/i.test(text);
+  }
 }
 
 function defaultClaudeUserSourceReader(claudeRoot: string, userHome: string): ClaudeUserSourceReader {
@@ -1141,6 +1150,7 @@ function defaultClaudeUserSourceReader(claudeRoot: string, userHome: string): Cl
 
 interface ParsedClaudePlugin {
   readonly id: string;
+  readonly inventoryIdentity: string;
   readonly name: string;
   readonly marketplace: string;
   readonly scope: "user" | "project" | "local";
@@ -1151,8 +1161,8 @@ interface ParsedClaudeMarketplace {
   readonly name: string;
 }
 
-function exactKeys(value: JsonMap, required: readonly string[]): boolean {
-  const allowed = new Set(required);
+function exactKeys(value: JsonMap, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) &&
     Object.keys(value).every((key) => allowed.has(key));
 }
@@ -1170,17 +1180,24 @@ function pluginIdentity(id: string): { readonly name: string; readonly marketpla
 function parseClaudePlugin(value: unknown): ParsedClaudePlugin | undefined {
   if (!isRecord(value) || !exactKeys(value, [
     "id", "version", "scope", "enabled", "installPath", "installedAt", "lastUpdated",
-  ]) ||
+  ], ["projectPath", "mcpServers"]) ||
       !boundedString(value.id, 320) || !boundedString(value.version, 128) ||
       !boundedString(value.scope, 16) || !CLAUDE_SCOPES.has(value.scope) ||
       typeof value.enabled !== "boolean" || !boundedString(value.installPath) ||
-      !boundedString(value.installedAt, 128) || !boundedString(value.lastUpdated, 128)) {
+      !boundedString(value.installedAt, 128) || !boundedString(value.lastUpdated, 128) ||
+      (value.projectPath !== undefined && !boundedString(value.projectPath)) ||
+      (value.mcpServers !== undefined && !isRecord(value.mcpServers))) {
     return undefined;
   }
   const identity = pluginIdentity(value.id);
   if (identity === undefined) return undefined;
   return Object.freeze({
     id: value.id,
+    inventoryIdentity: sha256(Buffer.from(JSON.stringify([
+      value.id,
+      value.scope,
+      value.projectPath ?? null,
+    ]), "utf8")),
     name: identity.name,
     marketplace: identity.marketplace,
     scope: value.scope as "user" | "project" | "local",
@@ -1196,14 +1213,17 @@ function parseClaudePluginInventory(stdout: string): readonly ParsedClaudePlugin
   const entries = value.map(parseClaudePlugin);
   if (entries.some((entry) => entry === undefined)) return undefined;
   const normalized = entries as ParsedClaudePlugin[];
-  if (new Set(normalized.map((entry) => entry.id)).size !== normalized.length) return undefined;
+  if (new Set(normalized.map((entry) => entry.inventoryIdentity)).size !== normalized.length) return undefined;
   return Object.freeze(normalized);
 }
 
 function parseClaudeMarketplace(value: unknown): ParsedClaudeMarketplace | undefined {
-  if (!isRecord(value) || !exactKeys(value, ["name", "source", "repo", "installLocation"]) ||
-      !boundedString(value.name, 160) || !boundedString(value.source, 64) ||
-      !boundedString(value.repo) || !boundedString(value.installLocation)) return undefined;
+  if (!isRecord(value)) return undefined;
+  const repoShape = exactKeys(value, ["name", "source", "repo", "installLocation"]);
+  const urlShape = exactKeys(value, ["name", "source", "url", "installLocation"]);
+  if ((!repoShape && !urlShape) || !boundedString(value.name, 160) ||
+      !boundedString(value.source, 64) || !boundedString(value.installLocation) ||
+      (repoShape ? !boundedString(value.repo) : !boundedString(value.url))) return undefined;
   return Object.freeze({ name: value.name });
 }
 

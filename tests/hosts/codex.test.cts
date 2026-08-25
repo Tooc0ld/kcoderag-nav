@@ -669,6 +669,15 @@ test("Codex degraded cleanup recognizes only the exact stale owned marketplace r
   assert.equal(exact.cleanupPlans[0].timeoutMs, 5_000);
   assert.doesNotMatch(JSON.stringify(exact), /sentinel subprocess body/);
 
+  const coexisting = await scanWith(ownedRegistration(sourcePath, {
+    exclusiveUserMarketplace: false,
+  }));
+  assert.equal(coexisting.cleanupPlans.length, 1);
+  assert.equal(
+    coexisting.cleanupPlans[0].command,
+    "codex plugin marketplace remove kcoderag-nav --json",
+  );
+
   const variants = [
     () => scanWith(ownedRegistration(sourcePath, { marketplaceName: "other" })),
     () => scanWith(ownedRegistration(sourcePath, { sourcePath: path.resolve("other") })),

@@ -659,6 +659,177 @@ test("Claude exact inventory exposes only the observed scoped native plugin clea
   ]);
 });
 
+test("Claude accepts bounded project metadata and URL marketplace inventory variants", async () => {
+  const sentinel = `Bearer-${crypto.randomUUID()}`;
+  const pluginInventory = claudePluginInventory({
+    scope: "project",
+    projectPath: path.join(os.tmpdir(), "project"),
+    mcpServers: { ignored: { authorization: sentinel } },
+  });
+  const marketplaceInventory = JSON.stringify([{
+    name: "kcoderag-nav",
+    source: "url",
+    url: `https://marketplace.invalid/${sentinel}`,
+    installLocation: path.join(os.tmpdir(), ".claude", "plugins", "marketplaces", "kcoderag-nav"),
+  }]);
+  const adapter = claude.createClaudeAdapter({
+    runner: async (request: NativeRequest) => {
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "claude plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: pluginInventory };
+      }
+      if (command === "claude plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: marketplaceInventory };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    readUserSources: () => emptyClaudeUserSources(),
+  });
+
+  const scan = await claudeScannerContext(adapter, "deep");
+  assert.equal(scan.cleanupPlans.length, 1);
+  assert.equal(
+    scan.cleanupPlans[0].command,
+    "claude plugin uninstall kcoderag-qa@kcoderag-nav --scope project",
+  );
+  assert.ok(scan.findings.every((finding: Record<string, unknown>) =>
+    finding.code !== "source_scan_unavailable"));
+  assert.doesNotMatch(JSON.stringify(scan), new RegExp(sentinel));
+});
+
+test("Claude distinguishes repeated project plugin ids by project path", async () => {
+  const first = JSON.parse(claudePluginInventory({
+    id: "foreign@other-marketplace",
+    scope: "project",
+    projectPath: path.join(os.tmpdir(), "project-a"),
+    mcpServers: {},
+  }))[0];
+  const second = {
+    ...first,
+    projectPath: path.join(os.tmpdir(), "project-b"),
+  };
+  const adapter = claude.createClaudeAdapter({
+    runner: async (request: NativeRequest) => {
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "claude plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: JSON.stringify([first, second]) };
+      }
+      if (command === "claude plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: "[]" };
+      }
+      return healthyClaudeNativeResult(request);
+    },
+    readUserSources: () => emptyClaudeUserSources(),
+  });
+
+  const scan = await claudeScannerContext(adapter, "deep");
+  assert.equal(scan.hasConflict, false);
+  assert.ok(scan.findings.every((finding: Record<string, unknown>) =>
+    finding.code !== "source_scan_unavailable"));
+});
+
+test("Claude rejects malformed neighbors of the accepted inventory variants", async () => {
+  const sentinel = `Bearer-${crypto.randomUUID()}`;
+  const validUrlMarketplace = JSON.stringify([{
+    name: "kcoderag-nav",
+    source: "url",
+    url: "https://marketplace.invalid/catalog",
+    installLocation: path.join(os.tmpdir(), ".claude", "plugins", "marketplaces", "kcoderag-nav"),
+  }]);
+  const bothMarketplaceLocations = JSON.stringify([{
+    name: "kcoderag-nav",
+    source: "url",
+    repo: "Tooc0ld/kcoderag-nav",
+    url: "https://marketplace.invalid/catalog",
+    installLocation: path.join(os.tmpdir(), ".claude", "plugins", "marketplaces", "kcoderag-nav"),
+  }]);
+  const duplicateProjectPlugin = JSON.parse(claudePluginInventory({
+    id: "foreign@other-marketplace",
+    scope: "project",
+    projectPath: path.join(os.tmpdir(), "same-project"),
+    mcpServers: {},
+  }))[0];
+  const variants = [
+    {
+      plugins: claudePluginInventory({ projectPath: { sentinel } }),
+      marketplaces: validUrlMarketplace,
+    },
+    {
+      plugins: claudePluginInventory({ mcpServers: [sentinel] }),
+      marketplaces: validUrlMarketplace,
+    },
+    {
+      plugins: claudePluginInventory(),
+      marketplaces: bothMarketplaceLocations,
+    },
+    {
+      plugins: JSON.stringify([duplicateProjectPlugin, { ...duplicateProjectPlugin }]),
+      marketplaces: "[]",
+    },
+  ];
+
+  for (const variant of variants) {
+    const adapter = claude.createClaudeAdapter({
+      runner: async (request: NativeRequest) => {
+        const command = [request.executable, ...request.args].join(" ");
+        if (command === "claude plugin list --json") {
+          return { exitCode: 0, timedOut: false, stdout: variant.plugins };
+        }
+        if (command === "claude plugin marketplace list --json") {
+          return { exitCode: 0, timedOut: false, stdout: variant.marketplaces };
+        }
+        return healthyClaudeNativeResult(request);
+      },
+      readUserSources: () => emptyClaudeUserSources(),
+    });
+    const scan = await claudeScannerContext(adapter, "deep");
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.ok(scan.findings.some((finding: Record<string, unknown>) =>
+      finding.code === "source_scan_unavailable"));
+    assert.doesNotMatch(JSON.stringify(scan), new RegExp(sentinel));
+  }
+});
+
+test("Claude does not classify KCodeRag settings outside hooks as manual Hook sources", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-user-"));
+  try {
+    write(home, ".claude.json", `${JSON.stringify({ projects: {} })}\n`);
+    const settingsPath = ".claude/settings.json";
+    write(home, settingsPath, `${JSON.stringify({
+      hooks: { Stop: [{ matcher: "*", hooks: [] }] },
+      enabledPlugins: { "kcoderag-nav": false },
+      extraKnownMarketplaces: {
+        archived: { source: { source: "github", repo: "Tooc0ld/kcoderag-nav" } },
+      },
+    }, null, 2)}\n`);
+    const adapter = claude.createClaudeAdapter({
+      homeDirectory: home,
+      runner: async (request: NativeRequest) => healthyClaudeNativeResult(request),
+    });
+
+    const scan = await claudeScannerContext(adapter, "deep");
+    assert.equal(scan.hasConflict, false);
+    assert.ok(scan.findings.every((finding: Record<string, unknown>) =>
+      finding.code !== "manual_hook_source"));
+
+    write(home, settingsPath, `${JSON.stringify({
+      hooks: {
+        PreToolUse: [{
+          matcher: "Grep",
+          hooks: [{ type: "command", command: ".claude/kcoderag-nav/qa/hooks/run_hook.sh" }],
+        }],
+      },
+      enabledPlugins: { "kcoderag-nav": false },
+    }, null, 2)}\n`);
+    const actualHook = await claudeScannerContext(adapter, "deep");
+    assert.equal(actualHook.hasConflict, true);
+    assert.ok(actualHook.findings.some((finding: Record<string, unknown>) =>
+      finding.code === "manual_hook_source"));
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("Claude scan modes keep disabled/cache residue informational and raw/manual sources manual-only", async () => {
   const adapter = claude.createClaudeAdapter({
     runner: async (request: NativeRequest) => {
