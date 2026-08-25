@@ -1,12 +1,22 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 const sourceHooks = path.resolve("plugin-src/hooks");
 const compiledHook = path.resolve("dist/hooks/grep-nudge.cjs");
+const projectRoot = require("../../dist/core/project-root.cjs") as {
+  findNearestProjectHook(options: {
+    readonly cwd: string;
+    readonly host: "codex" | "claude";
+    readonly stateRelativePath: string;
+    readonly launcherRelativePath: string;
+    readonly maxAncestors?: number;
+  }): { readonly projectRoot: string; readonly launcherPath: string } | undefined;
+};
 const structuralPayload = JSON.stringify({
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
@@ -17,6 +27,54 @@ interface Deployment {
   readonly root: string;
   readonly hooks: string;
   readonly cwd: string;
+}
+
+function sha256(value: Buffer): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function write(root: string, relativePath: string, value: string | Buffer): string {
+  const destination = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, value);
+  return destination;
+}
+
+function managedProject(
+  root: string,
+  host: "codex" | "claude",
+  launcherName: string = process.platform === "win32" ? "run_hook.cmd" : "run_hook.sh",
+  marker: string = host,
+): { readonly statePath: string; readonly launcherPath: string } {
+  const hostRoot = host === "codex" ? ".codex" : ".claude";
+  const stateRelativePath = `${hostRoot}/kcoderag-nav/install-state.json`;
+  const launcherRelativePath = `${hostRoot}/kcoderag-nav/qa/hooks/${launcherName}`;
+  const launcher = Buffer.from(`${marker}\n`, "utf8");
+  const launcherPath = write(root, launcherRelativePath, launcher);
+  const statePath = write(root, stateRelativePath, `${JSON.stringify({
+    schemaVersion: 1,
+    packageVersion: "0.2.0",
+    host,
+    environment: "qa",
+    managedFiles: [launcherRelativePath, stateRelativePath],
+    originals: {},
+    digests: { [launcherRelativePath]: sha256(launcher) },
+  })}\n`);
+  return { statePath, launcherPath };
+}
+
+function discoveryOptions(
+  cwd: string,
+  host: "codex" | "claude",
+  launcherName = process.platform === "win32" ? "run_hook.cmd" : "run_hook.sh",
+) {
+  const hostRoot = host === "codex" ? ".codex" : ".claude";
+  return {
+    cwd,
+    host,
+    stateRelativePath: `${hostRoot}/kcoderag-nav/install-state.json`,
+    launcherRelativePath: `${hostRoot}/kcoderag-nav/qa/hooks/${launcherName}`,
+  } as const;
 }
 
 function deployment(): Deployment {
@@ -115,6 +173,107 @@ test("hook registration is limited to the required PreToolUse tools and launcher
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
     assert.doesNotMatch(source, /%CD%|\$PWD/iu);
+  }
+});
+
+test("nearest-state discovery selects the first valid selected-host boundary", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-root-nearest-"));
+  try {
+    const outer = path.join(base, "outer");
+    const inner = path.join(outer, "packages", "inner");
+    const deep = path.join(inner, "Unicode 空格", "src");
+    fs.mkdirSync(deep, { recursive: true });
+    managedProject(outer, "codex", undefined, "outer");
+    const nearest = managedProject(inner, "codex", undefined, "inner");
+
+    assert.deepEqual(projectRoot.findNearestProjectHook(discoveryOptions(deep, "codex")), {
+      projectRoot: inner,
+      launcherPath: nearest.launcherPath,
+    });
+    assert.equal(
+      projectRoot.findNearestProjectHook(discoveryOptions(deep, "claude")),
+      undefined,
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("damaged nearest state is a silent boundary and never falls through", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-root-damaged-"));
+  try {
+    const outer = path.join(base, "outer");
+    const inner = path.join(outer, "inner");
+    const deep = path.join(inner, "deep");
+    fs.mkdirSync(deep, { recursive: true });
+    managedProject(outer, "claude", undefined, "outer");
+    const nearest = managedProject(inner, "claude", undefined, "inner");
+    fs.writeFileSync(nearest.statePath, "{malformed", "utf8");
+
+    assert.equal(projectRoot.findNearestProjectHook(discoveryOptions(deep, "claude")), undefined);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("nearest-state discovery rejects drift, missing launchers, symlinks, and unsafe inputs", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-root-invalid-"));
+  try {
+    const drifted = path.join(base, "drifted");
+    fs.mkdirSync(drifted);
+    const driftedFiles = managedProject(drifted, "codex");
+    fs.appendFileSync(driftedFiles.launcherPath, "changed\n");
+    assert.equal(projectRoot.findNearestProjectHook(discoveryOptions(drifted, "codex")), undefined);
+
+    const missing = path.join(base, "missing");
+    fs.mkdirSync(missing);
+    const missingFiles = managedProject(missing, "codex");
+    fs.rmSync(missingFiles.launcherPath);
+    assert.equal(projectRoot.findNearestProjectHook(discoveryOptions(missing, "codex")), undefined);
+
+    const linked = path.join(base, "linked");
+    const outside = path.join(base, "outside");
+    fs.mkdirSync(linked);
+    fs.mkdirSync(outside);
+    const linkedFiles = managedProject(linked, "codex");
+    const outsideLauncher = path.join(outside, "run_hook.cmd");
+    fs.writeFileSync(outsideLauncher, fs.readFileSync(linkedFiles.launcherPath));
+    fs.rmSync(linkedFiles.launcherPath);
+    try {
+      fs.symlinkSync(outsideLauncher, linkedFiles.launcherPath, "file");
+      assert.equal(projectRoot.findNearestProjectHook(discoveryOptions(linked, "codex")), undefined);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
+
+    assert.equal(projectRoot.findNearestProjectHook({
+      ...discoveryOptions(base, "codex"),
+      stateRelativePath: "../install-state.json",
+    }), undefined);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("nearest-state traversal stops at the configured fixed bound", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-root-bound-"));
+  try {
+    const managed = path.join(base, "managed");
+    const first = path.join(managed, "one");
+    const second = path.join(first, "two");
+    fs.mkdirSync(second, { recursive: true });
+    managedProject(managed, "codex");
+
+    assert.equal(projectRoot.findNearestProjectHook({
+      ...discoveryOptions(second, "codex"),
+      maxAncestors: 2,
+    }), undefined);
+    assert.ok(projectRoot.findNearestProjectHook({
+      ...discoveryOptions(second, "codex"),
+      maxAncestors: 3,
+    }));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
