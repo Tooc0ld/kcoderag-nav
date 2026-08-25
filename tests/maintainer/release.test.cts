@@ -40,6 +40,18 @@ interface ReleaseModule {
 const release = require("../../dist/maintainer/release.cjs") as ReleaseModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 
+const EXPECTED_VERSION_MANIFEST_PATHS = Object.freeze([
+  "kcoderag-cursor/.cursor-plugin/plugin.json",
+  "kcoderag-qa/.claude-plugin/plugin.json",
+  "kcoderag-qa/.codex-plugin/plugin.json",
+]);
+
+const EXPECTED_RELEASE_OWNED_PATHS = Object.freeze([
+  ...EXPECTED_VERSION_MANIFEST_PATHS,
+  "package-lock.json",
+  "package.json",
+]);
+
 function git(root: string, args: readonly string[]): string {
   return childProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" }).trim();
 }
@@ -56,7 +68,7 @@ function writeJson(root: string, relativePath: string, value: unknown): void {
   fs.writeFileSync(destination, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function createFixture(): string {
+function createFixture(version = "1.2.3"): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-release-"));
   git(root, ["init", "-q"]);
   git(root, ["config", "user.email", "release-test@example.invalid"]);
@@ -66,15 +78,15 @@ function createFixture(): string {
     "/node_modules/\n/dist/\n/dist-tests/\n",
     "utf8",
   );
-  writeJson(root, "package.json", { name: "kcoderag-nav", version: "1.2.3" });
+  writeJson(root, "package.json", { name: "kcoderag-nav", version });
   writeJson(root, "package-lock.json", {
     name: "kcoderag-nav",
-    version: "1.2.3",
+    version,
     lockfileVersion: 3,
-    packages: { "": { name: "kcoderag-nav", version: "1.2.3" } },
+    packages: { "": { name: "kcoderag-nav", version } },
   });
   for (const manifest of release.VERSION_MANIFEST_PATHS) {
-    writeJson(root, manifest, { name: path.basename(path.dirname(manifest)), version: "1.2.3" });
+    writeJson(root, manifest, { name: path.basename(path.dirname(manifest)), version });
   }
   fs.mkdirSync(path.join(root, ".planning"), { recursive: true });
   fs.mkdirSync(path.join(root, ".gsd"), { recursive: true });
@@ -112,6 +124,117 @@ function expectCode(run: () => unknown, code: string): void {
       error instanceof Error && "code" in error && (error as Error & { code: string }).code === code,
   );
 }
+
+function snapshotRepository(root: string): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    head: git(root, ["rev-parse", "HEAD"]),
+    index: git(root, ["ls-files", "--stage"]),
+    refs: git(root, ["show-ref"]),
+    status: git(root, ["status", "--porcelain=v1", "--untracked-files=all"]),
+    tags: git(root, ["tag", "--list"]),
+    files: new Map(release.RELEASE_OWNED_PATHS.map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(root, ...relativePath.split("/"))),
+    ])),
+  });
+}
+
+test("minor dry-run derives exact immutable 0.2.0 state after every configured gate", () => {
+  assert.deepEqual(release.VERSION_MANIFEST_PATHS, EXPECTED_VERSION_MANIFEST_PATHS);
+  assert.deepEqual(release.RELEASE_OWNED_PATHS, EXPECTED_RELEASE_OWNED_PATHS);
+  assert.equal(Object.isFrozen(release.VERSION_MANIFEST_PATHS), true);
+  assert.equal(Object.isFrozen(release.RELEASE_OWNED_PATHS), true);
+
+  const root = createFixture("0.1.8");
+  const before = snapshotRepository(root);
+  const events: string[] = [];
+  const result = release.prepareRelease({
+    root,
+    level: "minor",
+    dryRun: true,
+    yes: false,
+    runGates() { events.push("gates"); },
+    runGenerator({ check }) {
+      events.push(check ? "generator:check" : "generator:write");
+      return { ok: true, changedPaths: [], writtenPaths: [] };
+    },
+  });
+
+  assert.deepEqual(events, ["generator:check", "gates"]);
+  assert.deepEqual(result, {
+    ok: true,
+    dryRun: true,
+    previousVersion: "0.1.8",
+    version: "0.2.0",
+    tag: "v0.2.0",
+    commit: null,
+    releasePaths: EXPECTED_RELEASE_OWNED_PATHS,
+  });
+  assert.equal(Object.isFrozen(result), true);
+  assert.deepEqual(snapshotRepository(root), before);
+});
+
+test("missing, extra, or retired Dev compatibility manifests refuse before gates or mutation", () => {
+  const cases = [
+    {
+      name: "missing",
+      mutate(root: string) {
+        fs.rmSync(path.join(root, ...EXPECTED_VERSION_MANIFEST_PATHS[0]!.split("/")));
+        git(root, ["add", "--update"]);
+      },
+    },
+    {
+      name: "extra",
+      mutate(root: string) {
+        writeJson(root, "kcoderag-extra/.codex-plugin/plugin.json", { version: "0.1.8" });
+        git(root, ["add", "kcoderag-extra/.codex-plugin/plugin.json"]);
+      },
+    },
+    {
+      name: "Dev",
+      mutate(root: string) {
+        writeJson(root, "kcoderag-dev/.claude-plugin/plugin.json", { version: "0.1.8" });
+        git(root, ["add", "kcoderag-dev/.claude-plugin/plugin.json"]);
+      },
+    },
+  ] as const;
+
+  for (const fixtureCase of cases) {
+    const root = createFixture("0.1.8");
+    fixtureCase.mutate(root);
+    git(root, ["commit", "-q", "-m", fixtureCase.name]);
+    const beforeHead = git(root, ["rev-parse", "HEAD"]);
+    const beforeIndex = git(root, ["ls-files", "--stage"]);
+    const beforeRefs = git(root, ["show-ref"]);
+    const beforeStatus = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
+    const events: string[] = [];
+
+    expectCode(
+      () => release.prepareRelease({
+        root,
+        level: "minor",
+        dryRun: true,
+        yes: false,
+        runGates() { events.push("gates"); },
+        runGenerator() {
+          events.push("generator");
+          return { ok: true, changedPaths: [], writtenPaths: [] };
+        },
+      }),
+      "release_manifest_inventory_drift",
+    );
+
+    assert.deepEqual(events, [], fixtureCase.name);
+    assert.equal(git(root, ["rev-parse", "HEAD"]), beforeHead, fixtureCase.name);
+    assert.equal(git(root, ["ls-files", "--stage"]), beforeIndex, fixtureCase.name);
+    assert.equal(git(root, ["show-ref"]), beforeRefs, fixtureCase.name);
+    assert.equal(
+      git(root, ["status", "--porcelain=v1", "--untracked-files=all"]),
+      beforeStatus,
+      fixtureCase.name,
+    );
+  }
+});
 
 test("creates one exact QA/Cursor release commit and matching immutable tag", () => {
   const root = createFixture();
