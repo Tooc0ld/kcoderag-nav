@@ -10,27 +10,34 @@ Cursor。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、导航 sk
 运行时 TypeScript 编译。标准入口是 `npx kcoderag-nav@latest install`。
 
 未指定宿主时交互选择 Codex、Claude Code 或 Cursor；自动化使用
-`--host codex|claude|cursor`，一次调用只管理一个宿主。QA 是默认环境，Dev 仅用于开发和测试
-并需显式选择；QA/Dev 在同一宿主内互斥且切换前必须显式卸载，跨宿主安装可以共存。
+`--host codex|claude|cursor`，一次调用只管理一个宿主。自 `0.2.0` 起 QA 是唯一公开可安装、
+更新和生成的环境；旧 QA/Dev 状态只作为一次性迁移或卸载的精确 legacy 解码输入。跨宿主的
+项目级 QA 安装可以共存。
 
 Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
 和共享 skill，不声称 hook 行为等价。install/update/uninstall 只修改 adapter 声明的受管
-项目文件和 section，遇到漂移时写前硬停止，并按单宿主事务完整回滚。
+项目文件和 section，遇到漂移、危险 target 或用户级活动重复来源时写前硬停止，并按单宿主
+事务完整回滚。`status` 快速报告项目健康；`doctor` 深扫所选宿主的用户级来源且始终只读。
 
-**Core Value:** 用户通过统一 npx CLI 即可为所选宿主获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
+**Core Value:** 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内获得可靠、低打扰、QA 图优先的导航体验。
 
 ### Constraints
 
 - **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
-- **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`，根 marketplace catalog 不得恢复
+- **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；`0.2.0` 起公共产品 QA-only，根 marketplace catalog 不得恢复
 - **宿主边界**: 一次命令只管理 Codex、Claude Code 或 Cursor 中的一个；跨宿主安装可以共存
-- **环境互斥**: QA/Dev 仅在同一宿主内互斥 — 默认 QA，Dev 需显式选择，切换前显式卸载
+- **旧状态**: Dev 不是可安装产品，只能由精确 schema、完整所有权和摘要验证的 legacy 解码器读取，用于显式迁移/卸载
 - **项目边界**: 默认只修改目标项目内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
+- **来源门禁**: install/update 深扫所选宿主来源；owned source 清理需独立、冻结 fingerprint 绑定的明确授权，raw/manual/ambiguous 来源只能人工清理
+- **根定位**: Codex/Claude Hook 从 cwd 向上选择最近受管状态；损坏最近边界静默 fail-open 且不得穿透，项目移动后仍使用相对路径工作
+- **诊断**: status/doctor 只读且 secret-safe；`source_conflict` 为 `ok:false`，输出不得包含 URL、Header、Bearer 或配置正文
 - **Hook**: Codex/Claude 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
-- **凭据**: 当前 QA/Dev 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
+- **发布**: 全部门禁通过后直接发布不可变 `0.2.0`；若 Head 迁移失败仅以 `0.2.1` 修复前进，不回退 tag/latest 或 unpublish
+- **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
+- **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
 - **OpenCode**: 仅保留 adapter 扩展能力；实现与真实宿主验证延后
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 

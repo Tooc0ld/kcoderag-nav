@@ -3,8 +3,9 @@
 ## Overview
 
 Phase 1–3 已于 2026-08-23 根据 quick task 实现、当前代码和自动化测试完成回溯验证，并以
-canonical plan/summary/verification/validation 收口。后续路线完成已部署项目可靠性、低误报
-hook、真实宿主证据、GSD 运行时整理，最后进入生产安全与自动化发布。
+canonical plan/summary/verification/validation 收口。Phase 04 以 `0.2.0` 明确取代旧的公共 Dev
+合同，将产品收敛为 QA-only，并完成项目根定位、来源诊断、公开发布和 Head 部署；后续路线再完成
+低误报 hook、真实宿主 MCP 证据、GSD 运行时整理与生产安全。
 
 ## Phases
 
@@ -18,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: QA 优先的可重复插件包** - 从一份规范源生成并验证可立即使用的 QA 优先导航 MVP。 (completed 2026-08-23)
 - [x] **Phase 2: 受管项目安装与环境生命周期** - 在不污染用户环境的前提下交付互斥的 QA/Dev 项目级安装、冲突保护与显式切换。 (completed 2026-08-23)
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
-- [ ] **Phase 4: 已部署项目与安装来源可靠性** - 更新实际 Head 安装、稳定项目 hook 根路径，并为原生用户级误装提供安全诊断。
+- [ ] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
 - [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code 与 Cursor 真宿主上固化生命周期、工具注册和 hook/Rule 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
@@ -188,18 +189,85 @@ Plans:
 
 ### Phase 4: 已部署项目与安装来源可靠性
 
-**Goal:** 已部署项目能从根目录或子目录稳定加载当前 QA，并在任何项目写入前诊断用户级重复来源和环境冲突。
+**Goal:** 公共 `kcoderag-nav@0.2.0` 只安装 QA；已部署项目能从根目录、子目录或移动后位置稳定加载最近受管 QA，并在任何 install/update 写入前以 selected-host、secret-safe 方式诊断和治理用户级来源，最终用公开 exact 制品迁移实际 Head。
 **Mode:** mvp
 **Requirements**: DEP-01, DEP-02, DEP-03
-**Depends on:** Phase 3
+**Depends on:** Phase 03.1
 **Success Criteria** (what must be TRUE):
 
-  1. `I:\JX3_SVN\Head` 的受管 QA 安装更新到当前发布版本，`status --json` 返回 `healthy`，且全局 QA/Dev 不重复生效。
-  2. 从项目根目录和任意嵌套子目录启动 Codex 时，项目 hook 都能定位同一受管 launcher；路径策略和项目移动后的恢复方法有自动化测试与文档。
-  3. 项目 install/update 在用户级 raw MCP、启用的 marketplace plugin 或 QA/Dev 跨来源冲突时保持写前硬停止，诊断不读取或输出凭据值。
-  4. 为绕过项目安装器的原生 `codex plugin add` 用户提供只读 user-level doctor/status，明确给出清理来源，但不自动卸载或删除配置。
+  1. **D-01/D-02:** 公共 CLI、npm allow-list、生成树和用户文档只提供 QA；Dev 仅能作为完整所有权、无漂移的 legacy 状态被显式迁移或卸载，新安装没有 Dev flag、prompt 或 product。
+  2. **D-05–D-08:** Codex/Claude Hook 从 cwd 向上选择最近状态边界；root/deep/Unicode/nested/moved 行为可复跑，损坏最近边界静默 fail-open 且不穿透；危险全局 target 被拒绝而普通非 VCS 目录可用。
+  3. **D-03/D-09–D-16:** status 快速、doctor 深扫且二者只读；selected-host active source 产生 `source_conflict`/`ok:false` 并阻断 install/update。owned source 清理权限独立且绑定冻结 fingerprint，raw/manual/ambiguous 来源只允许人工清理，任何输出均不含连接或凭据值。
+  4. **D-04:** 实现、测试、审查、pack、四通道 CI 和公开制品门禁全部通过后直接发布不可变 `0.2.0`，不再设置人工发布审批点。
+  5. **D-17–D-19:** `I:\JX3_SVN\Head` 只使用公开 exact `kcoderag-nav@0.2.0` 按 doctor→授权清理→update/migrate→status/doctor 部署；最终 healthy、无活动重复来源、根/深层 Hook 指向同一项目且无关配置摘要不变。
+  6. **D-20:** 若公开 `0.2.0` 后 Head 迁移失败，项目事务恢复原状，npm/tag/latest 不回退或 unpublish；修复只以前进版本 `0.2.1` 继续。
+  7. README 与 KCodeRag 权威指南在删除公共 Dev 代码/资产前先同步 QA-only 合同；Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换和 OpenCode 实现保持未交付。
 
-**Plans**: TBD
+**Plans:** 19 plans
+
+**Wave 1**
+
+- [ ] `04-01-PLAN.md` — 建立 QA-only canonical contract 并同步 managed AGENTS
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] `04-14-PLAN.md` — 先同步根 README 与唯一权威 KCodeRag 体验指南
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] `04-02-PLAN.md` — 收敛公共 CLI/current state 为 QA-only 并拒绝危险全局 target
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] `04-03-PLAN.md` — 为三宿主实现明确授权、无漂移的 legacy Dev→QA 迁移
+- [ ] `04-07-PLAN.md` — 将 canonical generator/routing 产品图收敛为 QA 与 Cursor
+
+**Wave 5** *(blocked on Wave 4)*
+
+- [ ] `04-04-PLAN.md` — 实现最近状态 Hook 根发现和 rootless Codex/Claude bootstrap
+- [ ] `04-09-PLAN.md` — 再生并关闭 Cursor QA 非文档产品
+
+**Wave 6** *(blocked on Wave 5)*
+
+- [ ] `04-05-PLAN.md` — 建立 immutable source findings、status/doctor 分流与 Codex cleanup plan
+- [ ] `04-08-PLAN.md` — 再生完整 QA Hook runtime 与双平台 launcher
+
+**Wave 7** *(blocked on Wave 6)*
+
+- [ ] `04-06-PLAN.md` — 完成 Claude/Cursor selected-host diagnosis 与安全 cleanup 边界
+- [ ] `04-17-PLAN.md` — 再生 QA registration、opaque MCP metadata 与导航资产
+
+**Wave 8** *(blocked on Wave 7)*
+
+- [ ] `04-10-PLAN.md` — 从 npm allow-list 与宿主发现 manifest 移除 Dev
+
+**Wave 9** *(blocked on Wave 8)*
+
+- [ ] `04-18-PLAN.md` — 删除 Dev executable/registration/guidance，保留 exact legacy decoder
+
+**Wave 10** *(blocked on Wave 9)*
+
+- [ ] `04-11-PLAN.md` — 关闭 QA/Cursor pack inventory、pre-release 与 Head acceptance validator
+
+**Wave 11** *(blocked on Wave 10)*
+
+- [ ] `04-12-PLAN.md` — 只读推导并验证 exact five-path `0.2.0` release state
+
+**Wave 12** *(blocked on Wave 11)*
+
+- [ ] `04-13-PLAN.md` — 扩展 real-package smoke、pre-commit 与 ordinary/release CI gates
+
+**Wave 13** *(blocked on Wave 12)*
+
+- [ ] `04-19-PLAN.md` — 生成最终 QA/Cursor 文档并审计权威 sibling guide
+
+**Wave 14** *(blocked on Wave 13)*
+
+- [ ] `04-15-PLAN.md` — 冻结 subject，创建 `0.2.0` direct-child commit/tag 并经四通道发布
+
+**Wave 15** *(blocked on Wave 14)*
+
+- [ ] `04-16-PLAN.md` — 冻结 cleanup fingerprint，以公开 exact `0.2.0` 原子迁移 Head 并记录验收
 
 ### Phase 5: 低误报 Hook 与诚实路由
 
@@ -275,7 +343,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
 | 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
-| 4. 已部署项目与安装来源可靠性 | 0/TBD | Not planned | - |
+| 4. 已部署项目与安装来源可靠性 | 0/19 | Planned | - |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
 | 7. GSD 运行时与全局 Hook 整理 | 0/TBD | Not planned | - |

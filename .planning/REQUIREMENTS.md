@@ -1,7 +1,11 @@
 # Requirements: KCodeRag Nav
 
 **Defined:** 2026-08-20
-**Core Value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
+**Core Value:** 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内获得可靠、低打扰、QA 图优先的导航体验。
+
+> Phase 1–3/03.1 的勾选项记录当时已经交付的 QA/Dev 合同。Phase 04 的 D-01 以公开
+> `0.2.0` QA-only 合同取代其当前产品效力，但不改写这些历史完成事实；Dev 只保留精确 legacy
+> 解码、迁移和卸载兼容。
 
 ## v1 Requirements
 
@@ -61,9 +65,36 @@
 
 ### 已部署项目与安装来源
 
-- [ ] **DEP-01**: `I:\JX3_SVN\Head` 的项目级 QA 更新到当前受管版本，状态健康且无用户级 QA/Dev 重复来源
-- [ ] **DEP-02**: 项目 hook 从项目根目录或任意嵌套子目录启动时都能稳定定位受管 launcher
-- [ ] **DEP-03**: 用户级 doctor/status 能只读发现 raw MCP、marketplace plugin、同环境重复及 QA/Dev 冲突，不输出凭据值也不自动删除配置
+- [ ] **DEP-01 — QA-only 公开发布与 Head 部署（D-01、D-02、D-04、D-17–D-20）**:
+  公共 `kcoderag-nav@0.2.0`、CLI、生成资产和用户文档只提供 QA；Dev 只由严格 legacy
+  解码器读取，并且迁移需要独立明确授权。实现、测试、审查、pack、四通道 CI 与公开制品门禁
+  全部通过后无需再次人工审批即可发布。`I:\JX3_SVN\Head` 必须使用公开 exact `0.2.0` 按
+  `doctor → 指纹绑定授权清理 → update/migrate → status/doctor` 部署，最终
+  `status=healthy`、doctor 无活动重复来源、无关项目/用户配置摘要不变。若发布后迁移失败，
+  项目事务回滚但 npm 版本、tag 和 latest 保持不可变，只能以 `0.2.1` 修复前进。
+- [ ] **DEP-02 — 项目边界与可移动 Hook 根定位（D-05–D-08）**:
+  Codex/Claude Hook 从会话 cwd 有界向上查找所选宿主最近的 `kcoderag-nav/install-state.json`，
+  根目录、Unicode/空格深层子目录和完整移动/改名/换盘副本均定位同一受管 launcher；嵌套项目
+  最近状态优先，且最近状态损坏、版本不兼容或 launcher 缺失时静默 fail-open，绝不穿透到外层。
+  CLI 的 cwd/`--target` 始终是精确目标；文件系统根、用户主目录和宿主用户级 config/plugin/cache
+  根被拒绝，普通非 VCS 目录仍可安装。
+- [ ] **DEP-03 — selected-host、secret-safe 来源诊断与清理权限（D-03、D-09–D-16）**:
+  `status` 快速报告项目状态、版本、漂移和来源冲突摘要；`doctor` 深扫所选宿主的 plugin、raw MCP、
+  manual Hook、cache/disabled residue，并在未安装项目上给出安装前就绪结论。活动来源导致顶层
+  `source_conflict`、`ok:false` 并在 install/update 写前硬停止；uninstall 只受项目自身漂移约束。
+  每个 finding 只含稳定 code、severity、source type、scope、安全路径及经验证的宿主原生清理命令，
+  不读取、比较、记录或输出 URL/Header/Bearer。只有所有权明确的旧 plugin/marketplace source
+  可形成冻结清理计划；授权必须独立绑定该计划的精确 fingerprint，非交互自动化必须传完全匹配的
+  cleanup authority。一般 `--yes`、发布授权和 legacy migration authority 均不能替代。raw MCP、
+  manual Hook 或 ambiguous source 永远只提示人工清理，不提供 `doctor --fix` 或自动删除。
+
+#### Phase 04 可观察验收分类
+
+| Requirement | Classification | Required evidence |
+|-------------|----------------|-------------------|
+| DEP-01 | release/deployment | exact public `0.2.0` identity、四通道 CI、pack/public receipt、Head healthy/clean 与不可变 fix-forward 证据 |
+| DEP-02 | runtime/path safety | root/deep/nested/damaged/moved 跨平台自动化，危险全局 target 拒绝和普通非 VCS target 成功 |
+| DEP-03 | diagnostics/authority | selected-host source fixtures、只读 status/doctor、secret sentinels 不出现在输出、指纹不匹配零写入 |
 
 ### Hook 精度与能力诚实性
 
@@ -106,6 +137,8 @@
 | QA 不可达时自动回退 Dev | 会隐藏环境故障并可能返回错误环境的数据 |
 | 修改 KCodeRag MCP 服务或图数据 | 本仓库只负责插件分发和导航策略 |
 | 宿主 marketplace 的 project-scope plugin install | 用户入口统一为 npx 管理宿主原生项目配置，不依赖 marketplace scope |
+| 公开或隐藏的 Dev 安装能力 | D-01 自 `0.2.0` 起将公共产品收敛为 QA-only；Dev 仅是 legacy decode input |
+| 自动清理 raw MCP、manual Hook 或 ambiguous source | D-03/D-11 要求人工清理；无明确所有权时不存在删除授权 |
 
 ## Traceability
 
@@ -174,4 +207,4 @@
 
 ---
 *Requirements defined: 2026-08-20*
-*Last updated: 2026-08-24 after aligning real-host evidence and production release with the npx project integration*
+*Last updated: 2026-08-25 for classified Phase 04 QA-only deployment acceptance*
