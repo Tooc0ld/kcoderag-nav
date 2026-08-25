@@ -157,6 +157,31 @@ test("accepts historical Python and parity vocabulary as data inside declared ar
   assert.equal(Object.hasOwn(historical.packageJson.scripts, "verify:parity-before-retire"), false);
 });
 
+test("rejects retired Dev package entries and archive members without broad content matching", () => {
+  for (const retiredPath of [
+    "kcoderag-dev/README.md",
+    "kcoderag-dev/.codex-plugin/plugin.json",
+  ]) {
+    const declared = packageJson();
+    declared.files.push(retiredPath);
+    expectCode(
+      () => packAudit.expandPackageFiles(repositoryRoot, declared),
+      "retired_product",
+    );
+  }
+
+  const archived = baseline();
+  archived.archiveEntries.set("kcoderag-dev/hooks/grep-nudge.cjs", Buffer.from("retired\n"));
+  expectCode(() => packAudit.validatePack(archived), "retired_product");
+
+  const historical = baseline();
+  historical.archiveEntries.set(
+    "dist/core/state.cjs",
+    Buffer.from("const legacyDirectory = 'kcoderag-dev';\n", "utf8"),
+  );
+  assert.equal(packAudit.validatePack(historical).entryCount, historical.expectedPaths.length);
+});
+
 test("rejects Python, runtime compiler, source, tests, planning, dependency, and credential fixtures", () => {
   for (const forbiddenPath of [
     "kcoderag-qa/hooks/runtime.py",

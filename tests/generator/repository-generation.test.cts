@@ -26,6 +26,10 @@ interface GenerationResult {
 }
 
 interface GeneratorModule {
+  readonly GenerationError: new (code: string, safePath?: string) => Error & {
+    readonly code: string;
+    readonly safePath?: string;
+  };
   readonly ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>>;
   checkGenerated(options: {
     readonly package: Product | "all";
@@ -44,6 +48,30 @@ interface FileEvidence {
 const repositoryRoot = path.resolve(__dirname, "..", "..");
 const generator = require(path.join(repositoryRoot, "dist", "generator", "index.cjs")) as GeneratorModule;
 const products = ["qa", "cursor"] as const;
+const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = Object.freeze({
+  qa: Object.freeze([
+    ".claude-plugin/plugin.json",
+    ".codex-plugin/plugin.json",
+    ".codex.mcp.json",
+    ".mcp.json",
+    "README.md",
+    "agents/kcode-explorer.md",
+    "hooks/grep-nudge.cjs",
+    "hooks/hooks.json",
+    "hooks/run_hook.cmd",
+    "hooks/run_hook.sh",
+    "hooks/update-check.cjs",
+    "hooks/update-worker.cjs",
+    "skills/code-lookup-discipline/SKILL.md",
+  ]),
+  cursor: Object.freeze([
+    ".cursor-plugin/plugin.json",
+    "README.md",
+    "mcp.json",
+    "rules/kcoderag-navigation.mdc",
+    "skills/code-lookup-discipline/SKILL.md",
+  ]),
+});
 
 function productPath(product: Product, relativePath: string): string {
   return path.join(repositoryRoot, `kcoderag-${product}`, ...relativePath.split("/"));
@@ -91,6 +119,18 @@ function assertNoTemplateTokens(): void {
       assert.equal(/\{\{[^{}]*\}\}/u.test(bytes.toString("utf8")), false, `${product}/${relativePath}`);
     }
   }
+}
+
+function walkProductFiles(product: Product): readonly string[] {
+  const root = path.join(repositoryRoot, `kcoderag-${product}`);
+  const visit = (directory: string, prefix = ""): string[] => fs.readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+      return entry.isDirectory()
+        ? visit(path.join(directory, entry.name), relativePath)
+        : [relativePath];
+    });
+  return Object.freeze(visit(root).sort());
 }
 
 function assertQaStructure(version: string): void {
@@ -175,7 +215,46 @@ test("compiled repository gate proves all generated products canonical without r
     assert.equal(fs.statSync(productPath("cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
   }
   assertNoTemplateTokens();
+  for (const product of products) {
+    assert.deepEqual(generator.ASSET_GROUP_PATHS[product].all, expectedProductInventory[product]);
+    assert.deepEqual(walkProductFiles(product), expectedProductInventory[product]);
+  }
   assert.deepEqual(evidenceForSelectedAssets(), before);
+});
+
+test("Dev canonical selection, generated directory, and compatibility manifest fail independently", () => {
+  assert.throws(
+    () => generator.checkGenerated({
+      package: "dev" as unknown as Product,
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot: repositoryRoot,
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      (error as { readonly code: string }).code === "retired_product",
+  );
+
+  for (const relativePath of ["README.md", ".codex-plugin/plugin.json"] as const) {
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-retired-product-"));
+    try {
+      const retired = path.join(outputRoot, "kcoderag-dev", ...relativePath.split("/"));
+      fs.mkdirSync(path.dirname(retired), { recursive: true });
+      fs.writeFileSync(retired, "retired\n", { mode: 0o600 });
+      const checked = generator.checkGenerated({
+        package: "all",
+        group: "all",
+        sourceRoot: repositoryRoot,
+        outputRoot,
+      });
+      assert.equal(checked.ok, false);
+      assert.equal(checked.changedPaths.includes("kcoderag-dev"), true);
+      assert.deepEqual(checked.writtenPaths, []);
+    } finally {
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+    }
+  }
 });
 
 test("missing and stale generated asset fixtures fail closed while check mode remains read-only", () => {
