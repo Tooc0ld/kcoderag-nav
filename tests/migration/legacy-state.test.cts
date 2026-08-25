@@ -225,6 +225,43 @@ function legacyFixture(base: string, environment: EnvironmentId, name: string = 
   return { root, configOriginal, hooksOriginal, legacyState };
 }
 
+function convertFixtureToNodeState(
+  fixture: ReturnType<typeof legacyFixture>,
+  environment: EnvironmentId,
+): void {
+  const python = fixture.legacyState as {
+    originals: Record<string, { existed: boolean; base64: string }>;
+    digests: Record<string, string>;
+  };
+  const prefix = `.codex/kcoderag-nav/${environment}/hooks`;
+  for (const asset of PYTHON_ASSETS) {
+    const relativePath = `${prefix}/${asset}`;
+    fs.rmSync(path.join(fixture.root, ...relativePath.split("/")));
+    delete python.originals[relativePath];
+    delete python.digests[relativePath];
+  }
+  for (const asset of ["grep-nudge.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
+    const relativePath = `${prefix}/${asset}`;
+    const bytes = Buffer.from(`old-${asset}\n`);
+    write(fixture.root, relativePath, bytes);
+    python.originals[relativePath] = { existed: false, base64: "" };
+    python.digests[relativePath] = digest(bytes);
+  }
+  const originals = Object.fromEntries(Object.entries(python.originals).map(([relativePath, value]) => [
+    relativePath,
+    value.existed ? { kind: "base64", data: value.base64 } : { kind: "absent" },
+  ]));
+  write(fixture.root, STATE_PATH, `${JSON.stringify({
+    schemaVersion: 1,
+    packageVersion: "0.1.8",
+    host: "codex",
+    environment,
+    managedFiles: [...Object.keys(python.digests).sort(), STATE_PATH],
+    originals,
+    digests: python.digests,
+  }, null, 2)}\n`);
+}
+
 function observe(root: string, packageRoot: string): {
   readonly target: Record<string, unknown>;
   readonly observation: Record<string, unknown>;
@@ -333,6 +370,32 @@ for (const environment of ["qa", "dev"] as const) {
   });
 }
 
+test("exact Node legacy Dev state uses the same explicit QA conversion boundary", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-node-legacy-dev-"));
+  try {
+    const packageRoot = makePackage(base);
+    const fixture = legacyFixture(base, "dev");
+    convertFixtureToNodeState(fixture, "dev");
+    const before = snapshot(fixture.root);
+    const observed = observe(fixture.root, packageRoot);
+    assert.equal(observed.observation.legacyEnvironment, "dev");
+    assert.throws(
+      () => renderMigration(fixture.root, packageRoot),
+      /legacy_dev_migration_authority_required/,
+    );
+    assert.deepEqual(snapshot(fixture.root), before);
+
+    transaction.applyTransaction(renderMigration(fixture.root, packageRoot, true).desired);
+    const current = JSON.parse(read(fixture.root, STATE_PATH).toString("utf8"));
+    assert.equal(current.environment, "qa");
+    assert.ok(current.managedFiles.every((relativePath: string) => !relativePath.includes("/dev/")));
+    assert.equal(fs.existsSync(path.join(fixture.root, ".codex/kcoderag-nav/dev/hooks/run_hook.cmd")), false);
+    assert.equal(fs.existsSync(path.join(fixture.root, ".codex/kcoderag-nav/qa/hooks/run_hook.cmd")), true);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("legacy migration refuses drift, unknown ownership, and partial state with zero writes", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-legacy-refuse-"));
   try {
@@ -368,19 +431,22 @@ test("legacy migration refuses drift, unknown ownership, and partial state with 
 });
 
 test("legacy Dev migration rollback restores the complete Python-managed tree at every commit stage", () => {
-  for (let failAtCommit = 1; failAtCommit <= 14; failAtCommit += 1) {
+  let failAtCommit = 0;
+  while (true) {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-legacy-dev-rollback-"));
     try {
       const packageRoot = makePackage(base);
       const fixture = legacyFixture(base, "dev");
       const before = snapshot(fixture.root);
       const migration = renderMigration(fixture.root, packageRoot, true);
-      if (failAtCommit > (migration.desired as { entries: readonly unknown[] }).entries.length) break;
+      const entryCount = (migration.desired as { entries: readonly unknown[] }).entries.length;
+      if (failAtCommit >= entryCount) break;
       assert.throws(
         () => transaction.applyTransaction(migration.desired, { failAtCommit }),
         /transaction_failed/,
       );
       assert.deepEqual(snapshot(fixture.root), before, `failAtCommit=${failAtCommit}`);
+      failAtCommit += 1;
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }

@@ -8,9 +8,10 @@ const { TextDecoder } = require("node:util") as typeof import("node:util");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
+  type CurrentEnvironmentId,
   type DesiredState,
-  type EnvironmentId,
   type InstallState,
+  type LegacyEnvironmentId,
   type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
@@ -63,7 +64,6 @@ const LEGACY_HOOK_ASSETS = Object.freeze([
   "run_hook.cmd",
   "update_check.py",
 ]);
-const LEGACY_PYTHON_ASSETS = Object.freeze(["grep_nudge.py", "update_check.py"]);
 const SHARED_PATHS = Object.freeze([CONFIG_PATH, HOOKS_PATH] as const);
 
 function isRecord(value: unknown): value is JsonMap {
@@ -124,11 +124,11 @@ function verifyJsonSection(
   }
 }
 
-function hookPrefix(environment: EnvironmentId): string {
+function hookPrefix(environment: LegacyEnvironmentId): string {
   return `.codex/kcoderag-nav/${environment}/hooks`;
 }
 
-function managedPaths(environment: EnvironmentId): readonly string[] {
+function managedPaths(environment: CurrentEnvironmentId = "qa"): readonly string[] {
   return Object.freeze(
     [
       SKILL_PATH,
@@ -144,7 +144,7 @@ function managedPaths(environment: EnvironmentId): readonly string[] {
   );
 }
 
-function legacyRequiredPaths(environment: EnvironmentId): readonly string[] {
+function legacyRequiredPaths(environment: LegacyEnvironmentId): readonly string[] {
   return Object.freeze([
     CONFIG_PATH,
     HOOKS_PATH,
@@ -153,11 +153,29 @@ function legacyRequiredPaths(environment: EnvironmentId): readonly string[] {
   ]);
 }
 
-function legacyAllowedPaths(environment: EnvironmentId): readonly string[] {
+function legacyAllowedPaths(environment: LegacyEnvironmentId): readonly string[] {
   return Object.freeze([
     ...legacyRequiredPaths(environment),
+    ...HOOK_ASSETS.map((name) => `${hookPrefix(environment)}/${name}`),
     `${hookPrefix(environment)}/hooks.json`,
+    STATE_PATH,
   ]);
+}
+
+function legacyNodeManagedPaths(environment: LegacyEnvironmentId): readonly string[] {
+  return Object.freeze(
+    [
+      SKILL_PATH,
+      CONFIG_PATH,
+      HOOKS_PATH,
+      ...HOOK_ASSETS.map((name) => `${hookPrefix(environment)}/${name}`),
+      STATE_PATH,
+    ].sort((left, right) => {
+      if (left === STATE_PATH) return 1;
+      if (right === STATE_PATH) return -1;
+      return left.localeCompare(right);
+    }),
+  );
 }
 
 function readOptional(filePath: string, safePath: string): Buffer | undefined {
@@ -204,11 +222,11 @@ function readPackageVersion(packageRoot: string): string {
   return document.version;
 }
 
-function packageName(environment: EnvironmentId): string {
+function packageName(environment: CurrentEnvironmentId): string {
   return `kcoderag-${environment}`;
 }
 
-function readMcpEntry(packageRoot: string, environment: EnvironmentId): {
+function readMcpEntry(packageRoot: string, environment: CurrentEnvironmentId): {
   readonly name: string;
   readonly url: string;
   readonly headers: Readonly<Record<string, string>>;
@@ -468,7 +486,7 @@ function configRange(text: string, record: ManagedSectionRecord): ConfigRange {
 function renderConfig(
   current: Buffer | undefined,
   packageRoot: string,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
   owned: ManagedSectionRecord | undefined,
   fileExisted: boolean,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
@@ -519,7 +537,7 @@ function renderConfig(
   };
 }
 
-function managedHook(environment: EnvironmentId): JsonMap {
+function managedHook(environment: CurrentEnvironmentId): JsonMap {
   const prefix = hookPrefix(environment);
   return {
     matcher: "Grep|Glob|Bash",
@@ -535,7 +553,7 @@ function managedHook(environment: EnvironmentId): JsonMap {
   };
 }
 
-function hookEnvironment(entry: unknown): EnvironmentId | undefined {
+function hookEnvironment(entry: unknown): LegacyEnvironmentId | undefined {
   if (!isRecord(entry) || !Array.isArray(entry.hooks)) return undefined;
   const encoded = JSON.stringify(entry);
   for (const environment of ["qa", "dev"] as const) {
@@ -549,7 +567,7 @@ function hookEnvironment(entry: unknown): EnvironmentId | undefined {
 
 function renderHooks(
   current: Buffer | undefined,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
   owned: ManagedSectionRecord | undefined,
   fileExisted: boolean,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
@@ -669,7 +687,10 @@ function validateCurrentState(state: InstallState): InstallState {
   return state;
 }
 
-function validateOwnedSections(target: ProjectTarget, state: InstallState): void {
+function validateOwnedSections(
+  target: ProjectTarget,
+  state: Pick<LegacyInstallState, "environment" | "sections"> | InstallState,
+): void {
   const configRecord = state.sections?.[CONFIG_PATH];
   const hooksRecord = state.sections?.[HOOKS_PATH];
   const currentConfig = readManagedOptional(target, CONFIG_PATH);
@@ -702,23 +723,63 @@ function validateOwnedSections(target: ProjectTarget, state: InstallState): void
   );
 }
 
-function legacyEnvironment(bytes: Buffer): EnvironmentId | undefined {
+function legacyEnvironment(bytes: Buffer): LegacyEnvironmentId | undefined {
   try {
     const value: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!isRecord(value)) return undefined;
     if (
-      isRecord(value) &&
       value.version === 1 &&
       !("schemaVersion" in value) &&
       Array.isArray(value.active_environments) &&
       value.active_environments.length === 1 &&
       (value.active_environments[0] === "qa" || value.active_environments[0] === "dev")
-    ) {
-      return value.active_environments[0];
-    }
+    ) return value.active_environments[0];
+    if (
+      value.schemaVersion === CORE_SCHEMA_VERSION &&
+      (value.environment === "qa" || value.environment === "dev")
+    ) return value.environment;
   } catch {
     // The schema parser below produces the stable invalid_state refusal.
   }
   return undefined;
+}
+
+function validateLegacyState(target: ProjectTarget, legacy: LegacyInstallState): void {
+  if (legacy.source === "node") {
+    if (legacy.host !== "codex") throw new InstallError("invalid_state", STATE_PATH);
+    const expected = legacyNodeManagedPaths(legacy.environment);
+    const owned = expected.filter((relativePath) => relativePath !== STATE_PATH);
+    const dedicated = owned.filter((relativePath) =>
+      !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]));
+    const secureState = legacy.sections !== undefined;
+    if (
+      legacy.managedFiles.join("\0") !== expected.join("\0") ||
+      Object.keys(legacy.originals).sort().join("\0") !==
+        [...(secureState ? dedicated : owned)].sort().join("\0") ||
+      Object.keys(legacy.digests).sort().join("\0") !==
+        [...(secureState ? dedicated : owned)].sort().join("\0") ||
+      (secureState && Object.keys(legacy.sections ?? {}).sort().join("\0") !==
+        [...SHARED_PATHS].sort().join("\0")) ||
+      (secureState && legacy.sections?.[CONFIG_PATH]?.id !==
+        `mcp_servers.kcoderag-${legacy.environment}`) ||
+      (secureState && legacy.sections?.[HOOKS_PATH]?.id !==
+        `hooks.PreToolUse.kcoderag-nav.${legacy.environment}`)
+    ) {
+      throw new InstallError("invalid_state", STATE_PATH);
+    }
+    if (secureState) validateOwnedSections(target, legacy);
+    return;
+  }
+  const required = legacyRequiredPaths(legacy.environment);
+  if (
+    legacy.managedFiles.some((relativePath) => !legacyAllowedPaths(legacy.environment).includes(relativePath)) ||
+    required.some((relativePath) =>
+      !legacy.managedFiles.includes(relativePath) ||
+      legacy.originals[relativePath] === undefined ||
+      legacy.digests[relativePath] === undefined)
+  ) {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
 }
 
 function details(observation: HostObservation): CodexObservationDetails {
@@ -735,12 +796,34 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
     });
   }
   try {
+    let currentState: InstallState | undefined;
+    try {
+      currentState = validateCurrentState(parseInstallState(stateBytes));
+    } catch {
+      // Exact legacy decoding below owns compatibility; invalid inputs remain invalid.
+    }
+    if (currentState !== undefined) {
+      if (currentState.sections !== undefined) validateOwnedSections(context.target, currentState);
+      for (const [relativePath, digest] of Object.entries(currentState.digests)) {
+        const current = readManagedOptional(context.target, relativePath);
+        if (current === undefined || sha256(current) !== digest) {
+          throw new InstallError("managed_content_changed", relativePath);
+        }
+      }
+      return Object.freeze({
+        host: "codex" as const,
+        target: context.target,
+        currentState,
+        details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies CodexObservationDetails),
+      });
+    }
     const legacyEnvironmentId = legacyEnvironment(stateBytes);
     if (legacyEnvironmentId !== undefined) {
       const legacyState = parseLegacyInstallState(stateBytes, {
         allowedPaths: legacyAllowedPaths(legacyEnvironmentId),
-        requiredPaths: legacyRequiredPaths(legacyEnvironmentId),
+        requiredPaths: [CONFIG_PATH, HOOKS_PATH, SKILL_PATH],
       });
+      validateLegacyState(context.target, legacyState);
       for (const [relativePath, digest] of Object.entries(legacyState.digests)) {
         const current = readManagedOptional(context.target, relativePath);
         if (current === undefined || sha256(current) !== digest) {
@@ -750,26 +833,14 @@ function detectCodex(context: { readonly target: ProjectTarget }): HostObservati
       return Object.freeze({
         host: "codex" as const,
         target: context.target,
+        legacyEnvironment: legacyState.environment,
         details: Object.freeze({
           stateBytes: Buffer.from(stateBytes),
           legacyState,
         } satisfies CodexObservationDetails),
       });
     }
-    const state = validateCurrentState(parseInstallState(stateBytes));
-    if (state.sections !== undefined) validateOwnedSections(context.target, state);
-    for (const [relativePath, digest] of Object.entries(state.digests)) {
-      const current = readManagedOptional(context.target, relativePath);
-      if (current === undefined || sha256(current) !== digest) {
-        throw new InstallError("managed_content_changed", relativePath);
-      }
-    }
-    return Object.freeze({
-      host: "codex" as const,
-      target: context.target,
-      currentState: state,
-      details: Object.freeze({ stateBytes: Buffer.from(stateBytes) } satisfies CodexObservationDetails),
-    });
+    throw new InstallError("invalid_state", STATE_PATH);
   } catch (error) {
     return Object.freeze({
       host: "codex" as const,
@@ -787,7 +858,7 @@ function refuseIssues(observation: HostObservation): void {
 
 function captureOriginals(
   target: ProjectTarget,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
 ): Record<string, OriginalRecord> {
   const originals: Record<string, OriginalRecord> = {};
   for (const relativePath of managedPaths(environment)) {
@@ -824,22 +895,24 @@ function expectedDigest(
 function desiredPayloads(
   context: HostInstallContext,
   priorOriginals?: Readonly<Record<string, OriginalRecord>>,
+  priorSections?: Readonly<Record<string, ManagedSectionRecord>>,
 ): { readonly payloads: Map<string, Buffer>; readonly sections: Record<string, ManagedSectionRecord> } {
   const environment = context.environment;
   const name = packageName(environment);
   const existing = context.observation.currentState;
-  const currentConfig = priorOriginals === undefined
+  const currentConfig = priorOriginals === undefined || priorSections !== undefined
     ? readManagedOptional(context.target, CONFIG_PATH)
     : decodeOriginal(priorOriginals[CONFIG_PATH], CONFIG_PATH) ?? undefined;
-  const currentHooks = priorOriginals === undefined
+  const currentHooks = priorOriginals === undefined || priorSections !== undefined
     ? readManagedOptional(context.target, HOOKS_PATH)
     : decodeOriginal(priorOriginals[HOOKS_PATH], HOOKS_PATH) ?? undefined;
   const config = renderConfig(
     currentConfig,
     context.packageRoot,
     environment,
-    priorOriginals === undefined ? existing?.sections?.[CONFIG_PATH] : undefined,
-    existing?.sections?.[CONFIG_PATH]?.fileExisted ??
+    priorSections?.[CONFIG_PATH] ??
+      (priorOriginals === undefined ? existing?.sections?.[CONFIG_PATH] : undefined),
+    priorSections?.[CONFIG_PATH]?.fileExisted ?? existing?.sections?.[CONFIG_PATH]?.fileExisted ??
       (priorOriginals === undefined
         ? currentConfig !== undefined
         : priorOriginals[CONFIG_PATH]?.kind !== "absent"),
@@ -847,8 +920,9 @@ function desiredPayloads(
   const hooks = renderHooks(
     currentHooks,
     environment,
-    priorOriginals === undefined ? existing?.sections?.[HOOKS_PATH] : undefined,
-    existing?.sections?.[HOOKS_PATH]?.fileExisted ??
+    priorSections?.[HOOKS_PATH] ??
+      (priorOriginals === undefined ? existing?.sections?.[HOOKS_PATH] : undefined),
+    priorSections?.[HOOKS_PATH]?.fileExisted ?? existing?.sections?.[HOOKS_PATH]?.fileExisted ??
       (priorOriginals === undefined
         ? currentHooks !== undefined
         : priorOriginals[HOOKS_PATH]?.kind !== "absent"),
@@ -874,20 +948,19 @@ function desiredPayloads(
 
 function migrationOriginals(
   target: ProjectTarget,
-  environment: EnvironmentId,
   legacy: LegacyInstallState,
 ): Record<string, OriginalRecord> {
   const originals: Record<string, OriginalRecord> = {};
-  for (const relativePath of managedPaths(environment)) {
+  for (const relativePath of managedPaths()) {
     if (relativePath === STATE_PATH) continue;
-    if ([CONFIG_PATH, HOOKS_PATH, SKILL_PATH].includes(relativePath)) {
+    if (SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])) {
+      if (legacy.sections !== undefined) continue;
       const legacyOriginal = legacy.originals[relativePath];
       if (legacyOriginal === undefined) throw new InstallError("invalid_state", STATE_PATH);
       originals[relativePath] = legacyOriginal;
       continue;
     }
-    const fileName = relativePath.slice(relativePath.lastIndexOf("/") + 1);
-    if (fileName === "run_hook.cmd" || fileName === "run_hook.sh") {
+    if (relativePath === SKILL_PATH || legacy.managedFiles.includes(relativePath)) {
       const legacyOriginal = legacy.originals[relativePath];
       if (legacyOriginal === undefined) throw new InstallError("invalid_state", STATE_PATH);
       originals[relativePath] = legacyOriginal;
@@ -905,15 +978,18 @@ function renderLegacyInstall(
   legacy: LegacyInstallState,
   stateBytes: Buffer,
 ): DesiredState {
-  if (legacy.environment !== context.environment) {
-    throw new InstallError("environment_conflict", STATE_PATH);
+  if (legacy.environment === "dev" && !context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_required", STATE_PATH);
   }
-  const environment = legacy.environment;
+  if (legacy.environment !== "dev" && context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_invalid", STATE_PATH);
+  }
+  const environment: CurrentEnvironmentId = "qa";
   const paths = managedPaths(environment);
-  const legacyOriginals = migrationOriginals(context.target, environment, legacy);
+  const legacyOriginals = migrationOriginals(context.target, legacy);
   const originals = Object.fromEntries(Object.entries(legacyOriginals).filter(([relativePath]) =>
     !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])));
-  const rendered = desiredPayloads(context, legacyOriginals);
+  const rendered = desiredPayloads(context, legacyOriginals, legacy.sections);
   const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
   for (const [relativePath, bytes] of payloads) {
@@ -932,7 +1008,9 @@ function renderLegacyInstall(
     sections: rendered.sections,
   };
   payloads.set(STATE_PATH, Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8"));
-  const legacyPythonPaths = LEGACY_PYTHON_ASSETS.map((name) => `${hookPrefix(environment)}/${name}`);
+  const replacementPaths = new Set(paths);
+  const legacyOnlyPaths = legacy.managedFiles.filter((relativePath) =>
+    relativePath !== STATE_PATH && !replacementPaths.has(relativePath));
   return createDesiredState({
     host: "codex",
     target: context.target,
@@ -943,13 +1021,19 @@ function renderLegacyInstall(
         relativePath,
         expectedDigest: relativePath === STATE_PATH
           ? sha256(stateBytes)
-          : legacy.digests[relativePath] ?? null,
+          : (() => {
+              const current = readManagedOptional(context.target, relativePath);
+              return current === undefined ? null : sha256(current);
+            })(),
         content: payloads.get(relativePath) ?? null,
       })),
-      ...legacyPythonPaths.map((relativePath) => ({
+      ...legacyOnlyPaths.map((relativePath) => ({
         relativePath,
-        expectedDigest: legacy.digests[relativePath] ?? null,
-        content: null,
+        expectedDigest: (() => {
+          const current = readManagedOptional(context.target, relativePath);
+          return current === undefined ? null : sha256(current);
+        })(),
+        content: decodeOriginal(legacy.originals[relativePath], relativePath),
       })),
     ],
   });
@@ -1093,9 +1177,6 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   if (legacy !== undefined) {
     const stateBytes = observationDetails.stateBytes;
     if (stateBytes === undefined) throw new InstallError("invalid_state", STATE_PATH);
-    if (legacy.environment !== context.environment) {
-      throw new InstallError("environment_not_installed", STATE_PATH);
-    }
     return createDesiredState({
       host: "codex",
       target: context.target,
