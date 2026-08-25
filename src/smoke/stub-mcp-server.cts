@@ -87,6 +87,8 @@ function sendJson(
   response.writeHead(status, {
     ...(encoded.length === 0 ? {} : { "content-type": "application/json" }),
     "content-length": String(encoded.length),
+    // Host lifecycle work can exceed Node's default idle keep-alive window between RPC probes.
+    "connection": "close",
     "mcp-session-id": "synthetic-loopback-session",
   });
   response.end(encoded);
