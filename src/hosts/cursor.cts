@@ -9,9 +9,10 @@ const { TextDecoder } = require("node:util") as typeof import("node:util");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
+  type CurrentEnvironmentId,
   type DesiredState,
-  type EnvironmentId,
   type InstallState,
+  type LegacyEnvironmentId,
   type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
@@ -19,7 +20,13 @@ import {
 } from "../core/contracts.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
 import { removeJsonObjectProperty, upsertJsonObjectProperty } from "../core/json-splice.cjs";
-import { createDesiredState, createStatusResult, parseInstallState } from "../core/state.cjs";
+import {
+  createDesiredState,
+  createStatusResult,
+  parseInstallState,
+  parseLegacyInstallState,
+  type LegacyInstallState,
+} from "../core/state.cjs";
 import { applyTransaction, type TransactionResult } from "../core/transaction.cjs";
 import type {
   HostAdapter,
@@ -38,12 +45,13 @@ interface LegacyCursorSnapshot {
   readonly stateBytes: Buffer;
   readonly files: ReadonlyMap<string, Buffer>;
   readonly digests: Readonly<Record<string, string>>;
-  readonly environment: EnvironmentId;
+  readonly environment: CurrentEnvironmentId;
 }
 
 interface CursorObservationDetails {
   readonly stateBytes?: Buffer;
   readonly legacy?: LegacyCursorSnapshot;
+  readonly legacyProjectState?: LegacyInstallState;
 }
 
 interface CursorAdapterOptions {
@@ -147,7 +155,7 @@ function verifyMcpSection(record: ManagedSectionRecord, value: unknown): void {
   }
 }
 
-function packageName(environment: EnvironmentId): string {
+function packageName(environment: CurrentEnvironmentId): string {
   return `kcoderag-${environment}`;
 }
 
@@ -202,10 +210,8 @@ function readPackageVersion(packageRoot: string): string {
   return value.version;
 }
 
-function environmentMcpEntry(packageRoot: string, environment: EnvironmentId): {
+function environmentMcpEntry(packageRoot: string, environment: CurrentEnvironmentId): {
   readonly entry: JsonMap;
-  readonly url: string;
-  readonly bearer: string;
 } {
   const name = packageName(environment);
   const relativePath = `${name}/.mcp.json`;
@@ -225,28 +231,31 @@ function environmentMcpEntry(packageRoot: string, environment: EnvironmentId): {
     : isRecord(entry.http_headers)
       ? entry.http_headers
       : undefined;
-  const authorization = headers === undefined
-    ? undefined
-    : Object.entries(headers).find(([key]) => key.toLowerCase() === "authorization")?.[1];
-  const match = typeof authorization === "string" ? /^Bearer\s+(.+)$/u.exec(authorization) : null;
-  if (match?.[1] === undefined || match[1].length === 0) {
+  if (headers === undefined || !Object.entries(headers).every(([key, value]) =>
+    key.length > 0 && typeof value === "string")) {
     throw new InstallError("invalid_mcp_source", relativePath);
   }
-  return { entry, url: entry.url, bearer: match[1] };
+  return { entry };
 }
 
 function renderMcp(
   current: Buffer | undefined,
   packageRoot: string,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
   owned: ManagedSectionRecord | undefined,
   allowLegacyOwned: boolean,
   fileExisted: boolean,
+  ownershipBaseline?: Buffer,
 ): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
   const document = current === undefined
     ? { mcpServers: {} as JsonMap }
     : parseJsonBytes(current, "invalid_json", MCP_PATH);
-  const mcpServersExisted = current !== undefined && document.mcpServers !== undefined;
+  const baselineDocument = ownershipBaseline === undefined
+    ? undefined
+    : parseJsonBytes(ownershipBaseline, "invalid_state", MCP_PATH);
+  const mcpServersExisted = baselineDocument === undefined
+    ? current !== undefined && document.mcpServers !== undefined
+    : baselineDocument.mcpServers !== undefined;
   if (document.mcpServers === undefined) document.mcpServers = {};
   if (!isRecord(document.mcpServers)) throw new InstallError("invalid_json", MCP_PATH);
   if (owned !== undefined) verifyMcpSection(owned, document.mcpServers.kcoderag);
@@ -345,7 +354,10 @@ function validateCurrentState(state: InstallState): InstallState {
   return state;
 }
 
-function validateOwnedSection(target: ProjectTarget, state: InstallState): void {
+function validateOwnedSection(
+  target: ProjectTarget,
+  state: Pick<LegacyInstallState, "sections"> | InstallState,
+): void {
   const record = state.sections?.[MCP_PATH];
   const current = readManagedOptional(target, MCP_PATH);
   if (record === undefined || current === undefined) {
@@ -446,36 +458,59 @@ function expectedLegacyDirectories(relativePaths: Iterable<string>): ReadonlySet
   return directories;
 }
 
-function legacyEnvironment(
-  files: ReadonlyMap<string, Buffer>,
-  packageRoot: string,
-): EnvironmentId {
+function validateLegacyManifest(files: ReadonlyMap<string, Buffer>): void {
   const safePath = ".cursor-plugin/plugin.json";
   const manifestBytes = files.get(safePath);
   if (manifestBytes === undefined) throw new InstallError("invalid_legacy_state", safePath);
   const manifest = parseJsonBytes(manifestBytes, "invalid_legacy_state", safePath);
-  const properties = isRecord(manifest.variables) && isRecord(manifest.variables.properties)
-    ? manifest.variables.properties
-    : undefined;
-  const url = properties !== undefined && isRecord(properties.KCODERAG_MCP_URL)
-    ? properties.KCODERAG_MCP_URL.default
-    : undefined;
-  const bearer = properties !== undefined && isRecord(properties.KCODERAG_BEARER_TOKEN)
-    ? properties.KCODERAG_BEARER_TOKEN.default
-    : undefined;
-  if (typeof url !== "string" || typeof bearer !== "string") {
+  if (
+    manifest.name !== LEGACY_PLUGIN_NAME ||
+    typeof manifest.version !== "string" ||
+    manifest.version.length === 0
+  ) {
     throw new InstallError("invalid_legacy_state", safePath);
   }
-  for (const environment of ["qa", "dev"] as const) {
-    const expected = environmentMcpEntry(packageRoot, environment);
-    if (url === expected.url && bearer === expected.bearer) return environment;
+}
+
+function encodedProjectEnvironment(bytes: Buffer): LegacyEnvironmentId | undefined {
+  try {
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    if (
+      isRecord(value) &&
+      value.schemaVersion === CORE_SCHEMA_VERSION &&
+      (value.environment === "qa" || value.environment === "dev")
+    ) return value.environment;
+  } catch {
+    // The exact state decoder owns the stable invalid_state response.
   }
-  throw new InstallError("unknown_legacy_environment", safePath);
+  return undefined;
+}
+
+function validateLegacyProjectState(target: ProjectTarget, state: LegacyInstallState): void {
+  if (state.source !== "node" || state.host !== "cursor") {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+  const paths = managedPaths();
+  const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
+  const dedicated = owned.filter((relativePath) => relativePath !== MCP_PATH);
+  const secureState = state.sections !== undefined;
+  if (
+    state.managedFiles.join("\0") !== paths.join("\0") ||
+    Object.keys(state.originals).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    Object.keys(state.digests).sort().join("\0") !==
+      [...(secureState ? dedicated : owned)].sort().join("\0") ||
+    (secureState && Object.keys(state.sections ?? {}).join("\0") !== MCP_PATH) ||
+    (secureState && state.sections?.[MCP_PATH]?.id !== "mcpServers.kcoderag")
+  ) {
+    throw new InstallError("invalid_state", STATE_PATH);
+  }
+  if (secureState) validateOwnedSection(target, state);
 }
 
 export function inspectCursorLegacyInstall(
   rawLocalRoot: string,
-  packageRoot: string,
+  _packageRoot: string,
 ): LegacyCursorSnapshot | undefined {
   const localRoot = path.resolve(rawLocalRoot);
   const pluginRoot = path.join(localRoot, LEGACY_PLUGIN_NAME);
@@ -520,6 +555,7 @@ export function inspectCursorLegacyInstall(
       throw new InstallError("managed_content_changed", relativePath);
     }
   }
+  validateLegacyManifest(files);
   return Object.freeze({
     localRoot,
     pluginRoot,
@@ -527,7 +563,7 @@ export function inspectCursorLegacyInstall(
     stateBytes: Buffer.from(stateBytes),
     files,
     digests: state.digests,
-    environment: legacyEnvironment(files, packageRoot),
+    environment: "qa" as const,
   });
 }
 
@@ -536,26 +572,46 @@ function detectCursor(
   legacyLocalRoot: string,
 ): HostObservation {
   const stateBytes = readManagedOptional(context.target, STATE_PATH);
+  const legacyProjectEnvironment = stateBytes === undefined
+    ? undefined
+    : encodedProjectEnvironment(stateBytes);
   try {
     const legacy = inspectCursorLegacyInstall(legacyLocalRoot, context.packageRoot);
     let currentState: InstallState | undefined;
+    let legacyProjectState: LegacyInstallState | undefined;
     if (stateBytes !== undefined) {
-      currentState = validateCurrentState(parseInstallState(stateBytes));
-      if (currentState.sections !== undefined) validateOwnedSection(context.target, currentState);
-      for (const [relativePath, digest] of Object.entries(currentState.digests)) {
+      try {
+        currentState = validateCurrentState(parseInstallState(stateBytes));
+      } catch {
+        // Exact legacy decoding below owns compatibility; invalid inputs remain invalid.
+      }
+      if (currentState !== undefined) {
+        if (currentState.sections !== undefined) validateOwnedSection(context.target, currentState);
+      } else {
+        if (legacyProjectEnvironment === undefined) throw new InstallError("invalid_state", STATE_PATH);
+        legacyProjectState = parseLegacyInstallState(stateBytes, {
+          allowedPaths: managedPaths(),
+          requiredPaths: [MCP_PATH, RULE_PATH, SKILL_PATH],
+        });
+        validateLegacyProjectState(context.target, legacyProjectState);
+      }
+      const state = currentState ?? legacyProjectState;
+      if (state === undefined) throw new InstallError("invalid_state", STATE_PATH);
+      for (const [relativePath, digest] of Object.entries(state.digests)) {
         const current = readManagedOptional(context.target, relativePath);
         if (current === undefined || sha256(current) !== digest) {
           throw new InstallError("managed_content_changed", relativePath);
         }
       }
     }
-    if (legacy !== undefined && currentState !== undefined) {
+    if (legacy !== undefined && (currentState !== undefined || legacyProjectState !== undefined)) {
       throw new InstallError("legacy_install_conflict", STATE_PATH);
     }
     const result: {
       host: "cursor";
       target: ProjectTarget;
       currentState?: InstallState;
+      legacyEnvironment?: LegacyEnvironmentId;
       legacyUserRemoval?: { path: string };
       details: CursorObservationDetails;
     } = {
@@ -564,18 +620,28 @@ function detectCursor(
       details: Object.freeze({
         ...(stateBytes === undefined ? {} : { stateBytes: Buffer.from(stateBytes) }),
         ...(legacy === undefined ? {} : { legacy }),
+        ...(legacyProjectState === undefined ? {} : { legacyProjectState }),
       }),
     };
     if (currentState !== undefined) result.currentState = currentState;
+    if (legacyProjectState !== undefined) result.legacyEnvironment = legacyProjectState.environment;
     if (legacy !== undefined) result.legacyUserRemoval = { path: legacy.pluginRoot };
     return Object.freeze(result);
   } catch (error) {
-    return Object.freeze({
+    const observation: {
+      host: "cursor";
+      target: ProjectTarget;
+      issues: readonly StatusIssue[];
+      legacyEnvironment?: LegacyEnvironmentId;
+      details: Readonly<CursorObservationDetails>;
+    } = {
       host: "cursor" as const,
       target: context.target,
       issues: Object.freeze([issueFrom(error)]),
       details: Object.freeze(stateBytes === undefined ? {} : { stateBytes: Buffer.from(stateBytes) }),
-    });
+    };
+    if (legacyProjectEnvironment !== undefined) observation.legacyEnvironment = legacyProjectEnvironment;
+    return Object.freeze(observation);
   }
 }
 
@@ -620,29 +686,41 @@ function renderInstall(context: HostInstallContext): DesiredState {
   const legacy = observationDetails.legacy;
   if (legacy !== undefined) {
     if (!context.allowLegacyUserRemoval) throw new InstallError("legacy_removal_authority_required");
-    if (legacy.environment !== context.environment) throw new InstallError("environment_conflict", STATE_PATH);
+  }
+  const legacyProject = observationDetails.legacyProjectState;
+  if (legacyProject?.environment === "dev" && !context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_required", STATE_PATH);
+  }
+  if (legacyProject?.environment !== "dev" && context.allowLegacyDevMigration) {
+    throw new InstallError("legacy_dev_migration_authority_invalid", STATE_PATH);
   }
   const existing = context.observation.currentState;
-  if (context.command === "update" && existing === undefined && legacy === undefined) {
+  if (context.command === "update" && existing === undefined && legacy === undefined && legacyProject === undefined) {
     throw new InstallError("not_installed", STATE_PATH);
   }
   if (existing !== undefined && existing.environment !== context.environment) {
     throw new InstallError("environment_conflict", STATE_PATH);
   }
-  const originals = existing === undefined
+  const priorState = legacyProject ?? existing;
+  const originals = priorState === undefined
     ? captureOriginals(context.target)
-    : Object.fromEntries(Object.entries(existing.originals).filter(([relativePath]) =>
+    : Object.fromEntries(Object.entries(priorState.originals).filter(([relativePath]) =>
       relativePath !== MCP_PATH));
   const currentMcp = readManagedOptional(context.target, MCP_PATH);
-  const legacyState = existing !== undefined && existing.sections === undefined;
+  const legacyState = priorState !== undefined && priorState.sections === undefined;
+  const mcpOriginalRecord = priorState?.originals[MCP_PATH];
+  const mcpOwnershipBaseline = legacyState
+    ? decodeOriginal(mcpOriginalRecord, MCP_PATH) ?? Buffer.from("{}", "utf8")
+    : undefined;
   const renderedMcp = renderMcp(
     currentMcp,
     context.packageRoot,
     context.environment,
-    existing?.sections?.[MCP_PATH],
-    legacyState,
-    existing?.sections?.[MCP_PATH]?.fileExisted ??
-      (legacyState ? existing?.originals[MCP_PATH]?.kind !== "absent" : currentMcp !== undefined),
+    priorState?.sections?.[MCP_PATH],
+    legacyProject !== undefined || legacyState,
+    priorState?.sections?.[MCP_PATH]?.fileExisted ??
+      (legacyState ? mcpOriginalRecord?.kind !== "absent" : currentMcp !== undefined),
+    mcpOwnershipBaseline,
   );
   const payloads = new Map<string, Buffer>([
     [MCP_PATH, renderedMcp.bytes],
@@ -657,7 +735,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: readPackageVersion(context.packageRoot),
     host: "cursor",
-    environment: context.environment,
+    environment: "qa",
     managedFiles: [...managedPaths()],
     originals,
     digests,
@@ -672,7 +750,14 @@ function renderInstall(context: HostInstallContext): DesiredState {
     statePath: STATE_PATH,
     entries: managedPaths().map((relativePath) => ({
       relativePath,
-      expectedDigest: expectedDigest(context.target, relativePath, existing, stateBytes),
+      expectedDigest: legacyProject === undefined
+        ? expectedDigest(context.target, relativePath, existing, stateBytes)
+        : relativePath === STATE_PATH
+          ? stateBytes === undefined ? null : sha256(stateBytes)
+          : (() => {
+              const current = readManagedOptional(context.target, relativePath);
+              return current === undefined ? null : sha256(current);
+            })(),
       content: payloads.get(relativePath) ?? null,
     })),
   });
@@ -680,11 +765,41 @@ function renderInstall(context: HostInstallContext): DesiredState {
 
 function renderUninstall(context: HostUninstallContext): DesiredState {
   refuseIssues(context.observation);
-  if (details(context.observation).legacy !== undefined) {
+  const observationDetails = details(context.observation);
+  if (observationDetails.legacy !== undefined) {
     throw new InstallError("legacy_migration_required", LEGACY_STATE_NAME);
   }
+  const legacyProject = observationDetails.legacyProjectState;
+  if (legacyProject !== undefined) {
+    const stateBytes = observationDetails.stateBytes;
+    if (stateBytes === undefined) throw new InstallError("invalid_state", STATE_PATH);
+    const currentMcp = readManagedOptional(context.target, MCP_PATH);
+    const mcpPayload = legacyProject.sections === undefined
+      ? decodeOriginal(legacyProject.originals[MCP_PATH], MCP_PATH)
+      : removeInstalledMcp(currentMcp ?? null, legacyProject.sections[MCP_PATH]);
+    return createDesiredState({
+      host: "cursor",
+      target: context.target,
+      managedRoots: MANAGED_ROOTS,
+      statePath: STATE_PATH,
+      entries: managedPaths().map((relativePath) => ({
+        relativePath,
+        expectedDigest: relativePath === STATE_PATH
+          ? sha256(stateBytes)
+          : (() => {
+              const current = readManagedOptional(context.target, relativePath);
+              return current === undefined ? null : sha256(current);
+            })(),
+        content: relativePath === STATE_PATH
+          ? null
+          : relativePath === MCP_PATH
+            ? mcpPayload
+            : decodeOriginal(legacyProject.originals[relativePath], relativePath),
+      })),
+    });
+  }
   const state = context.observation.currentState;
-  const stateBytes = details(context.observation).stateBytes;
+  const stateBytes = observationDetails.stateBytes;
   if (state === undefined || stateBytes === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (state.environment !== context.environment) throw new InstallError("environment_not_installed", STATE_PATH);
   let mcpPayload: Buffer | null | undefined;
@@ -720,6 +835,15 @@ function cursorStatus(context: HostStatusContext) {
       status: issue.code === "managed_content_changed" ? "drifted" : "invalid",
       host: "cursor",
       issues: [issue],
+    });
+  }
+  const legacyProject = details(context.observation).legacyProjectState;
+  if (legacyProject !== undefined) {
+    return createStatusResult({
+      status: "update_available",
+      host: "cursor",
+      environment: legacyProject.environment,
+      issues: [{ code: "legacy_migration_available", path: STATE_PATH }],
     });
   }
   const legacy = details(context.observation).legacy;
