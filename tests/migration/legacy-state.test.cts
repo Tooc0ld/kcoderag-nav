@@ -406,6 +406,15 @@ test("legacy migration refuses drift, unknown ownership, and partial state with 
     assert.throws(() => renderMigration(drift.root, packageRoot), /managed_content_changed/);
     assert.deepEqual(snapshot(drift.root), driftBefore);
 
+    const devDrift = legacyFixture(base, "dev", "dev-drift");
+    write(devDrift.root, ".codex/kcoderag-nav/dev/hooks/grep_nudge.py", "changed\n");
+    const devDriftBefore = snapshot(devDrift.root);
+    const devDriftObservation = observe(devDrift.root, packageRoot).observation;
+    assert.equal(devDriftObservation.legacyEnvironment, "dev");
+    assert.match(JSON.stringify(devDriftObservation), /managed_content_changed/);
+    assert.throws(() => renderMigration(devDrift.root, packageRoot, true), /managed_content_changed/);
+    assert.deepEqual(snapshot(devDrift.root), devDriftBefore);
+
     const unknown = legacyFixture(base, "qa", "unknown");
     const unknownState = JSON.parse(read(unknown.root, STATE_PATH).toString("utf8")) as {
       digests: Record<string, string>;
