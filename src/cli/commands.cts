@@ -430,6 +430,12 @@ export async function executeCommand(
     ) {
       throw new InstallError("owned_source_cleanup_authority_invalid");
     }
+    if (
+      args.allowLegacyDevMigration &&
+      (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined)
+    ) {
+      throw new InstallError("owned_source_cleanup_authority_invalid");
+    }
     if (args.json && isMutation(args.command) && !args.yes) {
       throw new InstallError("confirmation_required");
     }

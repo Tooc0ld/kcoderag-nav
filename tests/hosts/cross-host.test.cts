@@ -61,7 +61,13 @@ const isolatedClaudeAdapter = claude.createClaudeAdapter({
       return { exitCode: 0, timedOut: false, stdout: "2.1.241 (Claude Code)\n" };
     }
     if (command.endsWith(" --help")) {
-      return { exitCode: 0, timedOut: false, stdout: "Usage: native command --json --scope user project local" };
+      if (command.includes("plugin marketplace remove")) {
+        return { exitCode: 0, timedOut: false, stdout: "Usage: marketplace remove <name> --scope <scope>" };
+      }
+      if (command.includes("plugin uninstall")) {
+        return { exitCode: 0, timedOut: false, stdout: "Usage: plugin uninstall <PLUGIN> --scope user project local" };
+      }
+      return { exitCode: 0, timedOut: false, stdout: "Usage: list --json" };
     }
     if (command === "claude plugin list --json") {
       return { exitCode: 0, timedOut: false, stdout: "[]" };
@@ -72,7 +78,7 @@ const isolatedClaudeAdapter = claude.createClaudeAdapter({
     return { exitCode: 1, timedOut: false };
   },
   readUserSources: () => ({
-    registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+    rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
   }),
 });
 
