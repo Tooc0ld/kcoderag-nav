@@ -3,7 +3,10 @@
 export const CORE_SCHEMA_VERSION = 1 as const;
 
 export type HostId = "codex" | "claude" | "cursor";
-export type EnvironmentId = "qa" | "dev";
+export type CurrentEnvironmentId = "qa";
+export type LegacyEnvironmentId = CurrentEnvironmentId | "dev";
+/** Transitional compatibility input for legacy readers and pre-0.2.0 generators. */
+export type EnvironmentId = LegacyEnvironmentId;
 export type InstallStatus =
   | "healthy"
   | "not_installed"
@@ -80,7 +83,7 @@ export interface InstallState {
   readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
   readonly packageVersion: string;
   readonly host: HostId;
-  readonly environment: EnvironmentId;
+  readonly environment: CurrentEnvironmentId;
   readonly managedFiles: readonly string[];
   readonly originals: Readonly<Record<string, OriginalRecord>>;
   readonly digests: Readonly<Record<string, string>>;

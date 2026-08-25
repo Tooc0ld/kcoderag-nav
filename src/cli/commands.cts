@@ -6,7 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
-  type EnvironmentId,
+  type CurrentEnvironmentId,
   type HostId,
   type StatusIssue,
   type StatusResult,
@@ -21,7 +21,7 @@ import {
 } from "../hosts/host-adapter.cjs";
 import { getHostAdapter, HOST_ADAPTERS } from "../hosts/index.cjs";
 
-const QA_ENVIRONMENT: EnvironmentId = "qa";
+const QA_ENVIRONMENT: CurrentEnvironmentId = "qa";
 
 interface LegacyMigrationAdapter extends HostAdapter {
   migrateLegacy(desired: ReturnType<HostAdapter["renderInstall"]>, observation: HostObservation): ReturnType<typeof applyTransaction>;
@@ -205,7 +205,7 @@ function withRuntimeIssue(
   status: StatusResult,
   issue: StatusIssue | undefined,
   host: HostId,
-  environment: EnvironmentId,
+  environment: CurrentEnvironmentId,
 ): StatusResult {
   if (issue === undefined) return status;
   return createStatusResult({
@@ -254,9 +254,7 @@ function legacyDevMigrationAuthority(
   args: ParsedArguments,
   observation: HostObservation,
 ): boolean {
-  const legacyEnvironment = (observation as HostObservation & {
-    readonly legacyEnvironment?: unknown;
-  }).legacyEnvironment;
+  const legacyEnvironment = observation.legacyEnvironment;
   if (args.allowLegacyDevMigration && legacyEnvironment !== "dev") {
     throw new InstallError("legacy_dev_migration_authority_invalid");
   }
@@ -327,7 +325,7 @@ export async function executeCommand(
         ok: true,
         command: args.command,
         host,
-        environment: status.environment ?? QA_ENVIRONMENT,
+        environment: QA_ENVIRONMENT,
         target: target.root,
         status: status.status,
         issues: status.issues,

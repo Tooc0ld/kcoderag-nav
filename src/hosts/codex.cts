@@ -1186,6 +1186,7 @@ function codexStatus(context: HostStatusContext) {
       environment: state.environment,
       observation: context.observation,
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
     });
     const updateAvailable = state.packageVersion !== readPackageVersion(context.packageRoot) ||
       rendered.entries.some((entry) => {

@@ -2,10 +2,11 @@
 
 import {
   InstallError,
+  type CurrentEnvironmentId,
   type DesiredState,
-  type EnvironmentId,
   type HostId,
   type InstallState,
+  type LegacyEnvironmentId,
   type ProjectTarget,
   type StatusIssue,
   type StatusResult,
@@ -31,6 +32,8 @@ export interface HostObservation {
   readonly host: HostId;
   readonly target: ProjectTarget;
   readonly currentState?: InstallState;
+  /** Exact legacy identity only; it is never a desired public environment. */
+  readonly legacyEnvironment?: LegacyEnvironmentId;
   readonly issues?: readonly StatusIssue[];
   readonly legacyUserRemoval?: LegacyUserRemovalObservation;
   readonly details?: unknown;
@@ -38,20 +41,23 @@ export interface HostObservation {
 
 export interface HostInstallContext extends HostReadContext {
   readonly command: MutationCommand;
-  readonly environment: EnvironmentId;
+  readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
   /** Independent authority; it is never inferred from general target confirmation. */
   readonly allowLegacyUserRemoval: boolean;
+  /** Independent authority; general target confirmation never implies legacy conversion. */
+  readonly allowLegacyDevMigration: boolean;
 }
 
 export interface HostUninstallContext extends HostReadContext {
-  readonly environment: EnvironmentId;
+  readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
   readonly allowLegacyUserRemoval: boolean;
+  readonly allowLegacyDevMigration: boolean;
 }
 
 export interface HostStatusContext extends HostReadContext {
-  readonly environment: EnvironmentId;
+  readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
   readonly doctor: boolean;
 }

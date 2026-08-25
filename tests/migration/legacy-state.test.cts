@@ -252,7 +252,8 @@ function renderMigration(root: string, packageRoot: string, environment: Environ
   };
 }
 
-for (const environment of ["qa", "dev"] as const) {
+// Public desired-state migration remains QA-only; Plan 04-03 adds host-specific Dev-to-QA conversion.
+for (const environment of ["qa"] as const) {
   test(`legacy ${environment.toUpperCase()} state previews migration, migrates in place, and uninstalls cleanly`, () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-legacy-${environment}-`));
     try {
