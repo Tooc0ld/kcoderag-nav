@@ -184,6 +184,10 @@ test("Codex QA lifecycle is idempotent, reports health, and restores unrelated b
     const state = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
     assert.equal(state.environment, "qa");
     assert.ok(state.managedFiles.every((relativePath: string) => !relativePath.includes("/dev/")));
+    const installedHooks = JSON.parse(fs.readFileSync(path.join(target.root, ".codex/hooks.json"), "utf8"));
+    const managedCommand = JSON.stringify(installedHooks.hooks.PreToolUse);
+    assert.match(managedCommand, /\.codex\/kcoderag-nav\/install-state\.json/);
+    assert.doesNotMatch(managedCommand, new RegExp(target.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
     write(pkg.root, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:grep-nudge.cjs:v2\n");
     assert.equal((await run(target.root, pkg.root, "status")).output.status, "update_available");

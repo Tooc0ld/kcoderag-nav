@@ -136,6 +136,15 @@ function installHost(
 ): { readonly root: string; readonly command: InstalledCommand } {
   const root = path.join(base, `${host}-project`);
   fs.mkdirSync(root);
+  return installHostAt(root, host, packageRoot);
+}
+
+function installHostAt(
+  root: string,
+  host: "codex" | "claude",
+  packageRoot: string,
+): { readonly root: string; readonly command: InstalledCommand } {
+  fs.mkdirSync(root, { recursive: true });
   const target = targets.resolveProjectTarget(root);
   const adapter = host === "codex" ? codex.codexAdapter : claude.claudeAdapter;
   const observation = adapter.detect({ target, packageRoot });
@@ -157,6 +166,49 @@ function installHost(
   const command = entry?.hooks?.[0] as InstalledCommand | undefined;
   assert.ok(command);
   return { root, command };
+}
+
+function installedStatePath(root: string, host: "codex" | "claude"): string {
+  const hostRoot = host === "codex" ? ".codex" : ".claude";
+  return path.join(root, hostRoot, "kcoderag-nav", "install-state.json");
+}
+
+function replaceLaunchersWithMarker(
+  root: string,
+  host: "codex" | "claude",
+  marker: string,
+): void {
+  const hostRoot = host === "codex" ? ".codex" : ".claude";
+  const prefix = `${hostRoot}/kcoderag-nav/qa/hooks`;
+  const protocol = JSON.stringify({
+    hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: marker },
+  });
+  const replacements = {
+    [`${prefix}/run_hook.cmd`]: Buffer.from(`@echo off\r\necho ${protocol}\r\nexit /b 0\r\n`, "utf8"),
+    [`${prefix}/run_hook.sh`]: Buffer.from(`#!/bin/sh\nprintf '%s' '${protocol}'\nexit 0\n`, "utf8"),
+  };
+  const statePath = installedStatePath(root, host);
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  for (const [relativePath, bytes] of Object.entries(replacements)) {
+    write(root, relativePath, bytes);
+    state.digests[relativePath] = sha256(bytes);
+  }
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function assertMarkerResult(
+  result: ReturnType<typeof childProcess.spawnSync>,
+  marker: string,
+  context: string,
+): void {
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, `${context}: ${String(result.stderr)}`);
+  assert.equal(result.stderr, "", context);
+  const parsed = JSON.parse(String(result.stdout)) as {
+    hookSpecificOutput: { hookEventName: string; additionalContext: string };
+  };
+  assert.equal(parsed.hookSpecificOutput.hookEventName, "PreToolUse");
+  assert.equal(parsed.hookSpecificOutput.additionalContext, marker);
 }
 
 function runRenderedWindows(
@@ -331,6 +383,52 @@ test("installed Codex and Claude commands run from project root and a Unicode de
           runRenderedPosix(shellExecutable, installed.command.command, deep),
           `${host} POSIX deep`,
         );
+      }
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("exact registered commands stop silently at a schema-damaged nearest project", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-rendered-damaged-"));
+  try {
+    const packageRoot = adapterPackage(base);
+    for (const host of ["codex", "claude"] as const) {
+      const outer = installHostAt(path.join(base, `${host}-outer`), host, packageRoot);
+      const innerRoot = path.join(outer.root, "nested managed");
+      fs.mkdirSync(innerRoot);
+      installHostAt(innerRoot, host, packageRoot);
+      replaceLaunchersWithMarker(innerRoot, host, `${host}-inner`);
+      const deep = path.join(innerRoot, "Unicode 空格", "deep");
+      fs.mkdirSync(deep, { recursive: true });
+
+      if (process.platform === "win32") {
+        assertMarkerResult(
+          runRenderedWindows(outer.command.commandWindows, deep),
+          `${host}-inner`,
+          `${host} nearest Windows project`,
+        );
+      }
+      const shellExecutable = posixShell();
+      if (shellExecutable !== undefined) {
+        assertMarkerResult(
+          runRenderedPosix(shellExecutable, outer.command.command, deep),
+          `${host}-inner`,
+          `${host} nearest POSIX project`,
+        );
+      }
+
+      const statePath = installedStatePath(innerRoot, host);
+      const damaged = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      damaged.originals = { invalid: { kind: "unexpected" } };
+      fs.writeFileSync(statePath, `${JSON.stringify(damaged, null, 2)}\n`, "utf8");
+
+      if (process.platform === "win32") {
+        assertSilentSuccess(runRenderedWindows(outer.command.commandWindows, deep));
+      }
+      if (shellExecutable !== undefined) {
+        assertSilentSuccess(runRenderedPosix(shellExecutable, outer.command.command, deep));
       }
     }
   } finally {
