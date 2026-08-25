@@ -1,44 +1,44 @@
 ---
 gsd_state_version: 1.0
-current_phase: 04
-current_phase_name: 已部署项目与安装来源可靠性
-status: executing
-stopped_at: Completed 04-15-PLAN.md
-last_updated: "2026-08-25T13:34:06.716Z"
-last_activity: 2026-08-25
-last_activity_desc: Phase 04 execution started
-state_head: 73b17b74e8654366be87252cb2bb215b5c2639fa
+current_phase: 05
+current_phase_name: 低误报 Hook 与诚实路由
+status: planning
+stopped_at: Phase 04 complete, ready to plan Phase 05
+last_updated: "2026-08-25T19:21:13.411Z"
+last_activity: 2026-08-26
+last_activity_desc: Phase 04 complete, transitioned to Phase 05
+state_head: e9b6566ac2149485f9b31c5cf948ccc959b39d60
 progress:
   total_phases: 9
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 53
-  completed_plans: 52
-  percent: 44
+  completed_plans: 53
+  percent: 56
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-20)
+See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 04 — 已部署项目与安装来源可靠性
+**Current focus:** Phase 05 — 低误报 Hook 与诚实路由
 
 ## Current Position
 
-Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 19 of 19
-Status: Ready to execute
-Last activity: 2026-08-25 — Phase 04 execution started
+Phase: 05 — 低误报 Hook 与诚实路由
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-26 — Phase 04 complete, transitioned to Phase 05
 
-Progress: [████░░░░░░] 44%
+Progress: [██████░░░░] 56%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 34
+- Total plans completed: 53
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -50,6 +50,7 @@ Progress: [████░░░░░░] 44%
 | 2 | 1 | - | - |
 | 3 | 1 | - | - |
 | 03.1 | 31 | - | - |
+| 04 | 19 | - | - |
 
 **Recent Trend:**
 
@@ -251,19 +252,16 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Cursor documents Rule, skill, and MCP behavior without claiming a Codex or Claude Code PreToolUse equivalent.
 - [Phase 04]: 04-15: preserve distinct immutable implementation, evidence, and release commits in one direct-child chain
 - [Phase 04]: 04-15: retire failed attestation forward and refreeze rather than reuse stale evidence
-- [Phase 04]: 04-15: public 0.2.0/tag/latest are immutable and defects fix forward as 0.2.1
+- [Phase 04]: Public 0.2.0 and 0.2.1 remain immutable; parser and Windows launcher defects were repaired forward and real Head acceptance converged on exact/latest 0.2.2.
 
 ### Pending Todos
 
-- 更新 `I:\JX3_SVN\Head` 的项目级 QA，并在新 Codex 任务中确认状态健康。
 - 在 Phase 5 规划前用 `list_indexes` 复核 QA 当前 semantic/hybrid 实际能力。
 
 ### Blockers/Concerns
 
 - Phase 1–3 是基于当前代码、quick history 与测试的回溯完成记录；实现提交仍保留在 quick task 历史中。
-- Head 当前项目级 QA 为 `update_available`，差异位于受管 `grep_nudge.py`；全局 QA/Dev 重复来源未检出。
-- Head hook launcher 当前仍使用相对 `.codex/...` 路径，从嵌套子目录启动的稳定性尚未保证。
-- required CI 只证明 loopback/offline 契约；authenticated real-host smoke 尚未运行。
+- required CI 与真实 Head 三宿主项目验收已通过；authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
 - GSD runtime 本地补丁当前解析正确，但 GSD 更新可能覆盖，且全局 context monitor 仍注册过宽。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
 - Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
@@ -297,6 +295,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 |----------|------|--------|-------------|
 | Security | 个人/组织身份、HTTPS 与凭据轮换 | Scheduled in Phase 8 (SEC-01 to SEC-03) | 2026-08-23 |
 | Release | CI 发布自动化与宿主版本兼容矩阵 | Scheduled in Phase 8 (REL-01 to REL-02) | 2026-08-23 |
+| Live QA | 服务端对目标 MCP protocol 与结构化工具结果的部署对齐 | Scheduled in Phase 6 authenticated evidence | 2026-08-26 |
 
 ### Roadmap Evolution
 
@@ -310,6 +309,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T13:34:06.400Z
-Stopped at: Completed 04-15-PLAN.md
+Last session: 2026-08-25T19:17:22Z
+Stopped at: Phase 04 complete, ready to plan Phase 05
 Resume file: None

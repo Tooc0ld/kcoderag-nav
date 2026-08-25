@@ -39,16 +39,15 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - ✓ 更新检查前台零网络、后台查询 npm Registry latest、缓存 24 小时并全异常 fail-open — Phase 03.1
 - ✓ Node generator、pre-commit、pack audit、loopback smoke 与 Windows/Linux Node 22/24 CI
   验证生成确定性、自包含和三宿主契约 — Phase 03.1
+- ✓ 公共产品自 `0.2.0` 起 QA-only；旧 Dev 仅保留严格迁移/卸载解码，Codex/Claude Hook 可从
+  root/deep/moved 项目定位最近受管状态，三宿主来源诊断与真实 Head QA-only 0.2.2 验收完成 — Phase 4
 
 ### Active
 
-- [ ] 将公共产品收敛为 QA-only，安全识别/迁移旧 Dev，稳定从项目任意子目录定位最近受管
-  Hook，并以 selected-host、secret-safe 的 status/doctor 在写前治理用户级来源；发布并验证
-  exact `0.2.0` 后迁移实际 Head 项目 — Phase 4 (`DEP-01`–`DEP-03`)
 - [ ] 降低 fixed-string、多文件本地复核、窄目录和常见 Lua 全局处理器的 hook 误报，并按
   实际索引能力推荐检索模式 — Phase 5
 - [ ] 在真实 Codex、Claude Code 与 Cursor 上用干净项目和公共 npx 包留下可复跑的生命周期、
-  MCP、hook/Rule 证据 — Phase 6
+  MCP、hook/Rule 证据，并关闭 live QA 旧 protocol/content-only 部署漂移 — Phase 6
 - [ ] 固化 GSD Codex runtime/isolation，并缩窄全局 GSD hook 事件范围 — Phase 7
 - [ ] 引入生产级身份、HTTPS、凭据轮换与宿主兼容淘汰策略 — Phase 8
 
@@ -77,7 +76,8 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - 安装状态只记录项目相对路径和摘要，因此完整项目复制、移动、改名或换盘后仍可工作。
 - `status` 快速报告项目健康与来源冲突摘要；`doctor` 深入扫描所选宿主的用户级来源。
   install/update 自行执行同一完整来源门禁，uninstall 仅受项目自身漂移约束。
-- 真实三宿主 MCP/UI 证据仍留在 Phase 6；Phase 04 只接受自动化合同、公开制品和 Head 部署证据。
+- Phase 04 已完成真实 Head 三宿主项目状态与 Hook/Rule 边界验收；干净宿主、authenticated MCP
+  工具注册/UI 和 live QA protocol 结构证据仍留在 Phase 6。
 
 ## Constraints
 
@@ -91,7 +91,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - **Hook**: Codex/Claude 仅提供 advisory context，向上查找和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **诊断**: `status`/`doctor` 只读且 JSON 单文档；只输出稳定码、scope、source type 和安全路径，不读取或显示凭据值
-- **发布**: `0.2.0` 仅在实现、测试、审查、四通道 CI、pack/public artifact 全通过后自动发布；发布后不可变，失败只以 `0.2.1` 修复前进
+- **发布**: `0.2.0` 仅在实现、测试、审查、四通道 CI、pack/public artifact 全通过后自动发布；发布后不可变，真实缺陷只以前进版本修复，本阶段接受版本为 `0.2.2`
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换留给 Phase 08
 - **OpenCode**: 仅保留 adapter 扩展能力；实现与真实宿主验证延后
@@ -101,19 +101,20 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| **D-01 / D-02**：`0.2.0` 公共 CLI、npm 制品、生成资产和用户文档 QA-only；Dev 仅为严格 legacy 解码输入 | 普通用户只有一条明确安装路径，同时保留无漂移旧状态的一次性迁移/卸载能力 | Locked for Phase 04 |
-| **D-03**：owned user source 清理必须有独立、精确 fingerprint 绑定的明确授权；自动化使用独立 exact authority | 防止一般确认、发布决定或 Dev 迁移许可被扩大为用户级删除权 | Locked for Phase 04 |
-| **D-04**：全部门禁通过后直接发布 `0.2.0`，无需再次人工发布审批 | 本次讨论已给出不可逆发布决定，同时保留机器门禁 | Authorized |
-| **D-05–D-08**：Hook 采用最近状态向上查找、损坏边界不穿透、相对状态可移动，安装目标拒绝全局危险根但不要求 VCS | 同时解决深层 cwd、嵌套项目、项目移动和 project-only 安全 | Locked for Phase 04 |
-| **D-09–D-12**：selected-host 来源分级；active 来源阻断写入、owned legacy 可确认清理、残留仅 doctor 提示；uninstall 仍可减少来源 | 写前阻止重复生效，同时不让无关宿主或无害 cache 阻断用户 | Locked for Phase 04 |
-| **D-13–D-16**：status 快速、doctor 深扫；`source_conflict` 为独立不健康状态，未安装项目仍可运行 doctor | 诊断可预测、只读、适用于安装前且不依赖用户先跑 doctor | Locked for Phase 04 |
-| **D-17–D-19**：公开 exact `0.2.0` 按 doctor→授权清理→update/migrate→status/doctor 部署 Head，并验证根/深层 Hook 与无关配置不变 | 本地 pack 或 latest 不能冒充真实公开安装证据 | Locked acceptance |
-| **D-20**：发布后 Head 迁移失败保持 npm/tag/latest 不变并回滚项目事务，以 `0.2.1` 修复前进 | 维护不可变发布身份，避免 unpublish/dist-tag 回退造成更大漂移 | Locked recovery |
+| **D-01 / D-02**：`0.2.0` 起公共 CLI、npm 制品、生成资产和用户文档 QA-only；Dev 仅为严格 legacy 解码输入 | 普通用户只有一条明确安装路径，同时保留无漂移旧状态的一次性迁移/卸载能力 | Validated in Phase 04 |
+| **D-03**：owned user source 清理必须有独立、精确 fingerprint 绑定的明确授权；自动化使用独立 exact authority | 防止一般确认、发布决定或 Dev 迁移许可被扩大为用户级删除权 | Validated in Phase 04 |
+| **D-04**：全部门禁通过后直接发布 `0.2.0`，无需再次人工发布审批 | 本次讨论已给出不可逆发布决定，同时保留机器门禁 | Released; fix-forward accepted at 0.2.2 |
+| **D-05–D-08**：Hook 采用最近状态向上查找、损坏边界不穿透、相对状态可移动，安装目标拒绝全局危险根但不要求 VCS | 同时解决深层 cwd、嵌套项目、项目移动和 project-only 安全 | Validated in Phase 04 |
+| **D-09–D-12**：selected-host 来源分级；active 来源阻断写入、owned legacy 可确认清理、残留仅 doctor 提示；uninstall 仍可减少来源 | 写前阻止重复生效，同时不让无关宿主或无害 cache 阻断用户 | Validated in Phase 04 |
+| **D-13–D-16**：status 快速、doctor 深扫；`source_conflict` 为独立不健康状态，未安装项目仍可运行 doctor | 诊断可预测、只读、适用于安装前且不依赖用户先跑 doctor | Validated in Phase 04 |
+| **D-17–D-19**：公开 exact 制品按 doctor→授权清理→update/migrate→status/doctor 部署 Head，并验证根/深层 Hook 与三宿主健康 | 本地 pack 或未固定 latest 不能冒充真实公开安装证据 | Accepted at exact 0.2.2 |
+| **D-20**：发布后 Head 迁移失败保持 npm/tag/latest 不变并回滚项目事务，只以前进版本修复 | 维护不可变发布身份，避免 unpublish/dist-tag 回退造成更大漂移 | Exercised through 0.2.1 and 0.2.2 |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries. Phase 1–3/03.1 的 QA/Dev 记录
-保持历史事实；Phase 04 明确以 `0.2.0` QA-only 合同覆盖其当前产品效力。
+保持历史事实；Phase 04 以 `0.2.0` QA-only 合同覆盖其当前产品效力，并以不可变 fix-forward
+完成 exact `0.2.2` 的真实 Head 验收。
 
 ---
-*Last updated: 2026-08-25 for the Phase 04 QA-only deployment contract*
+*Last updated: 2026-08-26 after Phase 04 completion*

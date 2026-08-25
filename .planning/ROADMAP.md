@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: QA 优先的可重复插件包** - 从一份规范源生成并验证可立即使用的 QA 优先导航 MVP。 (completed 2026-08-23)
 - [x] **Phase 2: 受管项目安装与环境生命周期** - 在不污染用户环境的前提下交付互斥的 QA/Dev 项目级安装、冲突保护与显式切换。 (completed 2026-08-23)
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
-- [ ] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。
+- [x] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。 (completed 2026-08-26)
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
 - [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code 与 Cursor 真宿主上固化生命周期、工具注册和 hook/Rule 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
@@ -189,7 +189,7 @@ Plans:
 
 ### Phase 4: 已部署项目与安装来源可靠性
 
-**Goal:** 公共 `kcoderag-nav@0.2.0` 只安装 QA；已部署项目能从根目录、子目录或移动后位置稳定加载最近受管 QA，并在任何 install/update 写入前以 selected-host、secret-safe 方式诊断和治理用户级来源，最终用公开 exact 制品迁移实际 Head。
+**Goal:** 公共 `kcoderag-nav` 自 `0.2.0` 起只安装 QA；已部署项目能从根目录、子目录或移动后位置稳定加载最近受管 QA，并在任何 install/update 写入前以 selected-host、secret-safe 方式诊断和治理用户级来源，最终通过不可变 fix-forward 用公开 exact `0.2.2` 迁移并验收实际 Head。
 **Mode:** mvp
 **Requirements**: DEP-01, DEP-02, DEP-03
 **Depends on:** Phase 03.1
@@ -198,12 +198,12 @@ Plans:
   1. **D-01/D-02:** 公共 CLI、npm allow-list、生成树和用户文档只提供 QA；Dev 仅能作为完整所有权、无漂移的 legacy 状态被显式迁移或卸载，新安装没有 Dev flag、prompt 或 product。
   2. **D-05–D-08:** Codex/Claude Hook 从 cwd 向上选择最近状态边界；root/deep/Unicode/nested/moved 行为可复跑，损坏最近边界静默 fail-open 且不穿透；危险全局 target 被拒绝而普通非 VCS 目录可用。
   3. **D-03/D-09–D-16:** status 快速、doctor 深扫且二者只读；selected-host active source 产生 `source_conflict`/`ok:false` 并阻断 install/update。owned source 清理权限独立且绑定冻结 fingerprint，raw/manual/ambiguous 来源只允许人工清理，任何输出均不含连接或凭据值。
-  4. **D-04:** 实现、测试、审查、pack、四通道 CI 和公开制品门禁全部通过后直接发布不可变 `0.2.0`，不再设置人工发布审批点。
-  5. **D-17–D-19:** `I:\JX3_SVN\Head` 只使用公开 exact `kcoderag-nav@0.2.0` 按 doctor→授权清理→update/migrate→status/doctor 部署；最终 healthy、无活动重复来源、根/深层 Hook 指向同一项目且无关配置摘要不变。
-  6. **D-20:** 若公开 `0.2.0` 后 Head 迁移失败，项目事务恢复原状，npm/tag/latest 不回退或 unpublish；修复只以前进版本 `0.2.1` 继续。
+  4. **D-04:** 实现、测试、审查、pack、四通道 CI 和公开制品门禁全部通过后直接发布不可变 `0.2.0`；真实验收发现的缺陷只通过 `0.2.1`/`0.2.2` 前进修复，不设置回退或 unpublish 路径。
+  5. **D-17–D-19:** `I:\JX3_SVN\Head` 使用公开 exact `kcoderag-nav@0.2.2` 完成 Codex、Claude Code、Cursor QA-only 部署；最终三宿主 healthy、无活动重复来源，Codex/Claude 根/Unicode 深层/空格深层 Hook 指向同一项目。
+  6. **D-20:** 公开版本后的真实迁移失败保持项目事务恢复原状，npm/tag/latest 不回退或 unpublish；0.2.0 的解析问题和 0.2.1 的 Windows 并发 launcher 问题均以 0.2.2 修复前进并重新验收。
   7. README 与 KCodeRag 权威指南在删除公共 Dev 代码/资产前先同步 QA-only 合同；Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换和 OpenCode 实现保持未交付。
 
-**Plans:** 18/19 plans executed
+**Plans:** 19/19 plans complete
 
 - [x] 04-01-PLAN.md
 - [x] 04-02-PLAN.md
@@ -220,74 +220,74 @@ Plans:
 - [x] 04-13-PLAN.md
 - [x] 04-14-PLAN.md
 - [x] 04-15-PLAN.md
-- [ ] 04-16-PLAN.md
+- [x] 04-16-PLAN.md
 - [x] 04-17-PLAN.md
 - [x] 04-18-PLAN.md
 - [x] 04-19-PLAN.md
 
 **Wave 1**
 
-- [ ] `04-01-PLAN.md` — 建立 QA-only canonical contract 并同步 managed AGENTS
+- [x] `04-01-PLAN.md` — 建立 QA-only canonical contract 并同步 managed AGENTS
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] `04-14-PLAN.md` — 先同步根 README 与唯一权威 KCodeRag 体验指南
+- [x] `04-14-PLAN.md` — 先同步根 README 与唯一权威 KCodeRag 体验指南
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] `04-02-PLAN.md` — 收敛公共 CLI/current state 为 QA-only 并拒绝危险全局 target
+- [x] `04-02-PLAN.md` — 收敛公共 CLI/current state 为 QA-only 并拒绝危险全局 target
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] `04-03-PLAN.md` — 为三宿主实现明确授权、无漂移的 legacy Dev→QA 迁移
-- [ ] `04-07-PLAN.md` — 将 canonical generator/routing 产品图收敛为 QA 与 Cursor
+- [x] `04-03-PLAN.md` — 为三宿主实现明确授权、无漂移的 legacy Dev→QA 迁移
+- [x] `04-07-PLAN.md` — 将 canonical generator/routing 产品图收敛为 QA 与 Cursor
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] `04-04-PLAN.md` — 实现最近状态 Hook 根发现和 rootless Codex/Claude bootstrap
-- [ ] `04-09-PLAN.md` — 再生并关闭 Cursor QA 非文档产品
+- [x] `04-04-PLAN.md` — 实现最近状态 Hook 根发现和 rootless Codex/Claude bootstrap
+- [x] `04-09-PLAN.md` — 再生并关闭 Cursor QA 非文档产品
 
 **Wave 6** *(blocked on Wave 5)*
 
-- [ ] `04-05-PLAN.md` — 建立 immutable source findings、status/doctor 分流与 Codex cleanup plan
-- [ ] `04-08-PLAN.md` — 再生完整 QA Hook runtime 与双平台 launcher
+- [x] `04-05-PLAN.md` — 建立 immutable source findings、status/doctor 分流与 Codex cleanup plan
+- [x] `04-08-PLAN.md` — 再生完整 QA Hook runtime 与双平台 launcher
 
 **Wave 7** *(blocked on Wave 6)*
 
-- [ ] `04-06-PLAN.md` — 完成 Claude/Cursor selected-host diagnosis 与安全 cleanup 边界
-- [ ] `04-17-PLAN.md` — 再生 QA registration、opaque MCP metadata 与导航资产
+- [x] `04-06-PLAN.md` — 完成 Claude/Cursor selected-host diagnosis 与安全 cleanup 边界
+- [x] `04-17-PLAN.md` — 再生 QA registration、opaque MCP metadata 与导航资产
 
 **Wave 8** *(blocked on Wave 7)*
 
-- [ ] `04-10-PLAN.md` — 从 npm allow-list 与宿主发现 manifest 移除 Dev
+- [x] `04-10-PLAN.md` — 从 npm allow-list 与宿主发现 manifest 移除 Dev
 
 **Wave 9** *(blocked on Wave 8)*
 
-- [ ] `04-18-PLAN.md` — 删除 Dev executable/registration/guidance，保留 exact legacy decoder
+- [x] `04-18-PLAN.md` — 删除 Dev executable/registration/guidance，保留 exact legacy decoder
 
 **Wave 10** *(blocked on Wave 9)*
 
-- [ ] `04-11-PLAN.md` — 关闭 QA/Cursor pack inventory、pre-release 与 Head acceptance validator
+- [x] `04-11-PLAN.md` — 关闭 QA/Cursor pack inventory、pre-release 与 Head acceptance validator
 
 **Wave 11** *(blocked on Wave 10)*
 
-- [ ] `04-12-PLAN.md` — 只读推导并验证 exact five-path `0.2.0` release state
+- [x] `04-12-PLAN.md` — 只读推导并验证 exact five-path `0.2.0` release state
 
 **Wave 12** *(blocked on Wave 11)*
 
-- [ ] `04-13-PLAN.md` — 扩展 real-package smoke、pre-commit 与 ordinary/release CI gates
+- [x] `04-13-PLAN.md` — 扩展 real-package smoke、pre-commit 与 ordinary/release CI gates
 
 **Wave 13** *(blocked on Wave 12)*
 
-- [ ] `04-19-PLAN.md` — 生成最终 QA/Cursor 文档并审计权威 sibling guide
+- [x] `04-19-PLAN.md` — 生成最终 QA/Cursor 文档并审计权威 sibling guide
 
 **Wave 14** *(blocked on Wave 13)*
 
-- [ ] `04-15-PLAN.md` — 冻结 subject，创建 `0.2.0` direct-child commit/tag 并经四通道发布
+- [x] `04-15-PLAN.md` — 冻结 subject，创建 `0.2.0` direct-child commit/tag 并经四通道发布
 
 **Wave 15** *(blocked on Wave 14)*
 
-- [ ] `04-16-PLAN.md` — 冻结 cleanup fingerprint，以公开 exact `0.2.0` 原子迁移 Head 并记录验收
+- [x] `04-16-PLAN.md` — 以不可变 fix-forward 的公开 exact `0.2.2` 完成三宿主 Head 验收并记录偏差
 
 ### Phase 5: 低误报 Hook 与诚实路由
 
@@ -318,6 +318,7 @@ Plans:
   3. Cursor 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，并在必要的项目 reload 后验证 MCP、Rule 与 skill 可见性；不依赖 user-local plugin 或 Team 订阅。
   4. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
   5. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
+  6. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
 
 **Plans**: TBD
 
@@ -363,7 +364,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
 | 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
-| 4. 已部署项目与安装来源可靠性 | 18/19 | In Progress|  |
+| 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
 | 7. GSD 运行时与全局 Hook 整理 | 0/TBD | Not planned | - |
