@@ -1,29 +1,27 @@
 # KCodeRag Nav for Cursor
 
 This generated tree is the Cursor asset set consumed by the public `kcoderag-nav` project
-installer. It supplies one KCodeRag MCP configuration, a graph-first navigation skill, and an
-always-on Cursor Rule. It is not a standalone marketplace or user-directory install source.
+installer. It supplies one QA MCP configuration, a graph-first navigation skill, and an always-on
+Cursor Rule. It is not a standalone marketplace or user-directory install source.
 
-## Install
+## Install QA into one project
 
-Use Node.js 22 or newer. From the target project, install QA with:
+Use Node.js 22 or newer. From the exact target project, run:
 
 ```powershell
 npx kcoderag-nav@latest install --host cursor
 ```
 
-Without `--host`, the CLI interactively offers Codex, Claude Code, and Cursor. Automation should
-pass `--host cursor --yes`. The target defaults to the current directory; use `--target PATH` to
-select another project. Before a mutation, the CLI displays the normalized absolute target and
-manages only Cursor in that project.
+Without `--host`, the CLI can interactively select Cursor. Automation passes `--host cursor --yes`.
+The target is exactly the current directory unless `--target PATH` names another project; the CLI
+does not walk to a Git or SVN root. It displays the normalized target before mutation and rejects
+filesystem roots, the user home, and host user config, plugin, or cache roots.
 
-The Cursor adapter owns only its declared files and KCodeRag section under `.cursor/rules/`,
+The Cursor adapter owns only declared files and the KCodeRag section under `.cursor/rules/`,
 `.cursor/skills/`, and `.cursor/mcp.json`. It preserves unrelated Cursor configuration and never
-modifies Codex or Claude Code installations in the same project.
+modifies Codex or Claude Code installs in the same project.
 
-## Lifecycle
-
-Use the public `@latest` entry for the complete lifecycle:
+## Five project lifecycle commands
 
 ```powershell
 npx kcoderag-nav@latest install --host cursor
@@ -33,34 +31,61 @@ npx kcoderag-nav@latest update --host cursor
 npx kcoderag-nav@latest uninstall --host cursor
 ```
 
-QA is the only public environment. Cursor may coexist with independently managed Codex and
-Claude Code QA installations in the same project. Exact legacy Dev state can only be migrated to
-QA or uninstalled after dedicated authorization and complete digest validation.
+- `status` is a fast, read-only project health check for install state, version, drift, update, and
+  active source conflicts.
+- `doctor` is read-only and deep-scans Cursor user-level plugin, raw MCP, manual Rule, cache, and
+  disabled records. It reports preinstall readiness when QA is not installed and has no `--fix`.
+- Install/update run the same complete source gate before writing. Uninstall removes only
+  digest-proven project content and still refuses project drift.
 
-`status` and `doctor` are read-only. Update and uninstall refuse drift, symlinks, special files,
-and ambiguous ownership before any write. A failed transaction restores Cursor without touching
-the other hosts. After install or update, restart Cursor or run **Developer: Reload Window**.
+QA is the only public environment. Independent Cursor, Codex, and Claude Code QA installs can
+coexist. All mutations stop before writing on drift, unsafe paths, symlinks, special files, or
+ambiguous ownership, and a failed transaction restores only Cursor.
 
-## Legacy user-directory migration
+## Cursor source and legacy boundaries
 
-When the adapter detects an old Cursor user-directory installation, it first verifies the exact
+An active Cursor plugin, raw MCP registration, or manual Rule is `source_conflict` with `ok: false`.
+Cache and disabled records are informational. Cursor does not assume an equivalent native plugin
+cleanup CLI: without a verified versioned capability, user-level cleanup remains manual-only, and
+the project installer never edits unknown user configuration.
+
+When an old Cursor user-directory installation is detected, the adapter first verifies its exact
 managed tree and digests. Removing that verified legacy tree requires a separate interactive
-confirmation, or this explicit automation authority:
+confirmation or this automation authority:
 
 ```powershell
 npx kcoderag-nav@latest install --host cursor --yes --allow-legacy-user-removal
 ```
 
-`--yes` confirms only the project target and never grants legacy deletion authority. Drift, extra
-files, an invalid legacy state, or refusal of the separate prompt leaves both the user directory
-and target project unchanged.
+`--yes` confirms only the project target. Drift, extra files, invalid state, or refusal leaves the
+legacy tree and project unchanged.
+
+Dev is not installable. Exact project legacy Dev state can only be migrated to QA or uninstalled
+after complete digest validation and separate authorization:
+
+```powershell
+npx kcoderag-nav@latest update --host cursor --target PATH --yes `
+  --allow-legacy-dev-migration
+```
+
+Legacy migration authority does not authorize raw/manual source cleanup.
 
 ## Cursor capability boundary
 
 Cursor receives graph-first routing through its always-on Rule and shared skill, and calls the
-configured MCP server directly. It does not use or claim a Codex/Claude Code-style `PreToolUse`
-hook. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
+configured QA MCP server directly. It does not use or claim a Codex/Claude Code-style `PreToolUse`
+Hook. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
 scoped local search.
 
-The internal profile bundles the current QA testing credential. Its value stays opaque and is
-never printed by generation, installation, status, diagnostics, tests, or documentation.
+The CLI treats cwd and `--target` as exact project targets. Cursor has no Hook ancestor walk to
+emulate; its Rule, skill, and MCP files move with a complete project copy or rename. After install
+or update, restart Cursor or run **Developer: Reload Window**.
+
+## Evidence and internal profile boundaries
+
+Phase 04 proves the project lifecycle, source gate, Cursor Rule/skill/MCP package, and transaction
+contract. It does not claim authenticated real-Cursor MCP tool registration or graph-query success.
+
+The internal QA profile is install-ready without separate credential entry. Connection and
+authorization values remain opaque and are never printed by generation, installation, status,
+doctor, tests, logs, or documentation.
