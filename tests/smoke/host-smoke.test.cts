@@ -326,6 +326,22 @@ test("optional live keeps NOT_RUN honest and never converts a failure into succe
   });
   assert.equal(passing.status, "PASS");
   assert.equal(smoke.smokeExitCode(passing), 0);
+
+  const liveScope = smoke.evaluateHostEvidence({
+    host: "codex",
+    mode: "optional-live",
+    evidence: smoke.completeEvidence({
+      preinstall: false,
+      qaOnly: false,
+      doctor: false,
+      sourceConflict: false,
+      conflictInstallBlocked: false,
+      conflictUpdateBlocked: false,
+      conflictUninstallAllowed: false,
+    }),
+  });
+  assert.equal(liveScope.status, "PASS");
+  assert.equal(liveScope.evidence.sourceConflict, false);
 });
 
 test("loopback stub performs initialize, list, and call with metadata-only receipts", async () => {
