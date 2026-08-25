@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-11-PLAN.md
-last_updated: "2026-08-25T10:27:59.678Z"
+stopped_at: Completed 04-12-PLAN.md
+last_updated: "2026-08-25T10:44:29.145Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 402f34996183c819dd8f4348f0b60d54c5845032
+state_head: 1f0c7c2112523d0831392d72cedb521835810929
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 48
+  completed_plans: 49
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 15 of 19
+Plan: 16 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -102,6 +102,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P10 | 5min | 2 tasks | 1 files |
 | Phase 04 P18 | 10min | 3 tasks | 1 files |
 | Phase 04 P11 | 17min | 3 tasks | 7 files |
+| Phase 04 P12 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -235,6 +236,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Pre-release evidence binds three verdict artifacts to one immutable subject and a separate evidence-only child with exact four-lane CI.
 - [Phase 04]: Head acceptance recomputes the canonical Codex cleanup fingerprint and accepts only bounded metadata-only publication, cleanup, Hook, and scope evidence.
 - [Phase 04]: Pre-release and Head evidence validators remain repository-only compiled tools excluded from every public package inventory boundary.
+- [Phase 04]: The permanent release identity is one frozen code-unit-sorted five-path allow-list: three QA/Cursor compatibility manifests plus package-lock.json and package.json.
+- [Phase 04]: Any missing, extra, or retired Dev compatibility manifest is rejected before generator or gate execution with one path-free stable code.
+- [Phase 04]: Release preparation remains a local-only helper with explicit write, stage, commit, and tag recovery seams; publication commands are absent.
 
 ### Pending Todos
 
@@ -293,6 +297,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T10:27:59.343Z
-Stopped at: Completed 04-11-PLAN.md
+Last session: 2026-08-25T10:44:28.818Z
+Stopped at: Completed 04-12-PLAN.md
 Resume file: None

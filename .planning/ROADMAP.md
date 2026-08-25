@@ -203,7 +203,7 @@ Plans:
   6. **D-20:** 若公开 `0.2.0` 后 Head 迁移失败，项目事务恢复原状，npm/tag/latest 不回退或 unpublish；修复只以前进版本 `0.2.1` 继续。
   7. README 与 KCodeRag 权威指南在删除公共 Dev 代码/资产前先同步 QA-only 合同；Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换和 OpenCode 实现保持未交付。
 
-**Plans:** 14/19 plans executed
+**Plans:** 15/19 plans executed
 
 - [x] 04-01-PLAN.md
 - [x] 04-02-PLAN.md
@@ -216,7 +216,7 @@ Plans:
 - [x] 04-09-PLAN.md
 - [x] 04-10-PLAN.md
 - [x] 04-11-PLAN.md
-- [ ] 04-12-PLAN.md
+- [x] 04-12-PLAN.md
 - [ ] 04-13-PLAN.md
 - [x] 04-14-PLAN.md
 - [ ] 04-15-PLAN.md
@@ -363,7 +363,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
 | 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
-| 4. 已部署项目与安装来源可靠性 | 14/19 | In Progress|  |
+| 4. 已部署项目与安装来源可靠性 | 15/19 | In Progress|  |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
 | 7. GSD 运行时与全局 Hook 整理 | 0/TBD | Not planned | - |
