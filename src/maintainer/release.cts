@@ -37,15 +37,21 @@ interface ReleaseResult {
 }
 
 export const VERSION_MANIFEST_PATHS = Object.freeze([
-  "kcoderag-qa/.codex-plugin/plugin.json",
-  "kcoderag-qa/.claude-plugin/plugin.json",
   "kcoderag-cursor/.cursor-plugin/plugin.json",
+  "kcoderag-qa/.claude-plugin/plugin.json",
+  "kcoderag-qa/.codex-plugin/plugin.json",
 ]);
 
 export const RELEASE_OWNED_PATHS = Object.freeze([
-  "package.json",
-  "package-lock.json",
   ...VERSION_MANIFEST_PATHS,
+  "package-lock.json",
+  "package.json",
+]);
+
+const COMPATIBILITY_MANIFEST_DIRECTORIES = Object.freeze([
+  ".claude-plugin",
+  ".codex-plugin",
+  ".cursor-plugin",
 ]);
 
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
@@ -75,6 +81,38 @@ function sorted(values: readonly string[]): string[] {
 
 function sameSet(actual: readonly string[], expected: readonly string[]): boolean {
   return sorted(actual).join("\0") === sorted(expected).join("\0");
+}
+
+function releaseManifestInventory(root: string): readonly string[] {
+  let products: import("node:fs").Dirent[];
+  try {
+    products = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    throw new ReleaseError("release_manifest_inventory_drift");
+  }
+  const manifests: string[] = [];
+  for (const product of products) {
+    if (!product.isDirectory() || !product.name.startsWith("kcoderag-")) continue;
+    for (const compatibilityDirectory of COMPATIBILITY_MANIFEST_DIRECTORIES) {
+      const relativePath = `${product.name}/${compatibilityDirectory}/plugin.json`;
+      try {
+        fs.lstatSync(path.join(root, ...relativePath.split("/")));
+        manifests.push(relativePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw new ReleaseError("release_manifest_inventory_drift");
+        }
+      }
+    }
+  }
+  return Object.freeze(sorted(manifests));
+}
+
+function assertReleaseManifestInventory(root: string): void {
+  failUnless(
+    sameSet(releaseManifestInventory(root), VERSION_MANIFEST_PATHS),
+    "release_manifest_inventory_drift",
+  );
 }
 
 function git(root: string, args: readonly string[], allowFailure = false): string {
@@ -336,6 +374,7 @@ export function prepareRelease(options: ReleaseOptions): ReleaseResult {
   failUnless(((["patch", "minor", "major"] as const) as readonly string[]).includes(options.level), "invalid_level");
   const root = normalizeRoot(options.root);
   assertCleanReleaseSurface(root);
+  assertReleaseManifestInventory(root);
   if (!options.dryRun) failUnless(options.yes, "confirmation_required");
 
   const localStateBefore = digestLocalState(root);
