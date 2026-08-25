@@ -450,27 +450,25 @@ function normalizePackageRequest(
 }
 
 function writeSyntheticMcpSources(packageRoot: string, stubUrl: string): void {
-  for (const environment of ["qa", "dev"] as const) {
-    const name = `kcoderag-${environment}`;
-    const entry = {
-      type: "http",
+  const name = "kcoderag-qa";
+  const entry = {
+    type: "http",
+    url: stubUrl,
+    headers: { Authorization: SYNTHETIC_AUTHORIZATION },
+  };
+  fs.writeFileSync(
+    path.join(packageRoot, name, ".mcp.json"),
+    `${JSON.stringify({ mcpServers: { [name]: entry } }, null, 2)}\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(packageRoot, name, ".codex.mcp.json"),
+    `${JSON.stringify({ [name]: {
       url: stubUrl,
-      headers: { Authorization: SYNTHETIC_AUTHORIZATION },
-    };
-    fs.writeFileSync(
-      path.join(packageRoot, name, ".mcp.json"),
-      `${JSON.stringify({ mcpServers: { [name]: entry } }, null, 2)}\n`,
-      "utf8",
-    );
-    fs.writeFileSync(
-      path.join(packageRoot, name, ".codex.mcp.json"),
-      `${JSON.stringify({ [name]: {
-        url: stubUrl,
-        http_headers: { Authorization: SYNTHETIC_AUTHORIZATION },
-      } }, null, 2)}\n`,
-      "utf8",
-    );
-  }
+      http_headers: { Authorization: SYNTHETIC_AUTHORIZATION },
+    } }, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function acquirePackage(
@@ -696,8 +694,6 @@ function runPackageCli(
       command,
       "--host",
       host,
-      "--environment",
-      "qa",
       "--target",
       projectRoot,
       "--json",
