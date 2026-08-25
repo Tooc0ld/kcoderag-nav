@@ -14,6 +14,7 @@ import {
   type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
+  type SourceFinding,
   type StatusIssue,
   type StatusResult,
 } from "./contracts.cjs";
@@ -39,6 +40,7 @@ type StatusInput = {
   readonly host?: HostId;
   readonly environment?: EnvironmentId;
   readonly issues?: readonly { readonly code: string; readonly path?: string }[];
+  readonly findings?: readonly SourceFinding[];
 };
 
 export interface LegacyInstallState {
@@ -87,10 +89,12 @@ export function createStatusResult(input: StatusInput = {}): StatusResult {
     host?: HostId;
     environment?: EnvironmentId;
     issues: readonly StatusIssue[];
+    findings: readonly SourceFinding[];
   } = {
     schemaVersion: CORE_SCHEMA_VERSION,
     status: input.status ?? "not_installed",
     issues: Object.freeze(issues),
+    findings: Object.freeze([...(input.findings ?? [])]),
   };
   if (input.host !== undefined) result.host = input.host;
   if (input.environment !== undefined) result.environment = input.environment;

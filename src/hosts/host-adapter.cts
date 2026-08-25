@@ -11,6 +11,12 @@ import {
   type StatusIssue,
   type StatusResult,
 } from "../core/contracts.cjs";
+import type {
+  NativeCleanupPlan,
+  OwnedCleanupAuthority,
+  SourceScanMode,
+  SourceScanResult,
+} from "./user-sources.cjs";
 
 export type MutationCommand = "install" | "update";
 
@@ -62,6 +68,11 @@ export interface HostStatusContext extends HostReadContext {
   readonly doctor: boolean;
 }
 
+export interface HostSourceScanContext extends HostReadContext {
+  readonly mode: SourceScanMode;
+  readonly observation: HostObservation;
+}
+
 /**
  * Adapters may read during detection/status and render complete desired state, but never write.
  * The CLI sends the selected adapter's desired state to `applyTransaction` exactly once.
@@ -73,6 +84,12 @@ export interface HostAdapter {
   renderInstall(context: HostInstallContext): DesiredState;
   renderUninstall(context: HostUninstallContext): DesiredState;
   status(context: HostStatusContext): StatusResult;
+  /** Optional until a host implements the shared selected-host source contract. */
+  scanUserSources?(context: HostSourceScanContext): Promise<SourceScanResult> | SourceScanResult;
+  cleanupOwnedSource?(
+    plan: NativeCleanupPlan,
+    authority: OwnedCleanupAuthority,
+  ): Promise<SourceScanResult>;
 }
 
 export function assertHostAdapter(value: unknown, expectedHost: HostId): HostAdapter {

@@ -12,7 +12,32 @@ export type InstallStatus =
   | "not_installed"
   | "drifted"
   | "update_available"
+  | "source_conflict"
   | "invalid";
+
+export type SourceSeverity = "info" | "conflict";
+export type SourceScope = "project" | "user";
+export type SourceType =
+  | "active_plugin"
+  | "owned_plugin"
+  | "owned_marketplace_registration"
+  | "raw_mcp"
+  | "manual_hook"
+  | "cache_residue"
+  | "disabled_registration"
+  | "ambiguous";
+
+/** Closed public source metadata. Configuration and subprocess values never enter this shape. */
+export interface SourceFinding {
+  readonly code: string;
+  readonly severity: SourceSeverity;
+  readonly sourceType: SourceType;
+  readonly scope: SourceScope;
+  readonly safePath: string;
+  readonly cleanupEligible: boolean;
+  readonly cleanupCommand?: string;
+  readonly cleanupFingerprint?: string;
+}
 
 export interface StatusIssue {
   readonly code: string;
@@ -25,6 +50,7 @@ export interface StatusResult {
   readonly host?: HostId;
   readonly environment?: EnvironmentId;
   readonly issues: readonly StatusIssue[];
+  readonly findings: readonly SourceFinding[];
 }
 
 export type CliResult<T> =
