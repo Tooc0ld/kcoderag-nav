@@ -5,7 +5,6 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type EnvironmentId = "qa" | "dev";
 type HostId = "codex" | "claude" | "cursor";
 
 interface CommandModule {
@@ -40,7 +39,7 @@ function packageFixture(base: string): { readonly root: string; readonly secret:
   const root = path.join(base, "package");
   const secret = `opaque-${crypto.randomUUID()}`;
   write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa", "dev"] as const) {
+  for (const environment of ["qa"] as const) {
     const name = `kcoderag-${environment}`;
     write(root, `${name}/.mcp.json`, `${JSON.stringify({
       mcpServers: {
@@ -108,12 +107,13 @@ async function run(
   target: string,
   packageRoot: string,
   command: "install" | "status" | "doctor" | "update" | "uninstall",
-  environment: EnvironmentId = "qa",
+  allowLegacyDevMigration = false,
 ) {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const argv = [command, "--host", "claude", "--json", "--environment", environment];
+  const argv = [command, "--host", "claude", "--json"];
   if (["install", "update", "uninstall"].includes(command)) argv.push("--yes");
+  if (allowLegacyDevMigration) argv.push("--allow-legacy-dev-migration");
   const exitCode = await commands.executeCommand(argv, {
     cwd: target,
     packageRoot,
@@ -155,10 +155,9 @@ test("Claude lifecycle preserves unrelated JSON and restores exact original byte
     assert.equal((await run(target.root, pkg.root, "install")).exitCode, 0);
     assert.deepEqual(snapshot(target.root), installedTree);
 
-    const conflictBefore = snapshot(target.root);
-    const conflict = await run(target.root, pkg.root, "install", "dev");
-    assert.equal(conflict.output.code, "environment_conflict");
-    assert.deepEqual(snapshot(target.root), conflictBefore);
+    const state = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+    assert.equal(state.environment, "qa");
+    assert.ok(state.managedFiles.every((relativePath: string) => !relativePath.includes("/dev/")));
 
     write(pkg.root, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:v2\n");
     assert.equal((await run(target.root, pkg.root, "status")).output.status, "update_available");
@@ -372,6 +371,7 @@ test("Claude symlink and injected transaction failures leave no partial install"
       environment: "qa",
       observation,
       allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
     });
     const before = snapshot(rollback.root);
     assert.throws(() => transaction.applyTransaction(desired, { failAtCommit: 2 }), /transaction_failed/);
@@ -391,6 +391,93 @@ test("Claude symlink and injected transaction failures leave no partial install"
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
     }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("Claude exact legacy Dev requires authority and migrates shared JSON to QA atomically", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-claude-legacy-dev-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const mcpPath = path.join(target.root, ".mcp.json");
+    const settingsPath = path.join(target.root, ".claude/settings.json");
+    const mcp = JSON.parse(target.mcp.toString("utf8"));
+    mcp.mcpServers["kcoderag-dev"] = {
+      type: "http",
+      url: "https://legacy-dev.invalid/mcp",
+      headers: { Authorization: "Bearer LEGACY_CLAUDE_SECRET" },
+    };
+    const settings = JSON.parse(target.settings.toString("utf8"));
+    settings.hooks.PreToolUse = [{
+      matcher: "^(Grep|Glob|Bash)$",
+      hooks: [{ command: "sh \".claude/kcoderag-nav/dev/hooks/run_hook.sh\"" }],
+    }];
+    fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 4)}\n`);
+    fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 4)}\n`);
+
+    const managed = [
+      ".mcp.json",
+      ".claude/settings.json",
+      ".claude/skills/kcoderag-nav/SKILL.md",
+      ...["grep-nudge.cjs", "run_hook.cmd", "run_hook.sh", "update-check.cjs", "update-worker.cjs"]
+        .map((asset) => `.claude/kcoderag-nav/dev/hooks/${asset}`),
+    ];
+    write(target.root, ".claude/skills/kcoderag-nav/SKILL.md", "# legacy dev\n");
+    for (const relativePath of managed.filter((item) => item.includes("/dev/hooks/"))) {
+      write(target.root, relativePath, `legacy:${path.basename(relativePath)}\n`);
+    }
+    const originals: Record<string, { kind: "absent" | "base64"; data?: string }> = {};
+    const digests: Record<string, string> = {};
+    for (const relativePath of managed) {
+      const bytes = fs.readFileSync(path.join(target.root, ...relativePath.split("/")));
+      digests[relativePath] = crypto.createHash("sha256").update(bytes).digest("hex");
+      originals[relativePath] = relativePath === ".mcp.json"
+        ? { kind: "base64", data: target.mcp.toString("base64") }
+        : relativePath === ".claude/settings.json"
+          ? { kind: "base64", data: target.settings.toString("base64") }
+          : { kind: "absent" };
+    }
+    write(target.root, STATE_PATH, `${JSON.stringify({
+      schemaVersion: 1,
+      packageVersion: "0.1.8",
+      host: "claude",
+      environment: "dev",
+      managedFiles: [...managed, STATE_PATH].sort((left, right) => {
+        if (left === STATE_PATH) return 1;
+        if (right === STATE_PATH) return -1;
+        return left.localeCompare(right);
+      }),
+      originals,
+      digests,
+    }, null, 2)}\n`);
+
+    const before = snapshot(target.root);
+    const preview = await run(target.root, pkg.root, "doctor");
+    assert.equal(preview.output.status, "update_available");
+    assert.match(JSON.stringify(preview.output), /legacy_migration_available/);
+    assert.deepEqual(snapshot(target.root), before);
+
+    const denied = await run(target.root, pkg.root, "update");
+    assert.equal(denied.output.code, "legacy_dev_migration_authority_required");
+    assert.deepEqual(snapshot(target.root), before);
+
+    const migrated = await run(target.root, pkg.root, "update", true);
+    assert.equal(migrated.exitCode, 0);
+    assert.doesNotMatch(migrated.stdout.join("\n") + migrated.stderr.join("\n"), /LEGACY_CLAUDE_SECRET/);
+    const currentState = JSON.parse(fs.readFileSync(path.join(target.root, ...STATE_PATH.split("/")), "utf8"));
+    assert.equal(currentState.environment, "qa");
+    assert.ok(currentState.managedFiles.every((relativePath: string) => !relativePath.includes("/dev/")));
+    const currentMcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    assert.equal(currentMcp.mcpServers["kcoderag-dev"], undefined);
+    assert.ok(currentMcp.mcpServers["kcoderag-qa"]);
+    assert.deepEqual(currentMcp.mcpServers.unrelated, { command: "safe-command" });
+    assert.equal((await run(target.root, pkg.root, "status")).output.status, "healthy");
+
+    assert.equal((await run(target.root, pkg.root, "uninstall")).exitCode, 0);
+    assert.deepEqual(fs.readFileSync(mcpPath), target.mcp);
+    assert.deepEqual(fs.readFileSync(settingsPath), target.settings);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
