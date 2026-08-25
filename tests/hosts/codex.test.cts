@@ -12,10 +12,12 @@ interface HostAdapter {
   detect(context: Record<string, unknown>): Record<string, unknown>;
   renderInstall(context: Record<string, unknown>): Record<string, unknown>;
   renderUninstall(context: Record<string, unknown>): Record<string, unknown>;
+  scanUserSources?(context: Record<string, unknown>): Promise<Record<string, any>>;
 }
 
 interface CodexModule {
   readonly codexAdapter: HostAdapter;
+  createCodexAdapter(options?: Record<string, unknown>): HostAdapter;
 }
 
 interface CommandModule {
@@ -34,6 +36,53 @@ const commands = require("../../dist/cli/commands.cjs") as CommandModule;
 const transaction = require("../../dist/core/transaction.cjs") as TransactionModule;
 
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
+
+type NativeRequest = Readonly<{ executable: string; args: readonly string[]; timeoutMs: number }>;
+type NativeResult = Readonly<{
+  exitCode: number;
+  timedOut: boolean;
+  stdout?: string;
+  failureAttribution?: string;
+}>;
+
+const EMPTY_PLUGIN_INVENTORY = JSON.stringify({ installed: [], available: [] });
+const EMPTY_MARKETPLACE_INVENTORY = JSON.stringify({ marketplaces: [] });
+
+function healthyNativeResult(request: NativeRequest): NativeResult {
+  const command = [request.executable, ...request.args].join(" ");
+  if (command === "codex --version") {
+    return { exitCode: 0, timedOut: false, stdout: "codex-cli 0.146.1\n" };
+  }
+  if (command.endsWith(" --help")) {
+    return {
+      exitCode: 0,
+      timedOut: false,
+      stdout: command.includes("marketplace remove")
+        ? "Usage: codex plugin marketplace remove <MARKETPLACE_NAME> --json"
+        : command.includes("plugin remove")
+          ? "Usage: codex plugin remove <PLUGIN[@MARKETPLACE]> --json"
+          : "Usage: list --json",
+    };
+  }
+  if (command === "codex plugin list --json") {
+    return { exitCode: 0, timedOut: false, stdout: EMPTY_PLUGIN_INVENTORY };
+  }
+  if (command === "codex plugin marketplace list --json") {
+    return { exitCode: 0, timedOut: false, stdout: EMPTY_MARKETPLACE_INVENTORY };
+  }
+  return { exitCode: 0, timedOut: false, stdout: "{}" };
+}
+
+const testAdapter = codex.createCodexAdapter({
+  runner: async (request: NativeRequest) => healthyNativeResult(request),
+  readUserSources: () => ({
+    registrations: [],
+    rawMcpPaths: [],
+    manualHookPaths: [],
+    cachePaths: [],
+    ambiguousPaths: [],
+  }),
+});
 
 function write(root: string, relativePath: string, value: string | Buffer): void {
   const destination = path.join(root, ...relativePath.split("/"));
@@ -118,7 +167,7 @@ function snapshot(root: string): readonly string[] {
   return records;
 }
 
-function io(target: string, packageRoot: string): {
+function io(target: string, packageRoot: string, adapter: HostAdapter = testAdapter): {
   readonly stdout: string[];
   readonly stderr: string[];
   readonly dependencies: Record<string, unknown>;
@@ -136,7 +185,7 @@ function io(target: string, packageRoot: string): {
       stderr: (text: string) => stderr.push(text),
       getAdapter: (host: HostId) => {
         if (host !== "codex") throw new Error("unexpected host");
-        return codex.codexAdapter;
+        return adapter;
       },
     },
   };
@@ -147,8 +196,9 @@ async function run(
   packageRoot: string,
   command: "install" | "status" | "doctor" | "update" | "uninstall",
   allowLegacyDevMigration = false,
+  adapter: HostAdapter = testAdapter,
 ) {
-  const captured = io(target, packageRoot);
+  const captured = io(target, packageRoot, adapter);
   const argv = [command, "--host", "codex", "--json"];
   if (command === "install" || command === "update" || command === "uninstall") argv.push("--yes");
   if (allowLegacyDevMigration) argv.push("--allow-legacy-dev-migration");
@@ -449,5 +499,316 @@ test("Codex refuses type conflicts, unowned exclusive files, symlinks, and trans
     }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+function ownedRegistration(sourcePath: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    host: "codex",
+    sourceType: "owned_marketplace_registration",
+    marketplaceName: "kcoderag-nav",
+    sourcePath,
+    provenanceId: "kcoderag-nav-repository-v1",
+    safePath: ".codex/config.toml",
+    failureAttribution: "marketplace_load",
+    ...overrides,
+  };
+}
+
+function ownedPluginInventory(sourcePath: string, overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    installed: [{
+      pluginId: "kcoderag-qa@kcoderag-nav",
+      name: "kcoderag-qa",
+      marketplaceName: "kcoderag-nav",
+      version: "0.1.8",
+      installed: true,
+      enabled: true,
+      source: { source: "local", path: path.join(sourcePath, "kcoderag-qa") },
+      marketplaceSource: { sourceType: "local", source: sourcePath },
+      installPolicy: "AVAILABLE",
+      authPolicy: "ON_USE",
+      ...overrides,
+    }],
+    available: [],
+  });
+}
+
+function ownedMarketplaceInventory(sourcePath: string): string {
+  return JSON.stringify({
+    marketplaces: [{
+      name: "kcoderag-nav",
+      root: path.join(os.tmpdir(), ".codex", ".tmp", "marketplaces", "kcoderag-nav"),
+      marketplaceSource: { sourceType: "local", source: sourcePath },
+    }],
+  });
+}
+
+function scannerContext(adapter: HostAdapter, mode: "fast" | "deep" | "gate"):
+Promise<Record<string, any>> {
+  const target = { root: path.resolve(".") };
+  if (adapter.scanUserSources === undefined) throw new Error("scanner missing");
+  return adapter.scanUserSources({
+    mode,
+    target,
+    packageRoot: path.resolve("."),
+    observation: { host: "codex", target },
+  });
+}
+
+test("Codex normal inventory exposes only a capability-gated fixed plugin cleanup plan", async () => {
+  const sourcePath = path.resolve("legacy-kcoderag-nav");
+  const calls: NativeRequest[] = [];
+  const adapter = codex.createCodexAdapter({
+    runner: async (request: NativeRequest) => {
+      calls.push(request);
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "codex plugin list --json") {
+        return { exitCode: 0, timedOut: false, stdout: ownedPluginInventory(sourcePath) };
+      }
+      if (command === "codex plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: ownedMarketplaceInventory(sourcePath) };
+      }
+      return healthyNativeResult(request);
+    },
+    readUserSources: () => ({
+      registrations: [ownedRegistration(sourcePath)],
+      rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+    }),
+  });
+
+  const scan = await scannerContext(adapter, "deep");
+  assert.equal(scan.hasConflict, true);
+  assert.equal(scan.cleanupPlans.length, 1);
+  assert.equal(scan.cleanupPlans[0].command, "codex plugin remove kcoderag-qa@kcoderag-nav --json");
+  assert.match(scan.cleanupPlans[0].fingerprint, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(scan.findings[0].cleanupFingerprint, scan.cleanupPlans[0].fingerprint);
+  assert.ok(calls.every((call) => call.executable === "codex" && call.timeoutMs === 5_000));
+  assert.deepEqual(calls.map((call) => call.args.join(" ")), [
+    "--version",
+    "plugin list --help",
+    "plugin marketplace list --help",
+    "plugin remove --help",
+    "plugin marketplace remove --help",
+    "plugin list --json",
+    "plugin marketplace list --json",
+  ]);
+});
+
+test("Codex scan modes keep cache and disabled residue informational and never auto-clean raw/manual sources", async () => {
+  const sourcePath = path.resolve("legacy-kcoderag-nav");
+  const adapter = codex.createCodexAdapter({
+    runner: async (request: NativeRequest) => {
+      const command = [request.executable, ...request.args].join(" ");
+      if (command === "codex plugin list --json") {
+        return {
+          exitCode: 0,
+          timedOut: false,
+          stdout: ownedPluginInventory(sourcePath, { enabled: false }),
+        };
+      }
+      if (command === "codex plugin marketplace list --json") {
+        return { exitCode: 0, timedOut: false, stdout: EMPTY_MARKETPLACE_INVENTORY };
+      }
+      return healthyNativeResult(request);
+    },
+    readUserSources: () => ({
+      registrations: [],
+      rawMcpPaths: [".codex/config.toml"],
+      manualHookPaths: [".codex/hooks.json"],
+      cachePaths: [".codex/.tmp/marketplaces/kcoderag-nav"],
+      ambiguousPaths: [],
+    }),
+  });
+
+  const fast = await scannerContext(adapter, "fast");
+  assert.deepEqual(fast.findings.map((finding: Record<string, unknown>) => finding.sourceType), ["raw_mcp", "manual_hook"]);
+  assert.equal(fast.cleanupPlans.length, 0);
+  const deep = await scannerContext(adapter, "deep");
+  assert.deepEqual(
+    new Set(deep.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
+    new Set(["raw_mcp", "manual_hook", "cache_residue", "disabled_registration"]),
+  );
+  assert.equal(deep.cleanupPlans.length, 0);
+  assert.ok(deep.findings.filter((finding: Record<string, unknown>) => finding.severity === "info").length >= 2);
+});
+
+test("Codex degraded cleanup recognizes only the exact stale owned marketplace registration", async () => {
+  const sourcePath = path.resolve("legacy-kcoderag-nav");
+  async function scanWith(
+    registration: Record<string, unknown>,
+    failureAttribution = "marketplace_load",
+    extra: Record<string, unknown> = {},
+  ): Promise<Record<string, any>> {
+    const adapter = codex.createCodexAdapter({
+      runner: async (request: NativeRequest) => {
+        const command = [request.executable, ...request.args].join(" ");
+        if (command === "codex plugin list --json" || command === "codex plugin marketplace list --json") {
+          return {
+            exitCode: 1,
+            timedOut: false,
+            stdout: "sentinel subprocess body",
+            failureAttribution,
+          };
+        }
+        return healthyNativeResult(request);
+      },
+      readUserSources: () => ({
+        registrations: [registration], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+        ...extra,
+      }),
+    });
+    return scannerContext(adapter, "deep");
+  }
+
+  const exact = await scanWith(ownedRegistration(sourcePath));
+  assert.equal(exact.cleanupPlans.length, 1);
+  assert.equal(exact.cleanupPlans[0].command, "codex plugin marketplace remove kcoderag-nav --json");
+  assert.equal(exact.cleanupPlans[0].timeoutMs, 5_000);
+  assert.doesNotMatch(JSON.stringify(exact), /sentinel subprocess body/);
+
+  const variants = [
+    () => scanWith(ownedRegistration(sourcePath, { marketplaceName: "other" })),
+    () => scanWith(ownedRegistration(sourcePath, { sourcePath: path.resolve("other") })),
+    () => scanWith(ownedRegistration(sourcePath, { provenanceId: "unknown" })),
+    () => scanWith(ownedRegistration(sourcePath), "unrelated_failure"),
+    () => scanWith(ownedRegistration(sourcePath), "marketplace_load", { rawMcpPaths: [".codex/config.toml"] }),
+    () => scanWith(ownedRegistration(sourcePath), "marketplace_load", { registrations: [ownedRegistration(sourcePath), ownedRegistration(sourcePath)] }),
+  ];
+  for (const variant of variants) {
+    const scan = await variant();
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+    assert.ok(scan.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));
+  }
+});
+
+test("Codex rejects incomplete or shared inventories instead of widening marketplace deletion", async () => {
+  const sourcePath = path.resolve("legacy-kcoderag-nav");
+  const malformedInventories = [
+    "not-json",
+    JSON.stringify({ installed: [] }),
+    JSON.stringify({ installed: [{ pluginId: "bad" }], available: [] }),
+    JSON.stringify({
+      installed: [
+        JSON.parse(ownedPluginInventory(sourcePath)).installed[0],
+        {
+          ...JSON.parse(ownedPluginInventory(sourcePath)).installed[0],
+          pluginId: "foreign@kcoderag-nav",
+          name: "foreign",
+        },
+      ],
+      available: [],
+    }),
+  ];
+  for (const inventory of malformedInventories) {
+    const adapter = codex.createCodexAdapter({
+      runner: async (request: NativeRequest) => {
+        const command = [request.executable, ...request.args].join(" ");
+        if (command === "codex plugin list --json") return { exitCode: 0, timedOut: false, stdout: inventory };
+        if (command === "codex plugin marketplace list --json") {
+          return { exitCode: 0, timedOut: false, stdout: ownedMarketplaceInventory(sourcePath) };
+        }
+        return healthyNativeResult(request);
+      },
+      readUserSources: () => ({
+        registrations: [ownedRegistration(sourcePath)], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+      }),
+    });
+    const scan = await scannerContext(adapter, "gate");
+    assert.equal(scan.hasConflict, true);
+    assert.equal(scan.cleanupPlans.length, 0);
+  }
+});
+
+test("Codex cleanup executes fixed argv then requires a complete clean rescan before project writes", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-source-clean-"));
+  try {
+    const pkg = packageFixture(base);
+    const target = targetFixture(base);
+    const sourcePath = path.resolve("legacy-kcoderag-nav");
+    let removed = false;
+    const nativeCalls: string[] = [];
+    const adapter = codex.createCodexAdapter({
+      runner: async (request: NativeRequest) => {
+        const command = [request.executable, ...request.args].join(" ");
+        nativeCalls.push(command);
+        if (command === "codex plugin list --json") {
+          return { exitCode: 0, timedOut: false, stdout: removed ? EMPTY_PLUGIN_INVENTORY : ownedPluginInventory(sourcePath) };
+        }
+        if (command === "codex plugin marketplace list --json") {
+          return { exitCode: 0, timedOut: false, stdout: removed ? EMPTY_MARKETPLACE_INVENTORY : ownedMarketplaceInventory(sourcePath) };
+        }
+        if (command === "codex plugin remove kcoderag-qa@kcoderag-nav --json") {
+          removed = true;
+          return { exitCode: 0, timedOut: false, stdout: "{\"removed\":true}" };
+        }
+        return healthyNativeResult(request);
+      },
+      readUserSources: () => ({
+        registrations: removed ? [] : [ownedRegistration(sourcePath)],
+        rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+      }),
+    });
+    const initial = await scannerContext(adapter, "gate");
+    const fingerprint = String(initial.cleanupPlans[0].fingerprint);
+    const captured = io(target.root, pkg.root, adapter);
+    const exitCode = await commands.executeCommand([
+      "install", "--host", "codex", "--yes", "--json",
+      "--allow-owned-source-cleanup", "--cleanup-fingerprint", fingerprint,
+    ], captured.dependencies);
+    assert.equal(exitCode, 0);
+    assert.equal(removed, true);
+    assert.equal(nativeCalls.filter((command) => command === "codex plugin remove kcoderag-qa@kcoderag-nav --json").length, 1);
+    assert.ok(fs.existsSync(path.join(target.root, STATE_PATH)));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("Codex cleanup failure, timeout, residual identity, and rescan error preserve project bytes secret-safely", async () => {
+  for (const failure of ["nonzero", "timeout", "residual", "rescan"] as const) {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), `kcoderag-codex-source-${failure}-`));
+    try {
+      const pkg = packageFixture(base);
+      const target = targetFixture(base);
+      const sourcePath = path.resolve("legacy-kcoderag-nav");
+      const sentinel = `Bearer-${crypto.randomUUID()}`;
+      let cleanupAttempted = false;
+      const adapter = codex.createCodexAdapter({
+        runner: async (request: NativeRequest) => {
+          const command = [request.executable, ...request.args].join(" ");
+          if (command === "codex plugin remove kcoderag-qa@kcoderag-nav --json") {
+            cleanupAttempted = true;
+            if (failure === "nonzero") return { exitCode: 1, timedOut: false, stdout: sentinel };
+            if (failure === "timeout") return { exitCode: 1, timedOut: true, stdout: sentinel };
+            return { exitCode: 0, timedOut: false, stdout: sentinel };
+          }
+          if (command === "codex plugin list --json") {
+            if (cleanupAttempted && failure === "rescan") return { exitCode: 1, timedOut: false, stdout: sentinel, failureAttribution: "unrelated_failure" };
+            return { exitCode: 0, timedOut: false, stdout: ownedPluginInventory(sourcePath) };
+          }
+          if (command === "codex plugin marketplace list --json") {
+            return { exitCode: 0, timedOut: false, stdout: ownedMarketplaceInventory(sourcePath) };
+          }
+          return healthyNativeResult(request);
+        },
+        readUserSources: () => ({
+          registrations: [ownedRegistration(sourcePath)], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
+        }),
+      });
+      const initial = await scannerContext(adapter, "gate");
+      const before = snapshot(target.root);
+      const captured = io(target.root, pkg.root, adapter);
+      const exitCode = await commands.executeCommand([
+        "install", "--host", "codex", "--yes", "--json",
+        "--allow-owned-source-cleanup", "--cleanup-fingerprint", String(initial.cleanupPlans[0].fingerprint),
+      ], captured.dependencies);
+      assert.notEqual(exitCode, 0);
+      assert.deepEqual(snapshot(target.root), before);
+      assert.doesNotMatch(captured.stdout.join("\n") + captured.stderr.join("\n"), new RegExp(sentinel));
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   }
 });
