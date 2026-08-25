@@ -130,6 +130,11 @@ function claudeScannerContext(
   });
 }
 
+const testAdapter = claude.createClaudeAdapter({
+  runner: async (request: NativeRequest) => healthyClaudeNativeResult(request),
+  readUserSources: () => emptyClaudeUserSources(),
+});
+
 function write(root: string, relativePath: string, value: string | Buffer): void {
   const destination = path.join(root, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -223,7 +228,7 @@ async function run(
     stderr: (text: string) => stderr.push(text),
     getAdapter: (host: HostId) => {
       if (host !== "claude") throw new Error("unexpected host");
-      return claude.claudeAdapter;
+      return testAdapter;
     },
   });
   return {
@@ -674,16 +679,20 @@ test("Claude scan modes keep disabled/cache residue informational and raw/manual
   });
 
   const fast = await claudeScannerContext(adapter, "fast");
-  assert.deepEqual(
-    fast.findings.map((finding: Record<string, unknown>) => finding.sourceType),
-    ["manual_hook", "raw_mcp"],
-  );
+  assert.deepEqual(new Set(fast.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
+    new Set(["raw_mcp", "manual_hook", "owned_marketplace_registration"]));
   assert.equal(fast.cleanupPlans.length, 0);
 
   const deep = await claudeScannerContext(adapter, "deep");
   assert.deepEqual(
     new Set(deep.findings.map((finding: Record<string, unknown>) => finding.sourceType)),
-    new Set(["raw_mcp", "manual_hook", "cache_residue", "disabled_registration"]),
+    new Set([
+      "raw_mcp",
+      "manual_hook",
+      "cache_residue",
+      "disabled_registration",
+      "owned_marketplace_registration",
+    ]),
   );
   assert.equal(deep.cleanupPlans.length, 0);
   assert.ok(deep.findings.every((finding: Record<string, unknown>) => finding.cleanupEligible === false));

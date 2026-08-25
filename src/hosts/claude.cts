@@ -1,7 +1,9 @@
 /** Claude Code project-native adapter with narrow JSON section and file ownership. */
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const { TextDecoder } = require("node:util") as typeof import("node:util");
 
@@ -36,15 +38,51 @@ import type {
   HostAdapter,
   HostInstallContext,
   HostObservation,
+  HostSourceScanContext,
   HostStatusContext,
   HostUninstallContext,
 } from "./host-adapter.cjs";
+import {
+  createNativeCleanupPlan,
+  createNativeHostCapability,
+  createSourceFinding,
+  createSourceScanResult,
+  runOwnedSourceCleanup,
+  type NativeCleanupPlan,
+  type NativeRunRequest,
+  type OwnedCleanupAuthority,
+  type SourceScanMode,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 
 interface ClaudeObservationDetails {
   readonly stateBytes?: Buffer;
   readonly legacyState?: LegacyInstallState;
+}
+
+export interface ClaudeNativeResult {
+  readonly exitCode: number;
+  readonly timedOut: boolean;
+  readonly stdout?: string;
+}
+
+export type ClaudeNativeRunner = (request: NativeRunRequest) => Promise<ClaudeNativeResult>;
+
+export interface ClaudeUserSourceMetadata {
+  readonly rawMcpPaths: readonly string[];
+  readonly manualHookPaths: readonly string[];
+  readonly cachePaths: readonly string[];
+  readonly ambiguousPaths: readonly string[];
+}
+
+export type ClaudeUserSourceReader = () => ClaudeUserSourceMetadata | Promise<ClaudeUserSourceMetadata>;
+
+export interface ClaudeAdapterOptions {
+  readonly runner?: ClaudeNativeRunner;
+  readonly readUserSources?: ClaudeUserSourceReader;
+  readonly homeDirectory?: string;
 }
 
 const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
@@ -60,6 +98,17 @@ const HOOK_ASSETS = Object.freeze([
   "update-worker.cjs",
 ]);
 const SHARED_PATHS = Object.freeze([MCP_PATH, SETTINGS_PATH] as const);
+const CLAUDE_TIMEOUT_MS = 5_000;
+const CLAUDE_MINIMUM_VERSION = "2.1.241";
+const CLAUDE_INVENTORY_SCHEMA = "claude-plugin-v2.1.241-array-v1";
+const USER_MCP_SAFE_PATH = ".claude.json";
+const USER_SETTINGS_SAFE_PATH = ".claude/settings.json";
+const USER_PLUGIN_SAFE_PATH = ".claude/plugins";
+const USER_CACHE_SAFE_PATH = ".claude/plugins/cache/kcoderag-nav";
+const USER_MARKETPLACE_CACHE_SAFE_PATH = ".claude/plugins/marketplaces/kcoderag-nav";
+const OWNED_MARKETPLACE = "kcoderag-nav";
+const OWNED_PLUGIN_NAMES = new Set(["kcoderag-nav", "kcoderag-qa", "kcoderag-dev"]);
+const CLAUDE_SCOPES = new Set(["user", "project", "local"]);
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -990,6 +1039,514 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   });
 }
 
+function defaultClaudeRunner(request: NativeRunRequest): Promise<ClaudeNativeResult> {
+  return new Promise((resolve) => {
+    childProcess.execFile(
+      request.executable,
+      [...request.args],
+      {
+        encoding: "utf8",
+        timeout: request.timeoutMs,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+        shell: false,
+      },
+      (error, stdout) => {
+        const timedOut = error !== null && (
+          error.killed === true ||
+          error.code === "ETIMEDOUT" ||
+          error.signal === "SIGTERM"
+        );
+        const result: { exitCode: number; timedOut: boolean; stdout?: string } = {
+          exitCode: error === null ? 0 : typeof error.code === "number" ? error.code : 1,
+          timedOut,
+        };
+        if (typeof stdout === "string" && Buffer.byteLength(stdout, "utf8") <= 1024 * 1024) {
+          result.stdout = stdout;
+        }
+        resolve(Object.freeze(result));
+      },
+    );
+  });
+}
+
+function readBoundedRegularText(filePath: string, maximumBytes: number): string | undefined {
+  try {
+    const metadata = fs.lstatSync(filePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > maximumBytes) return undefined;
+    return new TextDecoder("utf-8", { fatal: true }).decode(fs.readFileSync(filePath));
+  } catch {
+    return undefined;
+  }
+}
+
+function containsKCodeRagMcpKey(text: string): boolean {
+  return /"mcpServers"\s*:\s*\{[\s\S]{0,262144}?"kcoderag(?:-(?:qa|dev|nav))?"\s*:/i.test(text);
+}
+
+function containsKCodeRagHookSignature(text: string): boolean {
+  return /"hooks"\s*:\s*\{[\s\S]{0,262144}?(?:kcoderag-(?:qa|dev|nav)|kcoderag_nav)/i.test(text);
+}
+
+function defaultClaudeUserSourceReader(claudeRoot: string, userHome: string): ClaudeUserSourceReader {
+  return () => {
+    const rawMcpPaths = new Set<string>();
+    const manualHookPaths = new Set<string>();
+    const cachePaths = new Set<string>();
+    const ambiguousPaths = new Set<string>();
+    const mcpPath = path.join(userHome, ".claude.json");
+    const settingsPath = path.join(claudeRoot, "settings.json");
+    const textInputs = [
+      {
+        absolutePath: mcpPath,
+        safePath: USER_MCP_SAFE_PATH,
+        classify: containsKCodeRagMcpKey,
+        destination: rawMcpPaths,
+      },
+      {
+        absolutePath: settingsPath,
+        safePath: USER_SETTINGS_SAFE_PATH,
+        classify: containsKCodeRagHookSignature,
+        destination: manualHookPaths,
+      },
+    ] as const;
+    for (const input of textInputs) {
+      const text = readBoundedRegularText(input.absolutePath, 1024 * 1024);
+      if (fs.existsSync(input.absolutePath) && text === undefined) {
+        ambiguousPaths.add(input.safePath);
+      } else if (text !== undefined && input.classify(text)) {
+        input.destination.add(input.safePath);
+      }
+    }
+    for (const [safePath, absolutePath] of [
+      [USER_CACHE_SAFE_PATH, path.join(claudeRoot, "plugins", "cache", OWNED_MARKETPLACE)],
+      [USER_MARKETPLACE_CACHE_SAFE_PATH, path.join(claudeRoot, "plugins", "marketplaces", OWNED_MARKETPLACE)],
+    ] as const) {
+      try {
+        const metadata = fs.lstatSync(absolutePath);
+        if (metadata.isSymbolicLink() || !metadata.isDirectory()) ambiguousPaths.add(safePath);
+        else cachePaths.add(safePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") ambiguousPaths.add(safePath);
+      }
+    }
+    return Object.freeze({
+      rawMcpPaths: Object.freeze([...rawMcpPaths]),
+      manualHookPaths: Object.freeze([...manualHookPaths]),
+      cachePaths: Object.freeze([...cachePaths]),
+      ambiguousPaths: Object.freeze([...ambiguousPaths]),
+    });
+  };
+}
+
+interface ParsedClaudePlugin {
+  readonly id: string;
+  readonly name: string;
+  readonly marketplace: string;
+  readonly scope: "user" | "project" | "local";
+  readonly enabled: boolean;
+}
+
+interface ParsedClaudeMarketplace {
+  readonly name: string;
+}
+
+function exactKeys(value: JsonMap, required: readonly string[]): boolean {
+  const allowed = new Set(required);
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key));
+}
+
+function boundedString(value: unknown, maximum = 4096): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum && !/[\r\n\0]/.test(value);
+}
+
+function pluginIdentity(id: string): { readonly name: string; readonly marketplace: string } | undefined {
+  const separator = id.lastIndexOf("@");
+  if (separator <= 0 || separator === id.length - 1) return undefined;
+  return { name: id.slice(0, separator), marketplace: id.slice(separator + 1) };
+}
+
+function parseClaudePlugin(value: unknown): ParsedClaudePlugin | undefined {
+  if (!isRecord(value) || !exactKeys(value, [
+    "id", "version", "scope", "enabled", "installPath", "installedAt", "lastUpdated",
+  ]) ||
+      !boundedString(value.id, 320) || !boundedString(value.version, 128) ||
+      !boundedString(value.scope, 16) || !CLAUDE_SCOPES.has(value.scope) ||
+      typeof value.enabled !== "boolean" || !boundedString(value.installPath) ||
+      !boundedString(value.installedAt, 128) || !boundedString(value.lastUpdated, 128)) {
+    return undefined;
+  }
+  const identity = pluginIdentity(value.id);
+  if (identity === undefined) return undefined;
+  return Object.freeze({
+    id: value.id,
+    name: identity.name,
+    marketplace: identity.marketplace,
+    scope: value.scope as "user" | "project" | "local",
+    enabled: value.enabled,
+  });
+}
+
+function parseClaudePluginInventory(stdout: string): readonly ParsedClaudePlugin[] | undefined {
+  if (Buffer.byteLength(stdout, "utf8") > 1024 * 1024) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(stdout); } catch { return undefined; }
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.map(parseClaudePlugin);
+  if (entries.some((entry) => entry === undefined)) return undefined;
+  const normalized = entries as ParsedClaudePlugin[];
+  if (new Set(normalized.map((entry) => entry.id)).size !== normalized.length) return undefined;
+  return Object.freeze(normalized);
+}
+
+function parseClaudeMarketplace(value: unknown): ParsedClaudeMarketplace | undefined {
+  if (!isRecord(value) || !exactKeys(value, ["name", "source", "repo", "installLocation"]) ||
+      !boundedString(value.name, 160) || !boundedString(value.source, 64) ||
+      !boundedString(value.repo) || !boundedString(value.installLocation)) return undefined;
+  return Object.freeze({ name: value.name });
+}
+
+function parseClaudeMarketplaceInventory(stdout: string): readonly ParsedClaudeMarketplace[] | undefined {
+  if (Buffer.byteLength(stdout, "utf8") > 1024 * 1024) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(stdout); } catch { return undefined; }
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.map(parseClaudeMarketplace);
+  if (entries.some((entry) => entry === undefined)) return undefined;
+  const normalized = entries as ParsedClaudeMarketplace[];
+  if (new Set(normalized.map((entry) => entry.name)).size !== normalized.length) return undefined;
+  return Object.freeze(normalized);
+}
+
+function semverTuple(value: string): readonly [number, number, number] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  if (match === null) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])] as const;
+}
+
+function versionAtLeast(value: string, minimum: string): boolean {
+  const left = semverTuple(value);
+  const right = semverTuple(minimum);
+  if (left === undefined || right === undefined) return false;
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (left[index] as number) - (right[index] as number);
+    if (delta !== 0) return delta > 0;
+  }
+  return true;
+}
+
+function observedClaudeVersion(stdout: string | undefined): string | undefined {
+  if (stdout === undefined || Buffer.byteLength(stdout, "utf8") > 1024) return undefined;
+  return /^(\d+\.\d+\.\d+) \(Claude Code\)\s*$/.exec(stdout)?.[1];
+}
+
+function claudeHelpMatches(command: string, stdout: string | undefined): boolean {
+  if (stdout === undefined || Buffer.byteLength(stdout, "utf8") > 64 * 1024) return false;
+  if (command === "plugin list" || command === "plugin marketplace list") return stdout.includes("--json");
+  if (!stdout.includes("--scope")) return false;
+  if (command === "plugin uninstall") {
+    return /PLUGIN/i.test(stdout) && ["user", "project", "local"].every((scope) => stdout.includes(scope));
+  }
+  return command === "plugin marketplace remove" && /name|marketplace/i.test(stdout);
+}
+
+async function observeClaudeCapability(
+  runner: ClaudeNativeRunner,
+  mode: SourceScanMode,
+) {
+  const versionResult = await runner(Object.freeze({
+    executable: "claude",
+    args: Object.freeze(["--version"]),
+    timeoutMs: CLAUDE_TIMEOUT_MS,
+  }));
+  const observedVersion = versionResult.exitCode === 0 && !versionResult.timedOut
+    ? observedClaudeVersion(versionResult.stdout)
+    : undefined;
+  if (observedVersion === undefined || !versionAtLeast(observedVersion, CLAUDE_MINIMUM_VERSION)) {
+    return undefined;
+  }
+  if (mode !== "fast") {
+    const commands = [
+      ["plugin", "list"],
+      ["plugin", "marketplace", "list"],
+      ["plugin", "uninstall"],
+      ["plugin", "marketplace", "remove"],
+    ] as const;
+    for (const parts of commands) {
+      const result = await runner(Object.freeze({
+        executable: "claude",
+        args: Object.freeze([...parts, "--help"]),
+        timeoutMs: CLAUDE_TIMEOUT_MS,
+      }));
+      if (result.exitCode !== 0 || result.timedOut ||
+          !claudeHelpMatches(parts.join(" "), result.stdout)) return undefined;
+    }
+  }
+  return createNativeHostCapability({
+    host: "claude",
+    cli: "claude",
+    minimumVersion: CLAUDE_MINIMUM_VERSION,
+    observedVersion,
+    inventorySchemaId: CLAUDE_INVENTORY_SCHEMA,
+    completeInventory: true,
+    route: "normal",
+  });
+}
+
+function normalizeClaudeUserSources(value: unknown): ClaudeUserSourceMetadata {
+  const ambiguous = (): ClaudeUserSourceMetadata => Object.freeze({
+    rawMcpPaths: Object.freeze([]),
+    manualHookPaths: Object.freeze([]),
+    cachePaths: Object.freeze([]),
+    ambiguousPaths: Object.freeze([USER_SETTINGS_SAFE_PATH]),
+  });
+  if (!isRecord(value) || !exactKeys(value, [
+    "rawMcpPaths", "manualHookPaths", "cachePaths", "ambiguousPaths",
+  ]) || !Array.isArray(value.rawMcpPaths) || !Array.isArray(value.manualHookPaths) ||
+      !Array.isArray(value.cachePaths) || !Array.isArray(value.ambiguousPaths)) return ambiguous();
+  const allowed = new Set([
+    USER_MCP_SAFE_PATH,
+    USER_SETTINGS_SAFE_PATH,
+    USER_CACHE_SAFE_PATH,
+    USER_MARKETPLACE_CACHE_SAFE_PATH,
+  ]);
+  const groups = [value.rawMcpPaths, value.manualHookPaths, value.cachePaths, value.ambiguousPaths];
+  if (groups.some((group) => group.some((item) => typeof item !== "string" || !allowed.has(item)))) {
+    return ambiguous();
+  }
+  return Object.freeze({
+    rawMcpPaths: Object.freeze([...(value.rawMcpPaths as string[])]),
+    manualHookPaths: Object.freeze([...(value.manualHookPaths as string[])]),
+    cachePaths: Object.freeze([...(value.cachePaths as string[])]),
+    ambiguousPaths: Object.freeze([...(value.ambiguousPaths as string[])]),
+  });
+}
+
+function claudeConflictFinding(
+  code: "raw_mcp_source" | "manual_hook_source" | "ambiguous_source" | "source_scan_unavailable",
+  sourceType: "raw_mcp" | "manual_hook" | "ambiguous",
+  safePath: string,
+) {
+  return createSourceFinding({
+    code,
+    severity: "conflict",
+    sourceType,
+    scope: "user",
+    safePath,
+    cleanupEligible: false,
+  });
+}
+
+function claudeMetadataFindings(metadata: ClaudeUserSourceMetadata, mode: SourceScanMode) {
+  const findings = [
+    ...metadata.rawMcpPaths.map((safePath) =>
+      claudeConflictFinding("raw_mcp_source", "raw_mcp", safePath)),
+    ...metadata.manualHookPaths.map((safePath) =>
+      claudeConflictFinding("manual_hook_source", "manual_hook", safePath)),
+    ...metadata.ambiguousPaths.map((safePath) =>
+      claudeConflictFinding("ambiguous_source", "ambiguous", safePath)),
+  ];
+  if (mode !== "fast") {
+    findings.push(...metadata.cachePaths.map((safePath) => createSourceFinding({
+      code: "cache_residue",
+      severity: "info",
+      sourceType: "cache_residue",
+      scope: "user",
+      safePath,
+      cleanupEligible: false,
+    })));
+  }
+  return findings;
+}
+
+function claudeSourceScope(scope: ParsedClaudePlugin["scope"]): "user" | "project" {
+  return scope === "user" ? "user" : "project";
+}
+
+function exactOwnedClaudePlugin(entry: ParsedClaudePlugin): boolean {
+  return OWNED_PLUGIN_NAMES.has(entry.name) &&
+    entry.marketplace === OWNED_MARKETPLACE &&
+    entry.id === `${entry.name}@${OWNED_MARKETPLACE}`;
+}
+
+function claudeFindingWithPlan(
+  plan: NativeCleanupPlan,
+  code: "owned_plugin_source" | "owned_marketplace_source",
+  scope: "user" | "project",
+) {
+  return createSourceFinding({
+    code,
+    severity: "conflict",
+    sourceType: plan.sourceType,
+    scope,
+    safePath: plan.safePath,
+    cleanupEligible: true,
+    cleanupCommand: plan.command,
+    cleanupFingerprint: plan.fingerprint,
+  });
+}
+
+function claudeManualOwnedFinding(
+  sourceType: "owned_plugin" | "owned_marketplace_registration",
+  safePath: string,
+  scope: "user" | "project" = "user",
+) {
+  return createSourceFinding({
+    code: sourceType === "owned_plugin" ? "owned_plugin_source" : "owned_marketplace_source",
+    severity: "conflict",
+    sourceType,
+    scope,
+    safePath,
+    cleanupEligible: false,
+  });
+}
+
+function claudeSourceScanUnavailable(
+  mode: SourceScanMode,
+  findings: readonly ReturnType<typeof createSourceFinding>[],
+) {
+  return createSourceScanResult(mode, [
+    ...findings,
+    claudeConflictFinding("source_scan_unavailable", "ambiguous", USER_PLUGIN_SAFE_PATH),
+  ]);
+}
+
+async function claudeNativeInventory(runner: ClaudeNativeRunner) {
+  const pluginResult = await runner(Object.freeze({
+    executable: "claude",
+    args: Object.freeze(["plugin", "list", "--json"]),
+    timeoutMs: CLAUDE_TIMEOUT_MS,
+  }));
+  const marketplaceResult = await runner(Object.freeze({
+    executable: "claude",
+    args: Object.freeze(["plugin", "marketplace", "list", "--json"]),
+    timeoutMs: CLAUDE_TIMEOUT_MS,
+  }));
+  return { pluginResult, marketplaceResult };
+}
+
+async function scanClaudeUserSources(
+  mode: SourceScanMode,
+  runner: ClaudeNativeRunner,
+  readUserSources: ClaudeUserSourceReader,
+): Promise<SourceScanResult> {
+  let metadata: ClaudeUserSourceMetadata;
+  try {
+    metadata = normalizeClaudeUserSources(await readUserSources());
+  } catch {
+    metadata = normalizeClaudeUserSources({});
+  }
+  const findings = claudeMetadataFindings(metadata, mode);
+  let capability: ReturnType<typeof createNativeHostCapability> | undefined;
+  try {
+    capability = await observeClaudeCapability(runner, mode);
+  } catch {
+    capability = undefined;
+  }
+  if (capability === undefined) return claudeSourceScanUnavailable(mode, findings);
+  let pluginResult: ClaudeNativeResult;
+  let marketplaceResult: ClaudeNativeResult;
+  try {
+    ({ pluginResult, marketplaceResult } = await claudeNativeInventory(runner));
+  } catch {
+    return claudeSourceScanUnavailable(mode, findings);
+  }
+  if (pluginResult.exitCode !== 0 || pluginResult.timedOut || pluginResult.stdout === undefined ||
+      marketplaceResult.exitCode !== 0 || marketplaceResult.timedOut || marketplaceResult.stdout === undefined) {
+    return claudeSourceScanUnavailable(mode, findings);
+  }
+  const plugins = parseClaudePluginInventory(pluginResult.stdout);
+  const marketplaces = parseClaudeMarketplaceInventory(marketplaceResult.stdout);
+  if (plugins === undefined || marketplaces === undefined) {
+    return claudeSourceScanUnavailable(mode, findings);
+  }
+  const marketplacePlugins = plugins.filter((entry) => entry.marketplace === OWNED_MARKETPLACE);
+  const relatedPlugins = plugins.filter((entry) =>
+    /kcoderag/i.test(entry.name) || /kcoderag/i.test(entry.id) || entry.marketplace === OWNED_MARKETPLACE);
+  const relatedMarketplaces = marketplaces.filter((entry) => /kcoderag/i.test(entry.name));
+  const exactMarketplace = relatedMarketplaces.length === 1 && relatedMarketplaces[0]?.name === OWNED_MARKETPLACE;
+  const malformedRelated = relatedPlugins.some((entry) => !exactOwnedClaudePlugin(entry)) ||
+    relatedMarketplaces.some((entry) => entry.name !== OWNED_MARKETPLACE) ||
+    relatedMarketplaces.length > 1 ||
+    (relatedPlugins.length > 0 && !exactMarketplace);
+  if (malformedRelated) {
+    return createSourceScanResult(mode, [
+      ...findings,
+      claudeConflictFinding("ambiguous_source", "ambiguous", USER_PLUGIN_SAFE_PATH),
+    ]);
+  }
+  const activePlugins = relatedPlugins.filter((entry) => entry.enabled);
+  const disabledPlugins = relatedPlugins.filter((entry) => !entry.enabled);
+  if (mode !== "fast") {
+    findings.push(...disabledPlugins.map((entry) => createSourceFinding({
+      code: "disabled_source",
+      severity: "info",
+      sourceType: "disabled_registration",
+      scope: claudeSourceScope(entry.scope),
+      safePath: USER_PLUGIN_SAFE_PATH,
+      cleanupEligible: false,
+    })));
+  }
+  const hasManualConflict = findings.some((finding) => finding.severity === "conflict");
+  if (activePlugins.length > 1) {
+    return createSourceScanResult(mode, [
+      ...findings,
+      claudeConflictFinding("ambiguous_source", "ambiguous", USER_PLUGIN_SAFE_PATH),
+    ]);
+  }
+  const activePlugin = activePlugins[0];
+  if (activePlugin !== undefined) {
+    const sourceScope = claudeSourceScope(activePlugin.scope);
+    if (mode === "fast" || hasManualConflict) {
+      return createSourceScanResult(mode, [
+        ...findings,
+        claudeManualOwnedFinding("owned_plugin", USER_PLUGIN_SAFE_PATH, sourceScope),
+      ]);
+    }
+    const plan = createNativeCleanupPlan({
+      host: "claude",
+      sourceType: "owned_plugin",
+      safePath: USER_PLUGIN_SAFE_PATH,
+      capability,
+      argv: ["claude", "plugin", "uninstall", activePlugin.id, "--scope", activePlugin.scope],
+      scope: `plugin:${activePlugin.scope}:${activePlugin.name}`,
+      timeoutMs: CLAUDE_TIMEOUT_MS,
+    });
+    return createSourceScanResult(mode, [
+      ...findings,
+      claudeFindingWithPlan(plan, "owned_plugin_source", sourceScope),
+    ], [plan]);
+  }
+  if (exactMarketplace) {
+    const scopes = new Set(marketplacePlugins.map((entry) => entry.scope));
+    const exclusive = marketplacePlugins.length > 0 &&
+      marketplacePlugins.every(exactOwnedClaudePlugin) && scopes.size === 1;
+    const nativeScope = exclusive ? marketplacePlugins[0]?.scope : undefined;
+    const sourceScope = nativeScope === undefined ? "user" : claudeSourceScope(nativeScope);
+    if (mode === "fast" || hasManualConflict || nativeScope === undefined) {
+      return createSourceScanResult(mode, [
+        ...findings,
+        claudeManualOwnedFinding("owned_marketplace_registration", USER_PLUGIN_SAFE_PATH, sourceScope),
+      ]);
+    }
+    const plan = createNativeCleanupPlan({
+      host: "claude",
+      sourceType: "owned_marketplace_registration",
+      safePath: USER_PLUGIN_SAFE_PATH,
+      capability,
+      argv: ["claude", "plugin", "marketplace", "remove", OWNED_MARKETPLACE, "--scope", nativeScope],
+      scope: `marketplace:${nativeScope}:${OWNED_MARKETPLACE}`,
+      timeoutMs: CLAUDE_TIMEOUT_MS,
+    });
+    return createSourceScanResult(mode, [
+      ...findings,
+      claudeFindingWithPlan(plan, "owned_marketplace_source", sourceScope),
+    ], [plan]);
+  }
+  return createSourceScanResult(mode, findings);
+}
+
 function claudeStatus(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
   if (issue !== undefined) {
@@ -1052,14 +1609,57 @@ function claudeStatus(context: HostStatusContext) {
   }
 }
 
-export const claudeAdapter: HostAdapter = Object.freeze({
-  id: "claude",
-  managedRoots: MANAGED_ROOTS,
-  detect: detectClaude,
-  renderInstall,
-  renderUninstall,
-  status: claudeStatus,
-});
+export function createClaudeAdapter(options: ClaudeAdapterOptions = {}): HostAdapter {
+  const runner = options.runner ?? defaultClaudeRunner;
+  const userHome = path.resolve(options.homeDirectory ?? os.homedir());
+  const claudeRoot = options.homeDirectory === undefined
+    ? path.resolve(process.env.CLAUDE_CONFIG_DIR ?? path.join(userHome, ".claude"))
+    : path.join(userHome, ".claude");
+  const readUserSources = options.readUserSources ?? defaultClaudeUserSourceReader(claudeRoot, userHome);
+  const issuedPlans = new Map<string, NativeCleanupPlan>();
+
+  const scanUserSources = async (context: HostSourceScanContext): Promise<SourceScanResult> => {
+    if (context.observation.host !== "claude" || context.observation.target !== context.target) {
+      throw new InstallError("invalid_host_adapter");
+    }
+    const result = await scanClaudeUserSources(context.mode, runner, readUserSources);
+    issuedPlans.clear();
+    for (const plan of result.cleanupPlans) issuedPlans.set(plan.fingerprint, plan);
+    return result;
+  };
+
+  const cleanupOwnedSource = async (
+    plan: NativeCleanupPlan,
+    authority: OwnedCleanupAuthority,
+  ): Promise<SourceScanResult> => {
+    if (plan.host !== "claude" || issuedPlans.get(plan.fingerprint) !== plan) {
+      throw new InstallError("cleanup_fingerprint_mismatch");
+    }
+    issuedPlans.delete(plan.fingerprint);
+    await runOwnedSourceCleanup(plan, authority, async (request) => {
+      const result = await runner(request);
+      return Object.freeze({ exitCode: result.exitCode, timedOut: result.timedOut });
+    });
+    const result = await scanClaudeUserSources("gate", runner, readUserSources);
+    issuedPlans.clear();
+    for (const nextPlan of result.cleanupPlans) issuedPlans.set(nextPlan.fingerprint, nextPlan);
+    return result;
+  };
+
+  return Object.freeze({
+    id: "claude" as const,
+    managedRoots: MANAGED_ROOTS,
+    detect: detectClaude,
+    renderInstall,
+    renderUninstall,
+    status: claudeStatus,
+    scanUserSources,
+    cleanupOwnedSource,
+  });
+}
+
+export const claudeAdapter: HostAdapter = createClaudeAdapter();
 
 exports.STATE_PATH = STATE_PATH;
 exports.managedPaths = managedPaths;
+exports.createClaudeAdapter = createClaudeAdapter;
