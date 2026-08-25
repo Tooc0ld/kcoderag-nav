@@ -309,6 +309,24 @@ function exactCleanupPlan(scan: SourceScanResult): NativeCleanupPlan | undefined
   return scan.cleanupPlans[0];
 }
 
+/** Exact digest-owned Cursor legacy migration is governed by its separate authority, never native cleanup. */
+function isCursorLegacyMigrationSource(
+  host: HostId,
+  observation: HostObservation,
+  scan: SourceScanResult,
+): boolean {
+  if (host !== "cursor" || observation.legacyUserRemoval === undefined || scan.cleanupPlans.length !== 0) {
+    return false;
+  }
+  const conflicts = scan.findings.filter((finding) => finding.severity === "conflict");
+  return conflicts.length === 1 &&
+    conflicts[0]?.code === "active_plugin_source" &&
+    conflicts[0].sourceType === "active_plugin" &&
+    conflicts[0].scope === "user" &&
+    conflicts[0].safePath === ".cursor/plugins/local/kcoderag-nav" &&
+    conflicts[0].cleanupEligible === false;
+}
+
 async function ownedCleanupAuthority(
   args: ParsedArguments,
   request: TargetConfirmation,
@@ -493,7 +511,7 @@ export async function executeCommand(
 
     if (args.command === "install" || args.command === "update") {
       let sourceScan = await scanUserSources(adapter, "gate", target, packageRoot, observation);
-      if (sourceScan.hasConflict) {
+      if (sourceScan.hasConflict && !isCursorLegacyMigrationSource(host, observation, sourceScan)) {
         const plan = exactCleanupPlan(sourceScan);
         if (plan === undefined || adapter.cleanupOwnedSource === undefined) {
           throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);

@@ -32,9 +32,16 @@ import type {
   HostAdapter,
   HostInstallContext,
   HostObservation,
+  HostSourceScanContext,
   HostStatusContext,
   HostUninstallContext,
 } from "./host-adapter.cjs";
+import {
+  createSourceFinding,
+  createSourceScanResult,
+  type SourceScanMode,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 
@@ -54,8 +61,21 @@ interface CursorObservationDetails {
   readonly legacyProjectState?: LegacyInstallState;
 }
 
-interface CursorAdapterOptions {
+export interface CursorUserSourceMetadata {
+  readonly activePluginPaths: readonly string[];
+  readonly rawMcpPaths: readonly string[];
+  readonly manualRulePaths: readonly string[];
+  readonly cachePaths: readonly string[];
+  readonly disabledPaths: readonly string[];
+  readonly ambiguousPaths: readonly string[];
+}
+
+export type CursorUserSourceReader = () => CursorUserSourceMetadata | Promise<CursorUserSourceMetadata>;
+
+export interface CursorAdapterOptions {
   readonly legacyLocalRoot?: string;
+  readonly homeDirectory?: string;
+  readonly readUserSources?: CursorUserSourceReader;
 }
 
 interface MigrationOptions {
@@ -98,6 +118,13 @@ const MANAGED_ROOTS = Object.freeze([".cursor"] as const);
 const LEGACY_PLUGIN_NAME = "kcoderag-nav";
 const LEGACY_STATE_NAME = ".kcoderag-nav.install-state.json";
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
+const USER_PLUGIN_SAFE_PATH = ".cursor/plugins";
+const USER_LEGACY_PLUGIN_SAFE_PATH = ".cursor/plugins/local/kcoderag-nav";
+const USER_MCP_SAFE_PATH = ".cursor/mcp.json";
+const USER_RULE_SAFE_PATH = ".cursor/rules/kcoderag-navigation.mdc";
+const USER_SKILL_SAFE_PATH = ".cursor/skills/kcoderag-nav/SKILL.md";
+const USER_CACHE_SAFE_PATH = ".cursor/plugins/cache/kcoderag-nav";
+const USER_DISABLED_SAFE_PATH = ".cursor/plugins/disabled/kcoderag-nav";
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -828,6 +855,266 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   });
 }
 
+type CursorLegacyMetadataState = "absent" | "active" | "ambiguous";
+
+function inspectCursorLegacyMetadata(legacyLocalRoot: string): CursorLegacyMetadataState {
+  const pluginRoot = path.join(legacyLocalRoot, LEGACY_PLUGIN_NAME);
+  const statePath = path.join(legacyLocalRoot, LEGACY_STATE_NAME);
+  try {
+    let rootMetadata: import("node:fs").Stats;
+    try {
+      rootMetadata = fs.lstatSync(legacyLocalRoot);
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "ambiguous";
+    }
+    if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) return "ambiguous";
+    const pluginExists = fs.existsSync(pluginRoot);
+    const stateExists = fs.existsSync(statePath);
+    if (!pluginExists && !stateExists) return "absent";
+    if (!pluginExists || !stateExists) return "ambiguous";
+    const pluginMetadata = fs.lstatSync(pluginRoot);
+    const stateMetadata = fs.lstatSync(statePath);
+    if (pluginMetadata.isSymbolicLink() || !pluginMetadata.isDirectory() ||
+        stateMetadata.isSymbolicLink() || !stateMetadata.isFile() || stateMetadata.size > 1024 * 1024) {
+      return "ambiguous";
+    }
+    const state = parseLegacyState(fs.readFileSync(statePath));
+    const digests: Record<string, string> = {};
+    const directories = new Set<string>();
+    let totalBytes = 0;
+    const visit = (directory: string): void => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const absolute = path.join(directory, entry.name);
+        const relativePath = path.relative(pluginRoot, absolute).split(path.sep).join("/");
+        const metadata = fs.lstatSync(absolute);
+        if (metadata.isSymbolicLink()) throw new Error("symlink");
+        if (metadata.isDirectory()) {
+          directories.add(relativePath);
+          visit(absolute);
+        } else if (metadata.isFile()) {
+          if (metadata.size > 4 * 1024 * 1024) throw new Error("oversized");
+          totalBytes += metadata.size;
+          if (totalBytes > 16 * 1024 * 1024) throw new Error("oversized");
+          digests[relativePath] = sha256(fs.readFileSync(absolute));
+        } else {
+          throw new Error("special");
+        }
+      }
+    };
+    visit(pluginRoot);
+    const actualPaths = Object.keys(digests).sort((left, right) => left.localeCompare(right));
+    const expectedPaths = Object.keys(state.digests).sort((left, right) => left.localeCompare(right));
+    if (actualPaths.join("\0") !== expectedPaths.join("\0")) return "ambiguous";
+    if (actualPaths.some((relativePath) => digests[relativePath] !== state.digests[relativePath])) {
+      return "ambiguous";
+    }
+    const expectedDirectories = expectedLegacyDirectories(expectedPaths);
+    if ([...directories].sort().join("\0") !== [...expectedDirectories].sort().join("\0")) {
+      return "ambiguous";
+    }
+    return "active";
+  } catch {
+    return "ambiguous";
+  }
+}
+
+function readBoundedCursorText(filePath: string, maximumBytes: number): string | undefined {
+  try {
+    const metadata = fs.lstatSync(filePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > maximumBytes) return undefined;
+    return new TextDecoder("utf-8", { fatal: true }).decode(fs.readFileSync(filePath));
+  } catch {
+    return undefined;
+  }
+}
+
+function cursorMcpMentionsKCodeRag(text: string): boolean {
+  return /"mcpServers"\s*:\s*\{[\s\S]{0,262144}?"kcoderag(?:-(?:qa|dev|nav))?"\s*:/i.test(text);
+}
+
+function inspectCursorPath(
+  absolutePath: string,
+  safePath: string,
+  present: Set<string>,
+  ambiguous: Set<string>,
+): void {
+  try {
+    const metadata = fs.lstatSync(absolutePath);
+    if (metadata.isSymbolicLink() || (!metadata.isFile() && !metadata.isDirectory())) {
+      ambiguous.add(safePath);
+    } else {
+      present.add(safePath);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") ambiguous.add(safePath);
+  }
+}
+
+function defaultCursorUserSourceReader(
+  legacyLocalRoot: string,
+  cursorRoot: string,
+): CursorUserSourceReader {
+  return () => {
+    const activePluginPaths = new Set<string>();
+    const rawMcpPaths = new Set<string>();
+    const manualRulePaths = new Set<string>();
+    const cachePaths = new Set<string>();
+    const disabledPaths = new Set<string>();
+    const ambiguousPaths = new Set<string>();
+    const legacyState = inspectCursorLegacyMetadata(legacyLocalRoot);
+    if (legacyState === "active") activePluginPaths.add(USER_LEGACY_PLUGIN_SAFE_PATH);
+    if (legacyState === "ambiguous") ambiguousPaths.add(USER_LEGACY_PLUGIN_SAFE_PATH);
+
+    const mcpPath = path.join(cursorRoot, "mcp.json");
+    const mcpText = readBoundedCursorText(mcpPath, 1024 * 1024);
+    if (fs.existsSync(mcpPath) && mcpText === undefined) ambiguousPaths.add(USER_MCP_SAFE_PATH);
+    else if (mcpText !== undefined && cursorMcpMentionsKCodeRag(mcpText)) rawMcpPaths.add(USER_MCP_SAFE_PATH);
+
+    inspectCursorPath(
+      path.join(cursorRoot, "rules", "kcoderag-navigation.mdc"),
+      USER_RULE_SAFE_PATH,
+      manualRulePaths,
+      ambiguousPaths,
+    );
+    inspectCursorPath(
+      path.join(cursorRoot, "skills", "kcoderag-nav", "SKILL.md"),
+      USER_SKILL_SAFE_PATH,
+      manualRulePaths,
+      ambiguousPaths,
+    );
+    inspectCursorPath(
+      path.join(cursorRoot, "plugins", "cache", LEGACY_PLUGIN_NAME),
+      USER_CACHE_SAFE_PATH,
+      cachePaths,
+      ambiguousPaths,
+    );
+    inspectCursorPath(
+      path.join(cursorRoot, "plugins", "disabled", LEGACY_PLUGIN_NAME),
+      USER_DISABLED_SAFE_PATH,
+      disabledPaths,
+      ambiguousPaths,
+    );
+    return Object.freeze({
+      activePluginPaths: Object.freeze([...activePluginPaths]),
+      rawMcpPaths: Object.freeze([...rawMcpPaths]),
+      manualRulePaths: Object.freeze([...manualRulePaths]),
+      cachePaths: Object.freeze([...cachePaths]),
+      disabledPaths: Object.freeze([...disabledPaths]),
+      ambiguousPaths: Object.freeze([...ambiguousPaths]),
+    });
+  };
+}
+
+function cursorMetadataExactKeys(value: JsonMap, required: readonly string[]): boolean {
+  const allowed = new Set(required);
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key));
+}
+
+function normalizeCursorUserSources(value: unknown): CursorUserSourceMetadata {
+  const ambiguous = (): CursorUserSourceMetadata => Object.freeze({
+    activePluginPaths: Object.freeze([]),
+    rawMcpPaths: Object.freeze([]),
+    manualRulePaths: Object.freeze([]),
+    cachePaths: Object.freeze([]),
+    disabledPaths: Object.freeze([]),
+    ambiguousPaths: Object.freeze([USER_PLUGIN_SAFE_PATH]),
+  });
+  const keys = [
+    "activePluginPaths", "rawMcpPaths", "manualRulePaths", "cachePaths", "disabledPaths", "ambiguousPaths",
+  ] as const;
+  if (!isRecord(value) || !cursorMetadataExactKeys(value, keys) ||
+      keys.some((key) => !Array.isArray(value[key]))) return ambiguous();
+  const allowedByGroup = {
+    activePluginPaths: new Set([USER_LEGACY_PLUGIN_SAFE_PATH]),
+    rawMcpPaths: new Set([USER_MCP_SAFE_PATH]),
+    manualRulePaths: new Set([USER_RULE_SAFE_PATH, USER_SKILL_SAFE_PATH]),
+    cachePaths: new Set([USER_CACHE_SAFE_PATH]),
+    disabledPaths: new Set([USER_DISABLED_SAFE_PATH]),
+    ambiguousPaths: new Set([
+      USER_PLUGIN_SAFE_PATH,
+      USER_LEGACY_PLUGIN_SAFE_PATH,
+      USER_MCP_SAFE_PATH,
+      USER_RULE_SAFE_PATH,
+      USER_SKILL_SAFE_PATH,
+      USER_CACHE_SAFE_PATH,
+      USER_DISABLED_SAFE_PATH,
+    ]),
+  } as const;
+  for (const key of keys) {
+    const items = value[key] as unknown[];
+    if (items.some((item) => typeof item !== "string" || !allowedByGroup[key].has(item))) {
+      return ambiguous();
+    }
+  }
+  return Object.freeze({
+    activePluginPaths: Object.freeze([...(value.activePluginPaths as string[])]),
+    rawMcpPaths: Object.freeze([...(value.rawMcpPaths as string[])]),
+    manualRulePaths: Object.freeze([...(value.manualRulePaths as string[])]),
+    cachePaths: Object.freeze([...(value.cachePaths as string[])]),
+    disabledPaths: Object.freeze([...(value.disabledPaths as string[])]),
+    ambiguousPaths: Object.freeze([...(value.ambiguousPaths as string[])]),
+  });
+}
+
+function cursorConflictFinding(
+  code: "active_plugin_source" | "raw_mcp_source" | "manual_rule_source" | "ambiguous_source",
+  sourceType: "active_plugin" | "raw_mcp" | "manual_rule" | "ambiguous",
+  safePath: string,
+) {
+  return createSourceFinding({
+    code,
+    severity: "conflict",
+    sourceType,
+    scope: "user",
+    safePath,
+    cleanupEligible: false,
+  });
+}
+
+async function scanCursorUserSources(
+  mode: SourceScanMode,
+  readUserSources: CursorUserSourceReader,
+): Promise<SourceScanResult> {
+  let metadata: CursorUserSourceMetadata;
+  try {
+    metadata = normalizeCursorUserSources(await readUserSources());
+  } catch {
+    metadata = normalizeCursorUserSources({});
+  }
+  const findings = [
+    ...metadata.activePluginPaths.map((safePath) =>
+      cursorConflictFinding("active_plugin_source", "active_plugin", safePath)),
+    ...metadata.rawMcpPaths.map((safePath) =>
+      cursorConflictFinding("raw_mcp_source", "raw_mcp", safePath)),
+    ...metadata.manualRulePaths.map((safePath) =>
+      cursorConflictFinding("manual_rule_source", "manual_rule", safePath)),
+    ...metadata.ambiguousPaths.map((safePath) =>
+      cursorConflictFinding("ambiguous_source", "ambiguous", safePath)),
+  ];
+  if (mode !== "fast") {
+    findings.push(
+      ...metadata.cachePaths.map((safePath) => createSourceFinding({
+        code: "cache_residue",
+        severity: "info",
+        sourceType: "cache_residue",
+        scope: "user",
+        safePath,
+        cleanupEligible: false,
+      })),
+      ...metadata.disabledPaths.map((safePath) => createSourceFinding({
+        code: "disabled_source",
+        severity: "info",
+        sourceType: "disabled_registration",
+        scope: "user",
+        safePath,
+        cleanupEligible: false,
+      })),
+    );
+  }
+  return createSourceScanResult(mode, findings);
+}
+
 function cursorStatus(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
   if (issue !== undefined) {
@@ -1361,9 +1648,12 @@ export function migrateCursorLegacyInstall(
 }
 
 export function createCursorAdapter(options: CursorAdapterOptions = {}): CursorMigrationAdapter {
+  const userHome = path.resolve(options.homeDirectory ?? os.homedir());
+  const cursorRoot = path.join(userHome, ".cursor");
   const legacyLocalRoot = path.resolve(
-    options.legacyLocalRoot ?? path.join(os.homedir(), ".cursor", "plugins", "local"),
+    options.legacyLocalRoot ?? path.join(cursorRoot, "plugins", "local"),
   );
+  const readUserSources = options.readUserSources ?? defaultCursorUserSourceReader(legacyLocalRoot, cursorRoot);
   const adapter: CursorMigrationAdapter = {
     id: "cursor" as const,
     managedRoots: MANAGED_ROOTS,
@@ -1371,6 +1661,12 @@ export function createCursorAdapter(options: CursorAdapterOptions = {}): CursorM
     renderInstall,
     renderUninstall,
     status: cursorStatus,
+    scanUserSources: (context: HostSourceScanContext) => {
+      if (context.observation.host !== "cursor" || context.observation.target !== context.target) {
+        throw new InstallError("invalid_host_adapter");
+      }
+      return scanCursorUserSources(context.mode, readUserSources);
+    },
     migrateLegacy: (desired, observation) => migrateCursorLegacyInstall(desired, observation),
   };
   return Object.freeze(adapter);

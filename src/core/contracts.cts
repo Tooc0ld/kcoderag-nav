@@ -23,6 +23,7 @@ export type SourceType =
   | "owned_marketplace_registration"
   | "raw_mcp"
   | "manual_hook"
+  | "manual_rule"
   | "cache_residue"
   | "disabled_registration"
   | "ambiguous";
