@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-05-PLAN.md
-last_updated: "2026-08-25T08:31:04.865Z"
+stopped_at: Completed 04-08-PLAN.md
+last_updated: "2026-08-25T08:38:34.850Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: fcf67e153e5112fa69463dde1c4d43651acd443c
+state_head: 1c3e977cdd99da9a64f3ea208d73811c6cc03187
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 42
+  completed_plans: 43
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 9 of 19
+Plan: 10 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -96,6 +96,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P04 | 23min | 3 tasks | 11 files |
 | Phase 04 P09 | 10min | 2 tasks | 5 files |
 | Phase 04 P05 | 35min | 3 tasks | 13 files |
+| Phase 04 P08 | 12min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -215,6 +216,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Owned source cleanup requires dedicated authority bound to a fresh canonical SHA-256 fingerprint and a complete clean rescan before project rendering.
 - [Phase 04]: The degraded Codex route recognizes only the exact owned kcoderag-nav marketplace registration; every ambiguous, raw, or manual source remains manual-only.
 - [Phase 04]: Status uses a bounded fast scan, doctor is deep and read-only, and install/update independently run the full selected-host gate.
+- [Phase 04]: Plan 04-08 keeps generated QA runtime provenance at atomic commit 022a9d8 when fresh rendering produces zero byte changes.
+- [Phase 04]: Nearest-state discovery remains in the registered rootless bootstrap; selected launchers stay self-relative and fail-open.
 
 ### Pending Todos
 
@@ -273,6 +276,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T08:31:04.543Z
-Stopped at: Completed 04-05-PLAN.md
+Last session: 2026-08-25T08:38:34.522Z
+Stopped at: Completed 04-08-PLAN.md
 Resume file: None
