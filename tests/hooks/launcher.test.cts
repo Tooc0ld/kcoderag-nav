@@ -278,6 +278,40 @@ function runWindows(
   );
 }
 
+interface AsyncLauncherResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function runWindowsAsync(
+  fixture: Deployment,
+  input = structuralPayload,
+  env = environment(),
+): Promise<AsyncLauncherResult> {
+  const comspec = process.env.COMSPEC ?? "cmd.exe";
+  return new Promise((resolve, reject) => {
+    const child = childProcess.spawn(
+      comspec,
+      ["/d", "/c", "call", path.join(fixture.hooks, "run_hook.cmd")],
+      { cwd: fixture.cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => { stdout.push(chunk); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr.push(chunk); });
+    child.once("error", reject);
+    child.once("close", (status) => {
+      resolve({
+        status,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+      });
+    });
+    child.stdin.end(`${input}\n`, "utf8");
+  });
+}
+
 function posixShell(): string | undefined {
   for (const candidate of process.platform === "win32"
     ? ["C:/Program Files/Git/bin/sh.exe", "C:/Program Files/Git/usr/bin/sh.exe"]
@@ -649,6 +683,25 @@ if (process.platform === "win32") {
 
       fs.rmSync(path.join(fixture.hooks, "grep-nudge.cjs"));
       assertSilentSuccess(runWindows(fixture));
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("Windows launcher isolates concurrent stdout buffers", async () => {
+    const fixture = deployment();
+    try {
+      const results = await Promise.all(Array.from({ length: 8 }, () => runWindowsAsync(fixture)));
+      for (const [index, result] of results.entries()) {
+        assert.equal(result.status, 0, `concurrent launcher ${index}`);
+        assert.equal(result.stderr, "", `concurrent launcher ${index}`);
+        assert.notEqual(result.stdout, "", `concurrent launcher ${index}`);
+        const parsed = JSON.parse(result.stdout) as {
+          hookSpecificOutput: { hookEventName: string; additionalContext: string };
+        };
+        assert.equal(parsed.hookSpecificOutput.hookEventName, "PreToolUse", `concurrent launcher ${index}`);
+        assert.match(parsed.hookSpecificOutput.additionalContext, /Structural lookup/, `concurrent launcher ${index}`);
+      }
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
