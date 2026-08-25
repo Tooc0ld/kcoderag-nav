@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 1
 waived_count: 0
-fixed_count: 9
-total_count: 10
-last_updated: 2026-08-24T02:29:02.944Z
+fixed_count: 10
+total_count: 11
+last_updated: 2026-08-25T07:31:16.938Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-08-24T02:29:02.944Z
 | 8 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Used a normal-hook temporary clone and exact fast-forward because the sibling dirty staged index rejected a path-only commit. | fixed |  | 2026-08-23T19:34:33.821Z | 2026-08-23T19:34:39.700Z |
 | 9 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Retried the guide-only commit with an isolated temporary environment after shared virtual-environment reuse hit an in-use executable. | fixed |  | 2026-08-23T19:34:34.074Z | 2026-08-23T19:34:39.951Z |
 | 10 | 03.1 | lint-warning | .github/workflows/release.yml |  | Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins. | open |  | 2026-08-24T02:29:02.944Z |  |
+| 11 | 04 | deviation | package.json |  | Added the compiled project-root module to the public package inventory because host adapters import it. | fixed |  | 2026-08-25T07:30:31.828Z | 2026-08-25T07:31:16.938Z |
 
 ````json
 [
@@ -147,6 +148,18 @@ last_updated: 2026-08-24T02:29:02.944Z
     "reason": "",
     "recorded_at": "2026-08-24T02:29:02.944Z",
     "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "package.json",
+    "line": null,
+    "description": "Added the compiled project-root module to the public package inventory because host adapters import it.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T07:30:31.828Z",
+    "resolved_at": "2026-08-25T07:31:16.938Z"
   }
 ]
 ````
