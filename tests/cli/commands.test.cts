@@ -30,7 +30,7 @@ function fixture(): { root: string; target: string } {
 function makeAdapter(
   host: HostId,
   calls: string[],
-  options: { legacy?: boolean } = {},
+  options: { legacy?: boolean; legacyDev?: boolean } = {},
 ): Record<string, unknown> {
   return {
     id: host,
@@ -43,10 +43,13 @@ function makeAdapter(
         ...(options.legacy
           ? { legacyUserRemoval: { path: path.join(os.tmpdir(), "legacy-kcoderag-nav") } }
           : {}),
+        ...(options.legacyDev ? { legacyEnvironment: "dev" } : {}),
       };
     },
     renderInstall(context: Record<string, any>) {
-      calls.push(`${host}:renderInstall:${String(context.allowLegacyUserRemoval)}`);
+      calls.push(
+        `${host}:renderInstall:${String(context.allowLegacyUserRemoval)}:${String(context.allowLegacyDevMigration)}`,
+      );
       const payloadPath = path.join(context.target.root, `.fixture-${host}/payload.txt`);
       const statePath = path.join(context.target.root, `.fixture-${host}/install-state.json`);
       const currentPayload = fs.existsSync(payloadPath) ? fs.readFileSync(payloadPath) : undefined;
@@ -139,7 +142,7 @@ test("one explicit host selects one pure adapter and commits through shared desi
     );
 
     assert.equal(exitCode, 0);
-    assert.deepEqual(calls, ["codex:detect", "codex:renderInstall:false"]);
+    assert.deepEqual(calls, ["codex:detect", "codex:renderInstall:false:false"]);
     assert.equal(
       fs.readFileSync(path.join(item.target, ".fixture-codex/payload.txt"), "utf8"),
       "codex:install\n",
@@ -147,9 +150,118 @@ test("one explicit host selects one pure adapter and commits through shared desi
     assert.equal(fs.existsSync(path.join(item.target, ".fixture-claude")), false);
     assert.equal(fs.existsSync(path.join(item.target, ".fixture-cursor")), false);
     assert.equal(captured.stderr.length, 0);
-    assert.equal(JSON.parse(captured.stdout[0] ?? "").ok, true);
+    const output = JSON.parse(captured.stdout[0] ?? "") as Record<string, unknown>;
+    assert.equal(output.ok, true);
+    assert.equal(output.environment, "qa");
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("retired environment selectors refuse before adapter detection and preserve the target", async () => {
+  for (const environment of ["qa", "dev"] as const) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapters = {
+        codex: makeAdapter("codex", calls),
+        claude: makeAdapter("claude", calls),
+        cursor: makeAdapter("cursor", calls),
+      };
+      const captured = io(item.target, adapters);
+      const before = fs.readdirSync(item.target);
+      const exitCode = await commands.executeCommand(
+        ["install", "--host", "codex", "--yes", "--json", "--environment", environment],
+        captured.dependencies,
+      );
+
+      assert.equal(exitCode, 2);
+      assert.deepEqual(calls, []);
+      assert.deepEqual(fs.readdirSync(item.target), before);
+      assert.equal(captured.stdout.length, 1);
+      assert.equal(captured.stderr.length, 0);
+      assert.equal(
+        JSON.parse(captured.stdout[0] ?? "").error.code,
+        "environment_selector_retired",
+      );
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("legacy Dev migration authority is independent, mutation-only, and observation-bound", async () => {
+  const scenarios = [
+    {
+      argv: ["status", "--host", "codex", "--json", "--allow-legacy-dev-migration"],
+      legacyDev: true,
+      expectedCode: "legacy_dev_migration_authority_invalid",
+      expectedCalls: [],
+    },
+    {
+      argv: ["uninstall", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
+      legacyDev: true,
+      expectedCode: "legacy_dev_migration_authority_invalid",
+      expectedCalls: [],
+    },
+    {
+      argv: ["install", "--host", "codex", "--yes", "--json"],
+      legacyDev: true,
+      expectedCode: "legacy_dev_migration_authority_required",
+      expectedCalls: ["codex:detect"],
+    },
+    {
+      argv: ["install", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
+      legacyDev: false,
+      expectedCode: "legacy_dev_migration_authority_invalid",
+      expectedCalls: ["codex:detect"],
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const item = fixture();
+    try {
+      const calls: string[] = [];
+      const adapters = {
+        codex: makeAdapter("codex", calls, { legacyDev: scenario.legacyDev }),
+        claude: makeAdapter("claude", calls),
+        cursor: makeAdapter("cursor", calls),
+      };
+      const captured = io(item.target, adapters);
+      const before = fs.readdirSync(item.target);
+      const exitCode = await commands.executeCommand([...scenario.argv], captured.dependencies);
+
+      assert.equal(exitCode, 2);
+      assert.deepEqual(calls, scenario.expectedCalls);
+      assert.deepEqual(fs.readdirSync(item.target), before);
+      assert.equal(captured.stdout.length, 1);
+      assert.equal(captured.stderr.length, 0);
+      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, scenario.expectedCode);
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+
+  const allowed = fixture();
+  try {
+    const calls: string[] = [];
+    const adapters = {
+      codex: makeAdapter("codex", calls, { legacyDev: true }),
+      claude: makeAdapter("claude", calls),
+      cursor: makeAdapter("cursor", calls),
+    };
+    const captured = io(allowed.target, adapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["update", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
+        captured.dependencies,
+      ),
+      0,
+    );
+    assert.deepEqual(calls, ["codex:detect", "codex:renderInstall:false:true"]);
+    assert.equal(JSON.parse(captured.stdout[0] ?? "").environment, "qa");
+  } finally {
+    fs.rmSync(allowed.root, { recursive: true, force: true });
   }
 });
 
@@ -235,7 +347,7 @@ test("all five commands dispatch through the lifecycle seam and read-only comman
         calls[1],
         command === "uninstall"
           ? "codex:renderUninstall"
-          : `codex:renderInstall:false`,
+          : `codex:renderInstall:false:false`,
       );
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
@@ -370,7 +482,7 @@ test("explicit legacy authority is forwarded only to Cursor and never inferred o
       ),
       0,
     );
-    assert.deepEqual(cursorCalls, ["cursor:detect", "cursor:renderInstall:true"]);
+    assert.deepEqual(cursorCalls, ["cursor:detect", "cursor:renderInstall:true:false"]);
 
     const mismatchTarget = path.join(item.root, "mismatch");
     fs.mkdirSync(mismatchTarget);
