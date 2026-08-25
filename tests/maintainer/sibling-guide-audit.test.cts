@@ -10,10 +10,13 @@ type JsonMap = Record<string, any>;
 interface AuditOptions {
   readonly siblingRepo: string;
   readonly navRepo: string;
+  readonly expectedGuideDigest?: string;
+  readonly expectedGuideCommit?: string;
 }
 
 interface AuditModule {
   captureBaseline(options: AuditOptions): JsonMap;
+  auditAuthoritativeGuide(options: AuditOptions): JsonMap;
   recordSiblingReceipt(baseline: JsonMap, options: AuditOptions): JsonMap;
   verifySiblingReceipt(receipt: JsonMap): JsonMap;
   verifySiblingSummary(summaryText: string, receipt: JsonMap): void;
@@ -28,6 +31,10 @@ interface AuditModule {
 
 const audit = require("../../dist/maintainer/sibling-guide-audit.cjs") as AuditModule;
 const GUIDE = "MCP_QA_EXPERIENCE_GUIDE.md";
+
+function sha256File(filePath: string): string {
+  return require("node:crypto").createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
 
 function git(repo: string, args: readonly string[]): string {
   return childProcess.execFileSync("git", ["-C", repo, ...args], {
@@ -77,10 +84,13 @@ test("captures a sanitized sorted baseline without reading unrelated content", (
   const item = fixture();
   try {
     const baseline = audit.captureBaseline(item);
-    assert.equal(baseline.schemaVersion, 1);
+    assert.equal(baseline.schemaVersion, 2);
     assert.equal(baseline.guide, GUIDE);
     assert.equal(baseline.guideClean, true);
     assert.match(baseline.head, /^[0-9a-f]{40}$/);
+    assert.match(baseline.siblingRepoDigest, /^[0-9a-f]{64}$/);
+    assert.equal(baseline.guideDigest, sha256File(path.join(item.siblingRepo, GUIDE)));
+    assert.equal(Object.hasOwn(baseline, "siblingRepo"), false);
     assert.deepEqual(
       baseline.status,
       [
@@ -89,6 +99,7 @@ test("captures a sanitized sorted baseline without reading unrelated content", (
       ],
     );
     assert.equal(JSON.stringify(baseline).includes("dirty but preserved"), false);
+    assert.equal(JSON.stringify(baseline).includes(item.root), false);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -104,9 +115,105 @@ test("records and verifies guide-only commit evidence with unchanged unrelated s
     assert.equal(receipt.beforeUnrelatedStatusDigest, receipt.afterUnrelatedStatusDigest);
     assert.equal(receipt.commitParent, receipt.baselineHead);
     assert.deepEqual(receipt.commitFiles, [GUIDE]);
+    assert.equal(receipt.baselineGuideDigest, baseline.guideDigest);
+    assert.equal(receipt.guideDigest, sha256File(path.join(item.siblingRepo, GUIDE)));
+    assert.equal(Object.hasOwn(receipt, "siblingRepo"), false);
     assert.equal(receipt.secret_scan, true);
     assert.match(receipt.kcoderag_head, /^[0-9a-f]{40}$/);
     assert.match(receipt.kcoderag_nav_head, /^[0-9a-f]{40}$/);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("audits the exact authoritative guide commit and digest without changing unrelated dirt or staging", () => {
+  const item = fixture();
+  try {
+    commitGuide(item.siblingRepo);
+    const expectedGuideCommit = git(item.siblingRepo, ["rev-parse", "HEAD"]);
+    const expectedGuideDigest = sha256File(path.join(item.siblingRepo, GUIDE));
+    git(item.siblingRepo, ["add", "--", "unrelated.txt"]);
+    const statusBefore = git(item.siblingRepo, ["status", "--short", "--untracked-files=all"]);
+    const indexBefore = git(item.siblingRepo, ["diff", "--cached", "--binary"]);
+
+    const result = audit.auditAuthoritativeGuide({
+      ...item,
+      expectedGuideCommit,
+      expectedGuideDigest,
+    });
+    assert.deepEqual(result.guideCommitFiles, [GUIDE]);
+    assert.equal(result.guideDigest, expectedGuideDigest);
+    assert.equal(result.guideCommit, expectedGuideCommit);
+    assert.equal(result.guideCommitAncestor, true);
+    assert.equal(result.guideUnchangedSinceCommit, true);
+    assert.equal(result.navCopyAbsent, true);
+    assert.equal(JSON.stringify(result).includes(item.root), false);
+    assert.equal(git(item.siblingRepo, ["status", "--short", "--untracked-files=all"]), statusBefore);
+    assert.equal(git(item.siblingRepo, ["diff", "--cached", "--binary"]), indexBefore);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("authoritative audit rejects nav copies, digest drift, unrelated commit paths, and secret guide bytes", () => {
+  for (const scenario of ["nav-copy", "digest", "extra-path", "secret"] as const) {
+    const item = fixture();
+    try {
+      const content = scenario === "secret"
+        ? "# QA guide\n\nBearer secret-value-that-must-never-echo\n"
+        : "# QA guide\n\nNode.js 22+ via npx.\n";
+      fs.writeFileSync(path.join(item.siblingRepo, GUIDE), content, "utf8");
+      if (scenario === "extra-path") {
+        fs.writeFileSync(path.join(item.siblingRepo, "extra.md"), "extra\n", "utf8");
+        git(item.siblingRepo, ["add", "--", GUIDE, "extra.md"]);
+      } else {
+        git(item.siblingRepo, ["add", "--", GUIDE]);
+      }
+      git(item.siblingRepo, ["commit", "--quiet", "-m", "guide evidence"]);
+      const expectedGuideCommit = git(item.siblingRepo, ["rev-parse", "HEAD"]);
+      const expectedGuideDigest = sha256File(path.join(item.siblingRepo, GUIDE));
+      if (scenario === "nav-copy") fs.writeFileSync(path.join(item.navRepo, GUIDE), "copy\n", "utf8");
+
+      const options = {
+        ...item,
+        expectedGuideCommit,
+        expectedGuideDigest: scenario === "digest" ? "0".repeat(64) : expectedGuideDigest,
+      };
+      const expectedCode = {
+        "nav-copy": "local_guide_copy",
+        digest: "guide_digest_mismatch",
+        "extra-path": "invalid_commit_files",
+        secret: "secret_like_value",
+      }[scenario];
+      assert.throws(
+        () => audit.auditAuthoritativeGuide(options),
+        (error: unknown) => code(error) === expectedCode && !(error as Error).message.includes("secret-value"),
+      );
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("authoritative audit rejects a guide commit from divergent history even when bytes match", () => {
+  const item = fixture();
+  try {
+    const mainBranch = git(item.siblingRepo, ["branch", "--show-current"]);
+    git(item.siblingRepo, ["switch", "--quiet", "-c", "side-guide"]);
+    commitGuide(item.siblingRepo, "# QA guide\n\nShared final bytes.\n");
+    const sideCommit = git(item.siblingRepo, ["rev-parse", "HEAD"]);
+    git(item.siblingRepo, ["switch", "--quiet", mainBranch]);
+    commitGuide(item.siblingRepo, "# QA guide\n\nShared final bytes.\n");
+    const expectedGuideDigest = sha256File(path.join(item.siblingRepo, GUIDE));
+
+    assert.throws(
+      () => audit.auditAuthoritativeGuide({
+        ...item,
+        expectedGuideCommit: sideCommit,
+        expectedGuideDigest,
+      }),
+      (error: unknown) => code(error) === "guide_history_diverged",
+    );
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
