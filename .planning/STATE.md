@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 current_phase: 04
-current_phase_name: deployment-reliability
+current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Phase 04 context gathered
-last_updated: "2026-08-25T04:51:19.269Z"
-last_activity: 2026-08-24
-last_activity_desc: Phase 03.1 complete, transitioned to Phase 04
-state_head: 108304e37bc376f061e5bc073d3ccd7afb8fd99f
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-08-25T05:07:00.671Z"
+last_activity: 2026-08-25
+last_activity_desc: Phase 04 execution started
+state_head: d9830e586ef9bd7ba8255380ab8e9864acd0de34
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 34
+  completed_plans: 35
   percent: 44
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 
 ## Current Position
 
-Phase: 04 (deployment-reliability) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
+Plan: 2 of 19
 Status: Ready to execute
-Last activity: 2026-08-24 — Phase 03.1 complete, transitioned to Phase 04
+Last activity: 2026-08-25 — Phase 04 execution started
 
 Progress: [████░░░░░░] 44%
 
@@ -88,6 +88,7 @@ Progress: [████░░░░░░] 44%
 | Phase 03.1 P19 | 5min | 3 tasks | 6 files |
 | Phase 03.1 P21 | 18min | 2 tasks | 3 files |
 | Phase 03.1 P14 | 25 min | 3 tasks | 12 files |
+| Phase 04 P01 | 13min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Keep failed v0.1.5 immutable and unpublished; user-authorized v0.1.6 is the first successful public npm release.
 - [Phase 03.1]: Accept only GitHub Release run 32682791252 because tag, release SHA, push event, and success conclusion all match v0.1.6.
 - [Phase 03.1]: Require latest metadata, fresh-cache public npx lifecycle, and exact-version three-host MCP loopback evidence before recording the offline receipt.
+- [Phase 04]: Phase 04 supersedes the former public QA/Dev contract with QA-only 0.2.0 behavior while preserving completed history.
+- [Phase 04]: Legacy Dev remains exact decode-only input for digest-verified migration or uninstall, never a hidden public product.
+- [Phase 04]: Owned user-source cleanup authority is independent and bound to a frozen exact fingerprint.
 
 ### Pending Todos
 
@@ -240,6 +244,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T02:50:17.542Z
-Stopped at: Phase 04 context gathered
-Resume file: .planning/phases/04-deployment-reliability/04-CONTEXT.md
+Last session: 2026-08-25T05:07:00.373Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None

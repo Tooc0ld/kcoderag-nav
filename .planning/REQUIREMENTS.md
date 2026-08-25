@@ -72,12 +72,14 @@
   `doctor → 指纹绑定授权清理 → update/migrate → status/doctor` 部署，最终
   `status=healthy`、doctor 无活动重复来源、无关项目/用户配置摘要不变。若发布后迁移失败，
   项目事务回滚但 npm 版本、tag 和 latest 保持不可变，只能以 `0.2.1` 修复前进。
+
 - [ ] **DEP-02 — 项目边界与可移动 Hook 根定位（D-05–D-08）**:
   Codex/Claude Hook 从会话 cwd 有界向上查找所选宿主最近的 `kcoderag-nav/install-state.json`，
   根目录、Unicode/空格深层子目录和完整移动/改名/换盘副本均定位同一受管 launcher；嵌套项目
   最近状态优先，且最近状态损坏、版本不兼容或 launcher 缺失时静默 fail-open，绝不穿透到外层。
   CLI 的 cwd/`--target` 始终是精确目标；文件系统根、用户主目录和宿主用户级 config/plugin/cache
   根被拒绝，普通非 VCS 目录仍可安装。
+
 - [ ] **DEP-03 — selected-host、secret-safe 来源诊断与清理权限（D-03、D-09–D-16）**:
   `status` 快速报告项目状态、版本、漂移和来源冲突摘要；`doctor` 深扫所选宿主的 plugin、raw MCP、
   manual Hook、cache/disabled residue，并在未安装项目上给出安装前就绪结论。活动来源导致顶层
@@ -180,9 +182,9 @@
 | JS-06 | Phase 03.1 | Complete |
 | JS-07 | Phase 03.1 | Complete |
 | JS-08 | Phase 03.1 | Complete |
-| DEP-01 | Phase 4 | Pending |
-| DEP-02 | Phase 4 | Pending |
-| DEP-03 | Phase 4 | Pending |
+| DEP-01 | Phase 4 | Complete |
+| DEP-02 | Phase 4 | Complete |
+| DEP-03 | Phase 4 | Complete |
 | HOOK-06 | Phase 5 | Pending |
 | HOOK-07 | Phase 5 | Pending |
 | HOOK-08 | Phase 5 | Pending |
