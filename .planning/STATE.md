@@ -4,15 +4,15 @@ current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
 stopped_at: Completed 04-08-PLAN.md
-last_updated: "2026-08-25T08:38:34.850Z"
+last_updated: "2026-08-25T09:23:41.454Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: 1c3e977cdd99da9a64f3ea208d73811c6cc03187
+state_head: 6a6847f436b959dfdeb069119c1e19f3bbdbbe26
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 43
+  completed_plans: 44
   percent: 44
 ---
 
@@ -97,6 +97,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P09 | 10min | 2 tasks | 5 files |
 | Phase 04 P05 | 35min | 3 tasks | 13 files |
 | Phase 04 P08 | 12min | 2 tasks | 1 files |
+| Phase 04 P06 | 31min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -218,6 +219,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Status uses a bounded fast scan, doctor is deep and read-only, and install/update independently run the full selected-host gate.
 - [Phase 04]: Plan 04-08 keeps generated QA runtime provenance at atomic commit 022a9d8 when fresh rendering produces zero byte changes.
 - [Phase 04]: Nearest-state discovery remains in the registered rootless bootstrap; selected launchers stay self-relative and fail-open.
+- [Phase 04]: Claude cleanup requires observed 2.1.241+ exact help and inventory schemas; scoped plugin uninstall is preferred and marketplace removal requires exclusive ownership.
+- [Phase 04]: Cursor Rules use manual_rule and remain manual-only without a verified native uninstall capability.
+- [Phase 04]: Owned source cleanup and legacy Dev migration are independent, mutually exclusive authorities.
 
 ### Pending Todos
 

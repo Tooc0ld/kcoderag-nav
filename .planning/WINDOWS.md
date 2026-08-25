@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 1
 waived_count: 0
-fixed_count: 12
-total_count: 13
-last_updated: 2026-08-25T08:30:38.905Z
+fixed_count: 14
+total_count: 15
+last_updated: 2026-08-25T09:24:07.521Z
 ---
 
 # Broken Windows Ledger
@@ -28,6 +28,8 @@ last_updated: 2026-08-25T08:30:38.905Z
 | 11 | 04 | deviation | package.json |  | Added the compiled project-root module to the public package inventory because host adapters import it. | fixed |  | 2026-08-25T07:30:31.828Z | 2026-08-25T07:31:16.938Z |
 | 12 | 04 | deviation | package.json |  | Added the shared source runtime module to the public archive contract | fixed |  | 2026-08-25T08:30:10.514Z | 2026-08-25T08:30:38.659Z |
 | 13 | 04 | deviation | src/hosts/codex.cts |  | Resolved Windows Codex execution without shell use and isolated source scans from real user state | fixed |  | 2026-08-25T08:30:10.765Z | 2026-08-25T08:30:38.905Z |
+| 14 | 04 | deviation | src/core/contracts.cts |  | Added manual_rule and the exact Cursor legacy migration exception required by the source gate | fixed |  | 2026-08-25T09:23:37.970Z | 2026-08-25T09:24:07.270Z |
+| 15 | 04 | deviation | src/smoke/stub-mcp-server.cts |  | Closed synthetic MCP responses to prevent stale keep-alive reuse across delayed host smoke lifecycles | fixed |  | 2026-08-25T09:23:38.259Z | 2026-08-25T09:24:07.521Z |
 
 ````json
 [
@@ -186,6 +188,30 @@ last_updated: 2026-08-25T08:30:38.905Z
     "reason": "",
     "recorded_at": "2026-08-25T08:30:10.765Z",
     "resolved_at": "2026-08-25T08:30:38.905Z"
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/core/contracts.cts",
+    "line": null,
+    "description": "Added manual_rule and the exact Cursor legacy migration exception required by the source gate",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T09:23:37.970Z",
+    "resolved_at": "2026-08-25T09:24:07.270Z"
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "04",
+    "file": "src/smoke/stub-mcp-server.cts",
+    "line": null,
+    "description": "Closed synthetic MCP responses to prevent stale keep-alive reuse across delayed host smoke lifecycles",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-25T09:23:38.259Z",
+    "resolved_at": "2026-08-25T09:24:07.521Z"
   }
 ]
 ````
