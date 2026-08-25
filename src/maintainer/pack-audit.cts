@@ -75,6 +75,7 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
 ]);
 
 const NON_PUBLISHED_COMPILED_OUTPUT_SET = new Set<string>(NON_PUBLISHED_COMPILED_OUTPUTS);
+const RETIRED_PRODUCT_DIRECTORY = "kcoderag-dev";
 
 const SEMVER_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const GLOB_RE = /[*?\[\]{}]/u;
@@ -99,6 +100,13 @@ function normalizeRelative(relativePath: string): string {
     throw new PackAuditError("files_policy_invalid");
   }
   return value;
+}
+
+function assertNotRetiredProductPath(relativePath: string): void {
+  const lower = relativePath.toLowerCase();
+  if (lower === RETIRED_PRODUCT_DIRECTORY || lower.startsWith(`${RETIRED_PRODUCT_DIRECTORY}/`)) {
+    throw new PackAuditError("retired_product");
+  }
 }
 
 function walkFiles(root: string, relativeDirectory: string): string[] {
@@ -142,6 +150,7 @@ function declaredPackagePaths(packageJson: JsonMap): readonly string[] {
     }
     const directory = raw.endsWith("/");
     const relativePath = normalizeRelative(directory ? raw.slice(0, -1) : raw);
+    assertNotRetiredProductPath(relativePath);
     if (directory) throw new PackAuditError("files_policy_invalid");
     assertNoNonPublishedCompiledOutputs([relativePath]);
     if (paths.has(relativePath)) throw new PackAuditError("files_policy_invalid");
@@ -245,6 +254,7 @@ export function validatePack(input: {
 
   const declaredPaths = declaredPackagePaths(packageJson);
   const expected = expectedPaths.map(normalizeRelative).sort(compare);
+  for (const relativePath of expected) assertNotRetiredProductPath(relativePath);
   if (new Set(expected).size !== expected.length) throw new PackAuditError("archive_path_drift");
   assertNoNonPublishedCompiledOutputs(expected);
   if (
@@ -255,6 +265,7 @@ export function validatePack(input: {
   }
 
   const actualPaths = [...archiveEntries.keys()].sort(compare);
+  for (const relativePath of actualPaths) assertNotRetiredProductPath(relativePath);
   assertNoNonPublishedCompiledOutputs(actualPaths);
   for (const relativePath of actualPaths) {
     if (forbiddenArchivePath(relativePath)) throw new PackAuditError("forbidden_archive_path");

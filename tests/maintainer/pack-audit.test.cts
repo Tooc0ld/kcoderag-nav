@@ -183,20 +183,20 @@ test("rejects retired Dev package entries and archive members without broad cont
 });
 
 test("rejects Python, runtime compiler, source, tests, planning, dependency, and credential fixtures", () => {
-  for (const forbiddenPath of [
-    "kcoderag-qa/hooks/runtime.py",
-    "kcoderag-dev/hooks/runtime.pyc",
-    "src/runtime.cts",
-    "dist/runtime.ts",
-    "dist-tests/runtime.test.cjs",
-    "tests/runtime.test.cjs",
-    ".planning/private.md",
-    "node_modules/runtime/index.cjs",
-    "credential-fixtures/bearer.txt",
-  ]) {
+  for (const [forbiddenPath, expectedCode] of [
+    ["kcoderag-qa/hooks/runtime.py", "forbidden_archive_path"],
+    ["kcoderag-dev/hooks/runtime.pyc", "retired_product"],
+    ["src/runtime.cts", "forbidden_archive_path"],
+    ["dist/runtime.ts", "forbidden_archive_path"],
+    ["dist-tests/runtime.test.cjs", "forbidden_archive_path"],
+    ["tests/runtime.test.cjs", "forbidden_archive_path"],
+    [".planning/private.md", "forbidden_archive_path"],
+    ["node_modules/runtime/index.cjs", "forbidden_archive_path"],
+    ["credential-fixtures/bearer.txt", "forbidden_archive_path"],
+  ] as const) {
     const current = baseline();
     current.archiveEntries.set(forbiddenPath, Buffer.from("KCODERAG_PACK_CREDENTIAL_FIXTURE"));
-    expectCode(() => packAudit.validatePack(current), "forbidden_archive_path");
+    expectCode(() => packAudit.validatePack(current), expectedCode);
   }
 });
 
