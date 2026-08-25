@@ -12,9 +12,14 @@ interface ContractsModule {
 }
 
 interface ProjectTargetModule {
-  resolveProjectTarget(rawTarget: string, cwd?: string): {
+  resolveProjectTarget(
+    rawTarget: string,
+    cwd?: string,
+    options?: { readonly homeDirectory?: string; readonly forbiddenRoots?: readonly string[] },
+  ): {
     readonly root: string;
   };
+  isPathAtOrWithin(candidate: string, boundary: string, platform?: NodeJS.Platform): boolean;
   validateManagedPath(
     target: { readonly root: string },
     relativePath: string,
@@ -121,6 +126,46 @@ test("project target is exactly cwd or --target and never walks to a repository 
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
+});
+
+test("project targets reject home and selected-host global roots but allow ordinary non-VCS directories", () => {
+  const base = temporaryDirectory("kcoderag-core-boundaries-");
+  try {
+    const home = path.join(base, "home");
+    const selectedGlobal = path.join(home, ".codex");
+    const selectedChild = path.join(selectedGlobal, "plugins", "cache");
+    const otherHost = path.join(home, ".claude", "project");
+    const ordinary = path.join(base, "ordinary-no-vcs");
+    for (const directory of [selectedChild, otherHost, ordinary]) {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+    const options = { homeDirectory: home, forbiddenRoots: [selectedGlobal] };
+
+    for (const unsafe of [home, selectedGlobal, selectedChild]) {
+      assert.throws(
+        () => projectTarget.resolveProjectTarget(unsafe, base, options),
+        (error: unknown) => errorCode(error) === "unsafe_target",
+        unsafe,
+      );
+    }
+    assert.equal(projectTarget.resolveProjectTarget(ordinary, base, options).root, fs.realpathSync(ordinary));
+    assert.equal(projectTarget.resolveProjectTarget(otherHost, base, options).root, fs.realpathSync(otherHost));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("path-boundary comparison is platform-aware for Windows case and POSIX siblings", () => {
+  assert.equal(
+    projectTarget.isPathAtOrWithin("C:\\Users\\Person\\.CODEX\\plugins", "c:\\users\\person\\.codex", "win32"),
+    true,
+  );
+  assert.equal(
+    projectTarget.isPathAtOrWithin("C:\\Users\\Person\\.codex-other", "C:\\Users\\Person\\.codex", "win32"),
+    false,
+  );
+  assert.equal(projectTarget.isPathAtOrWithin("/home/person/.codex/cache", "/home/person/.codex", "linux"), true);
+  assert.equal(projectTarget.isPathAtOrWithin("/home/person/.codex-other", "/home/person/.codex", "linux"), false);
 });
 
 test("managed paths reject absolute, traversal, symlink, special-file, and root escapes", (context) => {

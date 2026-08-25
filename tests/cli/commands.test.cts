@@ -432,6 +432,58 @@ test("interactive selection uses the fixed host list, cwd/target confirmation, a
   }
 });
 
+test("selected-host global targets fail before adapter detection while other-host directories remain legal", async () => {
+  const item = fixture();
+  try {
+    const home = path.join(item.root, "home");
+    const codexRoot = path.join(home, ".codex");
+    const codexCache = path.join(codexRoot, "plugins", "cache");
+    const claudeProject = path.join(home, ".claude", "project");
+    fs.mkdirSync(codexCache, { recursive: true });
+    fs.mkdirSync(claudeProject, { recursive: true });
+    const globalRoots = (host: HostId): readonly string[] => [path.join(home, `.${host}`)];
+
+    for (const unsafe of [home, codexRoot, codexCache]) {
+      const calls: string[] = [];
+      const adapters = {
+        codex: makeAdapter("codex", calls),
+        claude: makeAdapter("claude", calls),
+        cursor: makeAdapter("cursor", calls),
+      };
+      const captured = io(unsafe, adapters);
+      const before = fs.readdirSync(unsafe);
+      assert.equal(
+        await commands.executeCommand(
+          ["install", "--host", "codex", "--yes", "--json"],
+          { ...captured.dependencies, homeDirectory: home, hostGlobalRoots: globalRoots },
+        ),
+        1,
+      );
+      assert.deepEqual(calls, []);
+      assert.deepEqual(fs.readdirSync(unsafe), before);
+      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, "unsafe_target");
+    }
+
+    const legalCalls: string[] = [];
+    const legalAdapters = {
+      codex: makeAdapter("codex", legalCalls),
+      claude: makeAdapter("claude", legalCalls),
+      cursor: makeAdapter("cursor", legalCalls),
+    };
+    const legal = io(claudeProject, legalAdapters);
+    assert.equal(
+      await commands.executeCommand(
+        ["install", "--host", "codex", "--yes", "--json"],
+        { ...legal.dependencies, homeDirectory: home, hostGlobalRoots: globalRoots },
+      ),
+      0,
+    );
+    assert.deepEqual(legalCalls, ["codex:detect", "codex:renderInstall:false:false"]);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
 test("Node below 22 rejects mutations before adapter work while read-only commands still report", async () => {
   const item = fixture();
   try {
