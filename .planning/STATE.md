@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04
 current_phase_name: 已部署项目与安装来源可靠性
 status: executing
-stopped_at: Completed 04-17-PLAN.md (earliest incomplete remains 04-10)
-last_updated: "2026-08-25T09:33:13.327Z"
+stopped_at: Completed 04-10-PLAN.md
+last_updated: "2026-08-25T09:54:42.208Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 04 execution started
-state_head: ebaa77b0e6e378760b3ba5e58c06d25d63acc8ba
+state_head: 2ec326538c11a336b9a0eba6385ccf0a89fc13e3
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 53
-  completed_plans: 45
+  completed_plans: 46
   percent: 44
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 04 (已部署项目与安装来源可靠性) — EXECUTING
-Plan: 10 of 19
+Plan: 11 of 19
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 04 execution started
 
@@ -99,6 +99,7 @@ Progress: [████░░░░░░] 44%
 | Phase 04 P08 | 12min | 2 tasks | 1 files |
 | Phase 04 P06 | 31min | 3 tasks | 10 files |
 | Phase 04 P17 | 11min | 2 tasks | 1 files |
+| Phase 04 P10 | 5min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -225,6 +226,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: Owned source cleanup and legacy Dev migration are independent, mutually exclusive authorities.
 - [Phase 04]: Plan 04-17 preserves absorbed QA product provenance when fresh canonical generation is byte-identical.
 - [Phase 04]: Plan 04-17 verifies opaque MCP projections only through safe metadata and digests.
+- [Phase 04]: Plan 04-10 keeps public package and Dev discovery retirement attributed to atomic commit 022a9d8.
+- [Phase 04]: Public QA-only README and sibling guide commits are proven to precede Dev discovery retirement.
 
 ### Pending Todos
 
@@ -283,6 +286,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T09:33:12.978Z
-Stopped at: Completed 04-17-PLAN.md (earliest incomplete remains 04-10)
+Last session: 2026-08-25T09:54:41.862Z
+Stopped at: Completed 04-10-PLAN.md
 Resume file: None
