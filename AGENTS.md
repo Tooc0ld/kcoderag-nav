@@ -50,7 +50,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 ## Languages
 
 - TypeScript (`.cts`) - canonical CLI, transaction, host adapters, hooks, generator, maintainer tools, smoke harness, and tests.
-- CommonJS (`.cjs`) - compiled user and maintainer runtime in `dist/` plus self-contained generated hook payloads.
+- CommonJS (`.cjs`) - compiled user and maintainer runtime in `dist/` plus self-contained generated QA hook payloads.
 - JSON/TOML/Markdown/shell - host-native MCP/settings, generated compatibility manifests, skills/Rules, launchers, and workflow configuration.
 
 ## Runtime
@@ -62,7 +62,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 ## Frameworks
 
-- Model Context Protocol (MCP) - external KCodeRag QA/Dev services are projected into each selected host's native project configuration.
+- Model Context Protocol (MCP) - the external KCodeRag QA service is projected into each selected host's native project configuration; Dev survives only as legacy state input.
 - Host adapters - Codex, Claude Code, and Cursor render host-specific desired state behind a shared read/render-only interface.
 - Node built-in test runner - compiled `dist-tests/**/*.test.cjs` provides unit, integration, pack, lifecycle, smoke, and release coverage.
 - npm/npx - package acquisition and the five-command project lifecycle; marketplace catalogs are not a distribution surface.
@@ -71,13 +71,13 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 - Runtime dependencies: none beyond Node.js built-ins.
 - Dev dependencies: audited TypeScript and Node 22 declarations only; dependency graph or integrity drift requires re-audit.
-- KCodeRag MCP service - provides graph lookup tools; endpoint and authorization values remain opaque sensitive inputs.
+- KCodeRag QA MCP service - provides graph lookup tools; endpoint and authorization values remain opaque sensitive inputs.
 - Codex/Claude hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, and MCP configuration instead.
 
 ## Configuration
 
 - `src/hosts/` declares Codex, Claude Code, and Cursor project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
-- `plugin-src/` is the deterministic template/config source; generated QA/Dev/Cursor assets remain self-contained and version-aligned.
+- `plugin-src/` is the deterministic template/config source; generated QA/Cursor assets remain self-contained and version-aligned, while no public Dev product is generated.
 - Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, and `.cursor/mcp.json`.
 - MCP configuration files may contain credentials. Never inspect, print, snapshot, or include their values in diagnostics.
 
@@ -85,7 +85,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 - Node.js 22+ and npm/npx on Windows or Linux.
 - At least one selected host: Codex, Claude Code, or Cursor; OpenCode remains deferred.
-- Network access for initial npm acquisition and the selected internal QA/Dev MCP service. Installed hooks run offline and update checks fail open.
+- Network access for initial npm acquisition and the internal QA MCP service. Installed hooks run offline and update checks fail open.
 
 <!-- GSD:stack-end -->
 
@@ -172,15 +172,16 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 | Host adapters | Detect and render Codex, Claude Code, or Cursor project-native desired state without writing | `src/hosts/` |
 | Advisory hook | Classifies structural search, emits bounded guidance, and fails open | `src/hooks/grep-nudge.cts` |
 | Update runtime | Reads bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
-| Generator | Produces deterministic self-contained QA/Dev/Cursor assets from one canonical source | `src/generator/index.cts`, `plugin-src/` |
+| Generator | Produces deterministic self-contained QA/Cursor assets while retaining only exact legacy Dev decoding | `src/generator/index.cts`, `plugin-src/` |
+| Source diagnostics | Classifies selected-host user sources, freezes owned cleanup fingerprints, and keeps status/doctor secret-safe | `src/core/`, `src/hosts/`, `src/cli/commands.cts` |
 | Maintainer gates | Enforce dependencies, generation, pre-commit, pack, docs, retirement, and release contracts | `src/maintainer/` |
 | Smoke harness | Acquires a real temporary package and proves lifecycle/MCP evidence against a loopback stub | `src/smoke/` |
 
 ## Pattern Overview
 
 - The npm CLI is the composition root. One invocation targets one host; host adapters provide data and the shared transaction owns writes.
-- QA/Dev exclusivity is host-local. A project may contain independent Codex, Claude Code, and Cursor installations.
-- Canonical TypeScript/templates generate version-aligned CJS and host assets; generated trees are never hand-maintained.
+- QA is the only public environment. Exact legacy QA/Dev state is readable only for authorized migration/uninstall, and a project may contain independent QA installations for Codex, Claude Code, and Cursor.
+- Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained and Dev is never regenerated as a public product.
 - Codex/Claude hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
 - All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
 
@@ -190,22 +191,22 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 - **Core:** `src/core/` owns host-neutral path validation, state schemas, runtime checks, and transactional mutation.
 - **Providers:** `src/hosts/` own only host-native detection, managed roots/sections, merge semantics, and desired-state rendering.
 - **Runtime hooks:** `src/hooks/` implement pure lookup classification and optional asynchronous update state with no foreground network access.
-- **Build/distribution:** `src/generator/`, `plugin-src/`, and generated host trees form deterministic, self-contained npm assets.
+- **Build/distribution:** `src/generator/`, `plugin-src/`, and generated QA/Cursor host trees form deterministic, self-contained npm assets.
 - **Assurance:** `src/maintainer/`, `src/smoke/`, tests, and CI prove dependency, pack, lifecycle, release, and secret-safe evidence contracts.
 
 ## Data Flow
 
 ### Project Installation
 
-1. The CLI validates Node.js 22+, command flags, exact target, selected host, and QA/Dev policy.
-2. The selected adapter reads project metadata and reports drift, ambiguity, legacy state, or user-local migration observations without writing.
+1. The CLI validates Node.js 22+, command flags, the exact project-only target, selected host, and QA-only public policy.
+2. The selected adapter reads project metadata and performs the selected-host source gate, reporting drift, ambiguity, exact legacy state, or user-level source findings without reading credential values or writing.
 3. The adapter renders one complete immutable desired state under declared managed roots.
 4. `applyTransaction` verifies expected digests, stages bytes, commits state last, and restores the selected host on failure.
 5. Human output or one JSON result reports stable codes and paths only.
 
 ### Lookup Guidance and Update Awareness
 
-1. Codex/Claude invokes the generated launcher before matched search tools; the launcher resolves sibling CJS and always fails open.
+1. Codex/Claude invokes the generated launcher before matched search tools; from the session cwd it walks upward to the nearest selected-host managed state, treats a damaged nearest state as a fail-open boundary, resolves relative sibling CJS, and never falls through to an outer project.
 2. The hook parses bounded input and emits advisory JSON only for eligible structural searches.
 3. A session's first eligible event may schedule a detached npm Registry refresh; foreground execution reads local bounded state only.
 4. Cursor receives equivalent navigation policy through its Rule/skill and uses MCP directly, without a hook event claim.
@@ -216,12 +217,12 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 - **DesiredState:** Complete immutable single-host mutation plan with expected digests and state path.
 - **InstallState:** Versioned ownership record for host, environment, managed files/sections, digests, and migration provenance.
 - **InstallError:** Stable secret-safe refusal with optional normalized path.
-- **Generated product:** Byte-deterministic QA/Dev/Cursor asset set derived from root package version and canonical templates.
+- **Generated product:** Byte-deterministic QA/Cursor asset set derived from root package version and canonical templates, with exact legacy Dev state accepted only by migration/uninstall readers.
 
 ## Entry Points
 
 - `dist/bin/kcoderag-nav.cjs` - npm bin for install/status/doctor/update/uninstall.
-- `kcoderag-qa/hooks/run_hook.{cmd,sh}` and `kcoderag-dev/hooks/run_hook.{cmd,sh}` - generated fail-open launchers for Codex/Claude hook events.
+- `kcoderag-qa/hooks/run_hook.{cmd,sh}` - generated fail-open launchers for Codex/Claude hook events.
 - `dist/generator/index.cjs` and `dist/maintainer/*.cjs` - deterministic generation, validation, documentation, pack, and release gates.
 - `.githooks/pre-commit` and GitHub Actions - Node-only local/remote assurance entry points.
 
@@ -229,12 +230,15 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 
 - **Mutation ownership:** Only the shared transaction writes installation files; adapters and status paths remain read/render-only.
 - **Project scope:** Every resolved path must stay inside the explicit target and adapter-declared roots; reject traversal, symlinks, special files, and ambiguous ownership.
-- **Environment isolation:** QA/Dev conflict within one host, never across hosts; no implicit uninstall or fallback to another environment.
+- **Environment boundary:** QA is the sole public environment; legacy Dev requires exact ownership/digest validation and independent explicit migration or uninstall authority, with no implicit conversion.
+- **Source authority:** Install/update hard-stop on selected-host active duplicates. Owned cleanup requires a frozen fingerprint-specific authority; raw/manual/ambiguous sources are diagnostic-only and `status`/`doctor` remain read-only.
 - **Hook safety:** All malformed input, runtime failures, missing Node, and update failures exit 0 without blocking or contaminating stdout.
 - **Secret boundary:** MCP connection and authorization values are opaque; never expose them in output, diagnostics, tests, receipts, or documentation.
 - **Distribution boundary:** Root marketplace catalogs stay retired. Compatibility manifests may remain inside generated self-contained assets but are not install sources.
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
-- **Deferred boundary:** Do not add OpenCode behavior or claim authenticated real-host verification in this phase.
+- **Release boundary:** Publish immutable `0.2.0` only after implementation, tests, review, pack, four-lane CI, and public-artifact gates; post-publication deployment failure fixes forward as `0.2.1` without unpublish or dist-tag rollback.
+- **Documentation boundary:** The sibling KCodeRag repository exclusively owns `MCP_QA_EXPERIENCE_GUIDE.md`; this repository keeps no copy.
+- **Deferred boundary:** Do not absorb Phase 05 Hook precision, Phase 06 authenticated real MCP queries, Phase 07 global GSD Hook work, Phase 08 identity/HTTPS/token rotation, or OpenCode behavior.
 
 ## Anti-Patterns
 
@@ -254,11 +258,11 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 
 ## Cross-Cutting Concerns
 
-- Deterministic bytes and exact package-version propagation.
+- Deterministic QA-only bytes and exact package-version propagation.
 - Narrow ownership and unrelated configuration preservation.
 - Secret-safe diagnostics and metadata-only evidence.
 - Node 22/24 and Windows/Linux parity.
-- Honest separation between loopback contract smoke and future authenticated real-host evidence.
+- Honest separation between Phase 04 deployment evidence and Phase 06 authenticated real-host MCP evidence.
 
 <!-- GSD:architecture-end -->
 
