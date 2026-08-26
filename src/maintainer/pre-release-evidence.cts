@@ -12,6 +12,10 @@ export interface PreReleaseEvidenceResult {
   readonly subjectSha: string;
   readonly subjectTree: string;
   readonly evidenceCommitSha: string;
+  readonly requirementCount: 6;
+  readonly decisionCount: 28;
+  readonly receiptCount: 4;
+  readonly readinessCheckCount: 7;
   readonly ciJobCount: 4;
 }
 
@@ -21,11 +25,39 @@ const EVIDENCE_PATHS = Object.freeze([
   ".planning/phases/04-deployment-reliability/04-SECURITY.md",
   ".planning/phases/04-deployment-reliability/04-PRE-RELEASE-VERIFICATION.md",
 ] as const);
-const REQUIREMENTS = Object.freeze(["DEP-01", "DEP-02", "DEP-03"] as const);
+const REQUIREMENTS = Object.freeze([
+  "PLAT-01", "PLAT-02", "PLAT-03", "LEG-01", "JX3-01", "TEST-10",
+] as const);
 const DECISIONS = Object.freeze(Array.from(
-  { length: 16 },
+  { length: 28 },
   (_, index) => `D-${String(index + 1).padStart(2, "0")}`,
 ));
+const RECEIPTS = Object.freeze([
+  Object.freeze({
+    host: "claude", version: "2.1.241", verdict: "PASS",
+    path: "fixtures/host-delivery/claude-2.1.241.json",
+    receiptDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
+  }),
+  Object.freeze({
+    host: "codex", version: "0.146.1", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/codex-0.146.1.json",
+    receiptDigest: "c91ba5c2076543e24cb230a5b92799223f713dcd2746420f3a60c47e1ba25656",
+  }),
+  Object.freeze({
+    host: "cursor", version: "3.17.8", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/cursor-3.17.8.json",
+    receiptDigest: "851af61862a80bd9b3bbb1c1714fa23f3aafb208ddada0f4f0a41a047b49b8d1",
+  }),
+  Object.freeze({
+    host: "opencode", version: "1.18.23", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/opencode-1.18.23.json",
+    receiptDigest: "401716d80a6f77ce9d218fc6a56996c03132bfa90a6974681e6621ee30a05d45",
+  }),
+] as const);
+const READINESS_CHECKS = Object.freeze([
+  "generated-qa", "generated-cursor", "pack-audit", "required-smoke",
+  "docs-check", "security-review", "retirement-audit",
+] as const);
 const CI_TUPLES = Object.freeze([
   "ubuntu\0" + "22",
   "ubuntu\0" + "24",
@@ -36,6 +68,10 @@ const PACKAGE_ROOT = path.resolve(__dirname, "../..");
 const MAX_ARTIFACT_BYTES = 256 * 1024;
 const MAX_CI_EVIDENCE_BYTES = 64 * 1024;
 const SECRET_RE = /(?:bearer\s+[A-Za-z0-9._~+/=-]{12,}|(?:npm_token|node_auth_token|mcp[_ -]?(?:auth|token|credential))\s*[:=])/iu;
+const SECRET_KEY_RE = /^(?:authorization|body|command|credential|environment|header|npm_token|node_auth_token|stderr|stdout|token|secret|url)$/iu;
+const DIGEST_RE = /^[a-f0-9]{64}$/u;
+const MAX_EVIDENCE_NODES = 512;
+const MAX_EVIDENCE_DEPTH = 8;
 
 export class PreReleaseEvidenceError extends Error {
   readonly code: string;
@@ -71,7 +107,78 @@ function validSha(value: unknown): value is string {
   return typeof value === "string" && SHA_RE.test(value);
 }
 
+function assertSafeEvidence(value: unknown): void {
+  const pending: { readonly value: unknown; readonly depth: number }[] = [{ value, depth: 0 }];
+  let visited = 0;
+  while (pending.length > 0) {
+    const item = pending.pop();
+    failUnless(item !== undefined, "invalid_evidence_schema");
+    visited += 1;
+    failUnless(visited <= MAX_EVIDENCE_NODES && item.depth <= MAX_EVIDENCE_DEPTH, "invalid_evidence_schema");
+    if (typeof item.value === "string") {
+      failUnless(item.value.length <= 4096, "invalid_evidence_schema");
+      failUnless(!SECRET_RE.test(item.value), "secret_like_value");
+    } else if (Array.isArray(item.value)) {
+      failUnless(item.value.length <= 128, "invalid_evidence_schema");
+      for (const child of item.value) pending.push({ value: child, depth: item.depth + 1 });
+    } else if (isRecord(item.value)) {
+      const entries = Object.entries(item.value);
+      failUnless(entries.length <= 128, "invalid_evidence_schema");
+      for (const [key, child] of entries) {
+        failUnless(!SECRET_KEY_RE.test(key), "secret_like_value");
+        pending.push({ value: child, depth: item.depth + 1 });
+      }
+    } else {
+      failUnless(
+        item.value === null || typeof item.value === "boolean" ||
+          (typeof item.value === "number" && Number.isSafeInteger(item.value)),
+        "invalid_evidence_schema",
+      );
+    }
+  }
+}
+
+function validateReceipts(value: unknown): void {
+  failUnless(Array.isArray(value) && value.length === RECEIPTS.length, "receipt_inventory_mismatch");
+  const observedHosts = new Set<string>();
+  for (const receipt of value) {
+    failUnless(
+      exactKeys(receipt, ["host", "version", "verdict", "path", "receiptDigest"])
+        && typeof receipt.host === "string",
+      "receipt_inventory_mismatch",
+    );
+    const expected = RECEIPTS.find((candidate) => candidate.host === receipt.host);
+    failUnless(expected !== undefined && !observedHosts.has(receipt.host), "receipt_inventory_mismatch");
+    observedHosts.add(receipt.host);
+    failUnless(receipt.version === expected.version && receipt.path === expected.path, "receipt_inventory_mismatch");
+    failUnless(
+      typeof receipt.receiptDigest === "string"
+        && DIGEST_RE.test(receipt.receiptDigest)
+        && receipt.receiptDigest === expected.receiptDigest,
+      "receipt_digest_mismatch",
+    );
+    failUnless(receipt.verdict === expected.verdict, "receipt_verdict_mismatch");
+  }
+  failUnless(observedHosts.size === RECEIPTS.length, "receipt_inventory_mismatch");
+}
+
+function validateReadinessChecks(value: unknown): void {
+  failUnless(Array.isArray(value) && value.length === READINESS_CHECKS.length, "readiness_incomplete");
+  const observed: string[] = [];
+  for (const check of value) {
+    failUnless(
+      exactKeys(check, ["name", "conclusion"])
+        && typeof check.name === "string"
+        && check.conclusion === "PASS",
+      "readiness_incomplete",
+    );
+    observed.push(check.name);
+  }
+  exactStringSet(observed, READINESS_CHECKS, "readiness_incomplete");
+}
+
 export function validatePreReleaseEvidence(value: unknown): PreReleaseEvidenceResult {
+  assertSafeEvidence(value);
   failUnless(exactKeys(value, [
     "schemaVersion",
     "subject",
@@ -129,7 +236,7 @@ export function validatePreReleaseEvidence(value: unknown): PreReleaseEvidenceRe
   );
 
   failUnless(exactKeys(value.artifacts.verification, [
-    "path", "subjectSha", "subjectTree", "verdict", "requirements", "decisions",
+    "path", "subjectSha", "subjectTree", "verdict", "requirements", "decisions", "receipts", "checks",
   ]), "invalid_evidence_schema");
   failUnless(
     value.artifacts.verification.path === EVIDENCE_PATHS[2]
@@ -145,6 +252,8 @@ export function validatePreReleaseEvidence(value: unknown): PreReleaseEvidenceRe
   failUnless(value.artifacts.verification.verdict === "PASS", "verification_incomplete");
   exactStringSet(value.artifacts.verification.requirements, REQUIREMENTS, "verification_incomplete");
   exactStringSet(value.artifacts.verification.decisions, DECISIONS, "verification_incomplete");
+  validateReceipts(value.artifacts.verification.receipts);
+  validateReadinessChecks(value.artifacts.verification.checks);
 
   failUnless(exactKeys(value.evidenceCommit, ["sha", "parentSha", "changedPaths"]), "invalid_evidence_schema");
   failUnless(validSha(value.evidenceCommit.sha) && validSha(value.evidenceCommit.parentSha), "invalid_evidence_commit");
@@ -186,6 +295,10 @@ export function validatePreReleaseEvidence(value: unknown): PreReleaseEvidenceRe
     subjectSha,
     subjectTree,
     evidenceCommitSha: value.evidenceCommit.sha,
+    requirementCount: 6,
+    decisionCount: 28,
+    receiptCount: 4,
+    readinessCheckCount: 7,
     ciJobCount: 4,
   });
 }
@@ -295,7 +408,7 @@ function readReviewArtifact(filePath: string, expectedKind: "review" | "security
     ? [...shared, "openHigh", "openCritical"]
     : expectedKind === "security"
       ? [...shared, "openHighThreats", "openCriticalThreats"]
-      : [...shared, "requirements", "decisions"];
+      : [...shared, "requirements", "decisions", "receipts", "checks"];
   failUnless(exactKeys(value, expectedKeys), "invalid_artifact");
   failUnless(value.schemaVersion === 1 && value.artifact === expectedKind, "invalid_artifact");
   failUnless(validSha(value.subjectSha) && validSha(value.subjectTree), "invalid_artifact");
@@ -355,6 +468,8 @@ function buildEvidence(root: string, parsed: CliArguments): JsonMap {
         verdict: verification.verdict,
         requirements: verification.requirements,
         decisions: verification.decisions,
+        receipts: verification.receipts,
+        checks: verification.checks,
       },
     },
     evidenceCommit: { sha: evidenceCommitSha, parentSha, changedPaths },

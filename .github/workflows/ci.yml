@@ -60,6 +60,10 @@ jobs:
         run: npm test
       - name: Check deterministic generated products
         run: npm run generate:check
+      - name: Validate canonical docs and secret scans
+        run: npm run docs:check
+      - name: Audit retired authority directly
+        run: npm run audit:retirement
       - name: Audit real npm tarball
         run: npm run pack:audit
       - name: Run required four-host contract smoke

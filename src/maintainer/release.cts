@@ -48,6 +48,12 @@ export const RELEASE_OWNED_PATHS = Object.freeze([
   "package.json",
 ]);
 
+export const RELEASE_GATE_SCRIPTS = Object.freeze([
+  "ci:local",
+  "docs:check",
+  "audit:retirement",
+] as const);
+
 const COMPATIBILITY_MANIFEST_DIRECTORIES = Object.freeze([
   ".claude-plugin",
   ".codex-plugin",
@@ -287,12 +293,14 @@ function defaultRunGenerator(input: { readonly root: string; readonly check: boo
 }
 
 function defaultRunGates(root: string): void {
-  const executable = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
-  const args = process.platform === "win32"
-    ? ["/d", "/s", "/c", "npm run ci:local"]
-    : ["run", "ci:local"];
-  const result = childProcess.spawnSync(executable, args, { cwd: root, stdio: "inherit" });
-  if (result.status !== 0) throw new ReleaseError("gate_failed");
+  for (const script of RELEASE_GATE_SCRIPTS) {
+    const executable = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
+    const args = process.platform === "win32"
+      ? ["/d", "/s", "/c", `npm run ${script}`]
+      : ["run", script];
+    const result = childProcess.spawnSync(executable, args, { cwd: root, stdio: "inherit" });
+    if (result.status !== 0) throw new ReleaseError("gate_failed");
+  }
 }
 
 function updatePackageVersions(root: string, version: string): void {
@@ -507,6 +515,7 @@ export function runCli(argv: readonly string[] = process.argv.slice(2)): number 
 }
 
 exports.ReleaseError = ReleaseError;
+exports.RELEASE_GATE_SCRIPTS = RELEASE_GATE_SCRIPTS;
 exports.RELEASE_OWNED_PATHS = RELEASE_OWNED_PATHS;
 exports.VERSION_MANIFEST_PATHS = VERSION_MANIFEST_PATHS;
 exports.prepareRelease = prepareRelease;
