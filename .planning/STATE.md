@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-02-PLAN.md
-last_updated: "2026-08-26T12:25:31.458Z"
+stopped_at: Completed 04.1-01-PLAN.md
+last_updated: "2026-08-26T13:11:01.081Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: 77e147697d4e959979fcc1f8f4418183faa7ea17
+state_head: 9b8e0544d3426f4ca934a0ede57d3e293bfd53d3
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 54
+  completed_plans: 55
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 2 of 12
+Plan: 3 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -108,6 +108,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04 P19 | 20min | 3 tasks | 8 files |
 | Phase 04 P15 | 92m | 3 tasks | 14 files |
 | Phase 04.1 P02 | 13 min | 2 tasks | 7 files |
+| Phase 04.1 P01 | 76 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -258,6 +259,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Keep all 27 JX3 rule IDs exactly once in SKILL.md while validating deliberate repetitions by exact reference partition. — This separates compact index completeness from progressive-disclosure detail.
 - [Phase 04.1]: Ship four shallow Markdown references without scanner, Python, SVN, history, build, or deployment workflow content. — The nudge capability remains pure pre-write guidance and future deterministic audit retains scanner ownership.
 - [Phase 04.1]: Treat precedence, changed-region scope, minimal correction, and honest evidence questions as behavior-test contracts. — False-positive restraint is tested alongside positive prescriptions.
+- [Phase 04.1]: Use authorized KSCC 1.2.1 for real Claude sessions while binding support to independently verified Claude Code 2.1.241.
+- [Phase 04.1]: Enable JX3 only for exact host versions with checked-in digest-bound PASS receipts; navigation eligibility remains independent.
+- [Phase 04.1]: Keep Codex, Cursor, and OpenCode JX3 delivery unsupported until native model-visible pre-write context is directly proved.
 
 ### Pending Todos
 
@@ -320,6 +324,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T12:25:31.023Z
-Stopped at: Completed 04.1-02-PLAN.md
+Last session: 2026-08-26T13:11:00.604Z
+Stopped at: Completed 04.1-01-PLAN.md
 Resume file: None
