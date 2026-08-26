@@ -289,6 +289,26 @@ Plans:
 
 - [x] `04-16-PLAN.md` — 以不可变 fix-forward 的公开 exact `0.2.2` 完成三宿主 Head 验收并记录偏差
 
+### Phase 04.1: 多能力安装平台与 JX3 规范提示 (INSERTED)
+
+**Goal:** 将现有单一导航安装器重构为能力可组合的项目级安装平台：KCodeRag 导航作为首个内置能力保留，新增无 Python、SVN 或网络依赖的 JX3 规范提示能力；旧手工 MCP、plugin 和 Python Hook 仅只读检测并在写前硬停止，不迁移、不接管、不自动清理。
+**Mode:** mvp
+**Requirements**: PLAT-01, PLAT-02, PLAT-03, LEG-01, JX3-01, TEST-10
+**Depends on:** Phase 4
+**Success Criteria** (what must be TRUE):
+
+  1. 五个 CLI 命令可按单宿主管理显式选择的能力集合；状态、文件和配置 section 的所有权按 capability 记录，卸载一个能力不会破坏其他能力或用户配置。
+  2. KCodeRag QA 导航通过统一 capability contract 接入；共享 Hook dispatcher 有界组合各能力提示，单个能力异常不会阻断宿主操作。
+  3. `jx3-style-nudge` 仅在首次相关 C/C++、头文件或 Lua 写入前提醒加载 `$jx3-code-style-correction`；不运行 SVN、Python 扫描器或网络请求，也不宣称已经完成规范审核。
+  4. 对旧手工 MCP、marketplace/plugin、Python Hook 和多来源冲突只进行 secret-safe 检测，并在写入前硬停止；用户人工清理后可以重试。
+  5. 自动化覆盖能力组合、独立更新与卸载、共享配置合成、事务回滚和 legacy 硬停止；公共包继续保持 Node.js 22+、零生产依赖、零 Python 运行时。
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run $gsd-plan-phase 04.1 to break down)
+
 ### Phase 5: 低误报 Hook 与诚实路由
 
 **Goal:** hook 只在宽范围结构查找时提醒；精确文本、本地复核、常见 Lua 全局处理器和不可用索引都有低打扰且真实的路由。
