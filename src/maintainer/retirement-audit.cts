@@ -82,6 +82,50 @@ const ROOT_MARKETPLACE_PATHS = Object.freeze([
   ".cursor-plugin/marketplace.json",
 ]);
 
+const LEGACY_AUTHORITY_PATHS = Object.freeze([
+  "src/core/legacy-decoder.cts",
+  "src/core/legacy-state.cts",
+  "src/migration",
+  "tests/migration/legacy-state.test.cts",
+]);
+
+const CLEANUP_AUTHORITY_PATHS = Object.freeze([
+  "src/core/owned-cleanup.cts",
+  "src/hosts/owned-cleanup.cts",
+]);
+
+const RETIRED_WORKFLOW_PATHS = Object.freeze([
+  "scripts/run-jx3-scanner.cjs",
+  "scripts/svn-review.cjs",
+]);
+
+const ACTIVE_SOURCE_ROOTS = Object.freeze([
+  "src",
+  "plugin-src",
+  "scripts",
+  "kcoderag-qa",
+  "kcoderag-cursor",
+]);
+
+const PUBLIC_RUNTIME_ROOTS = Object.freeze([
+  "plugin-src",
+  "kcoderag-qa",
+  "kcoderag-cursor",
+]);
+
+const ACTIVE_DOCUMENTS = Object.freeze([
+  "README.md",
+  "plugin-src/README.md.tmpl",
+  "plugin-src/cursor/README.md.tmpl",
+  "kcoderag-qa/README.md",
+  "kcoderag-cursor/README.md",
+]);
+
+const HISTORICAL_HEADING_RE = /(?:history|historical|legacy|migration|retired|旧\s*dev|受控清理|controlled cleanup)/iu;
+const RETIRED_INSTRUCTION_RE = /--allow-legacy-(?:dev-migration|user-removal)|--environment(?:=|\s+)dev\b/iu;
+const LEGACY_AUTHORITY_RE = /\b(?:export\s+(?:async\s+)?function\s+parseLegacyInstallState|allowLegacyDevMigration\s*=)/u;
+const CLEANUP_AUTHORITY_RE = /\b(?:export\s+(?:async\s+)?function\s+(?:createNativeCleanupPlan|cleanupOwnedSource)|async\s+cleanupOwnedSource\s*\()/u;
+
 const RECEIPT_KEYS = Object.freeze([
   "schema_version", "repo_head", "tracked_production_inventory",
   "tracked_production_inventory_sha256", "suites", "generated_sha256", "pack_sha256",
@@ -522,30 +566,90 @@ function requirePresence(root: string, paths: readonly string[], expected: boole
   failUnless(paths.every((relativePath) => pathExists(root, relativePath) === expected), "retirement_mode_mismatch");
 }
 
-function scanFinalRuntime(root: string): void {
-  requirePresence(root, ROOT_MARKETPLACE_PATHS, false);
-  const runtimeRoots = ["plugin-src/hooks", "kcoderag-qa/hooks", "kcoderag-dev/hooks", "scripts"];
+function isWithinRoot(relativePath: string, root: string): boolean {
+  return relativePath === root || relativePath.startsWith(`${root}/`);
+}
+
+function collectActiveFiles(root: string): readonly string[] {
+  const files: string[] = [];
   const visit = (relativeRoot: string): void => {
     const absolute = path.join(root, ...relativeRoot.split("/"));
     if (!fs.existsSync(absolute)) return;
+    const stat = fs.lstatSync(absolute);
+    if (!stat.isDirectory()) {
+      files.push(relativeRoot);
+      return;
+    }
     for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
       const relative = `${relativeRoot}/${entry.name}`;
       if (entry.isDirectory()) visit(relative);
-      else failUnless(!entry.name.endsWith(".py") && !entry.name.endsWith(".pyc") && !entry.name.endsWith(".pyo"),
-        "python_runtime_remains");
+      else files.push(relative);
     }
   };
-  for (const runtimeRoot of runtimeRoots) visit(runtimeRoot);
-  for (const document of [
-    "README.md", "plugin-src/README.md.tmpl", "plugin-src/cursor/README.md.tmpl",
-    "kcoderag-qa/README.md", "kcoderag-dev/README.md", "kcoderag-cursor/README.md",
-  ]) {
-    const absolute = path.join(root, ...document.split("/"));
-    if (!fs.existsSync(absolute)) continue;
-    const text = fs.readFileSync(absolute, "utf8");
-    failUnless(!/(?:^|[\s`])python(?:3)?\s+[^\n`]+\.py\b|raw\.githubusercontent\.com|kcoderag-update\.json/imu.test(text),
+  for (const activeRoot of ACTIVE_SOURCE_ROOTS) visit(activeRoot);
+  files.sort(compareCodePointPaths);
+  return Object.freeze(files);
+}
+
+function scanPackagePolicy(root: string): void {
+  const packagePath = path.join(root, "package.json");
+  if (!fs.existsSync(packagePath)) return;
+  failUnless(fs.lstatSync(packagePath).isFile(), "unsafe_active_artifact");
+  let packageJson: unknown;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8")) as unknown;
+  } catch {
+    throw new RetirementAuditError("package_inspection_failed");
+  }
+  if (!isPlainObject(packageJson)) throw new RetirementAuditError("package_inspection_failed");
+  const scripts = packageJson.scripts;
+  failUnless(!isPlainObject(scripts) || !Object.hasOwn(scripts, "test:migration"), "legacy_authority_remains");
+}
+
+function scanActiveDocument(root: string, relativePath: string): void {
+  const absolute = path.join(root, ...relativePath.split("/"));
+  if (!fs.existsSync(absolute)) return;
+  failUnless(fs.lstatSync(absolute).isFile(), "unsafe_active_artifact");
+  let historicalRegion = false;
+  for (const line of fs.readFileSync(absolute, "utf8").split(/\r?\n/u)) {
+    const heading = /^#{1,6}\s+(.+)$/u.exec(line);
+    if (heading !== null) historicalRegion = HISTORICAL_HEADING_RE.test(heading[1]!);
+    if (!historicalRegion) failUnless(!RETIRED_INSTRUCTION_RE.test(line), "retired_instruction_remains");
+    failUnless(!/(?:^|[\s`])python(?:3)?\s+[^\n`]+\.py\b|raw\.githubusercontent\.com|kcoderag-update\.json/iu.test(line),
       "retired_reference_remains");
   }
+}
+
+function scanActiveRetirementPolicy(root: string): void {
+  failUnless(!pathExists(root, "kcoderag-dev"), "retired_product_remains");
+  failUnless(ROOT_MARKETPLACE_PATHS.every((relativePath) => !pathExists(root, relativePath)),
+    "root_marketplace_remains");
+  failUnless(LEGACY_AUTHORITY_PATHS.every((relativePath) => !pathExists(root, relativePath)),
+    "legacy_authority_remains");
+  failUnless(CLEANUP_AUTHORITY_PATHS.every((relativePath) => !pathExists(root, relativePath)),
+    "cleanup_authority_remains");
+  failUnless(RETIRED_WORKFLOW_PATHS.every((relativePath) => !pathExists(root, relativePath)),
+    "retired_workflow_remains");
+  scanPackagePolicy(root);
+
+  for (const relativePath of collectActiveFiles(root)) {
+    const lower = relativePath.toLowerCase();
+    failUnless(!/\.(?:py|pyc|pyo)$/u.test(lower), "python_runtime_remains");
+    if (PUBLIC_RUNTIME_ROOTS.some((runtimeRoot) => isWithinRoot(relativePath, runtimeRoot))) {
+      failUnless(!/\.(?:cts|mts|ts|tsx)$/u.test(lower), "runtime_source_remains");
+    }
+    if (relativePath === "src/maintainer/retirement-audit.cts") continue;
+    const absolute = path.join(root, ...relativePath.split("/"));
+    failUnless(fs.lstatSync(absolute).isFile(), "unsafe_active_artifact");
+    const text = fs.readFileSync(absolute, "utf8");
+    failUnless(!LEGACY_AUTHORITY_RE.test(text), "legacy_authority_remains");
+    failUnless(!CLEANUP_AUTHORITY_RE.test(text), "cleanup_authority_remains");
+  }
+  for (const document of ACTIVE_DOCUMENTS) scanActiveDocument(root, document);
+}
+
+function scanFinalRuntime(root: string): void {
+  scanActiveRetirementPolicy(root);
 }
 
 export function auditRetirement(root: string, mode: string): JsonMap {
@@ -587,9 +691,11 @@ export function main(argv: readonly string[] = process.argv.slice(2)): number {
       process.stdout.write(`${canonicalJson({ ok: true, mode: "verify-pre-receipt" })}\n`);
       return 0;
     }
-    const modeIndex = argv.indexOf("--mode");
-    failUnless(modeIndex >= 0 && typeof argv[modeIndex + 1] === "string" && argv.length === 2, "invalid_arguments");
-    process.stdout.write(`${canonicalJson({ ok: true, ...auditRetirement(root, argv[modeIndex + 1]!) })}\n`);
+    const normalizedArgv = argv.length === 0 ? ["--mode", "post"] : argv;
+    const modeIndex = normalizedArgv.indexOf("--mode");
+    failUnless(modeIndex >= 0 && typeof normalizedArgv[modeIndex + 1] === "string"
+      && normalizedArgv.length === 2, "invalid_arguments");
+    process.stdout.write(`${canonicalJson({ ok: true, ...auditRetirement(root, normalizedArgv[modeIndex + 1]!) })}\n`);
     return 0;
   } catch (error) {
     const code = error instanceof RetirementAuditError ? error.code : "retirement_audit_failed";

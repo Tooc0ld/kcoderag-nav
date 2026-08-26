@@ -56,6 +56,54 @@ const RETIRED_PATHS = Object.freeze([
 
 const MANAGED_PATHS = Object.freeze([...CANONICAL_PATHS, ...GENERATED_PATHS, ...RETIRED_PATHS]);
 
+const REQUIRED_CHECKS = Object.freeze([
+  Object.freeze({ command: "npm", args: Object.freeze(["run", "build"]), failureCode: "build_failed" }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "test:capabilities"]),
+    failureCode: "capability_tests_failed",
+  }),
+  Object.freeze({
+    command: "node",
+    args: Object.freeze([
+      "--test",
+      "dist-tests/skills/jx3-code-style-correction.test.cjs",
+      "dist-tests/skills/jx3-code-style-correction.behavior.test.cjs",
+    ]),
+    failureCode: "skill_tests_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "test:capability-hooks"]),
+    failureCode: "capability_hook_tests_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "test:manual-conflict"]),
+    failureCode: "manual_conflict_tests_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "test:generator"]),
+    failureCode: "generator_tests_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "test:generator:repository"]),
+    failureCode: "repository_generator_tests_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "audit:retirement"]),
+    failureCode: "retirement_audit_failed",
+  }),
+  Object.freeze({
+    command: "npm",
+    args: Object.freeze(["run", "generate:check"]),
+    failureCode: "generation_drift",
+  }),
+]);
+
 function git(
   root: string,
   env: NodeJS.ProcessEnv,
@@ -225,13 +273,11 @@ export function runPreCommit(options: RunOptions): PreCommitResult {
   }
 
   const runCommand = options.runCommand ?? defaultRunCommand;
-  const build = runCommand("npm", ["run", "build"], { cwd: root, env });
-  if (!indexMatches(root, env, before)) return result(false, "index_changed", paths);
-  if (build.status !== 0) return result(false, "build_failed", paths);
-
-  const generated = runCommand("npm", ["run", "generate:check"], { cwd: root, env });
-  if (!indexMatches(root, env, before)) return result(false, "index_changed", paths);
-  if (generated.status !== 0) return result(false, "generation_drift", paths);
+  for (const check of REQUIRED_CHECKS) {
+    const outcome = runCommand(check.command, check.args, { cwd: root, env });
+    if (!indexMatches(root, env, before)) return result(false, "index_changed", paths);
+    if (outcome.status !== 0) return result(false, check.failureCode, paths);
+  }
   return result(true, "verified", paths);
 }
 
@@ -246,6 +292,13 @@ const MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   retired_product_staged:
     "Retired KCodeRag Dev or marketplace product files are staged; remove them from the public change.",
   build_failed: "KCodeRag Node build failed. Run npm run build for details.",
+  capability_tests_failed: "KCodeRag capability contract tests failed.",
+  skill_tests_failed: "KCodeRag capability Skill tests failed.",
+  capability_hook_tests_failed: "KCodeRag capability Hook tests failed.",
+  manual_conflict_tests_failed: "KCodeRag manual-source conflict tests failed.",
+  generator_tests_failed: "KCodeRag generator tests failed.",
+  repository_generator_tests_failed: "KCodeRag repository generator tests failed.",
+  retirement_audit_failed: "KCodeRag retirement audit failed.",
   generation_drift:
     "Generated KCodeRag files drifted. Run npm run generate, review, and stage them explicitly.",
   index_changed: "The Git index changed during KCodeRag verification; the commit was stopped.",
