@@ -53,6 +53,16 @@ interface SupportedCapabilityLifecycle {
   readonly conflictUninstallBlocked: boolean;
   readonly partialUninstall: boolean;
   readonly finalUninstall: boolean;
+  readonly nativeFirstWrite: boolean;
+  readonly singleTransaction: boolean;
+  readonly unrelatedTreePreserved: boolean;
+  readonly rollbackRestored: boolean;
+  readonly concurrentLoserBlocked: boolean;
+  readonly assetDriftFailOpen: boolean;
+  readonly patchEnvelope: boolean;
+  readonly missingStableIdSilent: boolean;
+  readonly markerSaturationSilent: boolean;
+  readonly sessionEndReceiptBound: boolean;
 }
 
 interface UnsupportedCapabilityLifecycle {
@@ -656,6 +666,16 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
             conflictUninstallBlocked: true,
             partialUninstall: true,
             finalUninstall: true,
+            nativeFirstWrite: true,
+            singleTransaction: true,
+            unrelatedTreePreserved: true,
+            rollbackRestored: true,
+            concurrentLoserBlocked: true,
+            assetDriftFailOpen: true,
+            patchEnvelope: true,
+            missingStableIdSilent: true,
+            markerSaturationSilent: true,
+            sessionEndReceiptBound: true,
           });
         } else {
           assert.deepEqual(host.capabilityLifecycle, {
