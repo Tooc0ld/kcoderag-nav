@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 05
-current_phase_name: 低误报 Hook 与诚实路由
+current_phase: 04.1
+current_phase_name: 多能力安装平台与 JX3 规范提示
 status: planning
-stopped_at: Phase 04 complete, ready to plan Phase 05
-last_updated: "2026-08-26T13:24:55.9087549+08:00"
+stopped_at: Phase 04.1 context gathered
+last_updated: "2026-08-26T08:22:10.855Z"
 last_activity: 2026-08-26
 last_activity_desc: Quick 260826-dut completed OpenCode support and four-host MCP call markers
-state_head: 8e317b61137c2c9b9ccf943aa702647e9659e9b4
+state_head: 5a812f1c9a9e1d98b44e512ad5f45f8adc956c46
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 5
   total_plans: 53
   completed_plans: 53
-  percent: 56
+  percent: 50
 ---
 
 # Project State
@@ -23,11 +23,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 05 — 低误报 Hook 与诚实路由
+**Current focus:** Phase 04.1 — 多能力安装平台与 JX3 规范提示
 
 ## Current Position
 
-Phase: 05 — 低误报 Hook 与诚实路由
+Phase: 04.1 — 多能力安装平台与 JX3 规范提示
 Plan: Not started
 Status: Ready to plan
 Last activity: 2026-08-26 — Quick 260826-dut completed OpenCode support and four-host MCP call markers
@@ -291,6 +291,11 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260824-ecs | Enable stricter TypeScript compiler checks in source and test configs and verify the build | 2026-08-24 | 7dcbbfa | [260824-ecs-enable-stricter-typescript-compiler-chec](./quick/260824-ecs-enable-stricter-typescript-compiler-chec/) |
 | 260826-dut | Add project-only OpenCode support and four-host successful MCP-call markers | 2026-08-26 | 8e317b6, KCodeRag:5568e4c0 | [260826-dut-add-project-only-opencode-host-support-a](./quick/260826-dut-add-project-only-opencode-host-support-a/) |
 
+### Roadmap Evolution
+
+- Phase 04.1 inserted after Phase 4: 多能力安装平台与 JX3 规范提示 (URGENT)
+- Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and JX3 nudge
+
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
@@ -311,6 +316,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-25T19:17:22Z
-Stopped at: Phase 04 complete, ready to plan Phase 05
-Resume file: None
+Last session: 2026-08-26T08:22:10.189Z
+Stopped at: Phase 04.1 context gathered
+Resume file: .planning/phases/04.1-jx3/04.1-CONTEXT.md
