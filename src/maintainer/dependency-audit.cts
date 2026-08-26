@@ -64,6 +64,12 @@ const LIFECYCLE_SCRIPTS = new Set([
   "postprepare",
   "prepublishOnly",
 ]);
+const REQUIRED_CURRENT_SCRIPTS = Object.freeze({
+  "test:capabilities": "node --test dist-tests/capabilities/*.test.cjs",
+  "test:capability-hooks":
+    "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/jx3-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
+  "test:manual-conflict": "node --test dist-tests/migration/manual-source-conflict.test.cjs",
+});
 
 class DependencyAuditError extends Error {
   readonly code: string;
@@ -144,6 +150,10 @@ function assertPackageAndScriptPolicy(packageJson: JsonMap): void {
         "node dist/smoke/host-smoke.cjs --mode optional-live",
     "script_policy_drift",
   );
+  throwUnless(!Object.hasOwn(packageJson.scripts, "test:migration"), "script_policy_drift");
+  for (const [name, command] of Object.entries(REQUIRED_CURRENT_SCRIPTS)) {
+    throwUnless(packageJson.scripts[name] === command, "script_policy_drift");
+  }
 }
 
 function lockPath(packageName: string): string {

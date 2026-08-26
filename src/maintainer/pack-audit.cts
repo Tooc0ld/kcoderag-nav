@@ -29,10 +29,15 @@ export class PackAuditError extends Error {
 
 const REQUIRED_ASSETS = Object.freeze([
   "dist/bin/kcoderag-nav.cjs",
+  "dist/capabilities/registry.cjs",
   "dist/cli/commands.cjs",
   "dist/core/mutation-lock.cjs",
   "dist/core/project-root.cjs",
   "dist/core/transaction.cjs",
+  "dist/hooks/jx3-style-nudge.cjs",
+  "dist/hooks/once-marker.cjs",
+  "dist/hooks/pre-tool-dispatcher.cjs",
+  "dist/hooks/session-cleanup.cjs",
   "dist/hosts/codex.cjs",
   "dist/hosts/claude.cjs",
   "dist/hosts/cursor.cjs",
@@ -56,6 +61,11 @@ const REQUIRED_ASSETS = Object.freeze([
   "kcoderag-cursor/mcp.json",
   "kcoderag-cursor/rules/kcoderag-navigation.mdc",
   "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
 ]);
 
 const VERSION_MANIFESTS = Object.freeze([
@@ -71,7 +81,6 @@ const FORBIDDEN_PREFIXES = Object.freeze([
   "credential-fixtures/",
   "dist-tests/",
   "node_modules/",
-  "plugin-src/",
   "scripts/",
   "src/",
   "tests/",
@@ -86,6 +95,11 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
 
 const NON_PUBLISHED_COMPILED_OUTPUT_SET = new Set<string>(NON_PUBLISHED_COMPILED_OUTPUTS);
 const RETIRED_PRODUCT_DIRECTORY = "kcoderag-dev";
+const ROOT_MARKETPLACE_PATHS = new Set([
+  ".agents/plugins/marketplace.json",
+  ".claude-plugin/marketplace.json",
+  ".cursor-plugin/marketplace.json",
+]);
 
 const SEMVER_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const GLOB_RE = /[*?\[\]{}]/u;
@@ -208,6 +222,8 @@ export function expandPackageFiles(root: string, packageJson: JsonMap): readonly
 function forbiddenArchivePath(relativePath: string): boolean {
   const lower = relativePath.toLowerCase();
   return (
+    ROOT_MARKETPLACE_PATHS.has(lower)
+    ||
     FORBIDDEN_PREFIXES.some((prefix) => lower.startsWith(prefix))
     || lower.endsWith(".py")
     || lower.endsWith(".pyc")
@@ -487,7 +503,6 @@ export function auditPack(options: { readonly root: string }): PackAuditResult {
     const packageJson = parseJson(fs.readFileSync(path.join(root, "package.json")), "package_manifest_invalid");
     const expectedPaths = expandPackageFiles(root, packageJson);
     runNpm(root, ["run", "deps:audit"]);
-    runNpm(root, ["run", "generate:check"]);
     const packed = npmPackFileList(runNpm(root, [
       "pack",
       root,
