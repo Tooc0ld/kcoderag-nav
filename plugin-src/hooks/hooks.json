@@ -2,14 +2,14 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(Grep|Glob|Bash)$",
+        "matcher": "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$",
         "hooks": [
           {
             "type": "command",
             "command": "{{project_hook_command_posix}}",
             "commandWindows": "{{project_hook_command_windows}}",
             "timeout": 5,
-            "statusMessage": "Checking code lookup strategy",
+            "statusMessage": "Checking project guidance",
             "additionalContextLimit": 600
           }
         ]

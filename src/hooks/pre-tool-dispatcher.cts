@@ -2,6 +2,7 @@
 /** Single bounded PreToolUse dispatcher; every contributor and output boundary fails open. */
 
 const fs = require("node:fs") as typeof import("node:fs");
+import type { HostId } from "../core/contracts.cjs";
 import { navigationContribution } from "./grep-nudge.cjs";
 import { jx3StyleContribution } from "./jx3-style-nudge.cjs";
 
@@ -12,13 +13,83 @@ export type PreToolContributor = (
   payload: Readonly<Record<string, unknown>>,
 ) => string | undefined;
 
-const DEFAULT_CONTRIBUTORS: readonly PreToolContributor[] = Object.freeze([
-  navigationContribution,
-  jx3StyleContribution,
-]);
+export interface DispatcherRuntimeOptions {
+  readonly host?: HostId;
+  readonly managedRoot?: string;
+  readonly statePath?: string;
+  readonly cacheRoot?: string;
+}
+
+interface UpdateNoticeModule {
+  readHostUpdateNotice(
+    host: HostId,
+    payload: unknown,
+    options?: { readonly statePath?: string; readonly cwd?: string },
+  ): string | undefined;
+  scheduleHostUpdateRefresh(
+    host: HostId,
+    payload: unknown,
+    options?: { readonly statePath?: string; readonly cwd?: string },
+  ): boolean;
+}
+
+const updateNotice: UpdateNoticeModule | undefined = (() => {
+  try {
+    return require("./update-notice.cjs") as UpdateNoticeModule;
+  } catch {
+    return undefined;
+  }
+})();
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHost(value: unknown): value is HostId {
+  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
+}
+
+function defaultStatePath(host: HostId, managedRoot: string): string {
+  const hostRoot = host === "codex" ? ".codex" : host === "claude" ? ".claude" :
+    host === "cursor" ? ".cursor" : ".opencode";
+  return require("node:path").join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json") as string;
+}
+
+export function createDefaultContributors(
+  runtime: DispatcherRuntimeOptions = {},
+): readonly PreToolContributor[] {
+  const runtimeHost = isHost(runtime.host) ? runtime.host : undefined;
+  const managedRoot = typeof runtime.managedRoot === "string" && runtime.managedRoot.length > 0
+    ? runtime.managedRoot
+    : undefined;
+  const statePath = runtimeHost !== undefined && managedRoot !== undefined
+    ? runtime.statePath ?? defaultStatePath(runtimeHost, managedRoot)
+    : undefined;
+  return Object.freeze([
+    (payload: Readonly<Record<string, unknown>>): string | undefined => {
+      const noticeOptions = {
+        ...(managedRoot === undefined ? {} : { cwd: managedRoot }),
+        ...(statePath === undefined ? {} : { statePath }),
+      };
+      const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
+        ? undefined
+        : updateNotice.readHostUpdateNotice(runtimeHost, payload, noticeOptions);
+      const contribution = navigationContribution(payload, notice);
+      if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
+        updateNotice.scheduleHostUpdateRefresh(runtimeHost, payload, noticeOptions);
+      }
+      return contribution;
+    },
+    (payload: Readonly<Record<string, unknown>>): string | undefined => {
+      if (runtimeHost === undefined || managedRoot === undefined) return undefined;
+      return jx3StyleContribution(payload, {
+        host: runtimeHost,
+        managedRoot,
+        ...(statePath === undefined ? {} : { statePath }),
+        ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+      });
+    },
+  ]);
 }
 
 function responseForContexts(contexts: readonly string[]): Readonly<Record<string, unknown>> | undefined {
@@ -35,7 +106,7 @@ function responseForContexts(contexts: readonly string[]): Readonly<Record<strin
 
 export function dispatchPayload(
   payload: Readonly<Record<string, unknown>>,
-  contributors: readonly PreToolContributor[] = DEFAULT_CONTRIBUTORS,
+  contributors: readonly PreToolContributor[] = createDefaultContributors(),
 ): Readonly<Record<string, unknown>> | undefined {
   const contexts: string[] = [];
   for (const contributor of contributors) {
@@ -51,13 +122,16 @@ export function dispatchPayload(
 
 export function dispatchRawInput(
   rawInput: string,
-  contributors: readonly PreToolContributor[] = DEFAULT_CONTRIBUTORS,
+  contributors?: readonly PreToolContributor[],
   parseInput: (rawInput: string) => unknown = JSON.parse,
+  runtime: DispatcherRuntimeOptions = {},
 ): Readonly<Record<string, unknown>> | undefined {
   if (rawInput.length === 0 || rawInput.length > MAX_INPUT_CHARS) return undefined;
   try {
     const payload = parseInput(rawInput);
-    return isRecord(payload) ? dispatchPayload(payload, contributors) : undefined;
+    return isRecord(payload)
+      ? dispatchPayload(payload, contributors ?? createDefaultContributors(runtime))
+      : undefined;
   } catch {
     return undefined;
   }
@@ -79,10 +153,11 @@ function readBoundedStdin(): string {
 export function main(
   rawInput?: string,
   writeOutput: (text: string) => void = (text) => { process.stdout.write(text); },
-  contributors: readonly PreToolContributor[] = DEFAULT_CONTRIBUTORS,
+  contributors?: readonly PreToolContributor[],
+  runtime: DispatcherRuntimeOptions = {},
 ): number {
   try {
-    const output = dispatchRawInput(rawInput ?? readBoundedStdin(), contributors);
+    const output = dispatchRawInput(rawInput ?? readBoundedStdin(), contributors, JSON.parse, runtime);
     if (output !== undefined) writeOutput(JSON.stringify(output));
   } catch {
     return 0;
