@@ -135,6 +135,33 @@ test("rejects public package, runtime engine, bin, and compiled-script policy dr
   }
 });
 
+test("requires current capability, hook, and manual-conflict scripts without migration authority", () => {
+  const accepted = actualGraph();
+  assert.equal(Object.hasOwn(accepted.packageJson.scripts, "test:migration"), false);
+  assert.equal(
+    accepted.packageJson.scripts["test:capabilities"],
+    "node --test dist-tests/capabilities/*.test.cjs",
+  );
+  assert.equal(
+    accepted.packageJson.scripts["test:capability-hooks"],
+    "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/jx3-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
+  );
+  assert.equal(
+    accepted.packageJson.scripts["test:manual-conflict"],
+    "node --test dist-tests/migration/manual-source-conflict.test.cjs",
+  );
+
+  for (const scriptName of ["test:capabilities", "test:capability-hooks", "test:manual-conflict"]) {
+    const missing = actualGraph();
+    delete missing.packageJson.scripts[scriptName];
+    expectAuditError(missing, "script_policy_drift");
+  }
+
+  const legacy = actualGraph();
+  legacy.packageJson.scripts["test:migration"] = "node --test dist-tests/migration/legacy-state.test.cjs";
+  expectAuditError(legacy, "script_policy_drift");
+});
+
 test("rejects parent-edge, exact version, resolution, and integrity drift", () => {
   const edge = actualGraph();
   delete edge.packageLock.packages["node_modules/@types/node"].dependencies["undici-types"];

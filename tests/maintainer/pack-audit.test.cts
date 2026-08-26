@@ -30,6 +30,20 @@ const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
 const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
 const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
+const CAPABILITY_REGISTRY_PATH = "dist/capabilities/registry.cjs";
+const DISPATCHER_PATH = "dist/hooks/pre-tool-dispatcher.cjs";
+const JX3_RUNTIME_PATHS = Object.freeze([
+  "dist/hooks/jx3-style-nudge.cjs",
+  "dist/hooks/once-marker.cjs",
+  "dist/hooks/session-cleanup.cjs",
+]);
+const JX3_SKILL_PATHS = Object.freeze([
+  "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
+]);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -117,6 +131,29 @@ test("requires exact archive equality and all self-contained host assets", () =>
     () => packAudit.validatePack({ ...missingLock, expectedPaths: withoutLock }),
     "missing_self_contained_asset",
   );
+});
+
+test("requires the capability registry, dispatcher runtime, and canonical JX3 Skill tree", () => {
+  const exact = baseline();
+  for (const required of [
+    CAPABILITY_REGISTRY_PATH,
+    DISPATCHER_PATH,
+    ...JX3_RUNTIME_PATHS,
+    ...JX3_SKILL_PATHS,
+  ]) {
+    assert.equal(exact.expectedPaths.includes(required), true, required);
+  }
+
+  for (const required of JX3_SKILL_PATHS) {
+    const missing = baseline();
+    missing.packageJson.files = missing.packageJson.files.filter((item: string) => item !== required);
+    const expectedPaths = missing.expectedPaths.filter((item) => item !== required);
+    missing.archiveEntries.delete(required);
+    expectCode(
+      () => packAudit.validatePack({ ...missing, expectedPaths }),
+      "missing_self_contained_asset",
+    );
+  }
 });
 
 test("rejects the explicitly non-publishable retirement auditor at every pure inventory boundary", () => {
@@ -238,6 +275,21 @@ test("rejects Python, runtime compiler, source, tests, planning, dependency, and
     const current = baseline();
     current.archiveEntries.set(forbiddenPath, Buffer.from("KCODERAG_PACK_CREDENTIAL_FIXTURE"));
     expectCode(() => packAudit.validatePack(current), expectedCode);
+  }
+});
+
+test("rejects root marketplace and retired scanner or SVN workflow surfaces", () => {
+  for (const forbiddenPath of [
+    ".claude-plugin/marketplace.json",
+    ".cursor-plugin/marketplace.json",
+    "scripts/run-jx3-scanner.cjs",
+    "scripts/svn-review.cjs",
+  ]) {
+    const current = baseline();
+    current.packageJson.files.push(forbiddenPath);
+    current.expectedPaths = [...current.expectedPaths, forbiddenPath].sort();
+    current.archiveEntries.set(forbiddenPath, Buffer.from("retired workflow\n"));
+    expectCode(() => packAudit.validatePack(current), "forbidden_archive_path");
   }
 });
 
