@@ -44,7 +44,7 @@ interface StateModule {
     issues: readonly { code: string; path: string }[];
   };
   createDesiredState(input: {
-    host: "codex" | "claude" | "cursor";
+    host: "codex" | "claude" | "cursor" | "opencode";
     target: { readonly root: string };
     managedRoots: readonly string[];
     statePath: string;
@@ -636,6 +636,30 @@ test("every staged and committed failure restores the complete one-host tree", (
         fs.rmSync(base, { recursive: true, force: true });
       }
     }
+  }
+});
+
+test("one composed capability set remains atomic at every commit boundary", () => {
+  const base = temporaryDirectory("kcoderag-core-composed-boundary-");
+  try {
+    const fixture = transactionFixture(base);
+    const entryCount = fixture.desired.entries.length;
+    for (let failureIndex = 0; failureIndex < entryCount; failureIndex += 1) {
+      const isolated = temporaryDirectory("kcoderag-core-composed-attempt-");
+      try {
+        const attempt = transactionFixture(isolated);
+        const before = snapshotTree(attempt.targetRoot);
+        assert.throws(
+          () => transaction.applyTransaction(attempt.desired, { failAtCommit: failureIndex }),
+          (error: unknown) => errorCode(error) === "transaction_failed",
+        );
+        assert.deepEqual(snapshotTree(attempt.targetRoot), before, `commit:${failureIndex}`);
+      } finally {
+        fs.rmSync(isolated, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
