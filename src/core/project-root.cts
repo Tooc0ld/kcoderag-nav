@@ -38,6 +38,7 @@ function findNearestProjectHookRuntime(
     const maximumManagedPaths = 1024;
     const defaultAncestorLimit = 256;
     const digestPattern = /^[0-9a-f]{64}$/;
+    const capabilityOrder = Object.freeze(["kcoderag-navigation", "jx3-style-nudge"] as const);
     const isRecord = (value: unknown): value is Record<string, unknown> =>
       typeof value === "object" && value !== null && !Array.isArray(value);
     const isSafeRelativePath = (value: unknown): value is string => {
@@ -64,13 +65,27 @@ function findNearestProjectHookRuntime(
       }
       return Buffer.from(value.data, "base64").toString("base64") === value.data;
     };
-    const validateSection = (value: unknown): boolean => {
-      if (!isRecord(value)) return false;
-      const keys = Object.keys(value).sort().join("\0");
-      if (keys !== "digest\0fileExisted\0id" && keys !== "createdContainers\0digest\0fileExisted\0id") {
+    const validateContributors = (value: unknown): value is string[] => {
+      if (!Array.isArray(value) || value.length === 0 || !value.every((item) => capabilityOrder.includes(item))) {
         return false;
       }
-      return typeof value.id === "string" &&
+      const canonical = capabilityOrder.filter((id) => value.includes(id));
+      return canonical.length === value.length && canonical.every((id, index) => value[index] === id);
+    };
+    const sortedUnique = (value: unknown, validate: (item: string) => boolean): value is string[] =>
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "string" && validate(item)) &&
+      value.every((item, index) => index === 0 || (value[index - 1] as string) < item);
+    const validateSection = (value: unknown): value is Record<string, unknown> => {
+      if (!isRecord(value)) return false;
+      const keys = value.createdContainers === undefined
+        ? ["contributors", "digest", "fileExisted", "id", "path"]
+        : ["contributors", "createdContainers", "digest", "fileExisted", "id", "path"];
+      if (!exactKeys(value, keys)) {
+        return false;
+      }
+      return isSafeRelativePath(value.path) &&
+        typeof value.id === "string" &&
         value.id.length > 0 &&
         value.id.length <= 160 &&
         /^[A-Za-z0-9_.:-]+$/.test(value.id) &&
@@ -78,12 +93,9 @@ function findNearestProjectHookRuntime(
         digestPattern.test(value.digest) &&
         typeof value.fileExisted === "boolean" &&
         (value.createdContainers === undefined || (
-          Array.isArray(value.createdContainers) &&
-          value.createdContainers.length <= 8 &&
-          new Set(value.createdContainers).size === value.createdContainers.length &&
-          value.createdContainers.every((item) =>
-            typeof item === "string" && /^[A-Za-z0-9_.:-]+$/.test(item))
-        ));
+          sortedUnique(value.createdContainers, (item) => /^[A-Za-z0-9_.:-]{1,160}$/.test(item))
+        )) &&
+        validateContributors(value.contributors);
     };
     const validateContainedFile = (root: string, relativePath: string): string | undefined => {
       let current = root;
@@ -113,7 +125,7 @@ function findNearestProjectHookRuntime(
       host: ProjectHookHost,
       stateRelativePath: string,
       launcherRelativePath: string,
-    ): { readonly launcherDigest: string } | undefined => {
+    ): { readonly files: readonly { readonly path: string; readonly digest: string }[] } | undefined => {
       let value: unknown;
       try {
         value = JSON.parse(bytes.toString("utf8"));
@@ -121,50 +133,139 @@ function findNearestProjectHookRuntime(
         return undefined;
       }
       if (!isRecord(value)) return undefined;
-      const keys = Object.keys(value).sort().join("\0");
-      if (
-        keys !== "digests\0environment\0host\0managedFiles\0originals\0packageVersion\0schemaVersion" &&
-        keys !== "digests\0environment\0host\0managedFiles\0originals\0packageVersion\0schemaVersion\0sections"
-      ) {
+      if (!exactKeys(value, [
+        "capabilities",
+        "compositeDigest",
+        "files",
+        "host",
+        "packageVersion",
+        "schemaVersion",
+        "sections",
+      ])) {
         return undefined;
       }
       if (
         value.schemaVersion !== 1 ||
         value.host !== host ||
-        value.environment !== "qa" ||
         typeof value.packageVersion !== "string" ||
         value.packageVersion.length === 0 ||
-        value.packageVersion.length > 128 ||
-        !Array.isArray(value.managedFiles) ||
-        value.managedFiles.length === 0 ||
-        value.managedFiles.length > maximumManagedPaths ||
-        !value.managedFiles.every(isSafeRelativePath) ||
-        new Set(value.managedFiles).size !== value.managedFiles.length ||
-        !value.managedFiles.includes(stateRelativePath) ||
-        !value.managedFiles.includes(launcherRelativePath) ||
-        !isRecord(value.originals) ||
-        !isRecord(value.digests) ||
-        (value.sections !== undefined && !isRecord(value.sections))
+        value.packageVersion.length > 160 ||
+        !Array.isArray(value.capabilities) ||
+        value.capabilities.length === 0 ||
+        value.capabilities.length > capabilityOrder.length ||
+        !Array.isArray(value.files) ||
+        value.files.length === 0 ||
+        value.files.length > maximumManagedPaths ||
+        !Array.isArray(value.sections) ||
+        value.sections.length > maximumManagedPaths ||
+        typeof value.compositeDigest !== "string" ||
+        !digestPattern.test(value.compositeDigest)
       ) {
         return undefined;
       }
-      const managed = new Set(value.managedFiles as string[]);
-      if (Object.entries(value.originals).some(([key, original]) =>
-        !managed.has(key) || !validateOriginal(original))) {
+
+      const capabilities = value.capabilities as unknown[];
+      const capabilityIds: string[] = [];
+      const capabilityFiles = new Map<string, readonly string[]>();
+      const capabilitySections = new Map<string, readonly string[]>();
+      for (const raw of capabilities) {
+        if (
+          !isRecord(raw) ||
+          !exactKeys(raw, ["files", "id", "sections"]) ||
+          typeof raw.id !== "string" ||
+          !capabilityOrder.some((id) => id === raw.id) ||
+          !sortedUnique(raw.files, isSafeRelativePath) ||
+          !sortedUnique(raw.sections, (item) => {
+            const separator = item.lastIndexOf("#");
+            return separator > 0 &&
+              isSafeRelativePath(item.slice(0, separator)) &&
+              /^[A-Za-z0-9_.:-]{1,160}$/.test(item.slice(separator + 1));
+          })
+        ) {
+          return undefined;
+        }
+        capabilityIds.push(raw.id);
+        capabilityFiles.set(raw.id, raw.files);
+        capabilitySections.set(raw.id, raw.sections);
+      }
+      const canonicalIds = capabilityOrder.filter((id) => capabilityIds.includes(id));
+      if (canonicalIds.length !== capabilityIds.length || !canonicalIds.every((id, index) => capabilityIds[index] === id)) {
         return undefined;
       }
-      if (Object.entries(value.digests).some(([key, digest]) =>
-        !managed.has(key) || typeof digest !== "string" || !digestPattern.test(digest))) {
+
+      const files = (value.files as unknown[]).map((raw) => {
+        if (
+          !isRecord(raw) ||
+          !exactKeys(raw, ["contributors", "digest", "original", "path"]) ||
+          !isSafeRelativePath(raw.path) ||
+          typeof raw.digest !== "string" ||
+          !digestPattern.test(raw.digest) ||
+          !validateOriginal(raw.original) ||
+          !validateContributors(raw.contributors) ||
+          raw.contributors.some((id) => !capabilityIds.includes(id))
+        ) {
+          return undefined;
+        }
+        return { path: raw.path, digest: raw.digest, contributors: raw.contributors };
+      });
+      if (
+        files.some((file) => file === undefined) ||
+        files.some((file, index) => index > 0 && (files[index - 1]?.path ?? "") >= (file?.path ?? ""))
+      ) {
         return undefined;
       }
-      if (value.sections !== undefined && Object.entries(value.sections).some(([key, section]) =>
-        !managed.has(key) || !validateSection(section))) {
+      const validFiles = files as { readonly path: string; readonly digest: string; readonly contributors: readonly string[] }[];
+      const filesByPath = new Map(validFiles.map((file) => [file.path, file]));
+
+      const sections = (value.sections as unknown[]).map((raw) => {
+        if (!validateSection(raw) || (raw.contributors as string[]).some((id) => !capabilityIds.includes(id))) {
+          return undefined;
+        }
+        const file = filesByPath.get(raw.path as string);
+        if (file === undefined || (raw.contributors as string[]).some((id) => !file.contributors.includes(id))) {
+          return undefined;
+        }
+        return {
+          reference: `${raw.path as string}#${raw.id as string}`,
+          contributors: raw.contributors as readonly string[],
+        };
+      });
+      if (
+        sections.some((section) => section === undefined) ||
+        sections.some((section, index) => index > 0 &&
+          (sections[index - 1]?.reference ?? "") >= (section?.reference ?? ""))
+      ) {
         return undefined;
       }
-      const launcherDigest = value.digests[launcherRelativePath];
-      return typeof launcherDigest === "string" && digestPattern.test(launcherDigest)
-        ? { launcherDigest }
-        : undefined;
+      const validSections = sections as { readonly reference: string; readonly contributors: readonly string[] }[];
+      const sectionsByReference = new Map(validSections.map((section) => [section.reference, section]));
+      for (const id of capabilityIds) {
+        const expectedFiles = validFiles.filter((file) => file.contributors.includes(id)).map((file) => file.path);
+        const expectedSections = validSections
+          .filter((section) => section.contributors.includes(id))
+          .map((section) => section.reference);
+        if (
+          capabilityFiles.get(id)?.join("\0") !== expectedFiles.join("\0") ||
+          capabilitySections.get(id)?.join("\0") !== expectedSections.join("\0") ||
+          capabilityFiles.get(id)?.some((file) => !filesByPath.has(file)) ||
+          capabilitySections.get(id)?.some((section) => !sectionsByReference.has(section))
+        ) {
+          return undefined;
+        }
+      }
+      const composite = crypto.createHash("sha256").update(Buffer.from(JSON.stringify({
+        schemaVersion: value.schemaVersion,
+        packageVersion: value.packageVersion,
+        host: value.host,
+        capabilities: value.capabilities,
+        files: value.files,
+        sections: value.sections,
+      }), "utf8")).digest("hex");
+      if (composite !== value.compositeDigest || !filesByPath.has(launcherRelativePath)) {
+        return undefined;
+      }
+      void stateRelativePath;
+      return { files: validFiles.map((file) => ({ path: file.path, digest: file.digest })) };
     };
 
     if (
@@ -214,22 +315,27 @@ function findNearestProjectHookRuntime(
       );
       if (state === undefined) return undefined;
 
-      const launcherPath = validateContainedFile(current, options.launcherRelativePath);
+      let launcherPath: string | undefined;
+      for (const file of state.files) {
+        const managedPath = validateContainedFile(current, file.path);
+        if (managedPath === undefined) return undefined;
+        let managedBytes: Buffer;
+        try {
+          const metadata = fs.lstatSync(managedPath);
+          if (metadata.size > maximumLauncherBytes) return undefined;
+          managedBytes = fs.readFileSync(managedPath);
+        } catch {
+          return undefined;
+        }
+        if (
+          managedBytes.length > maximumLauncherBytes ||
+          crypto.createHash("sha256").update(managedBytes).digest("hex") !== file.digest
+        ) {
+          return undefined;
+        }
+        if (file.path === options.launcherRelativePath) launcherPath = managedPath;
+      }
       if (launcherPath === undefined) return undefined;
-      let launcherBytes: Buffer;
-      try {
-        const metadata = fs.lstatSync(launcherPath);
-        if (metadata.size > maximumLauncherBytes) return undefined;
-        launcherBytes = fs.readFileSync(launcherPath);
-      } catch {
-        return undefined;
-      }
-      if (
-        launcherBytes.length > maximumLauncherBytes ||
-        crypto.createHash("sha256").update(launcherBytes).digest("hex") !== state.launcherDigest
-      ) {
-        return undefined;
-      }
       return Object.freeze({ projectRoot: current, launcherPath });
     }
     return undefined;
@@ -245,11 +351,18 @@ export function findNearestProjectHook(
   return findNearestProjectHookRuntime(options);
 }
 
-function bootstrapSource(): string {
+function compactBootstrapTemplate(): string {
   // This fixed program stays below cmd.exe's command-line limit. The exported
   // function above is the readable contract; exact rendered-command tests keep
   // this compact boundary behaviorally aligned with it.
-  return "const f=require('node:fs'),p=require('node:path'),h=require('node:crypto'),c=require('node:child_process'),H=process.argv[2],S=process.argv[3],L=process.argv[4],W=process.argv[5]==='windows',D=/^[0-9a-f]{64}$/,O=x=>x!==null&&typeof x==='object'&&!Array.isArray(x),E=(x,a)=>Object.keys(x).sort().join('\\0')===a,V=x=>typeof x==='string'&&x.length>0&&!x.includes('\\\\')&&!p.posix.isAbsolute(x)&&!p.win32.isAbsolute(x)&&x.split('/').every(y=>y&&y!=='.'&&y!=='..'),R=x=>O(x)&&(x.kind==='absent'?E(x,'kind'):x.kind==='base64'&&E(x,'data\\0kind')&&typeof x.data==='string'&&/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x.data)&&Buffer.from(x.data,'base64').toString('base64')===x.data),T=x=>{if(!O(x))return false;const k=Object.keys(x).sort().join('\\0');return(k==='digest\\0fileExisted\\0id'||k==='createdContainers\\0digest\\0fileExisted\\0id')&&typeof x.id==='string'&&x.id.length>0&&x.id.length<=160&&/^[A-Za-z0-9_.:-]+$/.test(x.id)&&typeof x.digest==='string'&&D.test(x.digest)&&typeof x.fileExisted==='boolean'&&(x.createdContainers===undefined||(Array.isArray(x.createdContainers)&&x.createdContainers.length<=8&&new Set(x.createdContainers).size===x.createdContainers.length&&x.createdContainers.every(y=>typeof y==='string'&&/^[A-Za-z0-9_.:-]+$/.test(y))))};try{let d=p.resolve(process.cwd());for(let n=0;n<256;n++){const q=p.join(d,...S.split('/'));let m;try{m=f.lstatSync(q)}catch(e){if(e.code!=='ENOENT')break;const a=p.dirname(d);if(a===d)break;d=a;continue}if(m.isSymbolicLink()||!m.isFile()||m.size>1048576)break;const F=r=>{let x=d,z=r.split('/');for(let i=0;i<z.length;i++){x=p.join(x,z[i]);const t=f.lstatSync(x);if(t.isSymbolicLink()||(i<z.length-1?!t.isDirectory():!t.isFile()))return}return x},s=F(S);if(!s)break;const b=f.readFileSync(s);if(b.length>1048576)break;const j=JSON.parse(b.toString('utf8')),k=Object.keys(j).sort().join('\\0'),k1='digests\\0environment\\0host\\0managedFiles\\0originals\\0packageVersion\\0schemaVersion',k2=k1+'\\0sections';if((k!==k1&&k!==k2)||j.schemaVersion!==1||j.host!==H||j.environment!=='qa'||typeof j.packageVersion!=='string'||!j.packageVersion||!Array.isArray(j.managedFiles)||j.managedFiles.length>1024||!j.managedFiles.every(V)||new Set(j.managedFiles).size!==j.managedFiles.length||!j.managedFiles.includes(S)||!j.managedFiles.includes(L)||!O(j.originals)||!O(j.digests)||(j.sections!==undefined&&!O(j.sections)))break;const M=new Set(j.managedFiles);if(Object.entries(j.originals).some(([a,v])=>!M.has(a)||!R(v))||Object.entries(j.digests).some(([a,v])=>!M.has(a)||typeof v!=='string'||!D.test(v))||(j.sections!==undefined&&Object.entries(j.sections).some(([a,v])=>!M.has(a)||!T(v)))||!D.test(j.digests[L]))break;const x=F(L);if(!x)break;const z=f.readFileSync(x);if(z.length>1048576||h.createHash('sha256').update(z).digest('hex')!==j.digests[L])break;const e=W?(process.env.ComSpec||process.env.COMSPEC||'cmd.exe'):'sh',a=W?['/d','/c','call',x,H]:[x,H],r=c.spawnSync(e,a,{stdio:['inherit','pipe','pipe'],timeout:5000,windowsHide:true});if(!r.error&&r.status===0&&Buffer.isBuffer(r.stdout))process.stdout.write(r.stdout);break}}catch{}";
+  return "const f=require('node:fs'),p=require('node:path'),h=require('node:crypto'),c=require('node:child_process'),H=process.argv[2],S=process.argv[3],L=process.argv[4],W=process.argv[5]==='windows',A=['kcoderag-navigation','jx3-style-nudge'],D=/^[0-9a-f]{64}$/,O=x=>x!==null&&typeof x==='object'&&!Array.isArray(x),E=(x,a)=>O(x)&&Object.keys(x).sort().join('\\0')===a,V=x=>typeof x==='string'&&x.length>0&&!x.includes('\\\\')&&!p.posix.isAbsolute(x)&&!p.win32.isAbsolute(x)&&x.split('/').every(y=>y&&y!=='.'&&y!=='..'),U=(x,v)=>Array.isArray(x)&&x.every((y,i)=>typeof y==='string'&&v(y)&&(!i||x[i-1]<y)),G=x=>Array.isArray(x)&&x.length>0&&A.filter(y=>x.includes(y)).join()===x.join(),R=x=>O(x)&&(x.kind==='absent'?E(x,'kind'):x.kind==='base64'&&E(x,'data\\0kind')&&typeof x.data==='string'&&/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x.data)&&Buffer.from(x.data,'base64').toString('base64')===x.data);try{let d=p.resolve(process.cwd());for(let n=0;n<256;n++){const q=p.join(d,...S.split('/'));let m;try{m=f.lstatSync(q)}catch(e){if(e.code!=='ENOENT')break;const a=p.dirname(d);if(a===d)break;d=a;continue}if(m.isSymbolicLink()||!m.isFile()||m.size>1048576)break;const F=r=>{let x=d,z=r.split('/');for(let i=0;i<z.length;i++){x=p.join(x,z[i]);const t=f.lstatSync(x);if(t.isSymbolicLink()||(i<z.length-1?!t.isDirectory():!t.isFile()))return}const a=p.relative(d,x);if(!a||a==='..'||a.startsWith('..'+p.sep)||p.isAbsolute(a))return;return x},s=F(S);if(!s)break;const b=f.readFileSync(s);if(b.length>1048576)break;const j=JSON.parse(b.toString('utf8'));if(!E(j,'capabilities\\0compositeDigest\\0files\\0host\\0packageVersion\\0schemaVersion\\0sections')||j.schemaVersion!==1||j.host!==H||typeof j.packageVersion!=='string'||!j.packageVersion||j.packageVersion.length>160||!Array.isArray(j.capabilities)||!j.capabilities.length||j.capabilities.length>A.length||!Array.isArray(j.files)||!j.files.length||j.files.length>1024||!Array.isArray(j.sections)||j.sections.length>1024||typeof j.compositeDigest!=='string'||!D.test(j.compositeDigest))break;const I=j.capabilities.map(x=>x.id),Z=x=>{const i=x.lastIndexOf('#');return i>0&&V(x.slice(0,i))&&/^[A-Za-z0-9_.:-]{1,160}$/.test(x.slice(i+1))};if(A.filter(x=>I.includes(x)).join()!==I.join()||j.capabilities.some(x=>!E(x,'files\\0id\\0sections')||!I.includes(x.id)||!U(x.files,V)||!U(x.sections,Z))||j.files.some((x,i)=>!E(x,'contributors\\0digest\\0original\\0path')||!V(x.path)||!D.test(x.digest)||!R(x.original)||!G(x.contributors)||x.contributors.some(y=>!I.includes(y))||(i&&j.files[i-1].path>=x.path)))break;const M=new Map(j.files.map(x=>[x.path,x])),T=x=>{if(!O(x))return false;const k=x.createdContainers===undefined?'contributors\\0digest\\0fileExisted\\0id\\0path':'contributors\\0createdContainers\\0digest\\0fileExisted\\0id\\0path',g=M.get(x.path);return E(x,k)&&V(x.path)&&typeof x.id==='string'&&/^[A-Za-z0-9_.:-]{1,160}$/.test(x.id)&&D.test(x.digest)&&typeof x.fileExisted==='boolean'&&G(x.contributors)&&x.contributors.every(y=>I.includes(y)&&g&&g.contributors.includes(y))&&(x.createdContainers===undefined||U(x.createdContainers,y=>/^[A-Za-z0-9_.:-]{1,160}$/.test(y)))};if(j.sections.some((x,i)=>!T(x)||(i&&j.sections[i-1].path+'#'+j.sections[i-1].id>=x.path+'#'+x.id))||j.capabilities.some(x=>j.files.filter(y=>y.contributors.includes(x.id)).map(y=>y.path).join('\\0')!==x.files.join('\\0')||j.sections.filter(y=>y.contributors.includes(x.id)).map(y=>y.path+'#'+y.id).join('\\0')!==x.sections.join('\\0')))break;const v={schemaVersion:j.schemaVersion,packageVersion:j.packageVersion,host:j.host,capabilities:j.capabilities,files:j.files,sections:j.sections};if(h.createHash('sha256').update(Buffer.from(JSON.stringify(v),'utf8')).digest('hex')!==j.compositeDigest||!M.has(L))break;let x;for(const y of j.files){const z=F(y.path);if(!z)break;const t=f.lstatSync(z),u=f.readFileSync(z);if(t.size>1048576||u.length>1048576||h.createHash('sha256').update(u).digest('hex')!==y.digest)break;if(y.path===L)x=z}if(!x)break;const e=W?(process.env.ComSpec||process.env.COMSPEC||'cmd.exe'):'sh',a=W?['/d','/c','call',x,H]:[x,H],r=c.spawnSync(e,a,{stdio:['inherit','pipe','pipe'],timeout:5000,windowsHide:true});if(!r.error&&r.status===0&&Buffer.isBuffer(r.stdout))process.stdout.write(r.stdout);break}}catch{}";
+}
+
+function bootstrapSource(): string {
+  return compactBootstrapTemplate().replace(
+    "let x;for(const y of j.files){const z=F(y.path);if(!z)break;const t=f.lstatSync(z),u=f.readFileSync(z);if(t.size>1048576||u.length>1048576||h.createHash('sha256').update(u).digest('hex')!==y.digest)break;if(y.path===L)x=z}if(!x)break;",
+    "let x,o=1;for(const y of j.files){const z=F(y.path);if(!z){o=0;break}const t=f.lstatSync(z),u=f.readFileSync(z);if(t.size>1048576||u.length>1048576||h.createHash('sha256').update(u).digest('hex')!==y.digest){o=0;break}if(y.path===L)x=z}if(!o||!x)break;",
+  );
 }
 
 function encodedBootstrap(): string {
