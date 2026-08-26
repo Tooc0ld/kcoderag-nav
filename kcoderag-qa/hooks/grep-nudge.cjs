@@ -7,6 +7,7 @@ exports.looksLikeSymbolLookup = looksLikeSymbolLookup;
 exports.shellLookupPatterns = shellLookupPatterns;
 exports.lookupPatterns = lookupPatterns;
 exports.hookOutput = hookOutput;
+exports.navigationContribution = navigationContribution;
 exports.main = main;
 const fs = require("node:fs");
 const updateCheck = (() => {
@@ -16,6 +17,7 @@ const updateCheck = (() => {
     catch {
         return {
             readInstalledVersion: () => undefined,
+            readInstalledHost: () => undefined,
             readUpdateHint: () => undefined,
             scheduleRefresh: () => false,
         };
@@ -310,6 +312,17 @@ function lookupPatterns(toolInput) {
     return shellLookupPatterns(command);
 }
 function hookOutput(data, updateNotice) {
+    const context = navigationContribution(data, updateNotice);
+    if (context === undefined)
+        return undefined;
+    return {
+        hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            additionalContext: context,
+        },
+    };
+}
+function navigationContribution(data, updateNotice) {
     if (!isRecord(data))
         return undefined;
     if (typeof data.tool_name === "string" && !SUPPORTED_TOOLS.has(data.tool_name))
@@ -320,12 +333,7 @@ function hookOutput(data, updateNotice) {
     if (!structural && !updateNotice)
         return undefined;
     const contexts = [structural ? exports.NUDGE : undefined, updateNotice].filter((context) => typeof context === "string" && context.length > 0);
-    return {
-        hookSpecificOutput: {
-            hookEventName: "PreToolUse",
-            additionalContext: contexts.join("\n\n").slice(0, 600),
-        },
-    };
+    return contexts.join("\n\n").slice(0, 600);
 }
 function readBoundedStdin() {
     const chunks = [];
@@ -351,8 +359,14 @@ function main(rawInput, writeOutput = (text) => { process.stdout.write(text); },
         const installedVersion = relevantForUpdate
             ? updateRuntime.installedVersion ?? updateCheck.readInstalledVersion()
             : undefined;
+        const installedHost = relevantForUpdate
+            ? updateRuntime.installedHost ?? updateCheck.readInstalledHost()
+            : undefined;
         const updateNotice = relevantForUpdate
-            ? (updateRuntime.readUpdateHint ?? updateCheck.readUpdateHint)(installedVersion, { hookPayload: payload })
+            ? (updateRuntime.readUpdateHint ?? updateCheck.readUpdateHint)(installedVersion, {
+                hookPayload: payload,
+                ...(installedHost === undefined ? {} : { host: installedHost }),
+            })
             : undefined;
         const output = hookOutput(payload, updateNotice);
         if (output !== undefined)

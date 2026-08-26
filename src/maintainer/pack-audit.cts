@@ -42,6 +42,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "kcoderag-qa/hooks/grep-nudge.cjs",
   "kcoderag-qa/hooks/mcp-call-marker.cjs",
   "kcoderag-qa/hooks/update-check.cjs",
+  "kcoderag-qa/hooks/update-notice.cjs",
   "kcoderag-qa/hooks/update-worker.cjs",
   "kcoderag-qa/hooks/run_hook.cmd",
   "kcoderag-qa/hooks/run_hook.sh",

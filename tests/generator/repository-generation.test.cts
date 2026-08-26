@@ -64,6 +64,7 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "hooks/run_marker.cmd",
     "hooks/run_marker.sh",
     "hooks/update-check.cjs",
+    "hooks/update-notice.cjs",
     "hooks/update-worker.cjs",
     "opencode/kcoderag-nav.js",
     "skills/code-lookup-discipline/SKILL.md",
@@ -150,7 +151,7 @@ function assertQaStructure(version: string): void {
   const claudeServers = claudeMcp.mcpServers;
   assert.deepEqual(sortedKeys(claudeServers), [expectedName], "qa:claude-mcp-namespace");
 
-  for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
+  for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
     assert.equal(
       fs.readFileSync(productPath("qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),

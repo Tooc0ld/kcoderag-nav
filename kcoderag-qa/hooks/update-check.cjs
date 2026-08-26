@@ -4,6 +4,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CACHE_SCHEMA_VERSION = exports.MAX_SESSION_MARKERS = exports.RENEWAL_TOKEN_TTL_MS = exports.SESSIONLESS_MARKER_TTL_MS = exports.CACHE_TTL_MS = void 0;
 exports.readInstalledVersion = readInstalledVersion;
+exports.readInstalledHost = readInstalledHost;
 exports.isSimpleVersion = isSimpleVersion;
 exports.readUpdateHint = readUpdateHint;
 exports.scheduleRefresh = scheduleRefresh;
@@ -20,17 +21,26 @@ exports.CACHE_SCHEMA_VERSION = 1;
 const MAX_CACHE_CHARS = 8 * 1_024;
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const RELEVANT_TOOLS = new Set(["Grep", "Glob", "Bash"]);
-function readInstalledVersion(statePath = path.resolve(__dirname, "..", "install-state.json")) {
+const UPDATE_HOSTS = new Set(["codex", "claude", "cursor", "opencode"]);
+function readInstalledState(statePath) {
     try {
         const raw = fs.readFileSync(statePath, "utf8");
         if (raw.length > 256 * 1_024)
             return undefined;
         const document = JSON.parse(raw);
-        return isRecord(document) && isSimpleVersion(document.packageVersion) ? document.packageVersion : undefined;
+        return isRecord(document) ? document : undefined;
     }
     catch {
         return undefined;
     }
+}
+function readInstalledVersion(statePath = path.resolve(__dirname, "..", "install-state.json")) {
+    const document = readInstalledState(statePath);
+    return document !== undefined && isSimpleVersion(document.packageVersion) ? document.packageVersion : undefined;
+}
+function readInstalledHost(statePath = path.resolve(__dirname, "..", "install-state.json")) {
+    const host = readInstalledState(statePath)?.host;
+    return typeof host === "string" && UPDATE_HOSTS.has(host) ? host : undefined;
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -149,6 +159,11 @@ function versionParts(version) {
 }
 function isSimpleVersion(version) {
     return typeof version === "string" && versionParts(version) !== undefined;
+}
+function updateCommand(host) {
+    return host !== undefined && UPDATE_HOSTS.has(host)
+        ? `npx kcoderag-nav@latest update --host ${host}`
+        : "npx kcoderag-nav@latest update";
 }
 function isNewerVersion(installed, latest) {
     const left = versionParts(installed);
@@ -339,7 +354,7 @@ function readUpdateHint(installedVersion, options = {}) {
         if (!isNewerVersion(installedVersion, latest.latest))
             return undefined;
         return `KCodeRag Nav update available: ${installedVersion} -> ${latest.latest}. ` +
-            "Ask the user first; do not update automatically. Run: npx kcoderag-nav@latest update";
+            `Ask the user first; do not update automatically. Run: ${updateCommand(options.host)}`;
     }
     catch {
         return undefined;
@@ -360,7 +375,10 @@ function scheduleRefresh(hookPayload, options = {}) {
             return false;
         const spawn = options.spawn ?? childProcess.spawn;
         const workerPath = path.resolve(options.workerPath ?? path.join(__dirname, "update-worker.cjs"));
-        const child = spawn(process.execPath, [workerPath, "--refresh", cacheRoot], {
+        const runtimePath = typeof options.runtimePath === "string" && options.runtimePath.length > 0
+            ? options.runtimePath
+            : process.execPath;
+        const child = spawn(runtimePath, [workerPath, "--refresh", cacheRoot], {
             detached: true,
             stdio: "ignore",
             windowsHide: true,

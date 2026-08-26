@@ -159,6 +159,20 @@ test("JX3 support delegates to the exact checked-in PASS receipt", () => {
   }
 });
 
+test("navigation declares the shared four-host update notice runtime", () => {
+  const contribution = registry.getCapabilityProvider("kcoderag-navigation").contribution();
+  assert.deepEqual(
+    contribution.files.find((file) => file.id === "navigation:update-notice"),
+    {
+      id: "navigation:update-notice",
+      sourcePath: "dist/hooks/update-notice.cjs",
+      kind: "handler",
+      shared: true,
+    },
+  );
+  assert.equal(contribution.sections.some((section) => section.id === "navigation:post-tool"), true);
+});
+
 test("providers contain no project mutation or network authority", () => {
   for (const relativePath of [
     "src/capabilities/navigation.cts",

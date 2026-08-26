@@ -129,6 +129,7 @@ function packageFixture(base: string): string {
       "grep-nudge.cjs",
       "mcp-call-marker.cjs",
       "update-check.cjs",
+      "update-notice.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",

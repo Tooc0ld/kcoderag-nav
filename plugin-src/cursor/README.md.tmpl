@@ -78,8 +78,14 @@ Hook. Its project `afterMCPExecution` Hook records only a secret-free, fail-open
 KCodeRag MCP call; it stores no arguments, results, URL, headers, or Bearer. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
 scoped local search.
 
+The project `postToolUse` Hook also reads the shared bounded local update cache and returns a
+deduplicated `additional_context` notice when a newer version is already known. A stale cache only
+schedules the detached npm Registry worker; the Hook never waits for network I/O, never blocks a
+tool, and never updates automatically. The notice suggests
+`npx kcoderag-nav@latest update --host cursor` and leaves the decision to the user.
+
 The CLI treats cwd and `--target` as exact project targets. Cursor has no `PreToolUse` ancestor walk to
-emulate; its Rule, skill, MCP, and `afterMCPExecution` files move with a complete project copy or rename. After install
+emulate; its Rule, skill, MCP, `postToolUse`, and `afterMCPExecution` files move with a complete project copy or rename. After install
 or update, restart Cursor or run **Developer: Reload Window**.
 
 ## Evidence and internal profile boundaries

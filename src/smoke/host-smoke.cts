@@ -952,15 +952,26 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const ruleBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "rules", "kcoderag-navigation.mdc"));
       const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag-nav", "SKILL.md"));
       const mcpBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "mcp.json"));
+      const hooksBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "hooks.json"));
+      const updateNoticeBytes = fs.readFileSync(path.join(
+        projectRoot, ".cursor", "kcoderag-nav", "hooks", "update-notice.cjs",
+      ));
       const rule = ruleBytes.toString("utf8");
       const skill = skillBytes.toString("utf8");
-      const valid = /alwaysApply:\s*true/u.test(rule) && rule.includes("search_code") && skill.includes("KCodeRag");
+      const hooks: unknown = JSON.parse(hooksBytes.toString("utf8"));
+      const postToolUse = isRecord(hooks) && isRecord(hooks.hooks) && Array.isArray(hooks.hooks.postToolUse)
+        ? hooks.hooks.postToolUse
+        : [];
+      const updateCommand = "node .cursor/kcoderag-nav/hooks/update-notice.cjs cursor";
+      const valid = /alwaysApply:\s*true/u.test(rule) && rule.includes("search_code") && skill.includes("KCodeRag") &&
+        postToolUse.some((entry) => isRecord(entry) && entry.command === updateCommand) &&
+        updateNoticeBytes.includes(Buffer.from("additional_context", "utf8"));
       return Object.freeze({
         kind: "rule_skill_mcp" as const,
         root: valid,
         deep: valid,
         sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
-        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes]),
+        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes, hooksBytes, updateNoticeBytes]),
       });
     } catch {
       return undefined;
@@ -971,14 +982,18 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const pluginBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "plugins", "kcoderag-nav.js"));
       const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag-nav", "SKILL.md"));
       const markerBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "kcoderag-nav", "hooks", "mcp-call-marker.cjs"));
+      const updateNoticeBytes = fs.readFileSync(path.join(
+        projectRoot, ".opencode", "kcoderag-nav", "hooks", "update-notice.cjs",
+      ));
       const valid = pluginBytes.includes(Buffer.from("tool.execute.after", "utf8")) &&
+        pluginBytes.includes(Buffer.from("showToast", "utf8")) &&
         skillBytes.includes(Buffer.from("KCodeRag", "utf8"));
       return Object.freeze({
         kind: "plugin_skill_mcp" as const,
         root: valid,
         deep: valid,
         sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
-        fingerprint: sha256Parts([pluginBytes, skillBytes, markerBytes]),
+        fingerprint: sha256Parts([pluginBytes, skillBytes, markerBytes, updateNoticeBytes]),
       });
     } catch {
       return undefined;

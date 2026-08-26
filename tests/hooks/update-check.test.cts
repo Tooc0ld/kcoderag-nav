@@ -21,6 +21,8 @@ interface UpdateCheckOptions {
   readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
   readonly workerPath?: string;
   readonly hookPayload?: unknown;
+  readonly host?: "codex" | "claude" | "cursor" | "opencode";
+  readonly runtimePath?: string;
 }
 
 interface UpdateCheckModule {
@@ -31,6 +33,7 @@ interface UpdateCheckModule {
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
   readInstalledVersion(statePath?: string): string | undefined;
+  readInstalledHost(statePath?: string): "codex" | "claude" | "cursor" | "opencode" | undefined;
 }
 
 const update = require("../../dist/hooks/update-check.cjs") as UpdateCheckModule;
@@ -67,7 +70,11 @@ interface HookModule {
     writeOutput?: (text: string) => void,
     updateRuntime?: {
       readonly installedVersion?: string;
-      readonly readUpdateHint?: (installedVersion: string | undefined) => string | undefined;
+      readonly installedHost?: "codex" | "claude" | "cursor" | "opencode";
+      readonly readUpdateHint?: (
+        installedVersion: string | undefined,
+        options?: { readonly host?: "codex" | "claude" | "cursor" | "opencode" },
+      ) => string | undefined;
       readonly scheduleRefresh?: (payload: unknown) => boolean;
     },
   ): number;
@@ -146,6 +153,10 @@ test("fresh validated cache produces only an exact newer-version npx hint", () =
   assert.equal(update.readUpdateHint("0.1.5", { cacheRoot, files, now: () => now }), undefined);
   assert.equal(update.readUpdateHint("0.1.6", { cacheRoot, files, now: () => now }), undefined);
   assert.equal(update.readUpdateHint("invalid", { cacheRoot, files, now: () => now }), undefined);
+  assert.equal(
+    update.readUpdateHint("0.1.4", { cacheRoot, files, now: () => now, host: "cursor" }),
+    "KCodeRag Nav update available: 0.1.4 -> 0.1.5. Ask the user first; do not update automatically. Run: npx kcoderag-nav@latest update --host cursor",
+  );
 
   assert.match(update.readUpdateHint("0.1.4", {
     cacheRoot,
@@ -181,6 +192,7 @@ test("stale or missing cache schedules at most one detached worker per session",
     files,
     now: () => now,
     workerPath: path.resolve("worker.cjs"),
+    runtimePath: "node",
     spawn: (...args) => {
       spawnCalls.push([...args]);
       return { unref() { unrefCalls += 1; } };
@@ -191,7 +203,7 @@ test("stale or missing cache schedules at most one detached worker per session",
   assert.equal(update.scheduleRefresh(relevantPayload, options), false);
   assert.equal(spawnCalls.length, 1);
   assert.equal(unrefCalls, 1);
-  assert.equal(spawnCalls[0]?.[0], process.execPath);
+  assert.equal(spawnCalls[0]?.[0], "node");
   assert.deepEqual(spawnCalls[0]?.[1], [path.resolve("worker.cjs"), "--refresh", cacheRoot]);
   assert.deepEqual(spawnCalls[0]?.[2], {
     detached: true,
@@ -455,6 +467,11 @@ test("installed package version is read only from a bounded validated state docu
     const statePath = path.join(directory, "install-state.json");
     await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", unrelated: true }), "utf8");
     assert.equal(update.readInstalledVersion(statePath), "0.1.4");
+    assert.equal(update.readInstalledHost(statePath), undefined);
+    await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", host: "claude" }), "utf8");
+    assert.equal(update.readInstalledHost(statePath), "claude");
+    await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", host: "unknown" }), "utf8");
+    assert.equal(update.readInstalledHost(statePath), undefined);
     await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4-beta.1" }), "utf8");
     assert.equal(update.readInstalledVersion(statePath), undefined);
     await fsPromises.writeFile(statePath, "not-json", "utf8");
@@ -598,14 +615,18 @@ test("hook emits its advisory decision before scheduling refresh and never waits
     (text) => { order.push("output"); output = text; },
     {
       installedVersion: "0.1.4",
-      readUpdateHint: () => "Cached update: npx kcoderag-nav@latest update",
+      installedHost: "claude",
+      readUpdateHint: (_version, options) => {
+        assert.equal(options?.host, "claude");
+        return "Cached update: npx kcoderag-nav@latest update --host claude";
+      },
       scheduleRefresh: () => { order.push("spawn"); return true; },
     },
   );
   assert.equal(returnCode, 0);
   assert.deepEqual(order, ["output", "spawn"]);
   assert.match(output, /Structural lookup/u);
-  assert.match(output, /npx kcoderag-nav@latest update/u);
+  assert.match(output, /npx kcoderag-nav@latest update --host claude/u);
 
   const spawnFailure = hook.main(
     JSON.stringify(relevantPayload),

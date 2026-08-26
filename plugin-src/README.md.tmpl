@@ -121,7 +121,8 @@ unknown owner stops before mutation.
 - Codex and Claude Code use an advisory, fail-open `PreToolUse` Hook. Hook failures never block the
   original Grep, Glob, or shell command.
 - Cursor uses an always-on Rule, shared skill, and MCP configuration. It does not claim an
-  equivalent `PreToolUse` Hook.
+  equivalent navigation `PreToolUse` Hook; its native `postToolUse` response can inject a cached
+  update notice through `additional_context`.
 - Successful KCodeRag calls are recorded with secret-free, fail-open local markers: Codex and
   Claude Code use `PostToolUse`, Cursor uses `afterMCPExecution`, and OpenCode uses
   `tool.execute.after`. Marker files contain no arguments, results, URL, headers, or Bearer.
@@ -144,10 +145,12 @@ After install or update, open a new Codex thread or Claude Code session, or run
 
 ## Update and evidence boundaries
 
-Installed Codex and Claude Code Hooks run offline. On the first eligible event, the foreground
-reads bounded local update state and may detach an npm Registry refresh; it never waits for network
-I/O. Failures stay silent and fail-open. An update notice only suggests the selected-host command,
-for example:
+All four hosts share one offline update checker. The foreground reads only bounded local state and
+may detach an npm Registry refresh; it never waits for network I/O. Codex and Claude Code append a
+notice to their first eligible `PreToolUse` context, Cursor returns `additional_context` from
+`postToolUse`, and OpenCode displays a warning toast from `tool.execute.after`. Each session/project
+cycle is deduplicated, every failure stays silent and fail-open, and no host updates automatically.
+The notice only suggests the exact selected-host command, for example:
 
 ```powershell
 npx kcoderag-nav@latest update --host codex

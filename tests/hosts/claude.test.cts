@@ -160,6 +160,7 @@ function packageFixture(base: string): { readonly root: string; readonly secret:
       "grep-nudge.cjs",
       "mcp-call-marker.cjs",
       "update-check.cjs",
+      "update-notice.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",

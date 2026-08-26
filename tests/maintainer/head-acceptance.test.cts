@@ -21,6 +21,7 @@ const MANAGED_PATHS = Object.freeze([
   ".codex/kcoderag-nav/qa/hooks/run_hook.cmd",
   ".codex/kcoderag-nav/qa/hooks/run_hook.sh",
   ".codex/kcoderag-nav/qa/hooks/update-check.cjs",
+  ".codex/kcoderag-nav/qa/hooks/update-notice.cjs",
   ".codex/kcoderag-nav/qa/hooks/update-worker.cjs",
   ".codex/kcoderag-nav/install-state.json",
 ] as const);

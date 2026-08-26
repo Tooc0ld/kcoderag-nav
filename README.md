@@ -129,10 +129,10 @@ npx kcoderag-nav@latest update --host codex --target "D:\path\to\project" --yes 
 
 | 宿主 | 项目级受管位置 | 导航提醒 |
 | --- | --- | --- |
-| Codex | `.codex/`、`.agents/skills/` | advisory、fail-open 的 `PreToolUse` Hook |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` 的 KCodeRag section | advisory、fail-open 的 `PreToolUse` Hook |
-| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json` 的 KCodeRag section | always-on Rule 与共享 skill；不声明等价的 `PreToolUse` Hook |
-| OpenCode | `opencode.json`/`opencode.jsonc` 的 KCodeRag section、`.opencode/plugins/`、`.opencode/skills/` | 本地 plugin 的 `tool.execute.after` 成功调用标记 |
+| Codex | `.codex/`、`.agents/skills/` | advisory、fail-open 的 `PreToolUse` 导航与更新提示 |
+| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` 的 KCodeRag section | advisory、fail-open 的 `PreToolUse` 导航与更新提示 |
+| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | always-on Rule/skill；`postToolUse` 注入更新上下文，不声明等价的 `PreToolUse` 导航行为 |
+| OpenCode | `opencode.json`/`opencode.jsonc` 的 KCodeRag section、`.opencode/plugins/`、`.opencode/skills/` | 项目 plugin 在 `tool.execute.after` 记录成功调用并显示更新 toast |
 
 Codex/Claude Hook 从宿主会话当前目录向父目录逐级查找，选择最近的对应宿主
 `kcoderag-nav/install-state.json`。在项目根和任意深层子目录启动都落到同一最近项目；嵌套受管
@@ -161,9 +161,11 @@ OpenCode 首次加载项目 plugin 时会自行在 `.opencode/` 下准备匹配�
 `@opencode-ai/plugin` 运行依赖，网络较慢时可能明显久于后续启动；这些 SDK 缓存文件由 OpenCode
 拥有，`kcoderag-nav uninstall` 不会删除它们。
 
-首次符合条件的 Codex/Claude Hook 事件只读本地更新状态，并可分离启动后台 npm Registry
-refresh；前台不等待网络，任何更新失败都 fail-open。发现新版本时只提示运行
-`npx kcoderag-nav@latest update --host <host>`，不会自动修改项目。
+四个宿主共用同一个更新检查器：前台只读有界本地缓存，缓存过期时分离启动后台 npm Registry
+refresh，绝不等待网络。Codex/Claude 在首次符合条件的 `PreToolUse` 事件注入提示，Cursor 在
+`postToolUse` 返回 `additional_context`，OpenCode 在 `tool.execute.after` 显示 warning toast。每个
+session/项目周期最多提示一次；所有异常都 fail-open。提示只建议运行
+`npx kcoderag-nav@latest update --host <host>`，不会自动修改项目，也不会替用户执行更新。
 
 ## `0.2.0` 发布、Head 部署与证据边界
 

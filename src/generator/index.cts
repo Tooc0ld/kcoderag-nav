@@ -110,6 +110,7 @@ const QA_RUNTIME_CJS = Object.freeze([
   "hooks/grep-nudge.cjs",
   "hooks/mcp-call-marker.cjs",
   "hooks/update-check.cjs",
+  "hooks/update-notice.cjs",
   "hooks/update-worker.cjs",
 ]);
 const QA_RUNTIME_LAUNCHER = Object.freeze([
@@ -518,6 +519,7 @@ function renderQaAsset(
   if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
   if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
   if (relativePath === "hooks/update-check.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-check.cjs");
+  if (relativePath === "hooks/update-notice.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-notice.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
   if (relativePath === "hooks/run_hook.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.sh");

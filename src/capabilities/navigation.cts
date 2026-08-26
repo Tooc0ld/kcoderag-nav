@@ -42,6 +42,12 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         shared: true,
       },
       {
+        id: "navigation:update-notice",
+        sourcePath: "dist/hooks/update-notice.cjs",
+        kind: "handler",
+        shared: true,
+      },
+      {
         id: "navigation:success-marker",
         sourcePath: "dist/hooks/mcp-call-marker.cjs",
         kind: "marker",

@@ -52,7 +52,7 @@ const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 
 const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
-    "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/mcp-call-marker.cjs", "hooks/update-check.cjs", "hooks/update-worker.cjs"],
+    "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/mcp-call-marker.cjs", "hooks/update-check.cjs", "hooks/update-notice.cjs", "hooks/update-worker.cjs"],
     "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
@@ -63,6 +63,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
       "hooks/update-check.cjs",
+      "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
     ],
     runtime: [
@@ -74,6 +75,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
       "hooks/update-check.cjs",
+      "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
     ],
@@ -109,6 +111,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
       "hooks/update-check.cjs",
+      "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
       "skills/code-lookup-discipline/SKILL.md",
@@ -217,6 +220,7 @@ function createFixture(): Fixture {
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
   write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
   write(sourceRoot, "dist/hooks/update-check.cjs", "module.exports={name:'check'};\n");
+  write(sourceRoot, "dist/hooks/update-notice.cjs", "module.exports={name:'notice'};\n");
   write(sourceRoot, "dist/hooks/update-worker.cjs", "module.exports={name:'worker'};\n");
   write(sourceRoot, "plugin-src/opencode/kcoderag-nav.js", "export const KCodeRagNav=async()=>({});\n");
   write(
@@ -290,6 +294,7 @@ test("writes only changed selected paths and keeps check mode byte-for-byte read
       "kcoderag-qa/hooks/grep-nudge.cjs",
       "kcoderag-qa/hooks/mcp-call-marker.cjs",
       "kcoderag-qa/hooks/update-check.cjs",
+      "kcoderag-qa/hooks/update-notice.cjs",
       "kcoderag-qa/hooks/update-worker.cjs",
     ]);
     assert.deepEqual(snapshot(fixture.outputRoot)[untouched], untouchedBefore);
@@ -338,7 +343,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 22);
+    assert.equal(first.writtenPaths.length, 23);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({
