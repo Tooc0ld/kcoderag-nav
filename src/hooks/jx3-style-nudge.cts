@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /** Bounded structured-write classifier for the nav-managed JX3 Skill reminder. */
 
+import type { HostId } from "../core/contracts.cjs";
+import { claimNudgeOnce } from "./once-marker.cjs";
+
 export const JX3_NUDGE =
   "JX3 source change: before writing, load and follow $jx3-code-style-correction and its compact checklist. " +
   "Explicit user and project instructions take precedence. Before finishing, review only the regions changed in this task.";
@@ -25,6 +28,12 @@ const MAX_PATCH_CHARS = 131_072;
 const MAX_PATCH_LINES = 8_192;
 const MAX_PATCH_FILES = 64;
 const MAX_TARGET_PATH_CHARS = 4_096;
+
+export interface Jx3ContributionOptions {
+  readonly host: HostId;
+  readonly managedRoot: string;
+  readonly cacheRoot?: string;
+}
 
 interface PatchRecord {
   readonly kind: "add" | "delete" | "update";
@@ -148,6 +157,18 @@ export function structuredMutationPaths(payload: unknown): readonly string[] {
   return Object.freeze([]);
 }
 
-export function jx3StyleContribution(payload: unknown): string | undefined {
-  return structuredMutationPaths(payload).some(isJx3SourcePath) ? JX3_NUDGE : undefined;
+export function jx3StyleContribution(
+  payload: unknown,
+  options?: Jx3ContributionOptions,
+): string | undefined {
+  if (options === undefined || !structuredMutationPaths(payload).some(isJx3SourcePath)) {
+    return undefined;
+  }
+  const claim = claimNudgeOnce(payload, {
+    host: options.host,
+    managedRoot: options.managedRoot,
+    capability: "jx3-style-nudge",
+    ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+  });
+  return claim.claimed ? JX3_NUDGE : undefined;
 }
