@@ -12,9 +12,11 @@ type AssetGroup =
   | "runtime-registration"
   | "runtime-code"
   | "runtime"
+  | "registration"
   | "metadata-config"
   | "metadata-guidance"
   | "metadata"
+  | "guidance"
   | "docs"
   | "version"
   | "all";
@@ -37,6 +39,13 @@ interface GeneratorModule {
     readonly sourceRoot: string;
     readonly outputRoot: string;
   }): GenerationResult;
+  generatePackage(options: {
+    readonly package: Product | "all";
+    readonly group: AssetGroup;
+    readonly capabilities?: readonly ("kcoderag-navigation" | "jx3-style-nudge")[];
+    readonly sourceRoot: string;
+    readonly outputRoot: string;
+  }): GenerationResult & { readonly capabilities: readonly string[] };
 }
 
 interface FileEvidence {
@@ -78,12 +87,12 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
   ]),
 });
 
-function productPath(product: Product, relativePath: string): string {
-  return path.join(repositoryRoot, `kcoderag-${product}`, ...relativePath.split("/"));
+function productPath(root: string, product: Product, relativePath: string): string {
+  return path.join(root, `kcoderag-${product}`, ...relativePath.split("/"));
 }
 
-function readJson(relativePath: string): Record<string, unknown> {
-  return JSON.parse(fs.readFileSync(path.join(repositoryRoot, ...relativePath.split("/")), "utf8")) as Record<
+function readJson(root: string, relativePath: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(path.join(root, ...relativePath.split("/")), "utf8")) as Record<
     string,
     unknown
   >;
@@ -101,8 +110,8 @@ function normalizeText(bytes: Buffer): Buffer {
 function evidenceForSelectedAssets(): Readonly<Record<string, FileEvidence>> {
   const evidence: Record<string, FileEvidence> = {};
   for (const product of products) {
-    for (const relativePath of generator.ASSET_GROUP_PATHS[product].all) {
-      const absolute = productPath(product, relativePath);
+    for (const relativePath of expectedProductInventory[product]) {
+      const absolute = productPath(repositoryRoot, product, relativePath);
       const bytes = fs.readFileSync(absolute);
       const stat = fs.statSync(absolute);
       evidence[`kcoderag-${product}/${relativePath}`] = {
@@ -117,17 +126,17 @@ function evidenceForSelectedAssets(): Readonly<Record<string, FileEvidence>> {
   );
 }
 
-function assertNoTemplateTokens(): void {
+function assertNoTemplateTokens(root: string): void {
   for (const product of products) {
     for (const relativePath of generator.ASSET_GROUP_PATHS[product].all) {
-      const bytes = fs.readFileSync(productPath(product, relativePath));
+      const bytes = fs.readFileSync(productPath(root, product, relativePath));
       assert.equal(/\{\{[^{}]*\}\}/u.test(bytes.toString("utf8")), false, `${product}/${relativePath}`);
     }
   }
 }
 
-function walkProductFiles(product: Product): readonly string[] {
-  const root = path.join(repositoryRoot, `kcoderag-${product}`);
+function walkProductFiles(root: string, product: Product): readonly string[] {
+  const productRoot = path.join(root, `kcoderag-${product}`);
   const visit = (directory: string, prefix = ""): string[] => fs.readdirSync(directory, { withFileTypes: true })
     .flatMap((entry) => {
       const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
@@ -135,25 +144,25 @@ function walkProductFiles(product: Product): readonly string[] {
         ? visit(path.join(directory, entry.name), relativePath)
         : [relativePath];
     });
-  return Object.freeze(visit(root).sort());
+  return Object.freeze(visit(productRoot).sort());
 }
 
-function assertQaStructure(version: string): void {
+function assertQaStructure(root: string, version: string): void {
   const expectedName = "kcoderag-qa";
-  const codexManifest = readJson("kcoderag-qa/.codex-plugin/plugin.json");
-  const claudeManifest = readJson("kcoderag-qa/.claude-plugin/plugin.json");
+  const codexManifest = readJson(root, "kcoderag-qa/.codex-plugin/plugin.json");
+  const claudeManifest = readJson(root, "kcoderag-qa/.claude-plugin/plugin.json");
   assert.equal(codexManifest.name === expectedName && codexManifest.version === version, true, "qa:codex");
   assert.equal(claudeManifest.name === expectedName && claudeManifest.version === version, true, "qa:claude");
 
-  const codexMcp = readJson("kcoderag-qa/.codex.mcp.json");
-  const claudeMcp = readJson("kcoderag-qa/.mcp.json");
+  const codexMcp = readJson(root, "kcoderag-qa/.codex.mcp.json");
+  const claudeMcp = readJson(root, "kcoderag-qa/.mcp.json");
   assert.deepEqual(sortedKeys(codexMcp), [expectedName], "qa:codex-mcp-namespace");
   const claudeServers = claudeMcp.mcpServers;
   assert.deepEqual(sortedKeys(claudeServers), [expectedName], "qa:claude-mcp-namespace");
 
   for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
     assert.equal(
-      fs.readFileSync(productPath("qa", `hooks/${runtime}`)).equals(
+      fs.readFileSync(productPath(root, "qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
       ),
       true,
@@ -162,7 +171,7 @@ function assertQaStructure(version: string): void {
   }
   for (const launcher of ["run_hook.cmd", "run_hook.sh", "run_marker.cmd", "run_marker.sh"] as const) {
     assert.equal(
-      fs.readFileSync(productPath("qa", `hooks/${launcher}`)).equals(
+      fs.readFileSync(productPath(root, "qa", `hooks/${launcher}`)).equals(
         normalizeText(fs.readFileSync(path.join(repositoryRoot, "plugin-src", "hooks", launcher))),
       ),
       true,
@@ -170,7 +179,7 @@ function assertQaStructure(version: string): void {
     );
   }
 
-  const registration = readJson("kcoderag-qa/hooks/hooks.json");
+  const registration = readJson(root, "kcoderag-qa/hooks/hooks.json");
   const hooks = registration.hooks;
   assert.equal(typeof hooks === "object" && hooks !== null && !Array.isArray(hooks), true, "qa:hooks");
   const preToolUse = (hooks as Record<string, unknown>).PreToolUse;
@@ -178,57 +187,66 @@ function assertQaStructure(version: string): void {
   const postToolUse = (hooks as Record<string, unknown>).PostToolUse;
   assert.equal(Array.isArray(postToolUse) && postToolUse.length === 1, true, "qa:post-tool-use");
   assert.match(JSON.stringify(postToolUse), /mcp__kcoderag-qa__/u);
-  assert.equal(fs.statSync(productPath("qa", "opencode/kcoderag-nav.js")).size > 0, true);
+  assert.equal(fs.statSync(productPath(root, "qa", "opencode/kcoderag-nav.js")).size > 0, true);
 
   for (const relativePath of [
     "agents/kcode-explorer.md",
     "skills/code-lookup-discipline/SKILL.md",
     "README.md",
   ]) {
-    assert.equal(fs.statSync(productPath("qa", relativePath)).size > 0, true, `qa:${relativePath}`);
+    assert.equal(fs.statSync(productPath(root, "qa", relativePath)).size > 0, true, `qa:${relativePath}`);
   }
 }
 
 test("compiled repository gate proves all generated products canonical without repository writes", () => {
   assert.equal(path.extname(__filename), ".cjs");
-  const packageDocument = readJson("package.json");
+  const packageDocument = readJson(repositoryRoot, "package.json");
   const version = packageDocument.version;
   assert.equal(typeof version === "string" && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(version), true);
 
+  const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-repository-projection-"));
   const before = evidenceForSelectedAssets();
-  const checked = generator.checkGenerated({
-    package: "all",
-    group: "all",
-    sourceRoot: repositoryRoot,
-    outputRoot: repositoryRoot,
-  });
-  const after = evidenceForSelectedAssets();
+  try {
+    const generated = generator.generatePackage({
+      package: "all",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot,
+    });
+    assert.equal(generated.writtenPaths.length, 37);
+    const checked = generator.checkGenerated({
+      package: "all",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot,
+    });
+    assert.equal(checked.ok, true, `isolated drift: ${checked.changedPaths.join(",")}`);
+    assert.deepEqual(checked.changedPaths, []);
+    assert.deepEqual(checked.writtenPaths, []);
+    assert.deepEqual(evidenceForSelectedAssets(), before);
 
-  assert.equal(checked.ok, true, `repository drift: ${checked.changedPaths.join(",")}`);
-  assert.deepEqual(checked.changedPaths, []);
-  assert.deepEqual(checked.writtenPaths, []);
-  assert.deepEqual(after, before);
+    assertQaStructure(outputRoot, version as string);
+    assert.equal(fs.existsSync(path.join(outputRoot, "kcoderag-dev")), false, "retired Dev tree");
 
-  assertQaStructure(version as string);
-  assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false, "retired Dev tree");
-
-  const cursorManifest = readJson("kcoderag-cursor/.cursor-plugin/plugin.json");
+    const cursorManifest = readJson(outputRoot, "kcoderag-cursor/.cursor-plugin/plugin.json");
   assert.equal(cursorManifest.name === "kcoderag-nav" && cursorManifest.version === version, true, "cursor:manifest");
-  const cursorMcp = readJson("kcoderag-cursor/mcp.json");
+    const cursorMcp = readJson(outputRoot, "kcoderag-cursor/mcp.json");
   assert.deepEqual(sortedKeys(cursorMcp.mcpServers), ["kcoderag"], "cursor:mcp-namespace");
   for (const relativePath of [
     "rules/kcoderag-navigation.mdc",
     "skills/code-lookup-discipline/SKILL.md",
     "README.md",
   ]) {
-    assert.equal(fs.statSync(productPath("cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
+      assert.equal(fs.statSync(productPath(outputRoot, "cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
+    }
+    assertNoTemplateTokens(outputRoot);
+    for (const product of products) {
+      assert.deepEqual(walkProductFiles(outputRoot, product), generator.ASSET_GROUP_PATHS[product].all);
+    }
+    assert.deepEqual(evidenceForSelectedAssets(), before);
+  } finally {
+    fs.rmSync(outputRoot, { recursive: true, force: true });
   }
-  assertNoTemplateTokens();
-  for (const product of products) {
-    assert.deepEqual(generator.ASSET_GROUP_PATHS[product].all, expectedProductInventory[product]);
-    assert.deepEqual(walkProductFiles(product), expectedProductInventory[product]);
-  }
-  assert.deepEqual(evidenceForSelectedAssets(), before);
 });
 
 test("Dev canonical selection, generated directory, and compatibility manifest fail independently", () => {

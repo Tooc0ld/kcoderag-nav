@@ -9,15 +9,25 @@ import { renderProjectHookCommands } from "../core/project-root.cjs";
 
 export type Product = "qa" | "cursor";
 export type ProductSelection = Product | "all";
+export type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+export type CanonicalAssetGroup =
+  | "runtime"
+  | "registration"
+  | "metadata"
+  | "guidance"
+  | "docs"
+  | "all";
 export type AssetGroup =
   | "runtime-cjs"
   | "runtime-launcher"
   | "runtime-registration"
   | "runtime-code"
   | "runtime"
+  | "registration"
   | "metadata-config"
   | "metadata-guidance"
   | "metadata"
+  | "guidance"
   | "docs"
   | "version"
   | "all";
@@ -29,6 +39,7 @@ export interface GeneratorIo {
 export interface GeneratorOptions {
   readonly package: ProductSelection;
   readonly group: AssetGroup;
+  readonly capabilities?: readonly CapabilityId[];
   readonly sourceRoot?: string;
   readonly outputRoot?: string;
   readonly io?: GeneratorIo;
@@ -39,6 +50,7 @@ export interface GenerationResult {
   readonly package: ProductSelection;
   readonly group: AssetGroup;
   readonly version: string;
+  readonly capabilities: readonly CapabilityId[];
   readonly selectedPaths: readonly string[];
   readonly changedPaths: readonly string[];
   readonly writtenPaths: readonly string[];
@@ -89,6 +101,10 @@ export class GenerationError extends Error {
 }
 
 const PRODUCTS = Object.freeze(["qa", "cursor"] as const);
+const BUILT_IN_CAPABILITY_IDS = Object.freeze([
+  "kcoderag-navigation",
+  "jx3-style-nudge",
+] as const);
 const PRODUCT_DIRECTORIES: Readonly<Record<Product, string>> = Object.freeze({
   qa: "kcoderag-qa",
   cursor: "kcoderag-cursor",
@@ -106,13 +122,6 @@ function sortedUnion(...groups: readonly (readonly string[])[]): readonly string
   return Object.freeze([...new Set(groups.flat())].sort(compareCodeUnits));
 }
 
-const QA_RUNTIME_CJS = Object.freeze([
-  "hooks/grep-nudge.cjs",
-  "hooks/mcp-call-marker.cjs",
-  "hooks/update-check.cjs",
-  "hooks/update-notice.cjs",
-  "hooks/update-worker.cjs",
-]);
 const QA_RUNTIME_LAUNCHER = Object.freeze([
   "hooks/run_hook.cmd",
   "hooks/run_hook.sh",
@@ -136,25 +145,6 @@ const QA_VERSION = Object.freeze([
   ".codex-plugin/plugin.json",
 ]);
 
-function qaGroups(): Readonly<Record<AssetGroup, readonly string[]>> {
-  const runtimeCode = sortedUnion(QA_RUNTIME_CJS, QA_RUNTIME_LAUNCHER);
-  const runtime = sortedUnion(runtimeCode, QA_RUNTIME_REGISTRATION);
-  const metadata = sortedUnion(QA_METADATA_CONFIG, QA_METADATA_GUIDANCE);
-  return Object.freeze({
-    "runtime-cjs": QA_RUNTIME_CJS,
-    "runtime-launcher": QA_RUNTIME_LAUNCHER,
-    "runtime-registration": QA_RUNTIME_REGISTRATION,
-    "runtime-code": runtimeCode,
-    runtime,
-    "metadata-config": QA_METADATA_CONFIG,
-    "metadata-guidance": QA_METADATA_GUIDANCE,
-    metadata,
-    docs: QA_DOCS,
-    version: QA_VERSION,
-    all: sortedUnion(runtime, metadata, QA_DOCS, QA_VERSION),
-  });
-}
-
 const CURSOR_METADATA_CONFIG = Object.freeze([".cursor-plugin/plugin.json", "mcp.json"]);
 const CURSOR_METADATA_GUIDANCE = Object.freeze([
   "rules/kcoderag-navigation.mdc",
@@ -163,27 +153,149 @@ const CURSOR_METADATA_GUIDANCE = Object.freeze([
 const CURSOR_DOCS = Object.freeze(["README.md"]);
 const CURSOR_VERSION = Object.freeze([".cursor-plugin/plugin.json"]);
 const EMPTY_GROUP = Object.freeze([] as string[]);
+const JX3_SKILL_PATHS = Object.freeze([
+  "skills/jx3-code-style-correction/SKILL.md",
+  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+  "skills/jx3-code-style-correction/references/lua-contracts.md",
+  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+]);
 
-function cursorGroups(): Readonly<Record<AssetGroup, readonly string[]>> {
-  const metadata = sortedUnion(CURSOR_METADATA_CONFIG, CURSOR_METADATA_GUIDANCE);
+interface CanonicalGroupsInput {
+  readonly runtime?: readonly string[];
+  readonly registration?: readonly string[];
+  readonly metadata?: readonly string[];
+  readonly guidance?: readonly string[];
+  readonly docs?: readonly string[];
+}
+
+function canonicalGroups(input: CanonicalGroupsInput): Readonly<Record<CanonicalAssetGroup, readonly string[]>> {
+  const runtime = sortedUnion(input.runtime ?? EMPTY_GROUP);
+  const registration = sortedUnion(input.registration ?? EMPTY_GROUP);
+  const metadata = sortedUnion(input.metadata ?? EMPTY_GROUP);
+  const guidance = sortedUnion(input.guidance ?? EMPTY_GROUP);
+  const docs = sortedUnion(input.docs ?? EMPTY_GROUP);
   return Object.freeze({
-    "runtime-cjs": EMPTY_GROUP,
-    "runtime-launcher": EMPTY_GROUP,
-    "runtime-registration": EMPTY_GROUP,
-    "runtime-code": EMPTY_GROUP,
-    runtime: EMPTY_GROUP,
-    "metadata-config": CURSOR_METADATA_CONFIG,
-    "metadata-guidance": CURSOR_METADATA_GUIDANCE,
+    runtime,
+    registration,
     metadata,
-    docs: CURSOR_DOCS,
-    version: CURSOR_VERSION,
-    all: sortedUnion(metadata, CURSOR_DOCS, CURSOR_VERSION),
+    guidance,
+    docs,
+    all: sortedUnion(runtime, registration, metadata, guidance, docs),
   });
 }
 
-const QA_GROUPS = qaGroups();
+const NAVIGATION_QA_GROUPS = canonicalGroups({
+  runtime: [
+    "hooks/grep-nudge.cjs",
+    "hooks/mcp-call-marker.cjs",
+    "hooks/pre-tool-dispatcher.cjs",
+    "hooks/update-check.cjs",
+    "hooks/update-notice.cjs",
+    "hooks/update-worker.cjs",
+  ],
+  registration: QA_RUNTIME_LAUNCHER.concat(QA_RUNTIME_REGISTRATION),
+  metadata: QA_METADATA_CONFIG,
+  guidance: QA_METADATA_GUIDANCE,
+  docs: QA_DOCS,
+});
+const NAVIGATION_CURSOR_GROUPS = canonicalGroups({
+  metadata: CURSOR_METADATA_CONFIG,
+  guidance: CURSOR_METADATA_GUIDANCE,
+  docs: CURSOR_DOCS,
+});
+const JX3_QA_GROUPS = canonicalGroups({
+  runtime: [
+    "hooks/jx3-style-nudge.cjs",
+    "hooks/once-marker.cjs",
+    "hooks/pre-tool-dispatcher.cjs",
+    "hooks/session-cleanup.cjs",
+  ],
+  registration: ["hooks/hooks.json", "hooks/run_hook.cmd", "hooks/run_hook.sh"],
+  guidance: JX3_SKILL_PATHS,
+});
+const JX3_CURSOR_GROUPS = canonicalGroups({ guidance: JX3_SKILL_PATHS });
+
+export const CAPABILITY_PROJECTION_PATHS: Readonly<
+  Record<CapabilityId, Readonly<Record<Product, Readonly<Record<CanonicalAssetGroup, readonly string[]>>>>>
+> = Object.freeze({
+  "kcoderag-navigation": Object.freeze({ qa: NAVIGATION_QA_GROUPS, cursor: NAVIGATION_CURSOR_GROUPS }),
+  "jx3-style-nudge": Object.freeze({ qa: JX3_QA_GROUPS, cursor: JX3_CURSOR_GROUPS }),
+});
+
+function selectedCapabilityIds(values: readonly string[] | undefined): readonly CapabilityId[] {
+  if (values === undefined) return BUILT_IN_CAPABILITY_IDS;
+  if (!Array.isArray(values) || values.length === 0) throw new GenerationError("empty_capability_selection");
+  const selected = new Set<CapabilityId>();
+  for (const value of values) {
+    if (!(BUILT_IN_CAPABILITY_IDS as readonly string[]).includes(value)) {
+      throw new GenerationError("unknown_capability");
+    }
+    selected.add(value as CapabilityId);
+  }
+  return Object.freeze(BUILT_IN_CAPABILITY_IDS.filter((id) => selected.has(id)));
+}
+
+function canonicalPathsFor(
+  product: Product,
+  group: CanonicalAssetGroup,
+  capabilities: readonly CapabilityId[],
+): readonly string[] {
+  return sortedUnion(...capabilities.map((id) => CAPABILITY_PROJECTION_PATHS[id][product][group]));
+}
+
+function pathsFor(
+  product: Product,
+  group: AssetGroup,
+  capabilities: readonly CapabilityId[],
+): readonly string[] {
+  if (group === "runtime" || group === "registration" || group === "metadata" || group === "guidance"
+    || group === "docs" || group === "all") {
+    return canonicalPathsFor(product, group, capabilities);
+  }
+  if (group === "runtime-cjs") return canonicalPathsFor(product, "runtime", capabilities);
+  if (group === "runtime-launcher") {
+    return canonicalPathsFor(product, "registration", capabilities).filter((item) => /\.(?:cmd|sh)$/u.test(item));
+  }
+  if (group === "runtime-registration") {
+    return canonicalPathsFor(product, "registration", capabilities).filter((item) => !/\.(?:cmd|sh)$/u.test(item));
+  }
+  if (group === "runtime-code") {
+    return sortedUnion(
+      canonicalPathsFor(product, "runtime", capabilities),
+      pathsFor(product, "runtime-launcher", capabilities),
+    );
+  }
+  if (group === "metadata-config") return canonicalPathsFor(product, "metadata", capabilities);
+  if (group === "metadata-guidance") return canonicalPathsFor(product, "guidance", capabilities);
+  if (group === "version") {
+    if (!capabilities.includes("kcoderag-navigation")) return EMPTY_GROUP;
+    return product === "qa" ? QA_VERSION : CURSOR_VERSION;
+  }
+  throw new GenerationError("unknown_group");
+}
+
+function productGroups(product: Product): Readonly<Record<AssetGroup, readonly string[]>> {
+  const capabilities = BUILT_IN_CAPABILITY_IDS;
+  return Object.freeze({
+    "runtime-cjs": pathsFor(product, "runtime-cjs", capabilities),
+    "runtime-launcher": pathsFor(product, "runtime-launcher", capabilities),
+    "runtime-registration": pathsFor(product, "runtime-registration", capabilities),
+    "runtime-code": pathsFor(product, "runtime-code", capabilities),
+    runtime: pathsFor(product, "runtime", capabilities),
+    registration: pathsFor(product, "registration", capabilities),
+    "metadata-config": pathsFor(product, "metadata-config", capabilities),
+    "metadata-guidance": pathsFor(product, "metadata-guidance", capabilities),
+    metadata: pathsFor(product, "metadata", capabilities),
+    guidance: pathsFor(product, "guidance", capabilities),
+    docs: pathsFor(product, "docs", capabilities),
+    version: pathsFor(product, "version", capabilities),
+    all: pathsFor(product, "all", capabilities),
+  });
+}
+
 export const ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>> =
-  Object.freeze({ qa: QA_GROUPS, cursor: cursorGroups() });
+  Object.freeze({ qa: productGroups("qa"), cursor: productGroups("cursor") });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -363,7 +475,6 @@ function loadEnvironments(sourceRoot: string): Readonly<Record<EnvironmentId, En
 function loadInputs(sourceRoot: string): LoadedInputs {
   const resolved = fs.realpathSync(path.resolve(sourceRoot));
   const version = loadVersion(resolved);
-  for (const runtime of QA_RUNTIME_CJS) readBytes(resolved, `dist/${runtime}`);
   return Object.freeze({ sourceRoot: resolved, version, environments: loadEnvironments(resolved) });
 }
 
@@ -515,9 +626,14 @@ function renderQaAsset(
   inputs: LoadedInputs,
   environment: EnvironmentMetadata,
   relativePath: string,
+  capabilities: readonly CapabilityId[],
 ): Buffer {
   if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
+  if (relativePath === "hooks/jx3-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/jx3-style-nudge.cjs");
   if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
+  if (relativePath === "hooks/once-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/once-marker.cjs");
+  if (relativePath === "hooks/pre-tool-dispatcher.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs");
+  if (relativePath === "hooks/session-cleanup.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/session-cleanup.cjs");
   if (relativePath === "hooks/update-check.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-check.cjs");
   if (relativePath === "hooks/update-notice.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-notice.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
@@ -540,7 +656,13 @@ function renderQaAsset(
       }
       return value;
     };
-    return canonicalJson(renderCommand(registration));
+    const rendered = renderCommand(registration);
+    if (!isRecord(rendered) || !isRecord(rendered.hooks)) {
+      throw new GenerationError("invalid_metadata", "plugin-src/hooks/hooks.json");
+    }
+    const hooks = { ...rendered.hooks };
+    if (!capabilities.includes("kcoderag-navigation")) delete hooks.PostToolUse;
+    return canonicalJson({ ...rendered, hooks });
   }
   if (relativePath === "opencode/kcoderag-nav.js") {
     return normalizedText(inputs.sourceRoot, "plugin-src/opencode/kcoderag-nav.js");
@@ -570,6 +692,13 @@ function renderQaAsset(
       ["display_name", "routing_policy"],
       replacements,
     );
+  }
+  if (relativePath === "skills/jx3-code-style-correction/SKILL.md") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  }
+  if (relativePath.startsWith("skills/jx3-code-style-correction/references/")) {
+    const reference = relativePath.slice("skills/jx3-code-style-correction/".length);
+    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/jx3-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
     return renderTemplate(
@@ -604,6 +733,13 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
       },
     );
   }
+  if (relativePath === "skills/jx3-code-style-correction/SKILL.md") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  }
+  if (relativePath.startsWith("skills/jx3-code-style-correction/references/")) {
+    const reference = relativePath.slice("skills/jx3-code-style-correction/".length);
+    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/jx3-style-nudge/skill/${reference}`);
+  }
   if (relativePath === "README.md") {
     return renderTemplate(
       inputs.sourceRoot,
@@ -615,24 +751,33 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
   throw new GenerationError("invalid_asset_map", relativePath);
 }
 
-function selectedProducts(product: ProductSelection, group: AssetGroup): readonly Product[] {
+function selectedProducts(
+  product: ProductSelection,
+  group: AssetGroup,
+  capabilities: readonly CapabilityId[],
+): readonly Product[] {
   if (product !== "all") {
-    if (ASSET_GROUP_PATHS[product][group].length === 0) throw new GenerationError("incompatible_group");
+    if (pathsFor(product, group, capabilities).length === 0) throw new GenerationError("incompatible_group");
     return Object.freeze([product]);
   }
-  const applicable = PRODUCTS.filter((candidate) => ASSET_GROUP_PATHS[candidate][group].length > 0);
+  const applicable = PRODUCTS.filter((candidate) => pathsFor(candidate, group, capabilities).length > 0);
   if (applicable.length === 0) throw new GenerationError("incompatible_group");
   return Object.freeze(applicable);
 }
 
-function validateOptions(options: GeneratorOptions): { readonly product: ProductSelection; readonly group: AssetGroup } {
+function validateOptions(options: GeneratorOptions): {
+  readonly product: ProductSelection;
+  readonly group: AssetGroup;
+  readonly capabilities: readonly CapabilityId[];
+} {
   const product = options.package as unknown;
   const group = options.group as unknown;
   if (product === "dev") throw new GenerationError("retired_product", RETIRED_DEV_DIRECTORY);
   if (product !== "all" && !isProduct(product)) throw new GenerationError("unknown_package");
   if (!isAssetGroup(group)) throw new GenerationError("unknown_group");
-  selectedProducts(product, group);
-  return { product, group };
+  const capabilities = selectedCapabilityIds(options.capabilities);
+  selectedProducts(product, group, capabilities);
+  return { product, group, capabilities };
 }
 
 function renderSelected(options: GeneratorOptions): {
@@ -641,6 +786,7 @@ function renderSelected(options: GeneratorOptions): {
   readonly outputs: ReadonlyMap<string, Buffer>;
   readonly product: ProductSelection;
   readonly group: AssetGroup;
+  readonly capabilities: readonly CapabilityId[];
 } {
   const selection = validateOptions(options);
   const defaultRoot = path.resolve(__dirname, "..", "..");
@@ -654,13 +800,13 @@ function renderSelected(options: GeneratorOptions): {
   }
   const inputs = loadInputs(sourceRoot);
   const rendered = new Map<string, Buffer>();
-  for (const product of selectedProducts(selection.product, selection.group)) {
+  for (const product of selectedProducts(selection.product, selection.group, selection.capabilities)) {
     const packageDirectory = PRODUCT_DIRECTORIES[product];
-    for (const assetPath of ASSET_GROUP_PATHS[product][selection.group]) {
+    for (const assetPath of pathsFor(product, selection.group, selection.capabilities)) {
       const outputPath = validateRelativePath(`${packageDirectory}/${assetPath}`);
       const bytes = product === "cursor"
         ? renderCursorAsset(inputs, assetPath)
-        : renderQaAsset(inputs, inputs.environments.qa, assetPath);
+        : renderQaAsset(inputs, inputs.environments.qa, assetPath, selection.capabilities);
       rendered.set(outputPath, bytes);
     }
   }
@@ -670,6 +816,7 @@ function renderSelected(options: GeneratorOptions): {
     outputs: new Map([...rendered].sort(([left], [right]) => compareCodeUnits(left, right))),
     product: selection.product,
     group: selection.group,
+    capabilities: selection.capabilities,
   };
 }
 
@@ -882,6 +1029,7 @@ function result(
     package: rendered.product,
     group: rendered.group,
     version: rendered.version,
+    capabilities: Object.freeze([...rendered.capabilities]),
     selectedPaths: Object.freeze([...rendered.outputs.keys()]),
     changedPaths: Object.freeze([...changedPaths]),
     writtenPaths: Object.freeze([...writtenPaths]),
@@ -912,6 +1060,7 @@ interface ParsedArguments {
   readonly group: string;
   readonly sourceRoot?: string;
   readonly outputRoot?: string;
+  readonly capabilities?: readonly string[];
   readonly check: boolean;
 }
 
@@ -922,6 +1071,7 @@ export interface GeneratorCliIo {
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const values = new Map<string, string>();
+  const capabilities: string[] = [];
   let check = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -929,6 +1079,13 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (argument === "--check") {
       if (check) throw new GenerationError("duplicate_option");
       check = true;
+      continue;
+    }
+    if (argument === "--capability") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new GenerationError("missing_option_value");
+      capabilities.push(value);
+      index += 1;
       continue;
     }
     if (!(["--package", "--group", "--source-root", "--output-root"] as const).includes(
@@ -953,6 +1110,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     group,
     ...(sourceRoot === undefined ? {} : { sourceRoot }),
     ...(outputRoot === undefined ? {} : { outputRoot }),
+    ...(capabilities.length === 0 ? {} : { capabilities: Object.freeze([...capabilities]) }),
     check,
   };
 }
@@ -972,6 +1130,9 @@ export function runCli(argv: readonly string[] = process.argv.slice(2), io: Gene
       group: parsed.group as AssetGroup,
       ...(parsed.sourceRoot === undefined ? {} : { sourceRoot: parsed.sourceRoot }),
       ...(parsed.outputRoot === undefined ? {} : { outputRoot: parsed.outputRoot }),
+      ...(parsed.capabilities === undefined
+        ? {}
+        : { capabilities: parsed.capabilities as readonly CapabilityId[] }),
     };
     const generated = parsed.check ? checkGenerated(options) : generatePackage(options);
     io.stdout(`${JSON.stringify(generated)}\n`);

@@ -309,7 +309,7 @@ function createFixture(): Fixture {
   );
   write(sourceRoot, "plugin-src/cursor/README.md.tmpl", "# Cursor {{plugin_version}}\r\n");
   write(sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc", "alwaysApply: true\r\n");
-  write(sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md", "# Canonical JX3 Skill\r\n");
+  write(sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md", "# Canonical JX3 Skill\n");
   for (const reference of [
     "cpp-lifetime-control-flow.md",
     "protocol-serialization-data.md",
@@ -319,7 +319,7 @@ function createFixture(): Fixture {
     write(
       sourceRoot,
       `plugin-src/capabilities/jx3-style-nudge/skill/references/${reference}`,
-      `# ${reference}\r\n`,
+      `# ${reference}\n`,
     );
   }
   return { root, sourceRoot, outputRoot, secret };
@@ -408,14 +408,37 @@ test("renders isolated capability projections from explicit canonical groups", (
       "kcoderag-cursor/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
     ]);
 
+    const canonicalSkillFiles = [
+      "SKILL.md",
+      "references/change-hygiene-self-review.md",
+      "references/cpp-lifetime-control-flow.md",
+      "references/lua-contracts.md",
+      "references/protocol-serialization-data.md",
+    ] as const;
     for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
-      assert.equal(
-        fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "jx3-code-style-correction", "SKILL.md")).equals(
-          Buffer.from("# Canonical JX3 Skill\n", "utf8"),
-        ),
-        true,
-      );
+      for (const relativePath of canonicalSkillFiles) {
+        assert.equal(
+          fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "jx3-code-style-correction", ...relativePath.split("/"))).equals(
+            fs.readFileSync(path.join(fixture.sourceRoot, "plugin-src", "capabilities", "jx3-style-nudge", "skill", ...relativePath.split("/"))),
+          ),
+          true,
+          `${product}:${relativePath}`,
+        );
+      }
     }
+
+    const beforeUnsupported = snapshot(fixture.outputRoot);
+    assert.throws(
+      () => generator.generatePackage({
+        package: "cursor",
+        group: "runtime",
+        capabilities: ["jx3-style-nudge"],
+        sourceRoot: fixture.sourceRoot,
+        outputRoot: fixture.outputRoot,
+      }),
+      /incompatible_group/u,
+    );
+    assert.deepEqual(snapshot(fixture.outputRoot), beforeUnsupported);
   } finally {
     cleanup(fixture);
   }
@@ -436,13 +459,10 @@ test("writes only changed selected paths and keeps check mode byte-for-byte read
       sourceRoot: fixture.sourceRoot,
       outputRoot: fixture.outputRoot,
     });
-    assert.deepEqual(first.writtenPaths, [
-      "kcoderag-qa/hooks/grep-nudge.cjs",
-      "kcoderag-qa/hooks/mcp-call-marker.cjs",
-      "kcoderag-qa/hooks/update-check.cjs",
-      "kcoderag-qa/hooks/update-notice.cjs",
-      "kcoderag-qa/hooks/update-worker.cjs",
-    ]);
+    assert.deepEqual(
+      first.writtenPaths,
+      expectedGroups.qa["runtime-cjs"].map((relativePath) => `kcoderag-qa/${relativePath}`),
+    );
     assert.deepEqual(snapshot(fixture.outputRoot)[untouched], untouchedBefore);
 
     const second = generator.generatePackage({
@@ -489,7 +509,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 23);
+    assert.equal(first.writtenPaths.length, 37);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({
@@ -718,6 +738,7 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
       ["--package", "qa", "--group", "unknown"],
       ["--package", "qa", "--group", ""],
       ["--package", "cursor", "--group", "runtime-cjs"],
+      ["--package", "qa", "--group", "guidance", "--capability", "unknown"],
       ["--package", "qa"],
       ["--group", "docs"],
     ];
@@ -727,6 +748,24 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
       assert.equal(`${rejected.stdout}${rejected.stderr}`.includes(fixture.secret), false);
       assert.deepEqual(snapshot(fixture.outputRoot), before, args.join(" "));
     }
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test("CLI canonicalizes repeatable capability selection", () => {
+  const fixture = createFixture();
+  try {
+    const selected = runGeneratorCli(fixture, [
+      "--package", "qa",
+      "--group", "guidance",
+      "--capability", "jx3-style-nudge",
+      "--capability", "jx3-style-nudge",
+    ]);
+    assert.equal(selected.status, 0, selected.stderr);
+    const result = JSON.parse(selected.stdout) as GenerationResult;
+    assert.deepEqual(result.capabilities, ["jx3-style-nudge"]);
+    assert.equal(result.writtenPaths.length, 5);
   } finally {
     cleanup(fixture);
   }
