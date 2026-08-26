@@ -128,15 +128,15 @@ export function acquireMutationLock(input: MutationLockInput): MutationLockHandl
     createdAt: new Date().toISOString(),
     token,
   });
-  let descriptor: number;
+  let descriptor: number | undefined;
   try {
     descriptor = fs.openSync(lockPath, "wx", 0o600);
     fs.writeFileSync(descriptor, `${JSON.stringify(record)}\n`, "utf8");
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
   } catch (error) {
-    if (typeof descriptor! === "number") {
-      try { fs.closeSync(descriptor!); } catch { /* best effort */ }
+    if (descriptor !== undefined) {
+      try { fs.closeSync(descriptor); } catch { /* best effort */ }
     }
     throw new InstallError("target_busy", ".");
   }

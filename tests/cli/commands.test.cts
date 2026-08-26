@@ -216,7 +216,7 @@ test("one explicit host selects one pure adapter and commits through shared desi
     };
     const captured = io(item.target, adapters);
     const exitCode = await commands.executeCommand(
-      ["install", "--host", "codex", "--yes", "--json"],
+      ["install", "--host", "codex", "--capability", NAVIGATION, "--yes", "--json"],
       captured.dependencies,
     );
 
@@ -269,81 +269,6 @@ test("retired environment selectors refuse before adapter detection and preserve
   }
 });
 
-test("legacy Dev migration authority is independent, mutation-only, and observation-bound", async () => {
-  const scenarios = [
-    {
-      argv: ["status", "--host", "codex", "--json", "--allow-legacy-dev-migration"],
-      legacyDev: true,
-      expectedCode: "legacy_dev_migration_authority_invalid",
-      expectedCalls: [],
-    },
-    {
-      argv: ["uninstall", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
-      legacyDev: true,
-      expectedCode: "legacy_dev_migration_authority_invalid",
-      expectedCalls: [],
-    },
-    {
-      argv: ["install", "--host", "codex", "--yes", "--json"],
-      legacyDev: true,
-      expectedCode: "legacy_dev_migration_authority_required",
-      expectedCalls: ["codex:detect"],
-    },
-    {
-      argv: ["install", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
-      legacyDev: false,
-      expectedCode: "legacy_dev_migration_authority_invalid",
-      expectedCalls: ["codex:detect"],
-    },
-  ] as const;
-
-  for (const scenario of scenarios) {
-    const item = fixture();
-    try {
-      const calls: string[] = [];
-      const adapters = {
-        codex: makeAdapter("codex", calls, { legacyDev: scenario.legacyDev }),
-        claude: makeAdapter("claude", calls),
-        cursor: makeAdapter("cursor", calls),
-      };
-      const captured = io(item.target, adapters);
-      const before = fs.readdirSync(item.target);
-      const exitCode = await commands.executeCommand([...scenario.argv], captured.dependencies);
-
-      assert.equal(exitCode, 2);
-      assert.deepEqual(calls, scenario.expectedCalls);
-      assert.deepEqual(fs.readdirSync(item.target), before);
-      assert.equal(captured.stdout.length, 1);
-      assert.equal(captured.stderr.length, 0);
-      assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, scenario.expectedCode);
-    } finally {
-      fs.rmSync(item.root, { recursive: true, force: true });
-    }
-  }
-
-  const allowed = fixture();
-  try {
-    const calls: string[] = [];
-    const adapters = {
-      codex: makeAdapter("codex", calls, { legacyDev: true }),
-      claude: makeAdapter("claude", calls),
-      cursor: makeAdapter("cursor", calls),
-    };
-    const captured = io(allowed.target, adapters);
-    assert.equal(
-      await commands.executeCommand(
-        ["update", "--host", "codex", "--yes", "--json", "--allow-legacy-dev-migration"],
-        captured.dependencies,
-      ),
-      0,
-    );
-    assert.deepEqual(calls, ["codex:detect", "codex:renderInstall:false:true"]);
-    assert.equal(JSON.parse(captured.stdout[0] ?? "").environment, "qa");
-  } finally {
-    fs.rmSync(allowed.root, { recursive: true, force: true });
-  }
-});
-
 test("JSON mutation without an explicit host refuses before adapter selection or writes", async () => {
   const item = fixture();
   try {
@@ -369,35 +294,8 @@ test("JSON mutation without an explicit host refuses before adapter selection or
   }
 });
 
-test("--yes never implies Cursor legacy user-directory removal authority", async () => {
-  const item = fixture();
-  try {
-    const calls: string[] = [];
-    const adapters = {
-      codex: makeAdapter("codex", calls),
-      claude: makeAdapter("claude", calls),
-      cursor: makeAdapter("cursor", calls, { legacy: true }),
-    };
-    const captured = io(item.target, adapters);
-    const exitCode = await commands.executeCommand(
-      ["install", "--host", "cursor", "--yes", "--json"],
-      captured.dependencies,
-    );
-
-    assert.notEqual(exitCode, 0);
-    assert.deepEqual(calls, ["cursor:detect"]);
-    assert.equal(fs.existsSync(path.join(item.target, ".fixture-cursor")), false);
-    assert.equal(
-      JSON.parse(captured.stdout[0] ?? "").error.code,
-      "legacy_removal_authority_required",
-    );
-  } finally {
-    fs.rmSync(item.root, { recursive: true, force: true });
-  }
-});
-
-test("all five commands dispatch through the lifecycle seam and read-only commands never mutate", async () => {
-  for (const command of ["install", "update", "uninstall"] as const) {
+test("install and observation commands dispatch through the lifecycle seam without cross-host writes", async () => {
+  for (const command of ["install"] as const) {
     const item = fixture();
     try {
       const calls: string[] = [];
@@ -406,15 +304,10 @@ test("all five commands dispatch through the lifecycle seam and read-only comman
         claude: makeAdapter("claude", calls),
         cursor: makeAdapter("cursor", calls),
       };
-      if (command !== "install") {
-        fs.mkdirSync(path.join(item.target, ".fixture-codex"));
-        fs.writeFileSync(path.join(item.target, ".fixture-codex/payload.txt"), "before\n");
-        fs.writeFileSync(path.join(item.target, ".fixture-codex/install-state.json"), "before-state\n");
-      }
       const captured = io(item.target, adapters);
       assert.equal(
         await commands.executeCommand(
-          [command, "--host", "codex", "--yes", "--json"],
+          [command, "--host", "codex", "--capability", NAVIGATION, "--yes", "--json"],
           captured.dependencies,
         ),
         0,
@@ -422,12 +315,7 @@ test("all five commands dispatch through the lifecycle seam and read-only comman
       assert.equal(captured.stderr.length, 0);
       assert.equal(JSON.parse(captured.stdout[0] ?? "").command, command);
       assert.equal(calls[0], "codex:detect");
-      assert.equal(
-        calls[1],
-        command === "uninstall"
-          ? "codex:renderUninstall"
-          : `codex:renderInstall:false:false`,
-      );
+      assert.equal(calls[1], "codex:renderInstall:false:false");
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -493,6 +381,7 @@ test("interactive selection uses the fixed host list, cwd/target confirmation, a
           hostLists.push([...hosts]);
           return "claude";
         },
+        selectCapabilities: () => [NAVIGATION],
         confirmTarget: (request: Record<string, unknown>) => {
           confirmations.push(request);
           return false;
@@ -533,7 +422,7 @@ test("selected-host global targets fail before adapter detection while other-hos
       const before = fs.readdirSync(unsafe);
       assert.equal(
         await commands.executeCommand(
-          ["install", "--host", "codex", "--yes", "--json"],
+          ["install", "--host", "codex", "--capability", NAVIGATION, "--yes", "--json"],
           { ...captured.dependencies, homeDirectory: home, hostGlobalRoots: globalRoots },
         ),
         1,
@@ -552,7 +441,7 @@ test("selected-host global targets fail before adapter detection while other-hos
     const legal = io(claudeProject, legalAdapters);
     assert.equal(
       await commands.executeCommand(
-        ["install", "--host", "codex", "--yes", "--json"],
+        ["install", "--host", "codex", "--capability", NAVIGATION, "--yes", "--json"],
         { ...legal.dependencies, homeDirectory: home, hostGlobalRoots: globalRoots },
       ),
       0,
@@ -576,7 +465,14 @@ test("Node below 22 rejects mutations before adapter work while read-only comman
       const captured = io(item.target, adapters);
       assert.equal(
         await commands.executeCommand(
-          [command, "--host", "codex", "--yes", "--json"],
+          [
+            command,
+            "--host",
+            "codex",
+            ...(command === "uninstall" ? ["--all"] : ["--capability", NAVIGATION]),
+            "--yes",
+            "--json",
+          ],
           { ...captured.dependencies, nodeVersion: "20.19.0" },
         ),
         1,
@@ -585,66 +481,6 @@ test("Node below 22 rejects mutations before adapter work while read-only comman
       assert.equal(JSON.parse(captured.stdout[0] ?? "").error.code, "unsupported_node");
     }
     assert.equal(fs.readdirSync(item.target).length, 0);
-  } finally {
-    fs.rmSync(item.root, { recursive: true, force: true });
-  }
-});
-
-test("explicit legacy authority is forwarded only to Cursor and never inferred or downgraded", async () => {
-  const item = fixture();
-  try {
-    const cursorCalls: string[] = [];
-    const cursorAdapters = {
-      codex: makeAdapter("codex", cursorCalls),
-      claude: makeAdapter("claude", cursorCalls),
-      cursor: makeAdapter("cursor", cursorCalls),
-    };
-    const cursorIo = io(item.target, cursorAdapters);
-    assert.equal(
-      await commands.executeCommand(
-        [
-          "install",
-          "--host",
-          "cursor",
-          "--yes",
-          "--json",
-          "--allow-legacy-user-removal",
-        ],
-        cursorIo.dependencies,
-      ),
-      0,
-    );
-    assert.deepEqual(cursorCalls, ["cursor:detect", "cursor:renderInstall:true:false"]);
-
-    const mismatchTarget = path.join(item.root, "mismatch");
-    fs.mkdirSync(mismatchTarget);
-    const mismatchCalls: string[] = [];
-    const mismatchAdapters = {
-      codex: makeAdapter("codex", mismatchCalls),
-      claude: makeAdapter("claude", mismatchCalls),
-      cursor: makeAdapter("cursor", mismatchCalls),
-    };
-    const mismatchIo = io(mismatchTarget, mismatchAdapters);
-    assert.notEqual(
-      await commands.executeCommand(
-        [
-          "install",
-          "--host",
-          "codex",
-          "--yes",
-          "--json",
-          "--allow-legacy-user-removal",
-        ],
-        mismatchIo.dependencies,
-      ),
-      0,
-    );
-    assert.deepEqual(mismatchCalls, []);
-    assert.equal(fs.readdirSync(mismatchTarget).length, 0);
-    assert.equal(
-      JSON.parse(mismatchIo.stdout[0] ?? "").error.code,
-      "legacy_removal_authority_invalid",
-    );
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -675,7 +511,7 @@ test("machine output and exit codes are stable and redact unexpected adapter fai
     const confirmation = io(item.target, adapters);
     assert.equal(
       await commands.executeCommand(
-        ["install", "--host", "codex", "--json"],
+        ["install", "--host", "codex", "--capability", NAVIGATION, "--json"],
         confirmation.dependencies,
       ),
       2,
@@ -714,29 +550,26 @@ test("machine output and exit codes are stable and redact unexpected adapter fai
   }
 });
 
-test("human mutation verbs are stable and read-only commands reject removal authority", async () => {
+test("human mutation verbs are stable and read-only commands reject retired authority", async () => {
   const item = fixture();
   try {
-    fs.mkdirSync(path.join(item.target, ".fixture-codex"));
-    fs.writeFileSync(path.join(item.target, ".fixture-codex/payload.txt"), "before\n");
-    fs.writeFileSync(path.join(item.target, ".fixture-codex/install-state.json"), "before-state\n");
     const calls: string[] = [];
     const adapters = {
       codex: makeAdapter("codex", calls),
       claude: makeAdapter("claude", calls),
       cursor: makeAdapter("cursor", calls),
     };
-    const updated = io(item.target, adapters);
+    const installed = io(item.target, adapters);
     assert.equal(
       await commands.executeCommand(
-        ["update", "--host", "codex", "--yes"],
-        updated.dependencies,
+        ["install", "--host", "codex", "--capability", NAVIGATION, "--yes"],
+        installed.dependencies,
       ),
       0,
     );
-    assert.match(updated.stdout[0] ?? "", /^updated: codex at /);
-    assert.doesNotMatch(updated.stdout[0] ?? "", /\/(?:qa|dev)\b/i);
-    assert.equal(updated.stderr.length, 0);
+    assert.match(installed.stdout[0] ?? "", /^installed: codex at /);
+    assert.doesNotMatch(installed.stdout[0] ?? "", /\/(?:qa|dev)\b/i);
+    assert.equal(installed.stderr.length, 0);
 
     const readOnly = io(item.target, adapters);
     assert.equal(
@@ -748,7 +581,7 @@ test("human mutation verbs are stable and read-only commands reject removal auth
     );
     assert.equal(
       JSON.parse(readOnly.stdout[0] ?? "").error.code,
-      "legacy_removal_authority_invalid",
+      "invalid_arguments",
     );
     assert.equal(readOnly.stderr.length, 0);
   } finally {
@@ -1049,9 +882,13 @@ test("update defaults to installed capabilities and filters cannot install an ab
       "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
     ]);
     assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const beforeUpdate = projectSnapshot(item.target);
     const updated = runPublicCli(item.target, homeDirectory, ["update", "--host", "claude"]);
     assert.equal(updated.status, 0, updated.stderr || updated.stdout);
-    assert.deepEqual(parseOnlyJson(updated.stdout).capabilities, [NAVIGATION, JX3]);
+    const updateOutput = parseOnlyJson(updated.stdout);
+    assert.deepEqual(updateOutput.capabilities, [NAVIGATION, JX3]);
+    assert.equal(updateOutput.changed, false);
+    assert.deepEqual(projectSnapshot(item.target), beforeUpdate);
 
     const separate = fixture();
     const separateHome = path.join(separate.root, "home");
@@ -1094,6 +931,67 @@ test("status and doctor report every built-in capability without writing", () =>
       ]);
       assert.deepEqual(projectSnapshot(item.target), before);
     }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("status reports conservative per-capability drift and doctor reports stale lock cleanup guidance", async () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  const mutationLockRoot = path.join(item.root, "locks");
+  fs.mkdirSync(homeDirectory);
+  try {
+    assert.equal(runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+    ]).status, 0);
+    const state = JSON.parse(fs.readFileSync(
+      path.join(item.target, ".claude/kcoderag-nav/install-state.json"),
+      "utf8",
+    )) as { files: readonly { path: string; contributors: readonly string[] }[] };
+    const jx3File = state.files.find((record) => record.contributors.includes(JX3));
+    assert.notEqual(jx3File, undefined);
+    fs.appendFileSync(path.join(item.target, ...(jx3File?.path.split("/") ?? [])), "drift\n");
+
+    const drifted = runPublicCli(item.target, homeDirectory, ["status", "--host", "claude"]);
+    assert.equal(drifted.status, 0, drifted.stderr || drifted.stdout);
+    const driftOutput = parseOnlyJson(drifted.stdout);
+    assert.equal(driftOutput.status, "drifted");
+    assert.deepEqual(driftOutput.capabilities, [
+      { id: NAVIGATION, installed: null, status: "capability_drift" },
+      { id: JX3, installed: null, status: "capability_drift" },
+    ]);
+
+    const child = childProcess.spawnSync(process.execPath, [
+      "-e",
+      "require(process.env.LOCK_MODULE).acquireMutationLock({host:'claude',targetRoot:process.env.LOCK_TARGET,lockRoot:process.env.LOCK_ROOT});",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LOCK_MODULE: path.resolve("dist/core/mutation-lock.cjs"),
+        LOCK_TARGET: item.target,
+        LOCK_ROOT: mutationLockRoot,
+      },
+      windowsHide: true,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const output: string[] = [];
+    const exitCode = await commands.executeCommand([
+      "doctor", "--host", "claude", "--json",
+    ], {
+      ...io(item.target, {
+        codex: makeAdapter("codex", []),
+        claude: makeAdapter("claude", []),
+        cursor: makeAdapter("cursor", []),
+      }).dependencies,
+      mutationLockRoot,
+      stdout: (text: string) => output.push(text),
+    });
+    assert.equal(exitCode, 0);
+    const doctorOutput = parseOnlyJson(output[0] ?? "");
+    assert.equal(doctorOutput.maintenance.mutationLock.status, "stale");
+    assert.equal(doctorOutput.maintenance.manualCleanupRequired, true);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }

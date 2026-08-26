@@ -18,7 +18,7 @@ import {
   BUILT_IN_CAPABILITIES,
   resolveCapabilitySelection,
 } from "../capabilities/registry.cjs";
-import { acquireMutationLock } from "../core/mutation-lock.cjs";
+import { acquireMutationLock, inspectMutationLock } from "../core/mutation-lock.cjs";
 import { resolveProjectTarget } from "../core/project-target.cjs";
 import { assertMutationRuntime, createStatusResult, runtimeStatusIssue } from "../core/state.cjs";
 import { applyTransaction } from "../core/transaction.cjs";
@@ -56,6 +56,7 @@ interface ParsedArguments {
   readonly yes: boolean;
   readonly json: boolean;
   readonly capabilities: readonly CapabilityId[];
+  readonly all: boolean;
 }
 
 export interface TargetConfirmation {
@@ -108,6 +109,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let target: string | undefined;
   let yes = false;
   let json = false;
+  let all = false;
   const capabilities: string[] = [];
   const seen = new Set<string>();
 
@@ -117,6 +119,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (argument !== "--capability") seen.add(argument);
     if (argument === "--yes") yes = true;
     else if (argument === "--json") json = true;
+    else if (argument === "--all") all = true;
     else if (argument === "--capability") capabilities.push(requireFlagValue(argv, index++));
     else if (argument === "--host") {
       const value = requireFlagValue(argv, index++);
@@ -139,10 +142,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     yes: boolean;
     json: boolean;
     capabilities: readonly CapabilityId[];
+    all: boolean;
   } = {
     command,
     yes,
     json,
+    all,
     capabilities: capabilities.length === 0
       ? Object.freeze([])
       : Object.freeze(resolveCapabilitySelection(capabilities).map((entry) => entry.id)),
@@ -150,6 +155,25 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (host !== undefined) parsed.host = host;
   if (target !== undefined) parsed.target = target;
   return parsed;
+}
+
+function sameCapabilities(
+  left: readonly CapabilityId[],
+  right: readonly CapabilityId[],
+): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function assertCapabilityFlags(args: ParsedArguments): void {
+  if (args.all && (args.command !== "uninstall" || args.capabilities.length > 0)) {
+    throw new InstallError("invalid_arguments");
+  }
+  if (
+    (args.command === "status" || args.command === "doctor") &&
+    (args.all || args.capabilities.length > 0)
+  ) {
+    throw new InstallError("invalid_arguments");
+  }
 }
 
 async function selectInstallCapabilities(
@@ -162,6 +186,51 @@ async function selectInstallCapabilities(
   const selected = await (dependencies.selectCapabilities?.(available) ?? undefined);
   if (selected === undefined) throw new InstallError("cancelled");
   return Object.freeze(resolveCapabilitySelection(selected).map((entry) => entry.id));
+}
+
+async function selectUninstallCapabilities(
+  args: ParsedArguments,
+  installed: readonly CapabilityId[],
+  dependencies: CommandDependencies,
+): Promise<readonly CapabilityId[]> {
+  if (args.all) return installed;
+  if (args.capabilities.length > 0) return args.capabilities;
+  if (args.json) throw new InstallError("capability_selection_required");
+  const selected = await (dependencies.selectCapabilities?.(installed) ?? undefined);
+  if (selected === undefined) throw new InstallError("cancelled");
+  return Object.freeze(resolveCapabilitySelection(selected).map((entry) => entry.id));
+}
+
+function assertInstalledSelection(
+  selected: readonly CapabilityId[],
+  installed: readonly CapabilityId[],
+): void {
+  if (selected.some((id) => !installed.includes(id))) {
+    throw new InstallError("capability_not_installed");
+  }
+}
+
+function capabilityResults(
+  installed: readonly CapabilityId[],
+  aggregateStatus: StatusResult["status"],
+): readonly Readonly<{ id: CapabilityId; installed: boolean | null; status: string }>[] {
+  const membershipUnknown = aggregateStatus === "drifted" && installed.length === 0;
+  return Object.freeze(BUILT_IN_CAPABILITIES.map(({ id }) => {
+    const isInstalled = installed.includes(id);
+    return Object.freeze({
+      id,
+      installed: membershipUnknown ? null : isInstalled,
+      status: membershipUnknown
+        ? "capability_drift"
+        : !isInstalled
+          ? "not_installed"
+          : aggregateStatus === "healthy" || aggregateStatus === "update_available"
+            ? "healthy"
+            : aggregateStatus === "drifted"
+              ? "capability_drift"
+              : aggregateStatus,
+    });
+  }));
 }
 
 function isMutation(command: CommandName): boolean {
@@ -206,6 +275,7 @@ function safeError(error: unknown): StatusIssue {
 function errorExitCode(code: string): number {
   return new Set([
     "cancelled",
+    "capability_selection_required",
     "confirmation_required",
     "environment_selector_retired",
     "host_required",
@@ -326,6 +396,7 @@ export async function executeCommand(
   try {
     const args = parseArguments(argv);
     json = args.json;
+    assertCapabilityFlags(args);
     const host = await selectHost(args, dependencies);
     const requestedCapabilities = args.command === "install"
       ? await selectInstallCapabilities(args, dependencies)
@@ -395,6 +466,14 @@ export async function executeCommand(
         host,
         QA_ENVIRONMENT,
       );
+      const lockInspection = inspectMutationLock({
+        host,
+        targetRoot: target.root,
+        ...(dependencies.mutationLockRoot === undefined
+          ? {}
+          : { lockRoot: dependencies.mutationLockRoot }),
+      });
+      const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
       const ok = status.status !== "source_conflict";
       const payload = {
         schemaVersion: CORE_SCHEMA_VERSION,
@@ -406,6 +485,11 @@ export async function executeCommand(
         status: status.status,
         issues: status.issues,
         findings: status.findings,
+        capabilities: capabilityResults(installedCapabilities, status.status),
+        maintenance: Object.freeze({
+          mutationLock: lockInspection,
+          manualCleanupRequired: lockInspection.status === "stale",
+        }),
       };
       if (args.json) writeJson(stdout, payload);
       else {
@@ -413,6 +497,10 @@ export async function executeCommand(
         for (const finding of status.findings) {
           stdout(`${finding.code}: ${finding.safePath}`);
         }
+        for (const capability of payload.capabilities) {
+          stdout(`${capability.id}: ${capability.status}`);
+        }
+        if (lockInspection.status === "stale") stdout("stale_mutation_lock: .");
       }
       return ok ? 0 : 1;
     }
@@ -429,12 +517,29 @@ export async function executeCommand(
     }
 
     const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
-    const targetCapabilities = args.command === "install"
-      ? Object.freeze(resolveCapabilitySelection([
-          ...installedCapabilities,
-          ...requestedCapabilities,
-        ]).map((entry) => entry.id))
-      : requestedCapabilities;
+    let renderSelection: readonly CapabilityId[];
+    let resultCapabilities: readonly CapabilityId[];
+    if (args.command === "install") {
+      resultCapabilities = Object.freeze(resolveCapabilitySelection([
+        ...installedCapabilities,
+        ...requestedCapabilities,
+      ]).map((entry) => entry.id));
+      renderSelection = resultCapabilities;
+    } else {
+      if (observation.currentState === undefined) throw new InstallError("not_installed");
+      if (args.command === "update") {
+        renderSelection = requestedCapabilities.length === 0
+          ? installedCapabilities
+          : requestedCapabilities;
+        assertInstalledSelection(renderSelection, installedCapabilities);
+        resultCapabilities = installedCapabilities;
+      } else {
+        renderSelection = await selectUninstallCapabilities(args, installedCapabilities, dependencies);
+        assertInstalledSelection(renderSelection, installedCapabilities);
+        const removals = new Set(renderSelection);
+        resultCapabilities = Object.freeze(installedCapabilities.filter((id) => !removals.has(id)));
+      }
+    }
     const sharedMutationContext = {
       target,
       packageRoot,
@@ -442,7 +547,7 @@ export async function executeCommand(
       observation,
       allowLegacyUserRemoval: false,
       allowLegacyDevMigration: false,
-      ...(targetCapabilities.length === 0 ? {} : { selectedCapabilities: targetCapabilities }),
+      selectedCapabilities: renderSelection,
     };
     const desired = args.command === "uninstall"
       ? adapter.renderUninstall({
@@ -455,10 +560,10 @@ export async function executeCommand(
     if (desired.host !== host || desired.target !== target) {
       throw new InstallError("invalid_host_adapter");
     }
-    const exactInstalledTarget = args.command === "install" &&
-      installedCapabilities.length === targetCapabilities.length &&
-      installedCapabilities.every((id, index) => id === targetCapabilities[index]);
-    const noChange = desiredStateIsCurrent(desired, exactInstalledTarget);
+    const currentVersion = packageVersion(packageRoot);
+    const preserveValidatedState = sameCapabilities(installedCapabilities, resultCapabilities) &&
+      observation.currentState?.packageVersion === currentVersion;
+    const noChange = desiredStateIsCurrent(desired, preserveValidatedState);
     const transaction = noChange
       ? Object.freeze({ changedPaths: Object.freeze([] as string[]) })
       : applyTransaction(desired);
@@ -467,7 +572,7 @@ export async function executeCommand(
       : args.command === "update"
         ? "updated"
         : "uninstalled";
-    const version = packageVersion(packageRoot);
+    const version = currentVersion;
     const payload: Record<string, unknown> = {
       schemaVersion: CORE_SCHEMA_VERSION,
       ok: true,
@@ -477,7 +582,8 @@ export async function executeCommand(
       target: target.root,
       changed: transaction.changedPaths.length > 0,
       changedPaths: transaction.changedPaths,
-      capabilities: targetCapabilities,
+      capabilities: resultCapabilities,
+      selectedCapabilities: renderSelection,
       managedFiles: desired.entries.map((entry) => entry.path.relativePath),
     };
     if (version !== undefined) payload.version = version;
