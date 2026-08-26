@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-01-PLAN.md
-last_updated: "2026-08-26T13:11:01.081Z"
+stopped_at: Completed 04.1-03-PLAN.md
+last_updated: "2026-08-26T13:41:49.350Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: 9b8e0544d3426f4ca934a0ede57d3e293bfd53d3
+state_head: d5e143a7016a240edd5c43fc9ba54840db76f5f3
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 55
+  completed_plans: 56
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 3 of 12
+Plan: 4 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -109,6 +109,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04 P15 | 92m | 3 tasks | 14 files |
 | Phase 04.1 P02 | 13 min | 2 tasks | 7 files |
 | Phase 04.1 P01 | 76 min | 2 tasks | 7 files |
+| Phase 04.1 P03 | 16 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -262,6 +263,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Use authorized KSCC 1.2.1 for real Claude sessions while binding support to independently verified Claude Code 2.1.241.
 - [Phase 04.1]: Enable JX3 only for exact host versions with checked-in digest-bound PASS receipts; navigation eligibility remains independent.
 - [Phase 04.1]: Keep Codex, Cursor, and OpenCode JX3 delivery unsupported until native model-visible pre-write context is directly proved.
+- [Phase 04.1]: Keep the public built-in manifest separate from provider instances so invalid selections finish validation before provider access.
+- [Phase 04.1]: Capability providers declare package-relative files and logical sections; host adapters retain native paths, merge semantics, and mutation boundaries.
+- [Phase 04.1]: Navigation remains independently eligible; JX3 fails closed unless exact checked-in host receipt evidence returns PASS with its frozen digest.
 
 ### Pending Todos
 
@@ -324,6 +328,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T13:11:00.604Z
-Stopped at: Completed 04.1-01-PLAN.md
+Last session: 2026-08-26T13:41:48.892Z
+Stopped at: Completed 04.1-03-PLAN.md
 Resume file: None
