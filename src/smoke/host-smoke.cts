@@ -34,7 +34,7 @@ export interface SmokeEvidence {
   readonly sourceConflict: boolean;
   readonly conflictInstallBlocked: boolean;
   readonly conflictUpdateBlocked: boolean;
-  readonly conflictUninstallAllowed: boolean;
+  readonly conflictUninstallBlocked: boolean;
   readonly uninstall: boolean;
   readonly stubReceipt: boolean;
 }
@@ -157,7 +157,7 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "sourceConflict",
   "conflictInstallBlocked",
   "conflictUpdateBlocked",
-  "conflictUninstallAllowed",
+  "conflictUninstallBlocked",
   "uninstall",
   "stubReceipt",
 ]);
@@ -803,6 +803,8 @@ function runPackageCliResult(
       projectRoot,
       "--json",
     ];
+    if (command === "install") args.push("--capability", "kcoderag-navigation");
+    if (command === "uninstall") args.push("--all");
     if (command !== "status" && command !== "doctor") args.push("--yes");
     const result = runNpm(args, projectRoot, safeEnvironment(runtimeRoot, true));
     const payload = parseCliDocument(result);
@@ -1108,26 +1110,20 @@ function treeFingerprint(root: string): string {
   return sha256Parts(entries);
 }
 
-function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): void {
+function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): string {
   const hostHome = path.join(runtimeRoot, "host-home");
   fs.mkdirSync(hostHome, { recursive: true });
-  if (host === "codex") {
-    fs.writeFileSync(path.join(hostHome, "config.toml"), "[mcp_servers.kcoderag-qa]\n", "utf8");
-    return;
-  }
-  if (host === "claude") {
-    fs.writeFileSync(path.join(hostHome, ".claude.json"), `${JSON.stringify({ mcpServers: { kcoderag: {} } })}\n`, "utf8");
-    return;
-  }
-  if (host === "opencode") {
-    const opencodeRoot = path.join(hostHome, ".config", "opencode");
-    fs.mkdirSync(opencodeRoot, { recursive: true });
-    fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), `${JSON.stringify({ mcp: { "kcoderag-qa": {} } })}\n`, "utf8");
-    return;
-  }
-  const cursorRoot = path.join(hostHome, ".cursor");
-  fs.mkdirSync(cursorRoot, { recursive: true });
-  fs.writeFileSync(path.join(cursorRoot, "mcp.json"), `${JSON.stringify({ mcpServers: { kcoderag: {} } })}\n`, "utf8");
+  const relativePath = host === "codex"
+    ? ".codex/plugins/local/kcoderag-nav"
+    : host === "claude"
+      ? ".claude/plugins/kcoderag-nav"
+      : host === "opencode"
+        ? ".config/opencode/plugins/kcoderag-nav.js"
+        : ".cursor/plugins/local/kcoderag-nav";
+  const conflictPath = path.join(hostHome, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
+  fs.writeFileSync(conflictPath, "", "utf8");
+  return conflictPath;
 }
 
 function isStatusPayload(
@@ -1161,6 +1157,7 @@ async function runRequiredHost(
   fs.writeFileSync(path.join(projectRoot, "synthetic.cpp"), "int SyntheticSymbol() { return 7; }\n", "utf8");
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
+  let sourceConflictPath: string | undefined;
   let navigationContract: NavigationContract | undefined;
   try {
     const preinstallStatus = runPackageCliResult(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
@@ -1193,7 +1190,7 @@ async function runRequiredHost(
     evidence.qaOnly = [preinstallStatus.payload, preinstallDoctor.payload, install, status, doctor, update]
       .every((payload) => payload?.environment === "qa");
 
-    installSyntheticSourceConflict(host, runtimeRoot);
+    sourceConflictPath = installSyntheticSourceConflict(host, runtimeRoot);
     const conflictStatus = runPackageCliResult(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const conflictDoctor = runPackageCliResult(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
     evidence.sourceConflict = isStatusPayload(conflictStatus, "status", "source_conflict") &&
@@ -1203,15 +1200,21 @@ async function runRequiredHost(
     const blockedUpdate = runPackageCliResult(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
     evidence.conflictUpdateBlocked = isConflictFailure(blockedUpdate) && treeFingerprint(projectRoot) === beforeUpdate;
 
-    const uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm);
-    evidence.conflictUninstallAllowed = uninstall !== undefined && uninstall.environment === "qa";
-    evidence.uninstall = evidence.conflictUninstallAllowed &&
-      !fs.existsSync(statePath(host, projectRoot));
-    installed = !evidence.uninstall;
+    const beforeUninstall = treeFingerprint(projectRoot);
+    const blockedUninstall = runPackageCliResult(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    evidence.conflictUninstallBlocked = isConflictFailure(blockedUninstall) &&
+      treeFingerprint(projectRoot) === beforeUninstall && fs.existsSync(statePath(host, projectRoot));
 
     const beforeInstall = treeFingerprint(projectRoot);
     const blockedInstall = runPackageCliResult(artifact, projectRoot, runtimeRoot, "install", host, runNpm);
     evidence.conflictInstallBlocked = isConflictFailure(blockedInstall) && treeFingerprint(projectRoot) === beforeInstall;
+
+    fs.unlinkSync(sourceConflictPath);
+    sourceConflictPath = undefined;
+    const uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    evidence.uninstall = uninstall !== undefined && uninstall.environment === "qa" &&
+      !fs.existsSync(statePath(host, projectRoot));
+    installed = !evidence.uninstall;
     return evaluateHostEvidence({
       host,
       mode: "required-contract",
@@ -1228,6 +1231,9 @@ async function runRequiredHost(
       provenance,
     });
   } finally {
+    if (sourceConflictPath !== undefined) {
+      try { fs.unlinkSync(sourceConflictPath); } catch { /* best-effort fixture cleanup */ }
+    }
     if (installed) {
       try { runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm); } catch { /* fail closed above */ }
     }
