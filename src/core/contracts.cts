@@ -1,5 +1,7 @@
 /** Host-neutral installer contracts. Runtime diagnostics never carry payload bytes. */
 
+import type { CapabilityId } from "../capabilities/contracts.cjs";
+
 export const CORE_SCHEMA_VERSION = 1 as const;
 
 export type HostId = "codex" | "claude" | "cursor" | "opencode";
@@ -104,6 +106,45 @@ export interface ManagedSectionRecord {
   readonly fileExisted: boolean;
   /** Parent containers created by the installer and removable only while still empty. */
   readonly createdContainers?: readonly string[];
+}
+
+/** Exact ownership for one installed capability in the capability-scoped schema. */
+export interface CapabilityStateRecord {
+  readonly id: CapabilityId;
+  readonly files: readonly string[];
+  readonly sections: readonly string[];
+}
+
+/** One complete managed file payload and the contributors that require it. */
+export interface CapabilityManagedFileRecord {
+  readonly path: string;
+  readonly digest: string;
+  readonly original: OriginalRecord;
+  readonly contributors: readonly CapabilityId[];
+}
+
+/** Non-sensitive ownership metadata for one logical section of a managed file. */
+export interface CapabilityManagedSectionRecord {
+  readonly path: string;
+  readonly id: string;
+  readonly digest: string;
+  readonly fileExisted: boolean;
+  readonly createdContainers?: readonly string[];
+  readonly contributors: readonly CapabilityId[];
+}
+
+/**
+ * Exact current capability state. The composite digest binds the selected set and
+ * every ownership record without exposing any managed payload in diagnostics.
+ */
+export interface CapabilityInstallState {
+  readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
+  readonly packageVersion: string;
+  readonly host: HostId;
+  readonly capabilities: readonly CapabilityStateRecord[];
+  readonly files: readonly CapabilityManagedFileRecord[];
+  readonly sections: readonly CapabilityManagedSectionRecord[];
+  readonly compositeDigest: string;
 }
 
 export interface InstallState {

@@ -1,8 +1,14 @@
 /** Schema, desired-state, runtime, and status helpers. This module never mutates disk. */
 
+const crypto = require("node:crypto") as typeof import("node:crypto");
+
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
+  type CapabilityInstallState,
+  type CapabilityManagedFileRecord,
+  type CapabilityManagedSectionRecord,
+  type CapabilityStateRecord,
   sanitizeSafeRelativePath,
   type CurrentEnvironmentId,
   type DesiredState,
@@ -18,10 +24,16 @@ import {
   type StatusIssue,
   type StatusResult,
 } from "./contracts.cjs";
+import type { CapabilityId } from "../capabilities/contracts.cjs";
 import { isProjectTarget, validateManagedPath } from "./project-target.cjs";
 
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const validatedDesiredStates = new WeakSet<object>();
+const validatedCapabilityInstallStates = new WeakSet<object>();
+const CAPABILITY_ORDER = Object.freeze([
+  "kcoderag-navigation",
+  "jx3-style-nudge",
+] as const satisfies readonly CapabilityId[]);
 
 type DesiredStateInput = {
   readonly host: HostId;
@@ -239,6 +251,287 @@ function freezeSections(
     sections[relativePath] = Object.freeze(frozen);
   }
   return Object.freeze(sections);
+}
+
+type CapabilityInstallStateInput = Omit<CapabilityInstallState, "compositeDigest">;
+
+function codeUnitCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isCapabilityId(value: unknown): value is CapabilityId {
+  return value === "kcoderag-navigation" || value === "jx3-style-nudge";
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).sort(codeUnitCompare).join("\0") === [...keys].sort(codeUnitCompare).join("\0");
+}
+
+function isSafeStatePath(value: unknown): value is string {
+  return typeof value === "string" && sanitizeSafeRelativePath(value) === value && value !== ".";
+}
+
+function sortedUniqueStrings(value: unknown, validate: (item: string) => boolean): value is string[] {
+  return Array.isArray(value) &&
+    value.every((item) => typeof item === "string" && validate(item)) &&
+    value.every((item, index) => index === 0 || codeUnitCompare(value[index - 1] as string, item) < 0);
+}
+
+function sortedCapabilityIds(value: unknown, allowEmpty = false): value is CapabilityId[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || !value.every(isCapabilityId)) return false;
+  const canonical = CAPABILITY_ORDER.filter((id) => value.includes(id));
+  return canonical.length === value.length && canonical.every((id, index) => value[index] === id);
+}
+
+function sectionReference(pathValue: string, id: string): string {
+  return `${pathValue}#${id}`;
+}
+
+function capabilityDigestPayload(input: CapabilityInstallStateInput): Buffer {
+  return Buffer.from(JSON.stringify({
+    schemaVersion: input.schemaVersion,
+    packageVersion: input.packageVersion,
+    host: input.host,
+    capabilities: input.capabilities,
+    files: input.files,
+    sections: input.sections,
+  }), "utf8");
+}
+
+function calculateCapabilityCompositeDigest(input: CapabilityInstallStateInput): string {
+  return crypto.createHash("sha256").update(capabilityDigestPayload(input)).digest("hex");
+}
+
+function decodeCapabilityState(value: unknown): CapabilityInstallState {
+  if (!isRecord(value) || !exactKeys(value, [
+    "capabilities",
+    "compositeDigest",
+    "files",
+    "host",
+    "packageVersion",
+    "schemaVersion",
+    "sections",
+  ])) {
+    throw new InstallError("invalid_state");
+  }
+  if (
+    value.schemaVersion !== CORE_SCHEMA_VERSION ||
+    typeof value.packageVersion !== "string" ||
+    value.packageVersion.length === 0 ||
+    value.packageVersion.length > 160 ||
+    !isHost(value.host) ||
+    !Array.isArray(value.capabilities) ||
+    !Array.isArray(value.files) ||
+    !Array.isArray(value.sections) ||
+    typeof value.compositeDigest !== "string" ||
+    !DIGEST_PATTERN.test(value.compositeDigest)
+  ) {
+    throw new InstallError("invalid_state");
+  }
+
+  const capabilities: CapabilityStateRecord[] = value.capabilities.map((raw): CapabilityStateRecord => {
+    if (!isRecord(raw) || !exactKeys(raw, ["files", "id", "sections"]) || !isCapabilityId(raw.id)) {
+      throw new InstallError("invalid_state");
+    }
+    if (
+      !sortedUniqueStrings(raw.files, isSafeStatePath) ||
+      !sortedUniqueStrings(raw.sections, (item) => {
+        const separator = item.lastIndexOf("#");
+        return separator > 0 &&
+          isSafeStatePath(item.slice(0, separator)) &&
+          /^[A-Za-z0-9_.:-]{1,160}$/.test(item.slice(separator + 1));
+      })
+    ) {
+      throw new InstallError("invalid_state");
+    }
+    return Object.freeze({
+      id: raw.id,
+      files: Object.freeze([...raw.files]),
+      sections: Object.freeze([...raw.sections]),
+    });
+  });
+  if (!sortedCapabilityIds(capabilities.map((capability) => capability.id))) {
+    throw new InstallError("invalid_state");
+  }
+
+  const files: CapabilityManagedFileRecord[] = value.files.map((raw): CapabilityManagedFileRecord => {
+    if (
+      !isRecord(raw) ||
+      !exactKeys(raw, ["contributors", "digest", "original", "path"]) ||
+      !isSafeStatePath(raw.path) ||
+      typeof raw.digest !== "string" ||
+      !DIGEST_PATTERN.test(raw.digest) ||
+      !validateOriginal(raw.original) ||
+      !sortedCapabilityIds(raw.contributors)
+    ) {
+      throw new InstallError("invalid_state");
+    }
+    const original = raw.original.kind === "absent"
+      ? Object.freeze({ kind: "absent" as const })
+      : Object.freeze({ kind: "base64" as const, data: raw.original.data as string });
+    return Object.freeze({
+      path: raw.path,
+      digest: raw.digest,
+      original,
+      contributors: Object.freeze([...raw.contributors]),
+    });
+  });
+  if (!files.every((file, index) => index === 0 || codeUnitCompare(files[index - 1]?.path ?? "", file.path) < 0)) {
+    throw new InstallError("invalid_state");
+  }
+
+  const sections: CapabilityManagedSectionRecord[] = value.sections.map((raw): CapabilityManagedSectionRecord => {
+    if (!isRecord(raw)) throw new InstallError("invalid_state");
+    const keys = raw.createdContainers === undefined
+      ? ["contributors", "digest", "fileExisted", "id", "path"]
+      : ["contributors", "createdContainers", "digest", "fileExisted", "id", "path"];
+    if (
+      !exactKeys(raw, keys) ||
+      !isSafeStatePath(raw.path) ||
+      typeof raw.id !== "string" ||
+      !/^[A-Za-z0-9_.:-]{1,160}$/.test(raw.id) ||
+      typeof raw.digest !== "string" ||
+      !DIGEST_PATTERN.test(raw.digest) ||
+      typeof raw.fileExisted !== "boolean" ||
+      !sortedCapabilityIds(raw.contributors) ||
+      (raw.createdContainers !== undefined &&
+        !sortedUniqueStrings(raw.createdContainers, (item) => /^[A-Za-z0-9_.:-]{1,160}$/.test(item)))
+    ) {
+      throw new InstallError("invalid_state");
+    }
+    return Object.freeze({
+      path: raw.path,
+      id: raw.id,
+      digest: raw.digest,
+      fileExisted: raw.fileExisted,
+      ...(raw.createdContainers === undefined
+        ? {}
+        : { createdContainers: Object.freeze([...raw.createdContainers]) }),
+      contributors: Object.freeze([...raw.contributors]),
+    });
+  });
+  if (!sections.every((section, index) => {
+    if (index === 0) return true;
+    const previous = sections[index - 1];
+    if (previous === undefined) return false;
+    return codeUnitCompare(
+      sectionReference(previous.path, previous.id),
+      sectionReference(section.path, section.id),
+    ) < 0;
+  })) {
+    throw new InstallError("invalid_state");
+  }
+
+  const capabilityIds = new Set(capabilities.map((capability) => capability.id));
+  const filePaths = new Set(files.map((file) => file.path));
+  const fileByPath = new Map(files.map((file) => [file.path, file]));
+  const sectionRefs = new Set(sections.map((section) => sectionReference(section.path, section.id)));
+  if (
+    files.some((file) => file.contributors.some((id) => !capabilityIds.has(id))) ||
+    sections.some((section) =>
+      !filePaths.has(section.path) ||
+      section.contributors.some((id) =>
+        !capabilityIds.has(id) || !fileByPath.get(section.path)?.contributors.includes(id))) ||
+    capabilities.some((capability) =>
+      capability.files.some((file) => !filePaths.has(file)) ||
+      capability.sections.some((section) => !sectionRefs.has(section)))
+  ) {
+    throw new InstallError("invalid_state");
+  }
+  for (const capability of capabilities) {
+    const expectedFiles = files
+      .filter((file) => file.contributors.includes(capability.id))
+      .map((file) => file.path);
+    const expectedSections = sections
+      .filter((section) => section.contributors.includes(capability.id))
+      .map((section) => sectionReference(section.path, section.id));
+    if (
+      capability.files.join("\0") !== expectedFiles.join("\0") ||
+      capability.sections.join("\0") !== expectedSections.join("\0")
+    ) {
+      throw new InstallError("invalid_state");
+    }
+  }
+
+  const withoutComposite: CapabilityInstallStateInput = Object.freeze({
+    schemaVersion: CORE_SCHEMA_VERSION,
+    packageVersion: value.packageVersion,
+    host: value.host,
+    capabilities: Object.freeze(capabilities),
+    files: Object.freeze(files),
+    sections: Object.freeze(sections),
+  });
+  if (calculateCapabilityCompositeDigest(withoutComposite) !== value.compositeDigest) {
+    throw new InstallError("invalid_state");
+  }
+  const decoded = Object.freeze({
+    ...withoutComposite,
+    compositeDigest: value.compositeDigest,
+  });
+  validatedCapabilityInstallStates.add(decoded);
+  return decoded;
+}
+
+/** Build and deep-freeze a canonical current capability state. */
+export function createCapabilityInstallState(input: CapabilityInstallStateInput): CapabilityInstallState {
+  const capabilityRank = (id: CapabilityId): number => CAPABILITY_ORDER.indexOf(id);
+  const capabilities = [...input.capabilities]
+    .map((capability) => ({
+      id: capability.id,
+      files: [...capability.files].sort(codeUnitCompare),
+      sections: [...capability.sections].sort(codeUnitCompare),
+    }))
+    .sort((left, right) => capabilityRank(left.id) - capabilityRank(right.id));
+  const files = [...input.files]
+    .map((file) => ({
+      path: file.path,
+      digest: file.digest,
+      original: file.original,
+      contributors: [...file.contributors].sort((left, right) => capabilityRank(left) - capabilityRank(right)),
+    }))
+    .sort((left, right) => codeUnitCompare(left.path, right.path));
+  const sections = [...input.sections]
+    .map((section) => ({
+      path: section.path,
+      id: section.id,
+      digest: section.digest,
+      fileExisted: section.fileExisted,
+      ...(section.createdContainers === undefined ? {} : {
+        createdContainers: [...section.createdContainers].sort(codeUnitCompare),
+      }),
+      contributors: [...section.contributors].sort((left, right) => capabilityRank(left) - capabilityRank(right)),
+    }))
+    .sort((left, right) => codeUnitCompare(
+      sectionReference(left.path, left.id),
+      sectionReference(right.path, right.id),
+    ));
+  const normalized: CapabilityInstallStateInput = {
+    schemaVersion: CORE_SCHEMA_VERSION,
+    packageVersion: input.packageVersion,
+    host: input.host,
+    capabilities,
+    files,
+    sections,
+  };
+  return decodeCapabilityState({
+    ...normalized,
+    compositeDigest: calculateCapabilityCompositeDigest(normalized),
+  });
+}
+
+/** Parse only the exact capability schema; legacy product/environment records are rejected. */
+export function parseCapabilityInstallState(bytes: Buffer): CapabilityInstallState {
+  let value: unknown;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new InstallError("invalid_state");
+  }
+  return decodeCapabilityState(value);
+}
+
+export function isValidatedCapabilityInstallState(value: unknown): value is CapabilityInstallState {
+  return typeof value === "object" && value !== null && validatedCapabilityInstallStates.has(value);
 }
 
 interface DecodedNodeState {

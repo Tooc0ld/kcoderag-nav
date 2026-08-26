@@ -236,6 +236,27 @@ function initialInput(value: ReturnType<typeof fixture>): ComposeInput {
   };
 }
 
+function cloneContributions(
+  contributions: readonly ProjectedContribution[],
+): ProjectedContribution[] {
+  return contributions.map((contribution) => ({
+    capabilityId: contribution.capabilityId,
+    files: contribution.files.map((file) => ({
+      ...file,
+      content: Buffer.from(file.content),
+      ...(file.original === undefined
+        ? {}
+        : { original: { ...file.original } }),
+    })),
+    sections: contribution.sections.map((section) => ({
+      ...section,
+      ...(section.createdContainers === undefined
+        ? {}
+        : { createdContainers: [...section.createdContainers] }),
+    })),
+  }));
+}
+
 function desiredStateBytes(desired: DesiredState): Buffer {
   const entry = desired.entries.find((candidate) => candidate.path.relativePath === STATE_PATH);
   assert.ok(entry?.content);
@@ -299,13 +320,13 @@ test("collisions, path escapes, and incomplete selected sets fail before the tra
   const value = fixture();
   try {
     const cases: ComposeInput[] = [];
-    const collision = structuredClone(value.contributions) as unknown as ProjectedContribution[];
+    const collision = cloneContributions(value.contributions);
     const jx3Shared = collision[0]?.files.find((file) => file.relativePath === "owned/shared.json");
     assert.ok(jx3Shared);
     (jx3Shared as { content: Buffer }).content = Buffer.from("different");
     cases.push({ ...initialInput(value), contributions: collision });
 
-    const escaped = structuredClone(value.contributions) as unknown as ProjectedContribution[];
+    const escaped = cloneContributions(value.contributions);
     const escapedFile = escaped[0]?.files[0];
     assert.ok(escapedFile);
     (escapedFile as { relativePath: string }).relativePath = "owned/../outside.bin";
