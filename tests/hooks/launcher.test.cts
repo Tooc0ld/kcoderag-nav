@@ -7,8 +7,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 const sourceHooks = path.resolve("plugin-src/hooks");
-const generatedRegistration = path.resolve("kcoderag-qa/hooks/hooks.json");
-const compiledHook = path.resolve("dist/hooks/grep-nudge.cjs");
+const sourceRegistration = path.resolve("plugin-src/hooks/hooks.json");
 const projectRoot = require("../../dist/core/project-root.cjs") as {
   findNearestProjectHook(options: {
     readonly cwd: string;
@@ -256,7 +255,14 @@ function deployment(): Deployment {
   for (const name of ["run_hook.cmd", "run_hook.sh"]) {
     fs.copyFileSync(path.join(sourceHooks, name), path.join(hooks, name));
   }
-  fs.copyFileSync(compiledHook, path.join(hooks, "grep-nudge.cjs"));
+  for (const name of [
+    "grep-nudge.cjs",
+    "jx3-style-nudge.cjs",
+    "once-marker.cjs",
+    "pre-tool-dispatcher.cjs",
+  ]) {
+    fs.copyFileSync(path.resolve("dist/hooks", name), path.join(hooks, name));
+  }
   return { root, hooks, cwd };
 }
 
@@ -362,29 +368,37 @@ function assertSilentSuccess(result: ReturnType<typeof childProcess.spawnSync>):
 }
 
 test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
-  const registration = JSON.parse(fs.readFileSync(generatedRegistration, "utf8")) as {
+  const registration = JSON.parse(fs.readFileSync(sourceRegistration, "utf8")) as {
     hooks: Record<string, readonly {
       matcher: string;
       hooks: readonly { command: string; commandWindows: string }[];
     }[]>;
   };
-  assert.deepEqual(Object.keys(registration.hooks), ["PostToolUse", "PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks), ["PreToolUse", "PostToolUse"]);
   assert.equal(registration.hooks.PreToolUse?.length, 1);
-  assert.equal(registration.hooks.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash)$");
-  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /run_hook\.sh/);
-  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /run_hook\.cmd/);
-  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /install-state\.json/);
-  assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /install-state\.json/);
+  assert.equal(
+    registration.hooks.PreToolUse?.[0]?.matcher,
+    "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$",
+  );
+  assert.equal(
+    registration.hooks.PreToolUse?.[0]?.hooks[0]?.command,
+    "{{project_hook_command_posix}}",
+  );
+  assert.equal(
+    registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows,
+    "{{project_hook_command_windows}}",
+  );
   assert.doesNotMatch(JSON.stringify(registration), /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/);
   assert.ok((registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows.length ?? 8_192) < 8_192);
   assert.equal(registration.hooks.PostToolUse?.length, 1);
   assert.equal(registration.hooks.PostToolUse?.[0]?.matcher, "^mcp__kcoderag-qa__.*$");
-  assert.match(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command ?? "", /run_marker\.sh/);
-  assert.match(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /run_marker\.cmd/);
+  assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
+  assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
-    assert.match(source, /grep-nudge\.cjs/);
+    assert.match(source, /pre-tool-dispatcher\.cjs/);
+    assert.doesNotMatch(source, /grep-nudge\.cjs/);
     assert.match(source, />= 22/);
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
