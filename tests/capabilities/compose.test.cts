@@ -93,7 +93,9 @@ interface ComposeModule {
 }
 
 interface StateModule {
-  parseCapabilityInstallState(bytes: Buffer): CapabilityState;
+  parseInstallState(bytes: Buffer): CapabilityState;
+  readonly parseCapabilityInstallState?: unknown;
+  readonly parseLegacyInstallState?: unknown;
 }
 
 interface ProjectTargetModule {
@@ -288,7 +290,7 @@ test("two projected capabilities compose canonically into one immutable desired 
       STATE_PATH,
     ]);
 
-    const installed = state.parseCapabilityInstallState(desiredStateBytes(desired));
+    const installed = state.parseInstallState(desiredStateBytes(desired));
     assert.deepEqual(installed.capabilities.map((capability) => capability.id), [NAVIGATION, JX3]);
     assert.deepEqual(
       installed.files.find((file) => file.path === "owned/shared.json")?.contributors,
@@ -356,7 +358,7 @@ test("single-capability recomposition preserves contributors and final removal r
     const initialDesired = compose.composeCapabilitySet(initialInput(value));
     transaction.applyTransaction(initialDesired);
     const initialStateBytes = read(value.root, STATE_PATH);
-    const initialState = state.parseCapabilityInstallState(initialStateBytes);
+    const initialState = state.parseInstallState(initialStateBytes);
     const sharedDigest = sha256(read(value.root, "owned/shared.json"));
     const navigationDigest = sha256(read(value.root, "owned/navigation.bin"));
 
@@ -399,7 +401,7 @@ test("single-capability recomposition preserves contributors and final removal r
     assert.equal(read(value.root, "owned/navigation.bin").toString("utf8"), "navigation-runtime\n");
     assert.equal(read(value.root, "owned/shared.json").toString("utf8"), "opaque-navigation-only\n");
     const partialStateBytes = read(value.root, STATE_PATH);
-    const partialState = state.parseCapabilityInstallState(partialStateBytes);
+    const partialState = state.parseInstallState(partialStateBytes);
     assert.deepEqual(partialState.capabilities.map((capability) => capability.id), [NAVIGATION]);
     assert.deepEqual(
       partialState.files.find((file) => file.path === "owned/shared.json")?.contributors,
@@ -420,5 +422,33 @@ test("single-capability recomposition preserves contributors and final removal r
     assert.deepEqual(read(value.root, "unrelated/keep.bin"), Buffer.from([0, 255, 17, 42]));
   } finally {
     fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("the only install-state decoder rejects retired Node and Python schemas", () => {
+  assert.equal(state.parseCapabilityInstallState, undefined);
+  assert.equal(state.parseLegacyInstallState, undefined);
+
+  const retiredNode = Buffer.from(`${JSON.stringify({
+    schemaVersion: 1,
+    packageVersion: "0.1.9",
+    host: "codex",
+    environment: "dev",
+    managedFiles: [".codex/kcoderag-nav/install-state.json"],
+    originals: {},
+    digests: {},
+  })}\n`, "utf8");
+  const retiredPython = Buffer.from(`${JSON.stringify({
+    version: 1,
+    active_environments: ["qa"],
+    originals: {},
+    digests: {},
+  })}\n`, "utf8");
+
+  for (const bytes of [retiredNode, retiredPython]) {
+    assert.throws(
+      () => state.parseInstallState(bytes),
+      (error: unknown) => errorCode(error) === "invalid_state",
+    );
   }
 });
