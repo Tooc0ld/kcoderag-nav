@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 7
 waived_count: 0
 fixed_count: 14
-total_count: 15
-last_updated: 2026-08-25T09:24:07.521Z
+total_count: 21
+last_updated: 2026-08-26T14:22:00.840Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,12 @@ last_updated: 2026-08-25T09:24:07.521Z
 | 13 | 04 | deviation | src/hosts/codex.cts |  | Resolved Windows Codex execution without shell use and isolated source scans from real user state | fixed |  | 2026-08-25T08:30:10.765Z | 2026-08-25T08:30:38.905Z |
 | 14 | 04 | deviation | src/core/contracts.cts |  | Added manual_rule and the exact Cursor legacy migration exception required by the source gate | fixed |  | 2026-08-25T09:23:37.970Z | 2026-08-25T09:24:07.270Z |
 | 15 | 04 | deviation | src/smoke/stub-mcp-server.cts |  | Closed synthetic MCP responses to prevent stale keep-alive reuse across delayed host smoke lifecycles | fixed |  | 2026-08-25T09:23:38.259Z | 2026-08-25T09:24:07.521Z |
+| 16 | 04.1 | stub | src/hosts/codex.cts | 196 | Codex native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:21:59.470Z |  |
+| 17 | 04.1 | stub | src/hosts/claude.cts | 175 | Claude native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:21:59.741Z |  |
+| 18 | 04.1 | stub | src/hosts/cursor.cts | 171 | Cursor native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:22:00.013Z |  |
+| 19 | 04.1 | stub | src/hosts/opencode.cts | 171 | OpenCode native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:22:00.294Z |  |
+| 20 | 04.1 | deviation | dist/capabilities/compose.cjs |  | Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration. | open |  | 2026-08-26T14:22:00.572Z |  |
+| 21 | 04.1 | deviation | src/cli/commands.cts |  | Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent. | open |  | 2026-08-26T14:22:00.840Z |  |
 
 ````json
 [
@@ -212,6 +218,78 @@ last_updated: 2026-08-25T09:24:07.521Z
     "reason": "",
     "recorded_at": "2026-08-25T09:23:38.259Z",
     "resolved_at": "2026-08-25T09:24:07.521Z"
+  },
+  {
+    "id": 16,
+    "kind": "stub",
+    "phase": "04.1",
+    "file": "src/hosts/codex.cts",
+    "line": 196,
+    "description": "Codex native capability projection is intentionally deferred to Plan 04.1-06.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:21:59.470Z",
+    "resolved_at": null
+  },
+  {
+    "id": 17,
+    "kind": "stub",
+    "phase": "04.1",
+    "file": "src/hosts/claude.cts",
+    "line": 175,
+    "description": "Claude native capability projection is intentionally deferred to Plan 04.1-06.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:21:59.741Z",
+    "resolved_at": null
+  },
+  {
+    "id": 18,
+    "kind": "stub",
+    "phase": "04.1",
+    "file": "src/hosts/cursor.cts",
+    "line": 171,
+    "description": "Cursor native capability projection is intentionally deferred to Plan 04.1-06.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:22:00.013Z",
+    "resolved_at": null
+  },
+  {
+    "id": 19,
+    "kind": "stub",
+    "phase": "04.1",
+    "file": "src/hosts/opencode.cts",
+    "line": 171,
+    "description": "OpenCode native capability projection is intentionally deferred to Plan 04.1-06.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:22:00.294Z",
+    "resolved_at": null
+  },
+  {
+    "id": 20,
+    "kind": "deviation",
+    "phase": "04.1",
+    "file": "dist/capabilities/compose.cjs",
+    "line": null,
+    "description": "Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:22:00.572Z",
+    "resolved_at": null
+  },
+  {
+    "id": 21,
+    "kind": "deviation",
+    "phase": "04.1",
+    "file": "src/cli/commands.cts",
+    "line": null,
+    "description": "Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:22:00.840Z",
+    "resolved_at": null
   }
 ]
 ````

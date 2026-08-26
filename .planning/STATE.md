@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-03-PLAN.md
-last_updated: "2026-08-26T13:41:49.350Z"
+stopped_at: Completed 04.1-04-PLAN.md
+last_updated: "2026-08-26T14:23:32.154Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: d5e143a7016a240edd5c43fc9ba54840db76f5f3
+state_head: b8c15a5eeb41f0ce0fc24f0001c7165c0dc0e9fc
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 56
+  completed_plans: 57
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 4 of 12
+Plan: 5 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -110,6 +110,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04.1 P02 | 13 min | 2 tasks | 7 files |
 | Phase 04.1 P01 | 76 min | 2 tasks | 7 files |
 | Phase 04.1 P03 | 16 min | 2 tasks | 7 files |
+| Phase 04.1 P04 | 30min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Keep the public built-in manifest separate from provider instances so invalid selections finish validation before provider access.
 - [Phase 04.1]: Capability providers declare package-relative files and logical sections; host adapters retain native paths, merge semantics, and mutation boundaries.
 - [Phase 04.1]: Navigation remains independently eligible; JX3 fails closed unless exact checked-in host receipt evidence returns PASS with its frozen digest.
+- [Phase 04.1]: Install state is one exact capability graph; retired environment-shaped and Python records are invalid inputs, not migration candidates.
+- [Phase 04.1]: Shared-file ownership is bound to canonical contributor IDs and one composite digest; originals restore only after the final contributor is removed.
+- [Phase 04.1]: Manual or retired host sources expose frozen path/code metadata only and never executable cleanup or inferred ownership.
 
 ### Pending Todos
 
@@ -328,6 +332,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T13:41:48.892Z
-Stopped at: Completed 04.1-03-PLAN.md
+Last session: 2026-08-26T14:23:31.659Z
+Stopped at: Completed 04.1-04-PLAN.md
 Resume file: None
