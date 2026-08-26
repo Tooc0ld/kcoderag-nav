@@ -308,3 +308,36 @@ test("missing and stale generated asset fixtures fail closed while check mode re
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
+
+test("capability generation from repository sources writes only an isolated output root", () => {
+  const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-capability-projection-"));
+  const repositoryBefore = evidenceForSelectedAssets();
+  try {
+    const generated = (generator as GeneratorModule & {
+      generatePackage(options: {
+        readonly package: "qa";
+        readonly group: "guidance";
+        readonly capabilities: readonly ["jx3-style-nudge"];
+        readonly sourceRoot: string;
+        readonly outputRoot: string;
+      }): GenerationResult & { readonly capabilities: readonly string[] };
+    }).generatePackage({
+      package: "qa",
+      group: "guidance",
+      capabilities: ["jx3-style-nudge"],
+      sourceRoot: repositoryRoot,
+      outputRoot,
+    });
+    assert.deepEqual(generated.capabilities, ["jx3-style-nudge"]);
+    assert.equal(generated.writtenPaths.length, 5);
+    assert.equal(
+      fs.readFileSync(path.join(outputRoot, "kcoderag-qa", "skills", "jx3-code-style-correction", "SKILL.md")).equals(
+        fs.readFileSync(path.join(repositoryRoot, "plugin-src", "capabilities", "jx3-style-nudge", "skill", "SKILL.md")),
+      ),
+      true,
+    );
+    assert.deepEqual(evidenceForSelectedAssets(), repositoryBefore);
+  } finally {
+    fs.rmSync(outputRoot, { recursive: true, force: true });
+  }
+});

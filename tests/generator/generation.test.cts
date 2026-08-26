@@ -8,15 +8,18 @@ const path = require("node:path") as typeof import("node:path");
 
 type Product = "qa" | "cursor";
 type ProductSelection = Product | "all";
+type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
 type AssetGroup =
   | "runtime-cjs"
   | "runtime-launcher"
   | "runtime-registration"
   | "runtime-code"
   | "runtime"
+  | "registration"
   | "metadata-config"
   | "metadata-guidance"
   | "metadata"
+  | "guidance"
   | "docs"
   | "version"
   | "all";
@@ -24,6 +27,7 @@ type AssetGroup =
 interface GeneratorOptions {
   readonly package: ProductSelection;
   readonly group: AssetGroup;
+  readonly capabilities?: readonly CapabilityId[];
   readonly sourceRoot: string;
   readonly outputRoot: string;
   readonly io?: {
@@ -36,6 +40,7 @@ interface GenerationResult {
   readonly package: ProductSelection;
   readonly group: AssetGroup;
   readonly version: string;
+  readonly capabilities: readonly CapabilityId[];
   readonly selectedPaths: readonly string[];
   readonly changedPaths: readonly string[];
   readonly writtenPaths: readonly string[];
@@ -44,6 +49,9 @@ interface GenerationResult {
 
 interface GeneratorModule {
   readonly ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>>;
+  readonly CAPABILITY_PROJECTION_PATHS: Readonly<
+    Record<CapabilityId, Readonly<Record<Product, Readonly<Record<"runtime" | "registration" | "metadata" | "guidance" | "docs" | "all", readonly string[]>>>>>
+  >;
   generatePackage(options: GeneratorOptions): GenerationResult;
   checkGenerated(options: GeneratorOptions): GenerationResult;
 }
@@ -52,31 +60,51 @@ const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 
 const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
-    "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/mcp-call-marker.cjs", "hooks/update-check.cjs", "hooks/update-notice.cjs", "hooks/update-worker.cjs"],
+    "runtime-cjs": [
+      "hooks/grep-nudge.cjs",
+      "hooks/jx3-style-nudge.cjs",
+      "hooks/mcp-call-marker.cjs",
+      "hooks/once-marker.cjs",
+      "hooks/pre-tool-dispatcher.cjs",
+      "hooks/session-cleanup.cjs",
+      "hooks/update-check.cjs",
+      "hooks/update-notice.cjs",
+      "hooks/update-worker.cjs",
+    ],
     "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
       "hooks/grep-nudge.cjs",
+      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
+      "hooks/once-marker.cjs",
+      "hooks/pre-tool-dispatcher.cjs",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
+      "hooks/session-cleanup.cjs",
       "hooks/update-check.cjs",
       "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
     ],
     runtime: [
       "hooks/grep-nudge.cjs",
-      "hooks/hooks.json",
+      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
+      "hooks/once-marker.cjs",
+      "hooks/pre-tool-dispatcher.cjs",
+      "hooks/session-cleanup.cjs",
+      "hooks/update-check.cjs",
+      "hooks/update-notice.cjs",
+      "hooks/update-worker.cjs",
+    ],
+    registration: [
+      "hooks/hooks.json",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
-      "hooks/update-check.cjs",
-      "hooks/update-notice.cjs",
-      "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
     ],
     "metadata-config": [
@@ -85,14 +113,24 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       ".codex.mcp.json",
       ".mcp.json",
     ],
-    "metadata-guidance": ["agents/kcode-explorer.md", "skills/code-lookup-discipline/SKILL.md"],
-    metadata: [
-      ".claude-plugin/plugin.json",
-      ".codex-plugin/plugin.json",
-      ".codex.mcp.json",
-      ".mcp.json",
+    "metadata-guidance": [
       "agents/kcode-explorer.md",
       "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+    ],
+    metadata: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".codex.mcp.json", ".mcp.json"],
+    guidance: [
+      "agents/kcode-explorer.md",
+      "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
     ],
     docs: ["README.md"],
     version: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"],
@@ -105,16 +143,25 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "agents/kcode-explorer.md",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
+      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
+      "hooks/once-marker.cjs",
+      "hooks/pre-tool-dispatcher.cjs",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
       "hooks/run_marker.sh",
+      "hooks/session-cleanup.cjs",
       "hooks/update-check.cjs",
       "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
       "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
     ],
   },
   cursor: {
@@ -123,13 +170,26 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "runtime-registration": [],
     "runtime-code": [],
     runtime: [],
+    registration: [],
     "metadata-config": [".cursor-plugin/plugin.json", "mcp.json"],
-    "metadata-guidance": ["rules/kcoderag-navigation.mdc", "skills/code-lookup-discipline/SKILL.md"],
-    metadata: [
-      ".cursor-plugin/plugin.json",
-      "mcp.json",
+    "metadata-guidance": [
       "rules/kcoderag-navigation.mdc",
       "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+    ],
+    metadata: [".cursor-plugin/plugin.json", "mcp.json"],
+    guidance: [
+      "rules/kcoderag-navigation.mdc",
+      "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
     ],
     docs: ["README.md"],
     version: [".cursor-plugin/plugin.json"],
@@ -139,6 +199,11 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "mcp.json",
       "rules/kcoderag-navigation.mdc",
       "skills/code-lookup-discipline/SKILL.md",
+      "skills/jx3-code-style-correction/SKILL.md",
+      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/jx3-code-style-correction/references/lua-contracts.md",
+      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
     ],
   },
 };
@@ -218,6 +283,10 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/hooks/run_marker.cmd", "@node mcp-call-marker.cjs claude\r\n");
   write(sourceRoot, "plugin-src/hooks/run_marker.sh", "#!/bin/sh\r\nnode mcp-call-marker.cjs claude\r\n");
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
+  write(sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs", "module.exports={name:'dispatcher'};\n");
+  write(sourceRoot, "dist/hooks/jx3-style-nudge.cjs", "module.exports={name:'jx3'};\n");
+  write(sourceRoot, "dist/hooks/once-marker.cjs", "module.exports={name:'once'};\n");
+  write(sourceRoot, "dist/hooks/session-cleanup.cjs", "module.exports={name:'cleanup'};\n");
   write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
   write(sourceRoot, "dist/hooks/update-check.cjs", "module.exports={name:'check'};\n");
   write(sourceRoot, "dist/hooks/update-notice.cjs", "module.exports={name:'notice'};\n");
@@ -240,6 +309,19 @@ function createFixture(): Fixture {
   );
   write(sourceRoot, "plugin-src/cursor/README.md.tmpl", "# Cursor {{plugin_version}}\r\n");
   write(sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc", "alwaysApply: true\r\n");
+  write(sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md", "# Canonical JX3 Skill\r\n");
+  for (const reference of [
+    "cpp-lifetime-control-flow.md",
+    "protocol-serialization-data.md",
+    "lua-contracts.md",
+    "change-hygiene-self-review.md",
+  ]) {
+    write(
+      sourceRoot,
+      `plugin-src/capabilities/jx3-style-nudge/skill/references/${reference}`,
+      `# ${reference}\r\n`,
+    );
+  }
   return { root, sourceRoot, outputRoot, secret };
 }
 
@@ -273,6 +355,70 @@ function snapshot(root: string): Readonly<Record<string, { readonly digest: stri
 
 test("declares exact leaf and union allow-lists for every product", () => {
   assert.deepEqual(generator.ASSET_GROUP_PATHS, expectedGroups);
+});
+
+test("renders isolated capability projections from explicit canonical groups", () => {
+  const fixture = createFixture();
+  try {
+    assert.deepEqual(Object.keys(generator.CAPABILITY_PROJECTION_PATHS), [
+      "kcoderag-navigation",
+      "jx3-style-nudge",
+    ]);
+    assert.deepEqual(
+      Object.keys(generator.CAPABILITY_PROJECTION_PATHS["jx3-style-nudge"].qa),
+      ["runtime", "registration", "metadata", "guidance", "docs", "all"],
+    );
+
+    const qa = generator.generatePackage({
+      package: "qa",
+      group: "all",
+      capabilities: ["jx3-style-nudge"],
+      sourceRoot: fixture.sourceRoot,
+      outputRoot: fixture.outputRoot,
+    });
+    assert.deepEqual(qa.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(qa.writtenPaths, [
+      "kcoderag-qa/hooks/hooks.json",
+      "kcoderag-qa/hooks/jx3-style-nudge.cjs",
+      "kcoderag-qa/hooks/once-marker.cjs",
+      "kcoderag-qa/hooks/pre-tool-dispatcher.cjs",
+      "kcoderag-qa/hooks/run_hook.cmd",
+      "kcoderag-qa/hooks/run_hook.sh",
+      "kcoderag-qa/hooks/session-cleanup.cjs",
+      "kcoderag-qa/skills/jx3-code-style-correction/SKILL.md",
+      "kcoderag-qa/skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "kcoderag-qa/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "kcoderag-qa/skills/jx3-code-style-correction/references/lua-contracts.md",
+      "kcoderag-qa/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+    ]);
+
+    const cursor = generator.generatePackage({
+      package: "cursor",
+      group: "guidance",
+      capabilities: ["jx3-style-nudge"],
+      sourceRoot: fixture.sourceRoot,
+      outputRoot: fixture.outputRoot,
+    });
+    assert.deepEqual(cursor.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(cursor.writtenPaths, [
+      "kcoderag-cursor/skills/jx3-code-style-correction/SKILL.md",
+      "kcoderag-cursor/skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+      "kcoderag-cursor/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+      "kcoderag-cursor/skills/jx3-code-style-correction/references/lua-contracts.md",
+      "kcoderag-cursor/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+    ]);
+
+    for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
+      assert.equal(
+        fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "jx3-code-style-correction", "SKILL.md")).equals(
+          Buffer.from("# Canonical JX3 Skill\n", "utf8"),
+        ),
+        true,
+      );
+    }
+  } finally {
+    cleanup(fixture);
+  }
 });
 
 test("writes only changed selected paths and keeps check mode byte-for-byte read-only", () => {
