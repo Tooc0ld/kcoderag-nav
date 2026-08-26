@@ -14,11 +14,19 @@ import { hasManagedRootResidue, validateManagedPath } from "../core/project-targ
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
-import { createSourceFinding, createSourceScanResult, type SourceScanResult } from "./user-sources.cjs";
+import {
+  createSourceFinding,
+  createSourceScanResult,
+  inspectNativeDirectory,
+  inspectNativeJsonSource,
+  inspectNativePath,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 export interface CursorUserSourceMetadata {
   readonly activePluginPaths?: readonly string[]; readonly rawMcpPaths?: readonly string[]; readonly manualRulePaths?: readonly string[];
+  readonly manualHookPaths?: readonly string[];
   readonly cachePaths?: readonly string[]; readonly disabledPaths?: readonly string[]; readonly ambiguousPaths?: readonly string[];
 }
 export interface CursorAdapterOptions {
@@ -105,10 +113,40 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
 function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[]) { const previousState = context.observation.currentState; const bytes = stateBytes(context.observation); return composeCapabilitySet({ host: "cursor", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, contributions: contributions(context.target, context.packageRoot, selected, previousState), ...(previousState === undefined ? {} : { previousState }) }); }
 function status(context: HostStatusContext) { const issue = context.observation.issues?.[0]; if (issue !== undefined) return createStatusResult({ status: issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid", host: "cursor", issues: [issue] }); if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "cursor" }); const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS); return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "cursor", issues: [{ code: "orphaned_managed_root", path: ".cursor/kcoderag-nav" }] }) : createStatusResult({ host: "cursor" }); }
 
-function defaultMetadata(homeDirectory: string): CursorUserSourceMetadata { const ambiguousPaths: string[] = []; for (const relativePath of [".cursor/plugins/local/kcoderag-nav", ".cursor/rules/kcoderag-navigation.mdc", ".cursor/skills/kcoderag-nav/SKILL.md"]) { try { fs.lstatSync(path.join(homeDirectory, ...relativePath.split("/"))); ambiguousPaths.push(relativePath); } catch { /* metadata only */ } } return Object.freeze({ ambiguousPaths: Object.freeze(ambiguousPaths) }); }
+function defaultMetadata(homeDirectory: string): CursorUserSourceMetadata {
+  const activePluginPaths: string[] = [];
+  const rawMcpPaths: string[] = [];
+  const manualHookPaths: string[] = [];
+  const manualRulePaths: string[] = [];
+  const ambiguousPaths: string[] = [];
+  const mcp = inspectNativeJsonSource(homeDirectory, ".cursor/mcp.json");
+  if (mcp.rawMcp) rawMcpPaths.push(".cursor/mcp.json");
+  if (mcp.ambiguous) ambiguousPaths.push(".cursor/mcp.json");
+  const hooks = inspectNativeJsonSource(homeDirectory, ".cursor/hooks.json");
+  if (hooks.manualHook) manualHookPaths.push(".cursor/hooks.json");
+  if (hooks.ambiguous) ambiguousPaths.push(".cursor/hooks.json");
+  const rules = inspectNativeDirectory(homeDirectory, ".cursor/rules");
+  manualRulePaths.push(...rules.matches);
+  if (rules.ambiguous) ambiguousPaths.push(".cursor/rules");
+  const plugins = inspectNativeDirectory(homeDirectory, ".cursor/plugins");
+  activePluginPaths.push(...plugins.matches);
+  if (plugins.ambiguous) ambiguousPaths.push(".cursor/plugins");
+  for (const relativePath of [".cursor/plugins/local/kcoderag-nav", ".cursor/skills/kcoderag-nav/SKILL.md"]) {
+    const inspection = inspectNativePath(homeDirectory, relativePath);
+    if (inspection !== "absent") ambiguousPaths.push(relativePath);
+  }
+  return Object.freeze({
+    activePluginPaths: Object.freeze([...new Set(activePluginPaths)].sort()),
+    rawMcpPaths: Object.freeze([...new Set(rawMcpPaths)].sort()),
+    manualHookPaths: Object.freeze([...new Set(manualHookPaths)].sort()),
+    manualRulePaths: Object.freeze([...new Set(manualRulePaths)].sort()),
+    ambiguousPaths: Object.freeze([...new Set(ambiguousPaths)].sort()),
+  });
+}
 function values(metadata: CursorUserSourceMetadata, key: keyof CursorUserSourceMetadata): readonly string[] { const value = metadata[key]; return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []; }
 async function scanSources(context: HostSourceScanContext, reader: () => CursorUserSourceMetadata | Promise<CursorUserSourceMetadata>): Promise<SourceScanResult> { let metadata: CursorUserSourceMetadata; try { metadata = await reader(); } catch { metadata = { ambiguousPaths: [".cursor/plugins"] }; } const findings = [
   ...values(metadata, "activePluginPaths").map((safePath) => createSourceFinding({ code: "active_plugin_source", severity: "conflict", sourceType: "active_plugin", scope: "user", safePath })), ...values(metadata, "rawMcpPaths").map((safePath) => createSourceFinding({ code: "raw_mcp_source", severity: "conflict", sourceType: "raw_mcp", scope: "user", safePath })), ...values(metadata, "manualRulePaths").map((safePath) => createSourceFinding({ code: "manual_rule_source", severity: "conflict", sourceType: "manual_rule", scope: "user", safePath })), ...values(metadata, "ambiguousPaths").map((safePath) => createSourceFinding({ code: "ambiguous_source", severity: "conflict", sourceType: "ambiguous", scope: "user", safePath })),
+  ...values(metadata, "manualHookPaths").map((safePath) => createSourceFinding({ code: "manual_hook_source", severity: "conflict", sourceType: "manual_hook", scope: "user", safePath })),
 ]; if (context.mode !== "fast") findings.push(...values(metadata, "cachePaths").map((safePath) => createSourceFinding({ code: "cache_residue", severity: "info", sourceType: "cache_residue", scope: "user", safePath })), ...values(metadata, "disabledPaths").map((safePath) => createSourceFinding({ code: "disabled_source", severity: "info", sourceType: "disabled_registration", scope: "user", safePath }))); return createSourceScanResult(context.mode, findings); }
 
 export function createCursorAdapter(options: CursorAdapterOptions = {}): HostAdapter { const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir()); const reader = options.readUserSources ?? (() => defaultMetadata(homeDirectory)); return Object.freeze({ id: "cursor" as const, managedRoots: MANAGED_ROOTS, detect: detectCursor,

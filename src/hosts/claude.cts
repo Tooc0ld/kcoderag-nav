@@ -15,11 +15,19 @@ import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
-import { createSourceFinding, createSourceScanResult, type SourceScanResult } from "./user-sources.cjs";
+import {
+  createSourceFinding,
+  createSourceScanResult,
+  inspectNativeDirectory,
+  inspectNativeJsonSource,
+  inspectNativePath,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 
 export interface ClaudeUserSourceMetadata {
+  readonly activePluginPaths?: readonly string[];
   readonly ownedPluginPaths?: readonly string[];
   readonly ownedMarketplacePaths?: readonly string[];
   readonly rawMcpPaths?: readonly string[];
@@ -427,11 +435,34 @@ function claudeStatus(context: HostStatusContext) {
 }
 
 function defaultMetadata(homeDirectory: string): ClaudeUserSourceMetadata {
+  const activePluginPaths: string[] = [];
+  const rawMcpPaths: string[] = [];
+  const manualHookPaths: string[] = [];
   const ambiguousPaths: string[] = [];
-  for (const relativePath of [".claude/plugins/kcoderag-nav", ".claude/plugins/cache/kcoderag-nav", ".claude/skills/kcoderag-nav/SKILL.md"]) {
-    try { fs.lstatSync(path.join(homeDirectory, ...relativePath.split("/"))); ambiguousPaths.push(relativePath); } catch { /* metadata only */ }
+  for (const relativePath of [".claude.json", ".claude/settings.json"] as const) {
+    const inspection = inspectNativeJsonSource(homeDirectory, relativePath);
+    if (inspection.rawMcp) rawMcpPaths.push(relativePath);
+    if (inspection.manualHook) manualHookPaths.push(relativePath);
+    if (inspection.activePlugin) activePluginPaths.push(relativePath);
+    if (inspection.ambiguous) ambiguousPaths.push(relativePath);
   }
-  return Object.freeze({ ambiguousPaths: Object.freeze(ambiguousPaths) });
+  const inventoryPath = ".claude/plugins/installed_plugins.json";
+  const inventory = inspectNativeJsonSource(homeDirectory, inventoryPath, { wholeDocumentIsPluginInventory: true });
+  if (inventory.activePlugin) activePluginPaths.push(inventoryPath);
+  if (inventory.ambiguous) ambiguousPaths.push(inventoryPath);
+  const hooks = inspectNativeDirectory(homeDirectory, ".claude/hooks");
+  manualHookPaths.push(...hooks.matches);
+  if (hooks.ambiguous) ambiguousPaths.push(".claude/hooks");
+  for (const relativePath of [".claude/plugins/kcoderag-nav", ".claude/plugins/cache/kcoderag-nav", ".claude/skills/kcoderag-nav/SKILL.md"]) {
+    const inspection = inspectNativePath(homeDirectory, relativePath);
+    if (inspection !== "absent") ambiguousPaths.push(relativePath);
+  }
+  return Object.freeze({
+    activePluginPaths: Object.freeze([...new Set(activePluginPaths)].sort()),
+    rawMcpPaths: Object.freeze([...new Set(rawMcpPaths)].sort()),
+    manualHookPaths: Object.freeze([...new Set(manualHookPaths)].sort()),
+    ambiguousPaths: Object.freeze([...new Set(ambiguousPaths)].sort()),
+  });
 }
 
 function values(metadata: ClaudeUserSourceMetadata, key: keyof ClaudeUserSourceMetadata): readonly string[] {
@@ -443,6 +474,7 @@ async function scanClaudeSources(context: HostSourceScanContext, reader: () => C
   let metadata: ClaudeUserSourceMetadata;
   try { metadata = await reader(); } catch { metadata = { ambiguousPaths: [".claude/plugins"] }; }
   const findings = [
+    ...values(metadata, "activePluginPaths").map((safePath) => createSourceFinding({ code: "active_plugin_source", severity: "conflict", sourceType: "active_plugin", scope: "user", safePath })),
     ...values(metadata, "ownedPluginPaths").map((safePath) => createSourceFinding({ code: "owned_plugin_source", severity: "conflict", sourceType: "owned_plugin", scope: "user", safePath })),
     ...values(metadata, "ownedMarketplacePaths").map((safePath) => createSourceFinding({ code: "owned_marketplace_source", severity: "conflict", sourceType: "owned_marketplace_registration", scope: "user", safePath })),
     ...values(metadata, "rawMcpPaths").map((safePath) => createSourceFinding({ code: "raw_mcp_source", severity: "conflict", sourceType: "raw_mcp", scope: "user", safePath })),

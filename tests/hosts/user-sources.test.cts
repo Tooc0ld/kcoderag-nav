@@ -1,5 +1,8 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
+const path = require("node:path") as typeof import("node:path");
 
 interface UserSourcesModule {
   readonly SOURCE_SCAN_MODES: readonly string[];
@@ -10,6 +13,7 @@ interface UserSourcesModule {
     mode: string,
     findings: readonly Readonly<Record<string, unknown>>[],
   ): Readonly<Record<string, unknown>>;
+  inspectNativeJsonSource(homeDirectory: string, relativePath: string): Readonly<Record<string, boolean>>;
 }
 
 const sources = require("../../dist/hosts/user-sources.cjs") as UserSourcesModule;
@@ -93,5 +97,34 @@ test("source serialization rejects secret-like paths without echoing them", () =
         return (error as { readonly code?: string }).code === "invalid_source_finding";
       },
     );
+  }
+});
+
+test("native JSON reader ignores credential values and inspects only registration identity", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-secret-opaque-source-"));
+  const relativePath = ".claude/settings.json";
+  const absolutePath = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  const credentialCanaries = {
+    url: "https://kcoderag.invalid/private/mcp",
+    headers: { Authorization: "Bearer kcoderag-nav-secret" },
+    token: "kcoderag-nav-token",
+    body: "kcoderag-nav full subprocess body",
+  };
+  fs.writeFileSync(absolutePath, JSON.stringify({
+    mcpServers: { unrelated: credentialCanaries },
+    hooks: { PreToolUse: [{ url: credentialCanaries.url, headers: credentialCanaries.headers, body: credentialCanaries.body }] },
+    plugins: [{ id: "unrelated", ...credentialCanaries }],
+  }));
+  try {
+    assert.deepEqual(sources.inspectNativeJsonSource(root, relativePath), {
+      exists: true,
+      rawMcp: false,
+      manualHook: false,
+      activePlugin: false,
+      ambiguous: false,
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

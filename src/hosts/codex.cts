@@ -15,7 +15,15 @@ import { renderProjectHookCommands } from "../core/project-root.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
-import { createSourceFinding, createSourceScanResult, type SourceScanResult } from "./user-sources.cjs";
+import {
+  createSourceFinding,
+  createSourceScanResult,
+  inspectNativeDirectory,
+  inspectNativeJsonSource,
+  inspectNativePath,
+  inspectNativeTomlMcpSource,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
 export interface CodexUserSourceMetadata {
@@ -258,9 +266,27 @@ function codexStatus(context: HostStatusContext) {
   return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "codex", issues: [{ code: "orphaned_managed_root", path: ".codex/kcoderag-nav" }] }) : createStatusResult({ host: "codex" });
 }
 function existingMetadata(homeDirectory: string): CodexUserSourceMetadata {
-  const present: string[] = [];
-  for (const relativePath of [".codex/plugins/local/kcoderag-nav", ".codex/skills/kcoderag-nav/SKILL.md", ".codex/hooks/kcoderag-nav.json"]) { try { fs.lstatSync(path.join(homeDirectory, ...relativePath.split("/"))); present.push(relativePath); } catch { /* metadata only */ } }
-  return Object.freeze({ ambiguousPaths: Object.freeze(present) });
+  const rawMcpPaths: string[] = [];
+  const manualHookPaths: string[] = [];
+  const ambiguousPaths: string[] = [];
+  const config = inspectNativeTomlMcpSource(homeDirectory, ".codex/config.toml");
+  if (config.rawMcp) rawMcpPaths.push(".codex/config.toml");
+  if (config.ambiguous) ambiguousPaths.push(".codex/config.toml");
+  const hooks = inspectNativeJsonSource(homeDirectory, ".codex/hooks.json");
+  if (hooks.manualHook) manualHookPaths.push(".codex/hooks.json");
+  if (hooks.ambiguous) ambiguousPaths.push(".codex/hooks.json");
+  const hookDirectory = inspectNativeDirectory(homeDirectory, ".codex/hooks");
+  manualHookPaths.push(...hookDirectory.matches);
+  if (hookDirectory.ambiguous) ambiguousPaths.push(".codex/hooks");
+  for (const relativePath of [".codex/plugins/local/kcoderag-nav", ".codex/skills/kcoderag-nav/SKILL.md"]) {
+    const inspection = inspectNativePath(homeDirectory, relativePath);
+    if (inspection !== "absent") ambiguousPaths.push(relativePath);
+  }
+  return Object.freeze({
+    rawMcpPaths: Object.freeze([...new Set(rawMcpPaths)].sort()),
+    manualHookPaths: Object.freeze([...new Set(manualHookPaths)].sort()),
+    ambiguousPaths: Object.freeze([...new Set(ambiguousPaths)].sort()),
+  });
 }
 function values(metadata: CodexUserSourceMetadata, key: keyof CodexUserSourceMetadata): readonly string[] { const value = metadata[key]; return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []; }
 async function scanCodexSources(context: HostSourceScanContext, reader: () => CodexUserSourceMetadata | Promise<CodexUserSourceMetadata>): Promise<SourceScanResult> {

@@ -15,10 +15,18 @@ import { hasManagedRootResidue, validateManagedPath } from "../core/project-targ
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
-import { createSourceFinding, createSourceScanResult, type SourceScanResult } from "./user-sources.cjs";
+import {
+  createSourceFinding,
+  createSourceScanResult,
+  inspectNativeDirectory,
+  inspectNativeJsonSource,
+  inspectNativePath,
+  type NativeJsonSourceInspection,
+  type SourceScanResult,
+} from "./user-sources.cjs";
 
 type JsonMap = Record<string, unknown>;
-export interface OpenCodeUserSourceMetadata { readonly activePluginPaths?: readonly string[]; readonly rawMcpPaths?: readonly string[]; readonly manualRulePaths?: readonly string[]; readonly cachePaths?: readonly string[]; readonly disabledPaths?: readonly string[]; readonly ambiguousPaths?: readonly string[] }
+export interface OpenCodeUserSourceMetadata { readonly activePluginPaths?: readonly string[]; readonly rawMcpPaths?: readonly string[]; readonly manualHookPaths?: readonly string[]; readonly manualRulePaths?: readonly string[]; readonly cachePaths?: readonly string[]; readonly disabledPaths?: readonly string[]; readonly ambiguousPaths?: readonly string[] }
 export interface OpenCodeAdapterOptions { readonly homeDirectory?: string; readonly readUserSources?: () => OpenCodeUserSourceMetadata | Promise<OpenCodeUserSourceMetadata>; readonly hostVersion?: string; readonly evidenceRoot?: string; readonly readHostVersion?: () => string | undefined; readonly [key: string]: unknown }
 interface Extras { readonly selectedCapabilities?: readonly CapabilityId[]; readonly hostVersion?: string; readonly evidenceRoot?: string }
 interface Details { readonly stateBytes?: Buffer; readonly configPath?: ConfigPath }
@@ -106,10 +114,45 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
 function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[]) { const previousState = context.observation.currentState; const bytes = stateBytes(context.observation); const configPath = (context.observation.details as Details | undefined)?.configPath ?? selectConfig(context.target, previousState); return composeCapabilitySet({ host: "opencode", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, contributions: contributions(context.target, context.packageRoot, selected, previousState, configPath), ...(previousState === undefined ? {} : { previousState }) }); }
 function status(context: HostStatusContext) { const issue = context.observation.issues?.[0]; if (issue !== undefined) return createStatusResult({ status: issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid", host: "opencode", issues: [issue] }); if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "opencode" }); const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS); return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "opencode", issues: [{ code: "orphaned_managed_root", path: ".opencode/kcoderag-nav" }] }) : createStatusResult({ host: "opencode" }); }
 
-function defaultMetadata(homeDirectory: string): OpenCodeUserSourceMetadata { const ambiguousPaths: string[] = []; for (const relativePath of [".config/opencode/plugins/kcoderag-nav.js", ".config/opencode/plugins/kcoderag-nav.ts", ".config/opencode/skills/kcoderag-nav/SKILL.md"]) { try { fs.lstatSync(path.join(homeDirectory, ...relativePath.split("/"))); ambiguousPaths.push(relativePath); } catch { /* metadata only */ } } return Object.freeze({ ambiguousPaths: Object.freeze(ambiguousPaths) }); }
+function defaultMetadata(homeDirectory: string): OpenCodeUserSourceMetadata {
+  const activePluginPaths: string[] = [];
+  const rawMcpPaths: string[] = [];
+  const manualHookPaths: string[] = [];
+  const ambiguousPaths: string[] = [];
+  const configPaths = [".config/opencode/opencode.json", ".config/opencode/opencode.jsonc"] as const;
+  const configs = configPaths.map((relativePath) => [relativePath, inspectNativeJsonSource(homeDirectory, relativePath)] as const);
+  const existing = configs.filter(([, inspection]) => inspection.exists);
+  if (existing.length > 1) {
+    ambiguousPaths.push(...existing.map(([relativePath]) => relativePath));
+  } else {
+    const selected = existing[0] as readonly [string, NativeJsonSourceInspection] | undefined;
+    if (selected !== undefined) {
+      const [relativePath, inspection] = selected;
+      if (inspection.rawMcp) rawMcpPaths.push(relativePath);
+      if (inspection.manualHook) manualHookPaths.push(relativePath);
+      if (inspection.activePlugin) activePluginPaths.push(relativePath);
+      if (inspection.ambiguous) ambiguousPaths.push(relativePath);
+    }
+  }
+  const plugins = inspectNativeDirectory(homeDirectory, ".config/opencode/plugins");
+  activePluginPaths.push(...plugins.matches);
+  if (plugins.ambiguous) ambiguousPaths.push(".config/opencode/plugins");
+  const hooks = inspectNativeDirectory(homeDirectory, ".config/opencode/hooks");
+  manualHookPaths.push(...hooks.matches);
+  if (hooks.ambiguous) ambiguousPaths.push(".config/opencode/hooks");
+  const skillPath = ".config/opencode/skills/kcoderag-nav/SKILL.md";
+  if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
+  return Object.freeze({
+    activePluginPaths: Object.freeze([...new Set(activePluginPaths)].sort()),
+    rawMcpPaths: Object.freeze([...new Set(rawMcpPaths)].sort()),
+    manualHookPaths: Object.freeze([...new Set(manualHookPaths)].sort()),
+    ambiguousPaths: Object.freeze([...new Set(ambiguousPaths)].sort()),
+  });
+}
 function values(metadata: OpenCodeUserSourceMetadata, key: keyof OpenCodeUserSourceMetadata): readonly string[] { const value = metadata[key]; return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : []; }
 async function scanSources(context: HostSourceScanContext, reader: () => OpenCodeUserSourceMetadata | Promise<OpenCodeUserSourceMetadata>): Promise<SourceScanResult> { let metadata: OpenCodeUserSourceMetadata; try { metadata = await reader(); } catch { metadata = { ambiguousPaths: [".config/opencode"] }; } const findings = [
   ...values(metadata, "activePluginPaths").map((safePath) => createSourceFinding({ code: "active_plugin_source", severity: "conflict", sourceType: "active_plugin", scope: "user", safePath })), ...values(metadata, "rawMcpPaths").map((safePath) => createSourceFinding({ code: "raw_mcp_source", severity: "conflict", sourceType: "raw_mcp", scope: "user", safePath })), ...values(metadata, "manualRulePaths").map((safePath) => createSourceFinding({ code: "manual_rule_source", severity: "conflict", sourceType: "manual_rule", scope: "user", safePath })), ...values(metadata, "ambiguousPaths").map((safePath) => createSourceFinding({ code: "ambiguous_source", severity: "conflict", sourceType: "ambiguous", scope: "user", safePath })),
+  ...values(metadata, "manualHookPaths").map((safePath) => createSourceFinding({ code: "manual_hook_source", severity: "conflict", sourceType: "manual_hook", scope: "user", safePath })),
 ]; if (context.mode !== "fast") findings.push(...values(metadata, "cachePaths").map((safePath) => createSourceFinding({ code: "cache_residue", severity: "info", sourceType: "cache_residue", scope: "user", safePath })), ...values(metadata, "disabledPaths").map((safePath) => createSourceFinding({ code: "disabled_source", severity: "info", sourceType: "disabled_registration", scope: "user", safePath }))); return createSourceScanResult(context.mode, findings); }
 
 export function createOpenCodeAdapter(options: OpenCodeAdapterOptions = {}): HostAdapter { const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir()); const reader = options.readUserSources ?? (() => defaultMetadata(homeDirectory)); return Object.freeze({ id: "opencode" as const, managedRoots: MANAGED_ROOTS, detect: detectOpenCode,
