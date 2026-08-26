@@ -205,6 +205,27 @@ test("Claude support is exact-version and frozen-receipt-digest bound", () => {
   }
 });
 
+test("published support table is self-contained and never needs repository receipts at runtime", () => {
+  const isolatedRoot = fs.mkdtempSync(path.join(repositoryRoot, ".tmp-host-support-runtime-"));
+  const isolatedModule = path.join(isolatedRoot, "host-version-support.cjs");
+  try {
+    fs.copyFileSync(path.join(repositoryRoot, "dist", "hosts", "host-version-support.cjs"), isolatedModule);
+    const isolated = require(isolatedModule) as HostVersionSupportModule;
+    assert.deepEqual(isolated.evaluateHostVersionSupport("claude", "2.1.241", path.join(isolatedRoot, "absent")), {
+      navigation: true,
+      jx3StyleNudge: true,
+      receiptDigest: support.HOST_VERSION_SUPPORT_ROWS[0]?.receiptDigest,
+    });
+    assert.deepEqual(isolated.evaluateHostVersionSupport("opencode", "1.18.23", path.join(isolatedRoot, "absent")), {
+      navigation: true,
+      jx3StyleNudge: false,
+      code: "host_version_unsupported",
+    });
+  } finally {
+    fs.rmSync(isolatedRoot, { recursive: true, force: true });
+  }
+});
+
 test("every real host probe emits one closed receipt without inferring unsupported PASS claims", () => {
   for (const expected of expectedReceipts) {
     const fixturePath = path.join(
