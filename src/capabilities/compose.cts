@@ -1,6 +1,7 @@
 /** Deterministic capability ownership composition before the single transaction boundary. */
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
+const fs = require("node:fs") as typeof import("node:fs");
 
 import {
   CORE_SCHEMA_VERSION,
@@ -58,7 +59,11 @@ export interface CapabilityCompositionInput {
   readonly statePath: string;
   readonly stateExpectedDigest: string | null;
   readonly selectedCapabilities: readonly CapabilityId[];
+  /** Installed contributors retained byte-for-byte during a capability-filtered update. */
+  readonly preservedCapabilities?: readonly CapabilityId[];
   readonly contributions: readonly ProjectedCapabilityContribution[];
+  /** Shared-file/section projections needed to keep preserved ownership structurally current. */
+  readonly reconciledContributions?: readonly ProjectedCapabilityContribution[];
   readonly previousState?: InstallState;
 }
 
@@ -90,6 +95,7 @@ function codeUnitCompare(left: string, right: string): number {
 }
 
 function canonicalCapabilityIds(ids: readonly CapabilityId[]): readonly CapabilityId[] {
+  if (ids.length === 0) return Object.freeze([]);
   return Object.freeze(resolveCapabilitySelection(ids).map((manifest) => manifest.id));
 }
 
@@ -140,12 +146,17 @@ function assertInitialOriginal(
   }
 }
 
-function assertCompositionInput(input: CapabilityCompositionInput): readonly CapabilityId[] {
+function assertCompositionInput(input: CapabilityCompositionInput): Readonly<{
+  selected: readonly CapabilityId[];
+  preserved: ReadonlySet<CapabilityId>;
+}> {
   if (
     typeof input.packageVersion !== "string" ||
     input.packageVersion.length === 0 ||
     !Array.isArray(input.selectedCapabilities) ||
+    (input.preservedCapabilities !== undefined && !Array.isArray(input.preservedCapabilities)) ||
     !Array.isArray(input.contributions) ||
+    (input.reconciledContributions !== undefined && !Array.isArray(input.reconciledContributions)) ||
     !Array.isArray(input.managedRoots)
   ) {
     throw new InstallError("invalid_capability_composition");
@@ -163,22 +174,42 @@ function assertCompositionInput(input: CapabilityCompositionInput): readonly Cap
     throw new InstallError("invalid_capability_composition");
   }
   if (input.selectedCapabilities.length === 0) {
-    if (input.contributions.length !== 0) throw new InstallError("invalid_capability_composition");
-    return Object.freeze([]);
+    if (input.contributions.length !== 0 || (input.reconciledContributions?.length ?? 0) !== 0 || (input.preservedCapabilities?.length ?? 0) !== 0) {
+      throw new InstallError("invalid_capability_composition");
+    }
+    return Object.freeze({ selected: Object.freeze([]), preserved: new Set<CapabilityId>() });
   }
   const selected = canonicalCapabilityIds(input.selectedCapabilities);
   if (selected.length !== new Set(input.selectedCapabilities).size) {
     throw new InstallError("invalid_capability_composition");
   }
-  const contributionIds = input.contributions.map((contribution) => contribution.capabilityId);
+  const preservedIds = input.preservedCapabilities ?? [];
+  const preserved = canonicalCapabilityIds(preservedIds);
+  const previousIds = input.previousState?.capabilities.map((capability) => capability.id) ?? [];
   if (
-    contributionIds.length !== selected.length ||
-    new Set(contributionIds).size !== contributionIds.length ||
-    selected.some((id) => !contributionIds.includes(id))
+    preserved.length !== new Set(preservedIds).size ||
+    preserved.some((id) => !selected.includes(id) || !previousIds.includes(id))
   ) {
     throw new InstallError("invalid_capability_composition");
   }
-  return selected;
+  const preservedSet = new Set(preserved);
+  const projected = selected.filter((id) => !preservedSet.has(id));
+  const contributionIds = input.contributions.map((contribution) => contribution.capabilityId);
+  if (
+    contributionIds.length !== projected.length ||
+    new Set(contributionIds).size !== contributionIds.length ||
+    projected.some((id) => !contributionIds.includes(id))
+  ) {
+    throw new InstallError("invalid_capability_composition");
+  }
+  const reconciledIds = (input.reconciledContributions ?? []).map((contribution) => contribution.capabilityId);
+  if (
+    new Set(reconciledIds).size !== reconciledIds.length ||
+    reconciledIds.some((id) => !preservedSet.has(id))
+  ) {
+    throw new InstallError("invalid_capability_composition");
+  }
+  return Object.freeze({ selected, preserved: preservedSet });
 }
 
 function assertProjectedFile(file: ProjectedCapabilityFile): void {
@@ -216,9 +247,34 @@ function assertProjectedSection(section: ProjectedCapabilitySection): void {
   }
 }
 
+function readPreservedFile(input: CapabilityCompositionInput, record: CapabilityManagedFileRecord): Buffer {
+  const validated = validateManagedPath(input.target, record.path, input.managedRoots);
+  let descriptor: number | undefined;
+  try {
+    const metadata = fs.lstatSync(validated.absolutePath);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new InstallError("managed_content_changed", record.path);
+    }
+    const noFollow = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
+    descriptor = fs.openSync(validated.absolutePath, fs.constants.O_RDONLY | noFollow);
+    if (!fs.fstatSync(descriptor).isFile()) throw new InstallError("managed_content_changed", record.path);
+    const bytes = fs.readFileSync(descriptor);
+    if (sha256(bytes) !== record.digest) throw new InstallError("managed_content_changed", record.path);
+    return bytes;
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    throw new InstallError("managed_content_changed", record.path);
+  } finally {
+    if (descriptor !== undefined) {
+      try { fs.closeSync(descriptor); } catch { /* transaction preflight remains authoritative */ }
+    }
+  }
+}
+
 function composeFiles(
   input: CapabilityCompositionInput,
   selected: readonly CapabilityId[],
+  preserved: ReadonlySet<CapabilityId>,
   contributions: readonly ProjectedCapabilityContribution[],
 ): Map<string, MutableFileComposition> {
   const previousFiles = new Map((input.previousState?.files ?? []).map((file) => [file.path, file]));
@@ -273,15 +329,42 @@ function composeFiles(
       throw new InstallError("invalid_capability_composition", file.path);
     }
   }
+  for (const previous of input.previousState?.files ?? []) {
+    const retainedContributors = previous.contributors.filter((id) =>
+      selected.includes(id) && preserved.has(id));
+    if (retainedContributors.length === 0) continue;
+    const existing = files.get(previous.path);
+    if (existing !== undefined) {
+      const previouslyProjected = previous.contributors.some((id) =>
+        selected.includes(id) && !preserved.has(id));
+      if (!previouslyProjected || !existing.shared || existing.expectedDigest !== previous.digest) {
+        throw new InstallError("capability_collision", previous.path);
+      }
+      for (const contributor of retainedContributors) existing.contributors.add(contributor);
+      continue;
+    }
+    files.set(previous.path, {
+      path: previous.path,
+      expectedDigest: previous.digest,
+      content: readPreservedFile(input, previous),
+      original: copyOriginal(previous.original),
+      contributors: new Set(retainedContributors),
+      shared: retainedContributors.length > 1,
+    });
+  }
   return files;
 }
 
 function composeSections(
+  input: CapabilityCompositionInput,
   selected: readonly CapabilityId[],
+  preserved: ReadonlySet<CapabilityId>,
   contributions: readonly ProjectedCapabilityContribution[],
   files: ReadonlyMap<string, MutableFileComposition>,
 ): Map<string, MutableSectionComposition> {
   const sections = new Map<string, MutableSectionComposition>();
+  const previousSections = new Map((input.previousState?.sections ?? []).map((section) =>
+    [sectionReference(section.path, section.id), section]));
   for (const contribution of contributions) {
     if (!Array.isArray(contribution.sections)) throw new InstallError("invalid_capability_composition");
     const ownFilePaths = new Set(contribution.files.map((file) => file.relativePath));
@@ -293,14 +376,16 @@ function composeSections(
         throw new InstallError("capability_collision", section.relativePath);
       }
       ownRefs.add(reference);
-      const createdContainers = Object.freeze([...(section.createdContainers ?? [])].sort(codeUnitCompare));
+      const previous = previousSections.get(reference);
+      const createdContainers = Object.freeze([...(previous?.createdContainers ?? section.createdContainers ?? [])].sort(codeUnitCompare));
+      const fileExisted = previous?.fileExisted ?? section.fileExisted;
       const existing = sections.get(reference);
       if (existing === undefined) {
         sections.set(reference, {
           path: section.relativePath,
           id: section.id,
           digest: section.digest,
-          fileExisted: section.fileExisted,
+          fileExisted,
           createdContainers,
           contributors: new Set([contribution.capabilityId]),
           shared: section.shared,
@@ -311,7 +396,7 @@ function composeSections(
         !existing.shared ||
         !section.shared ||
         existing.digest !== section.digest ||
-        existing.fileExisted !== section.fileExisted ||
+        existing.fileExisted !== fileExisted ||
         existing.createdContainers.join("\0") !== createdContainers.join("\0")
       ) {
         throw new InstallError("capability_collision", section.relativePath);
@@ -324,7 +409,139 @@ function composeSections(
       throw new InstallError("invalid_capability_composition", section.path);
     }
   }
+  for (const previous of input.previousState?.sections ?? []) {
+    const retainedContributors = previous.contributors.filter((id) =>
+      selected.includes(id) && preserved.has(id));
+    if (retainedContributors.length === 0) continue;
+    const reference = sectionReference(previous.path, previous.id);
+    const existing = sections.get(reference);
+    if (existing !== undefined) {
+      const previouslyProjected = previous.contributors.some((id) =>
+        selected.includes(id) && !preserved.has(id));
+      if (!previouslyProjected || !existing.shared) {
+        throw new InstallError("capability_collision", previous.path);
+      }
+      for (const contributor of retainedContributors) existing.contributors.add(contributor);
+      continue;
+    }
+    if (!files.has(previous.path)) throw new InstallError("invalid_capability_composition", previous.path);
+    sections.set(reference, {
+      path: previous.path,
+      id: previous.id,
+      digest: previous.digest,
+      fileExisted: previous.fileExisted,
+      createdContainers: Object.freeze([...(previous.createdContainers ?? [])]),
+      contributors: new Set(retainedContributors),
+      shared: retainedContributors.length > 1,
+    });
+  }
   return sections;
+}
+
+function reconcilePreservedContributions(
+  input: CapabilityCompositionInput,
+  selected: readonly CapabilityId[],
+  preserved: ReadonlySet<CapabilityId>,
+  files: ReadonlyMap<string, MutableFileComposition>,
+  sections: Map<string, MutableSectionComposition>,
+): void {
+  const previousFiles = new Map((input.previousState?.files ?? []).map((file) => [file.path, file]));
+  const previousSections = new Map((input.previousState?.sections ?? []).map((section) =>
+    [sectionReference(section.path, section.id), section]));
+  const reconciledFiles = new Set<string>();
+  const reconciledSections = new Set<string>();
+  for (const contribution of input.reconciledContributions ?? []) {
+    if (!preserved.has(contribution.capabilityId) || !Array.isArray(contribution.files) || !Array.isArray(contribution.sections)) {
+      throw new InstallError("invalid_capability_composition");
+    }
+    const ownPaths = new Set<string>();
+    for (const file of contribution.files) {
+      assertProjectedFile(file);
+      const previous = previousFiles.get(file.relativePath);
+      const hadProjectedOwner = previous?.contributors.some((id) => selected.includes(id) && !preserved.has(id)) === true;
+      if (previous === undefined || !previous.contributors.includes(contribution.capabilityId) || !hadProjectedOwner) {
+        continue;
+      }
+      if (ownPaths.has(file.relativePath)) throw new InstallError("capability_collision", file.relativePath);
+      ownPaths.add(file.relativePath);
+      const current = files.get(file.relativePath);
+      if (
+        current === undefined ||
+        file.expectedDigest !== previous.digest ||
+        !file.shared ||
+        !current.shared ||
+        !current.content.equals(file.content)
+      ) {
+        throw new InstallError("capability_collision", file.relativePath);
+      }
+      reconciledFiles.add(`${contribution.capabilityId}\0${file.relativePath}`);
+    }
+    const ownRefs = new Set<string>();
+    for (const section of contribution.sections) {
+      assertProjectedSection(section);
+      const reference = sectionReference(section.relativePath, section.id);
+      const previous = previousSections.get(reference);
+      if (!ownPaths.has(section.relativePath)) continue;
+      if (
+        ownRefs.has(reference) ||
+        previous === undefined ||
+        !previous.contributors.includes(contribution.capabilityId) ||
+        !files.has(section.relativePath)
+      ) {
+        throw new InstallError("capability_collision", section.relativePath);
+      }
+      ownRefs.add(reference);
+      reconciledSections.add(`${contribution.capabilityId}\0${reference}`);
+      const existing = sections.get(reference);
+      if (existing === undefined) {
+        sections.set(reference, {
+          path: section.relativePath,
+          id: section.id,
+          digest: section.digest,
+          fileExisted: previous.fileExisted,
+          createdContainers: Object.freeze([...(previous.createdContainers ?? [])]),
+          contributors: new Set([contribution.capabilityId]),
+          shared: section.shared,
+        });
+      } else if ([...existing.contributors].every((id) => preserved.has(id))) {
+        sections.set(reference, {
+          path: section.relativePath,
+          id: section.id,
+          digest: section.digest,
+          fileExisted: previous.fileExisted,
+          createdContainers: Object.freeze([...(previous.createdContainers ?? [])]),
+          contributors: new Set([...existing.contributors, contribution.capabilityId]),
+          shared: section.shared,
+        });
+      } else {
+        if (!existing.shared || !section.shared || existing.digest !== section.digest) {
+          throw new InstallError("capability_collision", section.relativePath);
+        }
+        existing.contributors.add(contribution.capabilityId);
+      }
+    }
+  }
+  for (const previous of input.previousState?.files ?? []) {
+    const hasProjectedOwner = previous.contributors.some((id) => selected.includes(id) && !preserved.has(id));
+    if (!hasProjectedOwner) continue;
+    for (const contributor of previous.contributors) {
+      if (preserved.has(contributor) && !reconciledFiles.has(`${contributor}\0${previous.path}`)) {
+        throw new InstallError("invalid_capability_composition", previous.path);
+      }
+    }
+  }
+  for (const previous of input.previousState?.sections ?? []) {
+    const previousFile = previousFiles.get(previous.path);
+    const hasProjectedOwner = previousFile?.contributors.some((id) =>
+      selected.includes(id) && !preserved.has(id)) === true;
+    if (!hasProjectedOwner) continue;
+    const reference = sectionReference(previous.path, previous.id);
+    for (const contributor of previous.contributors) {
+      if (preserved.has(contributor) && !reconciledSections.has(`${contributor}\0${reference}`)) {
+        throw new InstallError("invalid_capability_composition", previous.path);
+      }
+    }
+  }
 }
 
 function createState(
@@ -380,15 +597,16 @@ function encodeState(state: InstallState): Buffer {
  * desired state. No filesystem mutation occurs in this function.
  */
 export function composeCapabilitySet(input: CapabilityCompositionInput): DesiredState {
-  const selected = assertCompositionInput(input);
+  const { selected, preserved } = assertCompositionInput(input);
   const contributionById = new Map(input.contributions.map((contribution) => [contribution.capabilityId, contribution]));
-  const contributions = selected.map((id) => {
+  const contributions = selected.filter((id) => !preserved.has(id)).map((id) => {
     const contribution = contributionById.get(id);
     if (contribution === undefined) throw new InstallError("invalid_capability_composition");
     return contribution;
   });
-  const files = composeFiles(input, selected, contributions);
-  const sections = composeSections(selected, contributions, files);
+  const files = composeFiles(input, selected, preserved, contributions);
+  const sections = composeSections(input, selected, preserved, contributions, files);
+  reconcilePreservedContributions(input, selected, preserved, files, sections);
   validateManagedPath(input.target, input.statePath, input.managedRoots);
   for (const relativePath of files.keys()) {
     validateManagedPath(input.target, relativePath, input.managedRoots);

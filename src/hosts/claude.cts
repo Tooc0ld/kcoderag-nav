@@ -199,6 +199,12 @@ function selectedForInstall(context: HostInstallContext): readonly CapabilityId[
   return Object.freeze(resolveCapabilitySelection([...existing, ...requested]).map((entry) => entry.id));
 }
 
+function preservedForUpdate(context: HostInstallContext, selected: readonly CapabilityId[]): readonly CapabilityId[] {
+  if (context.command !== "update" || context.observation.currentState === undefined) return Object.freeze([]);
+  const projected = new Set(context.selectedCapabilities ?? selected);
+  return Object.freeze(selected.filter((id) => !projected.has(id)));
+}
+
 function selectedAfterUninstall(context: HostUninstallContext): readonly CapabilityId[] {
   const state = context.observation.currentState;
   if (state === undefined) throw new InstallError("not_installed", STATE_PATH);
@@ -359,12 +365,13 @@ function projectContributions(
   target: ProjectTarget,
   packageRoot: string,
   selected: readonly CapabilityId[],
+  projected: readonly CapabilityId[],
   state: InstallState | undefined,
 ): readonly ProjectedCapabilityContribution[] {
   const settingsCurrent = readRegular(target, SETTINGS_PATH);
   const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, state !== undefined);
   const contributions: ProjectedCapabilityContribution[] = [];
-  if (selected.includes(NAVIGATION)) {
+  if (projected.includes(NAVIGATION)) {
     const mcpCurrent = readRegular(target, MCP_PATH);
     const mcp = mergeMcp(mcpCurrent, packageRoot, state !== undefined);
     const files: ProjectedCapabilityFile[] = [
@@ -383,7 +390,7 @@ function projectContributions(
       ]),
     }));
   }
-  if (selected.includes(JX3)) {
+  if (projected.includes(JX3)) {
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
       projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false),
@@ -406,9 +413,14 @@ function projectContributions(
 function compose(
   context: HostInstallContext | HostUninstallContext,
   selected: readonly CapabilityId[],
+  preserved: readonly CapabilityId[] = [],
 ): ReturnType<typeof composeCapabilitySet> {
   const state = context.observation.currentState;
   const stateBytes = currentStateBytes(context.observation);
+  const projected = selected.filter((id) => !preserved.includes(id));
+  const reconciled = preserved.length === 0
+    ? Object.freeze([])
+    : projectContributions(context.target, context.packageRoot, selected, preserved, state);
   return composeCapabilitySet({
     host: "claude",
     target: context.target,
@@ -417,7 +429,9 @@ function compose(
     statePath: STATE_PATH,
     stateExpectedDigest: stateBytes === undefined ? null : sha256(stateBytes),
     selectedCapabilities: selected,
-    contributions: projectContributions(context.target, context.packageRoot, selected, state),
+    preservedCapabilities: preserved,
+    contributions: projectContributions(context.target, context.packageRoot, selected, projected, state),
+    reconciledContributions: reconciled,
     ...(state === undefined ? {} : { previousState: state }),
   });
 }
@@ -502,7 +516,7 @@ export function createClaudeAdapter(options: ClaudeAdapterOptions = {}): HostAda
       if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH);
       const selected = selectedForInstall(context);
       assertSupport(selected, context, options);
-      return compose(context, selected);
+      return compose(context, selected, preservedForUpdate(context, selected));
     },
     renderUninstall: (context: HostUninstallContext) => {
       refuseIssues(context.observation);

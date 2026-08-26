@@ -17,6 +17,7 @@ interface CommandModule {
 }
 
 const commands = require("../../dist/cli/commands.cjs") as CommandModule;
+const claudeHost = require("../../dist/hosts/claude.cjs") as Record<string, any>;
 const coreState = require("../../dist/core/state.cjs") as {
   createDesiredState(input: Record<string, unknown>): unknown;
 };
@@ -64,6 +65,43 @@ function runPublicCli(
     },
   );
   return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+}
+
+function copyPackageFixture(root: string): string {
+  const packageRoot = path.join(root, "package");
+  fs.mkdirSync(packageRoot);
+  for (const relativePath of ["package.json", "dist", "kcoderag-qa", "plugin-src"] as const) {
+    fs.cpSync(path.resolve(relativePath), path.join(packageRoot, relativePath), { recursive: true });
+  }
+  return packageRoot;
+}
+
+async function runClaudeCommand(
+  target: string,
+  homeDirectory: string,
+  packageRoot: string,
+  args: readonly string[],
+): Promise<{ readonly exitCode: number; readonly stdout: readonly string[]; readonly stderr: readonly string[] }> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const adapter = claudeHost.createClaudeAdapter({
+    homeDirectory,
+    readHostVersion: () => "2.1.241",
+    evidenceRoot: path.resolve("."),
+  });
+  const exitCode = await commands.executeCommand([...args], {
+    cwd: target,
+    packageRoot,
+    nodeVersion: "22.0.0",
+    mutationLockRoot: path.join(path.dirname(target), "locks"),
+    stdout: (text: string) => stdout.push(text),
+    stderr: (text: string) => stderr.push(text),
+    getAdapter: (host: HostId) => {
+      assert.equal(host, "claude");
+      return adapter;
+    },
+  });
+  return Object.freeze({ exitCode, stdout: Object.freeze(stdout), stderr: Object.freeze(stderr) });
 }
 
 function runInstalledClaudeLauncher(
@@ -1048,6 +1086,96 @@ test("update defaults to installed capabilities and filters cannot install an ab
     } finally {
       fs.rmSync(separate.root, { recursive: true, force: true });
     }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("capability-filtered update preserves unselected bytes, ownership digest, and mtime", async () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  const packageRoot = copyPackageFixture(item.root);
+  const statePath = path.join(item.target, ".claude/kcoderag-nav/install-state.json");
+  const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md");
+  const jx3Source = path.join(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  const hooksSource = path.join(packageRoot, "kcoderag-qa/hooks/hooks.json");
+  const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md");
+  const jx3Installed = path.join(item.target, ".claude/skills/jx3-code-style-correction/SKILL.md");
+  try {
+    const installed = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3, "--yes", "--json",
+    ]);
+    assert.equal(installed.exitCode, 0, installed.stderr.join("\n") || installed.stdout.join("\n"));
+
+    const beforeState = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
+    const beforeNavigation = fs.readFileSync(navigationInstalled);
+    const beforeJx3 = fs.readFileSync(jx3Installed);
+    const stableTimestamp = new Date("2020-01-02T03:04:05.000Z");
+    fs.utimesSync(jx3Installed, stableTimestamp, stableTimestamp);
+    const beforeJx3Mtime = fs.statSync(jx3Installed).mtimeMs;
+    const beforeExclusiveJx3Files = beforeState.files.filter((record: Record<string, any>) =>
+      record.contributors.length === 1 && record.contributors[0] === JX3);
+    const beforeJx3Sections = beforeState.sections.filter((record: Record<string, any>) =>
+      record.contributors.includes(JX3));
+
+    fs.appendFileSync(navigationSource, "\n<!-- filtered navigation update -->\n");
+    fs.appendFileSync(jx3Source, "\n<!-- must remain unselected -->\n");
+    const hooksTemplate = JSON.parse(fs.readFileSync(hooksSource, "utf8")) as Record<string, any>;
+    hooksTemplate.hooks.PreToolUse[0].description = "filtered shared update";
+    fs.writeFileSync(hooksSource, `${JSON.stringify(hooksTemplate, null, 2)}\n`);
+    const manifestPath = path.join(packageRoot, "package.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    manifest.version = "0.2.1-filtered-test";
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const updated = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
+      "update", "--host", "claude", "--capability", NAVIGATION, "--yes", "--json",
+    ]);
+    assert.equal(updated.exitCode, 0, updated.stderr.join("\n") || updated.stdout.join("\n"));
+    const output = JSON.parse(updated.stdout[0] ?? "") as Record<string, any>;
+    assert.deepEqual(output.capabilities, [NAVIGATION, JX3]);
+    assert.deepEqual(output.selectedCapabilities, [NAVIGATION]);
+    assert.equal(output.changed, true);
+    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-nav/SKILL.md"), true);
+    assert.equal(output.changedPaths.includes(".claude/skills/jx3-code-style-correction/SKILL.md"), false);
+
+    assert.equal(fs.readFileSync(navigationInstalled).equals(beforeNavigation), false);
+    assert.equal(fs.readFileSync(navigationInstalled).equals(fs.readFileSync(navigationSource)), true);
+    assert.equal(fs.readFileSync(jx3Installed).equals(beforeJx3), true);
+    assert.equal(fs.readFileSync(jx3Installed).equals(fs.readFileSync(jx3Source)), false);
+    assert.equal(fs.statSync(jx3Installed).mtimeMs, beforeJx3Mtime);
+
+    const afterState = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
+    assert.equal(afterState.packageVersion, "0.2.1-filtered-test");
+    assert.notEqual(afterState.compositeDigest, beforeState.compositeDigest);
+    assert.deepEqual(
+      afterState.capabilities.find((capability: Record<string, any>) => capability.id === JX3),
+      beforeState.capabilities.find((capability: Record<string, any>) => capability.id === JX3),
+    );
+    assert.deepEqual(
+      afterState.files.filter((record: Record<string, any>) =>
+        record.contributors.length === 1 && record.contributors[0] === JX3),
+      beforeExclusiveJx3Files,
+    );
+    const beforeJx3Pre = beforeJx3Sections.find((record: Record<string, any>) => record.id === "jx3:pre-tool");
+    const afterJx3Pre = afterState.sections.find((record: Record<string, any>) => record.id === "jx3:pre-tool");
+    const afterNavigationPre = afterState.sections.find((record: Record<string, any>) => record.id === "navigation:pre-tool");
+    assert.notEqual(afterJx3Pre?.digest, beforeJx3Pre?.digest);
+    assert.equal(afterJx3Pre?.digest, afterNavigationPre?.digest);
+    assert.deepEqual(afterJx3Pre?.contributors, [JX3]);
+    for (const capability of afterState.capabilities as readonly Record<string, any>[]) {
+      for (const relativePath of capability.files as readonly string[]) {
+        assert.equal(afterState.files.some((record: Record<string, any>) =>
+          record.path === relativePath && record.contributors.includes(capability.id)), true);
+      }
+    }
+
+    const healthy = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
+      "status", "--host", "claude", "--json",
+    ]);
+    assert.equal(healthy.exitCode, 0, healthy.stderr.join("\n") || healthy.stdout.join("\n"));
+    assert.equal((JSON.parse(healthy.stdout[0] ?? "") as Record<string, any>).status, "healthy");
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }

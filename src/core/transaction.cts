@@ -696,6 +696,19 @@ export function applyTransaction(
     originals.set(entry.path.relativePath, current === undefined ? undefined : Buffer.from(current));
     payloads.set(entry.path.relativePath, entry.content === null ? null : Buffer.from(entry.content));
   }
+  const mutationEntries = entries.filter((entry) => {
+    const current = originals.get(entry.path.relativePath);
+    const payload = payloads.get(entry.path.relativePath);
+    if (payload === null) return current !== undefined;
+    return payload !== undefined && (current === undefined || !current.equals(payload));
+  });
+  if (mutationEntries.length === 0) {
+    return Object.freeze({
+      schemaVersion: CORE_SCHEMA_VERSION,
+      host: desired.host,
+      changedPaths: Object.freeze([]),
+    });
+  }
 
   const createdDirectories: string[] = [];
   const staged = new Map<string, string>();
@@ -707,7 +720,7 @@ export function applyTransaction(
   let transactionStarted = false;
 
   try {
-    for (const [index, entry] of entries.entries()) {
+    for (const [index, entry] of mutationEntries.entries()) {
       if (options.failAtStage === index) throw new Error("injected_stage_failure");
       const payload = payloads.get(entry.path.relativePath);
       if (payload !== null && payload !== undefined) {
@@ -720,9 +733,9 @@ export function applyTransaction(
     }
 
     recovery = allocateRecovery(desired);
-    recoveryIdentity = createRecovery(recovery, desired, entries, originals, identities, options);
+    recoveryIdentity = createRecovery(recovery, desired, mutationEntries, originals, identities, options);
     transactionStarted = true;
-    for (const [index, entry] of entries.entries()) {
+    for (const [index, entry] of mutationEntries.entries()) {
       if (options.failAtCommit === index) throw new Error("injected_commit_failure");
       const payload = payloads.get(entry.path.relativePath);
       const current = readOptional(desired, entry, identities, options);
@@ -740,24 +753,24 @@ export function applyTransaction(
       options.onCommit?.(entry.path.relativePath);
     }
     for (const [relativePath, quarantine] of quarantined) {
-      const entry = entries.find((candidate) => candidate.path.relativePath === relativePath);
+      const entry = mutationEntries.find((candidate) => candidate.path.relativePath === relativePath);
       if (entry === undefined) throw new Error("missing_quarantined_entry");
       removePrivateFile(desired, entry, identities, options, quarantine);
     }
     quarantined.clear();
-    const recoveryGuard = entries.find((entry) => entry.path.relativePath === desired.statePath.relativePath) ?? entries[0];
+    const recoveryGuard = mutationEntries.find((entry) => entry.path.relativePath === desired.statePath.relativePath) ?? mutationEntries[0];
     if (recoveryGuard === undefined || recoveryIdentity === undefined) throw new Error("missing_recovery_identity");
     removeRecovery(recovery, desired, recoveryGuard, identities, recoveryIdentity, options);
     return Object.freeze({
       schemaVersion: CORE_SCHEMA_VERSION,
       host: desired.host,
-      changedPaths: Object.freeze(entries.map((entry) => entry.path.relativePath)),
+      changedPaths: Object.freeze(mutationEntries.map((entry) => entry.path.relativePath)),
     });
   } catch {
     let rollbackFailed = false;
     for (const [relativePath, temporary] of staged) {
       try {
-        const entry = entries.find((candidate) => candidate.path.relativePath === relativePath);
+        const entry = mutationEntries.find((candidate) => candidate.path.relativePath === relativePath);
         if (entry === undefined) throw new Error("missing_staged_entry");
         assertParentIdentities(desired, entry, identities);
         removeFileIfPresent(temporary);
@@ -767,7 +780,7 @@ export function applyTransaction(
     }
 
     if (transactionStarted) {
-      for (const [index, entry] of entries.entries()) {
+      for (const [index, entry] of mutationEntries.entries()) {
         const originalQuarantine = quarantined.get(entry.path.relativePath);
         if (!committed.has(entry.path.relativePath) && originalQuarantine === undefined) continue;
         try {
@@ -793,7 +806,7 @@ export function applyTransaction(
 
     for (const [relativePath, quarantine] of quarantined) {
       try {
-        const entry = entries.find((candidate) => candidate.path.relativePath === relativePath);
+        const entry = mutationEntries.find((candidate) => candidate.path.relativePath === relativePath);
         if (entry === undefined) throw new Error("missing_quarantined_entry");
         removePrivateFile(desired, entry, identities, options, quarantine);
       } catch {
@@ -802,7 +815,7 @@ export function applyTransaction(
     }
     for (const filePath of discarded) {
       try {
-        const entry = entries.find((candidate) => path.dirname(candidate.path.absolutePath) === path.dirname(filePath));
+        const entry = mutationEntries.find((candidate) => path.dirname(candidate.path.absolutePath) === path.dirname(filePath));
         if (entry === undefined) throw new Error("missing_discarded_entry");
         removePrivateFile(desired, entry, identities, options, filePath);
       } catch {
@@ -823,7 +836,7 @@ export function applyTransaction(
 
     if (!rollbackFailed && recovery !== undefined && recoveryIdentity !== undefined) {
       try {
-        const recoveryGuard = entries.find((entry) => entry.path.relativePath === desired.statePath.relativePath) ?? entries[0];
+        const recoveryGuard = mutationEntries.find((entry) => entry.path.relativePath === desired.statePath.relativePath) ?? mutationEntries[0];
         if (recoveryGuard === undefined) throw new Error("missing_recovery_guard");
         removeRecovery(recovery, desired, recoveryGuard, identities, recoveryIdentity, options);
       } catch {

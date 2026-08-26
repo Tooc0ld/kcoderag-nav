@@ -135,6 +135,11 @@ function selectedInstall(context: HostInstallContext): readonly CapabilityId[] {
   const existing = context.observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
   return Object.freeze(resolveCapabilitySelection([...existing, ...request]).map((entry) => entry.id));
 }
+function preservedForUpdate(context: HostInstallContext, selected: readonly CapabilityId[]): readonly CapabilityId[] {
+  if (context.command !== "update" || context.observation.currentState === undefined) return Object.freeze([]);
+  const projected = new Set(context.selectedCapabilities ?? selected);
+  return Object.freeze(selected.filter((id) => !projected.has(id)));
+}
 function selectedUninstall(context: HostUninstallContext): readonly CapabilityId[] {
   const state = context.observation.currentState;
   if (state === undefined) throw new InstallError("not_installed", STATE_PATH);
@@ -227,11 +232,11 @@ const NAV_RUNTIME = Object.freeze([
   ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
 const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-serialization-data.md", "lua-contracts.md", "change-hygiene-self-review.md"] as const);
-function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
+function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], projected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
   const result: ProjectedCapabilityContribution[] = [];
   const hooksCurrent = readRegular(target, HOOKS_PATH);
   const hooks = mergeHooks(hooksCurrent, packageRoot, selected, state !== undefined);
-  if (selected.includes(NAVIGATION)) {
+  if (projected.includes(NAVIGATION)) {
     const configCurrent = readRegular(target, CONFIG_PATH);
     const config = mergeToml(configCurrent, packageRoot, state !== undefined);
     result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
@@ -242,7 +247,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
     ]) }));
   }
-  if (selected.includes(JX3)) {
+  if (projected.includes(JX3)) {
     result.push(Object.freeze({ capabilityId: JX3, files: Object.freeze([
       projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
       projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false),
@@ -252,10 +257,12 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
   }
   return Object.freeze(result);
 }
-function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[]) {
+function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[], preserved: readonly CapabilityId[] = []) {
   const previousState = context.observation.currentState;
   const bytes = stateBytes(context.observation);
-  return composeCapabilitySet({ host: "codex", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, contributions: contributions(context.target, context.packageRoot, selected, previousState), ...(previousState === undefined ? {} : { previousState }) });
+  const projected = selected.filter((id) => !preserved.includes(id));
+  const reconciled = preserved.length === 0 ? Object.freeze([]) : contributions(context.target, context.packageRoot, selected, preserved, previousState);
+  return composeCapabilitySet({ host: "codex", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, preservedCapabilities: preserved, contributions: contributions(context.target, context.packageRoot, selected, projected, previousState), reconciledContributions: reconciled, ...(previousState === undefined ? {} : { previousState }) });
 }
 
 function codexStatus(context: HostStatusContext) {
@@ -306,7 +313,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): HostAdapt
   const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir());
   const reader = options.readUserSources ?? (() => existingMetadata(homeDirectory));
   return Object.freeze({ id: "codex" as const, managedRoots: MANAGED_ROOTS, detect: detectCodex,
-    renderInstall: (context: HostInstallContext) => { refuseIssues(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); assertSupport(selected, context, options); return compose(context, selected); },
+    renderInstall: (context: HostInstallContext) => { refuseIssues(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); assertSupport(selected, context, options); return compose(context, selected, preservedForUpdate(context, selected)); },
     renderUninstall: (context: HostUninstallContext) => { refuseIssues(context.observation); const selected = selectedUninstall(context); assertSupport(selected, context, options); return compose(context, selected); },
     status: codexStatus, scanUserSources: (context: HostSourceScanContext) => scanCodexSources(context, reader) });
 }

@@ -54,6 +54,8 @@ export interface HostInstallContext extends HostReadContext {
   readonly command: MutationCommand;
   readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
+  /** Install selection or, for update, the contributor projection filter. */
+  readonly selectedCapabilities?: readonly CapabilityId[];
   /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyUserRemoval: boolean;
   /** Compile-only Plan 07 seam; current adapters ignore it. */
@@ -63,6 +65,7 @@ export interface HostInstallContext extends HostReadContext {
 export interface HostUninstallContext extends HostReadContext {
   readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
+  readonly selectedCapabilities?: readonly CapabilityId[];
   /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyUserRemoval: boolean;
   /** Compile-only Plan 07 seam; current adapters ignore it. */
