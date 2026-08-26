@@ -1,6 +1,9 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 
+// Synthetic contract coverage only: this suite never invokes the public CLI or
+// treats package/generated host assets as proof of a real installation.
+
 type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
 
 interface CapabilityContribution {
@@ -9,15 +12,18 @@ interface CapabilityContribution {
   readonly sections: readonly Readonly<Record<string, unknown>>[];
 }
 
-interface CapabilityProvider {
+interface CapabilityManifest {
   readonly id: CapabilityId;
+}
+
+interface CapabilityProvider extends CapabilityManifest {
   contribution(): CapabilityContribution;
 }
 
 const registry = require("../../dist/capabilities/registry.cjs") as {
-  readonly BUILT_IN_CAPABILITIES: readonly CapabilityProvider[];
+  readonly BUILT_IN_CAPABILITIES: readonly CapabilityManifest[];
   getCapabilityProvider(id: CapabilityId): CapabilityProvider;
-  resolveCapabilitySelection(ids: readonly string[]): readonly CapabilityProvider[];
+  resolveCapabilitySelection(ids: readonly string[]): readonly CapabilityManifest[];
   resolveCapabilityContributions(ids: readonly string[]): readonly CapabilityContribution[];
 };
 

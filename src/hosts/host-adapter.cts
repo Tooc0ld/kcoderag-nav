@@ -12,6 +12,10 @@ import {
   type StatusResult,
 } from "../core/contracts.cjs";
 import type {
+  CapabilityContribution,
+  CapabilityId,
+} from "../capabilities/contracts.cjs";
+import type {
   NativeCleanupPlan,
   OwnedCleanupAuthority,
   SourceScanMode,
@@ -23,6 +27,12 @@ export type MutationCommand = "install" | "update";
 export interface HostReadContext {
   readonly target: ProjectTarget;
   readonly packageRoot: string;
+}
+
+/** Host-neutral inputs that a later adapter projection maps to native paths and merges. */
+export interface HostCapabilityProjectionContext extends HostReadContext {
+  readonly selectedCapabilities: readonly CapabilityId[];
+  readonly contributions: readonly CapabilityContribution[];
 }
 
 export interface LegacyUserRemovalObservation {
