@@ -4,7 +4,11 @@
 const fs = require("node:fs") as typeof import("node:fs");
 interface UpdateCheckModule {
   readInstalledVersion(): string | undefined;
-  readUpdateHint(installedVersion: string | undefined, options?: { readonly hookPayload?: unknown }): string | undefined;
+  readInstalledHost(): "codex" | "claude" | "cursor" | "opencode" | undefined;
+  readUpdateHint(installedVersion: string | undefined, options?: {
+    readonly hookPayload?: unknown;
+    readonly host?: "codex" | "claude" | "cursor" | "opencode";
+  }): string | undefined;
   scheduleRefresh(hookPayload: unknown): boolean;
 }
 
@@ -14,6 +18,7 @@ const updateCheck: UpdateCheckModule = (() => {
   } catch {
     return {
       readInstalledVersion: () => undefined,
+      readInstalledHost: () => undefined,
       readUpdateHint: () => undefined,
       scheduleRefresh: () => false,
     };
@@ -304,6 +309,17 @@ export function lookupPatterns(toolInput: unknown): readonly string[] {
 }
 
 export function hookOutput(data: unknown, updateNotice?: string): Record<string, unknown> | undefined {
+  const context = navigationContribution(data, updateNotice);
+  if (context === undefined) return undefined;
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      additionalContext: context,
+    },
+  };
+}
+
+export function navigationContribution(data: unknown, updateNotice?: string): string | undefined {
   if (!isRecord(data)) return undefined;
   if (typeof data.tool_name === "string" && !SUPPORTED_TOOLS.has(data.tool_name)) return undefined;
   if (!isRecord(data.tool_input)) return undefined;
@@ -312,12 +328,7 @@ export function hookOutput(data: unknown, updateNotice?: string): Record<string,
   const contexts = [structural ? NUDGE : undefined, updateNotice].filter(
     (context): context is string => typeof context === "string" && context.length > 0,
   );
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      additionalContext: contexts.join("\n\n").slice(0, 600),
-    },
-  };
+  return contexts.join("\n\n").slice(0, 600);
 }
 
 function readBoundedStdin(): string {
@@ -335,9 +346,13 @@ function readBoundedStdin(): string {
 
 export interface HookUpdateRuntime {
   readonly installedVersion?: string;
+  readonly installedHost?: "codex" | "claude" | "cursor" | "opencode";
   readonly readUpdateHint?: (
     installedVersion: string | undefined,
-    options?: { readonly hookPayload?: unknown },
+    options?: {
+      readonly hookPayload?: unknown;
+      readonly host?: "codex" | "claude" | "cursor" | "opencode";
+    },
   ) => string | undefined;
   readonly scheduleRefresh?: (hookPayload: unknown) => boolean;
 }
@@ -356,8 +371,14 @@ export function main(
     const installedVersion = relevantForUpdate
       ? updateRuntime.installedVersion ?? updateCheck.readInstalledVersion()
       : undefined;
+    const installedHost = relevantForUpdate
+      ? updateRuntime.installedHost ?? updateCheck.readInstalledHost()
+      : undefined;
     const updateNotice = relevantForUpdate
-      ? (updateRuntime.readUpdateHint ?? updateCheck.readUpdateHint)(installedVersion, { hookPayload: payload })
+      ? (updateRuntime.readUpdateHint ?? updateCheck.readUpdateHint)(installedVersion, {
+        hookPayload: payload,
+        ...(installedHost === undefined ? {} : { host: installedHost }),
+      })
       : undefined;
     const output = hookOutput(payload, updateNotice);
     if (output !== undefined) writeOutput(JSON.stringify(output));
