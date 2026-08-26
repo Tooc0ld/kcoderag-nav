@@ -44,6 +44,13 @@ function extractReferenceTargets(markdown: string): readonly string[] {
   return Array.from(markdown.matchAll(/\[[^\]]+\]\((references\/[^)]+\.md)\)/g), (match) => match[1] as string);
 }
 
+function extractRuleSection(markdown: string, id: string): string | undefined {
+  const sectionStart = markdown.indexOf(`## ${id}`);
+  if (sectionStart < 0) return undefined;
+  const nextSection = markdown.indexOf("\n## JX3-", sectionStart + 1);
+  return markdown.slice(sectionStart, nextSection < 0 ? undefined : nextSection);
+}
+
 test("canonical JX3 Skill is a nav-managed non-overridable asset", () => {
   assert.equal(fs.existsSync(skillPath), true, "canonical SKILL.md must exist");
   const markdown = readSkill();
@@ -116,13 +123,12 @@ test("four detailed references exist and repeat only their assigned partition ID
     allReferenceIds.push(...actualIds);
 
     for (const id of assignedIds) {
-      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const section = markdown.match(new RegExp(`^## ${escapedId}\\b[\\s\\S]*?(?=^## JX3-|\\Z)`, "mu"));
-      assert.ok(section !== null, `${target} needs a section for ${id}`);
-      assert.ok(section[0].length >= 220, `${target} ${id} needs actionable detail`);
-      assert.match(section[0], /\*\*Write:\*\*/);
-      assert.match(section[0], /\*\*Boundary:\*\*/);
-      assert.match(section[0], /\*\*Review:\*\*/);
+      const section = extractRuleSection(markdown, id);
+      assert.ok(section !== undefined, `${target} needs a section for ${id}`);
+      assert.ok(section.length >= 220, `${target} ${id} needs actionable detail`);
+      assert.match(section, /\*\*Write:\*\*/);
+      assert.match(section, /\*\*Boundary:\*\*/);
+      assert.match(section, /\*\*Review:\*\*/);
     }
 
     assert.ok(markdown.split(/\r?\n/u).length < 220, `${target} exceeds its line budget`);

@@ -88,7 +88,7 @@ const rubrics: readonly BehaviorRubric[] = Object.freeze([
     title: "table-loader changes surface external compatibility questions",
     asset: "references/protocol-serialization-data.md",
     rules: ["JX3-R19"],
-    guidance: [/data column/i, /default/i, /backward compatibility/i, /deployment order/i],
+    guidance: [/data column/i, /default/i, /backward\s+compatibility/i, /deployment order/i],
     restraint: [/do not mechanically/i, /source alone/i],
   },
   {
@@ -105,7 +105,7 @@ const rubrics: readonly BehaviorRubric[] = Object.freeze([
     asset: "references/change-hygiene-self-review.md",
     rules: ["JX3-S08"],
     guidance: [/encoding/i, /BOM/i, /line ending/i],
-    restraint: [/without.{0,50}evidence/i, /not verified/i],
+    restraint: [/without.{0,50}evidence/i, /not\s+verified/i],
   },
   {
     id: "E12",
