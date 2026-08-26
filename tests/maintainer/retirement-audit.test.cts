@@ -250,6 +250,97 @@ test("retirement modes advance monotonically across the exact legacy inventories
   assert.equal(retirement.auditRetirement(root, "post-tests").mode, "post-tests");
 });
 
+test("post retirement rejects every active retired authority, product, workflow, and runtime class", () => {
+  const fixtures = [
+    {
+      relativePath: "src/core/legacy-decoder.cts",
+      bytes: "export function parseLegacyInstallState() { return {}; }\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/cli/migrate.cts",
+      bytes: "export const allowLegacyDevMigration = true;\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "package.json",
+      bytes: '{"scripts":{"test:migration":"node --test dist-tests/migration/legacy-state.test.cjs"}}\n',
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/codex.cts",
+      bytes: "export async function cleanupOwnedSource() { return undefined; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "kcoderag-dev/README.md",
+      bytes: "retired product\n",
+      code: "retired_product_remains",
+    },
+    {
+      relativePath: "scripts/legacy.py",
+      bytes: "print('legacy')\n",
+      code: "python_runtime_remains",
+    },
+    {
+      relativePath: "scripts/run-jx3-scanner.cjs",
+      bytes: "module.exports = {};\n",
+      code: "retired_workflow_remains",
+    },
+    {
+      relativePath: "scripts/svn-review.cjs",
+      bytes: "module.exports = {};\n",
+      code: "retired_workflow_remains",
+    },
+    {
+      relativePath: "plugin-src/hooks/runtime.cts",
+      bytes: "export const runtime = true;\n",
+      code: "runtime_source_remains",
+    },
+    {
+      relativePath: ".claude-plugin/marketplace.json",
+      bytes: "{}\n",
+      code: "root_marketplace_remains",
+    },
+    {
+      relativePath: "README.md",
+      bytes: "Run npx kcoderag-nav@latest update --allow-legacy-dev-migration.\n",
+      code: "retired_instruction_remains",
+    },
+  ] as const;
+
+  for (const item of fixtures) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-retirement-active-"));
+    write(root, item.relativePath, item.bytes);
+    expectCode(() => retirement.auditRetirement(root, "post"), item.code);
+  }
+});
+
+test("post retirement permits negative contracts and explicitly historical document regions", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-retirement-history-"));
+  write(root, "src/core/state.cts", [
+    "export const currentState = true;",
+    "// Legacy state and owned cleanup authority are rejected.",
+    "",
+  ].join("\n"));
+  write(root, "README.md", [
+    "# Current product",
+    "Use the capability-aware project installer.",
+    "",
+    "## Historical migration record",
+    "The retired command was npx kcoderag-nav@latest update --allow-legacy-dev-migration.",
+    "",
+  ].join("\n"));
+  write(root, ".planning/history/legacy.md", [
+    "python scripts/manage_project_install.py install",
+    "svn status",
+    "kcoderag-dev",
+    "",
+  ].join("\n"));
+
+  assert.doesNotThrow(() => retirement.auditRetirement(root, "post"));
+});
+
 test("receipt evidence contains hashes and safe paths, never cache bytes", () => {
   const root = initRepository();
   createCaches(root);
@@ -302,4 +393,12 @@ test("compiled CLI retires the parity route while keeping the post-retirement au
     scripts_remaining: 0,
     tests_remaining: 0,
   });
+
+  const defaultPost = childProcess.spawnSync(process.execPath, [executable], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(defaultPost.status, 0);
+  assert.deepEqual(JSON.parse(defaultPost.stdout), JSON.parse(post.stdout));
 });

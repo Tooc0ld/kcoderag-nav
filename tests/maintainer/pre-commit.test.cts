@@ -31,6 +31,18 @@ interface PreCommitModule {
 const preCommit = require("../../dist/maintainer/pre-commit.cjs") as PreCommitModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 
+const CURRENT_GATE_COMMANDS = Object.freeze([
+  "npm run build",
+  "npm run test:capabilities",
+  "node --test dist-tests/skills/jx3-code-style-correction.test.cjs dist-tests/skills/jx3-code-style-correction.behavior.test.cjs",
+  "npm run test:capability-hooks",
+  "npm run test:manual-conflict",
+  "npm run test:generator",
+  "npm run test:generator:repository",
+  "npm run audit:retirement",
+  "npm run generate:check",
+]);
+
 function git(root: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env): string {
   return childProcess.execFileSync("git", args, {
     cwd: root,
@@ -109,7 +121,7 @@ test("complete QA and Cursor staging runs checks while preserving unrelated dirt
 
     assert.equal(result.ok, true, product);
     assert.equal(result.code, "verified", product);
-    assert.deepEqual(commands, ["npm run build", "npm run generate:check"], product);
+    assert.deepEqual(commands, CURRENT_GATE_COMMANDS, product);
     assert.deepEqual(bytes(current.index), indexBefore, product);
     assert.deepEqual(bytes(path.join(current.root, "notes.txt")), dirtyBefore, product);
     assert.deepEqual(bytes(untracked), untrackedBefore, product);
@@ -225,7 +237,7 @@ test("stale staged QA or Cursor blob cannot be approved through a fresh working 
 });
 
 
-test("managed staging runs build then the read-only generator check", () => {
+test("managed staging runs every current capability and generation gate", () => {
   const current = fixture("managed stage");
   fs.writeFileSync(path.join(current.root, "package.json"), '{"name":"fixture","version":"1.0.1"}\n');
   git(current.root, ["add", "package.json"], current.env);
@@ -243,8 +255,42 @@ test("managed staging runs build then the read-only generator check", () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.code, "verified");
-  assert.deepEqual(commands, ["npm run build", "npm run generate:check"]);
+  assert.deepEqual(commands, CURRENT_GATE_COMMANDS);
   assert.deepEqual(bytes(current.index), before);
+});
+
+test("every current gate is required and reports its own safe failure code", () => {
+  const failures = [
+    "build_failed",
+    "capability_tests_failed",
+    "skill_tests_failed",
+    "capability_hook_tests_failed",
+    "manual_conflict_tests_failed",
+    "generator_tests_failed",
+    "repository_generator_tests_failed",
+    "retirement_audit_failed",
+    "generation_drift",
+  ] as const;
+
+  for (const [failureIndex, code] of failures.entries()) {
+    const current = fixture(`required gate ${failureIndex}`);
+    fs.writeFileSync(path.join(current.root, "package.json"), '{"name":"fixture","version":"1.0.1"}\n');
+    git(current.root, ["add", "package.json"], current.env);
+    const commands: string[] = [];
+
+    const result = preCommit.runPreCommit({
+      root: current.root,
+      env: current.env,
+      runCommand: (command, args) => {
+        commands.push([command, ...args].join(" "));
+        return { status: commands.length - 1 === failureIndex ? 1 : 0 };
+      },
+    });
+
+    assert.equal(result.ok, false, code);
+    assert.equal(result.code, code);
+    assert.deepEqual(commands, CURRENT_GATE_COMMANDS.slice(0, failureIndex + 1), code);
+  }
 });
 
 test("generation drift fails with safe diagnostics and leaves dirty paths untouched", () => {
@@ -255,12 +301,10 @@ test("generation drift fails with safe diagnostics and leaves dirty paths untouc
   fs.writeFileSync(path.join(current.root, "notes.txt"), "unrelated dirty bytes\n");
   const workingBefore = bytes(path.join(current.root, "notes.txt"));
   const indexBefore = bytes(current.index);
-  let invocation = 0;
-
   const result = preCommit.runPreCommit({
     root: current.root,
     env: current.env,
-    runCommand: () => ({ status: ++invocation === 1 ? 0 : 1 }),
+    runCommand: (_command, args) => ({ status: args.join(" ") === "run generate:check" ? 1 : 0 }),
   });
 
   assert.equal(result.ok, false);
@@ -277,4 +321,5 @@ test("launcher is Node-only and neither launcher nor helper can stage or reset f
   assert.match(launcher, /node/u);
   assert.doesNotMatch(launcher, /python|pre_commit_generate\.py/iu);
   assert.doesNotMatch(`${launcher}\n${source}`, /git\s+(?:add|update-index|reset|checkout)\b/iu);
+  assert.doesNotMatch(source, /test:migration|legacy-state\.test/iu);
 });
