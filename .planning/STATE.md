@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-07-PLAN.md
-last_updated: "2026-08-26T16:31:33.520Z"
+stopped_at: Completed 04.1-08-PLAN.md
+last_updated: "2026-08-26T17:04:34.431Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: e6e6e83f26b8b88a1b47e066d6e309407cce6ca5
+state_head: ab7ee8194a8be37feeb005f587c3c093f3f33b54
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 60
+  completed_plans: 61
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 8 of 12
+Plan: 9 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -114,6 +114,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04.1-jx3 P05 | 21min | 3 tasks | 14 files |
 | Phase 04.1 P06 | 34min | 3 tasks | 13 files |
 | Phase 04.1 P07 | 43m | 3 tasks | 13 files |
+| Phase 04.1 P08 | 30min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -284,6 +285,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Install composes the canonical installed-union-selected capability target and exact duplicate targets are byte- and mtime-stable no-ops.
 - [Phase 04.1]: Install, update, and uninstall share one selected-host source-conflict gate without legacy migration or cleanup authority.
 - [Phase 04.1]: Host-target mutations use an exclusive user-cache lock; stale locks block writes and remain visible to read-only diagnostics.
+- [Phase 04.1]: Repository QA/Cursor trees remain generated outputs; Plan 08 proves canonical projection in isolated roots and Plans 09/10 own materialization.
+- [Phase 04.1]: Pack audit validates the exact temporary tgz independently while repository generation drift remains a separate required pre-commit and CI gate.
+- [Phase 04.1]: Retirement policy rejects executable authority and active instructions while explicitly historical or legacy Markdown regions remain records.
 
 ### Pending Todos
 
@@ -347,6 +351,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T16:31:33.021Z
-Stopped at: Completed 04.1-07-PLAN.md
+Last session: 2026-08-26T17:04:33.954Z
+Stopped at: Completed 04.1-08-PLAN.md
 Resume file: None
