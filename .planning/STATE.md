@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-05-PLAN.md
-last_updated: "2026-08-26T14:54:12.114Z"
+stopped_at: Completed 04.1-06-PLAN.md
+last_updated: "2026-08-26T15:44:20.599Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: 8402f0557dfad5c085e0511f903c5bb61eccb113
+state_head: 0850ac78ea8f9e055d9db314c2749161f96b45d6
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 58
+  completed_plans: 59
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 6 of 12
+Plan: 7 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -112,6 +112,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04.1 P03 | 16 min | 2 tasks | 7 files |
 | Phase 04.1 P04 | 30min | 2 tasks | 13 files |
 | Phase 04.1-jx3 P05 | 21min | 3 tasks | 14 files |
+| Phase 04.1 P06 | 34min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -275,6 +276,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: JX3 marker saturation suppresses new nudges without evicting live session claims.
 - [Phase 04.1]: Automatic SessionEnd cleanup remains disabled until an exact checked-in delivery receipt proves the host event and stable identity lane.
 - [Phase 04.1]: JX3 managed-tree integrity is verified before marker creation so drift cannot consume the first valid session reminder.
+- [Phase 04.1]: JX3 projection is enabled only for the frozen Claude 2.1.241 PASS row; current Codex, Cursor, and OpenCode versions reject JX3 before desired-state creation.
+- [Phase 04.1]: Published host support uses a self-contained frozen lookup while checked-in receipt parsing and digest proof remain build-time only.
+- [Phase 04.1]: Nearest-project launch requires the exact current capability schema, composite digest, and every managed file digest; invalid nearest boundaries never fall through.
+- [Phase 04.1]: Cursor retains its native kcoderag MCP identity while the other host projections use their native kcoderag-qa registrations.
 
 ### Pending Todos
 
@@ -338,6 +343,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T14:54:11.630Z
-Stopped at: Completed 04.1-05-PLAN.md
+Last session: 2026-08-26T15:44:20.083Z
+Stopped at: Completed 04.1-06-PLAN.md
 Resume file: None
