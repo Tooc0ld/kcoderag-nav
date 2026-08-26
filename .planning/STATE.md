@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-10-PLAN.md
-last_updated: "2026-08-26T17:36:25.913Z"
+stopped_at: Completed 04.1-11-PLAN.md
+last_updated: "2026-08-26T18:18:16.288Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: a016508224b37dc0349efbd062b6b99eebad1518
+state_head: d3d6fa6aa43c5ef3d9a8a9a5df82dc38577e7b49
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 63
+  completed_plans: 64
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 11 of 12
+Plan: 12 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -117,6 +117,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04.1 P08 | 30min | 3 tasks | 12 files |
 | Phase 04.1 P09 | 18min | 3 tasks | 11 files |
 | Phase 04.1 P10 | 8min | 2 tasks | 6 files |
+| Phase 04.1 P11 | 39min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -296,6 +297,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Cursor navigation metadata and guidance use navigation-only generation so JX3 packaging cannot imply support parity.
 - [Phase 04.1]: Packaged Cursor JX3 Skill assets do not grant support; Cursor 3.17.8 remains receipt-bound unsupported.
 - [Phase 04.1]: Cursor product evidence enumerates nine exact members and rejects native pre-write equivalence in navigation assets.
+- [Phase 04.1]: Claude 2.1.241 is the sole receipt-supported JX3 lane; Codex 0.146.1, Cursor 3.17.8, and OpenCode 1.18.23 remain explicit UNSUPPORTED navigation-only lanes.
+- [Phase 04.1]: Packed smoke receipts serialize only stable codes, booleans, exact versions, and digests; temporary roots and command output remain internal.
+- [Phase 04.1]: Release preparation runs ci:local, docs:check, and audit:retirement as a frozen ordered gate inventory, while CI and tag release invoke docs and retirement explicitly.
 
 ### Pending Todos
 
@@ -359,6 +363,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T17:36:25.413Z
-Stopped at: Completed 04.1-10-PLAN.md
+Last session: 2026-08-26T18:18:15.797Z
+Stopped at: Completed 04.1-11-PLAN.md
 Resume file: None
