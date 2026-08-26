@@ -18,7 +18,7 @@ set "KCODERAG_HOOK_DIR=%KCODERAG_HOOK_BASE%\kcoderag-nav-hook-%RANDOM%-%RANDOM%"
 if errorlevel 1 goto allocate_output
 set "KCODERAG_HOOK_OUTPUT=%KCODERAG_HOOK_DIR%\stdout.tmp"
 
-node -e "const major=Number(process.versions.node.split('.')[0]);if(Number.isInteger(major) && major >= 22){process.exitCode=require(process.argv[1]).main()}" "%~dp0grep-nudge.cjs" 2>nul >"%KCODERAG_HOOK_OUTPUT%"
+node -e "const path=require('node:path');const major=Number(process.versions.node.split('.')[0]);const dispatcher=process.argv[1];const host=process.argv[2];const managedRoot=path.resolve(path.dirname(dispatcher),'..','..','..','..');if(Number.isInteger(major) && major >= 22){process.exitCode=require(dispatcher).main(undefined,(text)=>process.stdout.write(text),undefined,{host,managedRoot})}" "%~dp0pre-tool-dispatcher.cjs" "%~1" 2>nul >"%KCODERAG_HOOK_OUTPUT%"
 if not errorlevel 1 type "%KCODERAG_HOOK_OUTPUT%" 2>nul
 del /q "%KCODERAG_HOOK_OUTPUT%" >nul 2>nul
 rd "%KCODERAG_HOOK_DIR%" >nul 2>nul
