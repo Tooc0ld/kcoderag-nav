@@ -1,5 +1,6 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -35,6 +36,70 @@ function fixture(): { root: string; target: string } {
   const target = path.join(root, "target");
   fs.mkdirSync(target);
   return { root, target };
+}
+
+const PUBLIC_CLI = path.resolve("dist/bin/kcoderag-nav.cjs");
+const NAVIGATION = "kcoderag-navigation";
+const JX3 = "jx3-style-nudge";
+
+function runPublicCli(
+  target: string,
+  homeDirectory: string,
+  args: readonly string[],
+): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [PUBLIC_CLI, ...args, "--target", target, "--yes", "--json"],
+    {
+      cwd: target,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: homeDirectory,
+        USERPROFILE: homeDirectory,
+        XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+      },
+      timeout: 20_000,
+      windowsHide: true,
+    },
+  );
+  return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+}
+
+function parseOnlyJson(output: string): Record<string, any> {
+  const lines = output.trim().split(/\r?\n/u).filter((line) => line.length > 0);
+  assert.equal(lines.length, 1, `expected one JSON value, received: ${output}`);
+  return JSON.parse(lines[0] as string) as Record<string, any>;
+}
+
+function installedCapabilities(target: string, host: "claude" | "codex"): readonly string[] {
+  const statePath = host === "claude"
+    ? ".claude/kcoderag-nav/install-state.json"
+    : ".codex/kcoderag-nav/install-state.json";
+  const state = JSON.parse(
+    fs.readFileSync(path.join(target, ...statePath.split("/")), "utf8"),
+  ) as { capabilities: readonly { id: string }[] };
+  return state.capabilities.map((entry) => entry.id);
+}
+
+function projectSnapshot(target: string): readonly Readonly<Record<string, string | number>>[] {
+  const records: Readonly<Record<string, string | number>>[] = [];
+  const visit = (directory: string): void => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const absolutePath = path.join(directory, name);
+      const stats = fs.lstatSync(absolutePath);
+      if (stats.isDirectory()) visit(absolutePath);
+      else if (stats.isFile()) {
+        records.push(Object.freeze({
+          path: path.relative(target, absolutePath).replaceAll("\\", "/"),
+          digest: digest(fs.readFileSync(absolutePath)),
+          mtimeMs: stats.mtimeMs,
+        }));
+      }
+    }
+  };
+  visit(target);
+  return Object.freeze(records);
 }
 
 function makeAdapter(
@@ -977,5 +1042,130 @@ test("cleanup flags are mutation-only and doctor refuses every fix-like argument
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("repeatable capability selection is canonical and interactive selection follows host selection", async () => {
+  const item = fixture();
+  try {
+    const calls: string[] = [];
+    const adapter = makeAdapter("claude", calls);
+    const originalRender = adapter.renderInstall as (context: Record<string, any>) => unknown;
+    adapter.renderInstall = (context: Record<string, any>) => {
+      calls.push(`selected:${(context.selectedCapabilities as readonly string[]).join(",")}`);
+      return originalRender(context);
+    };
+    const captured = io(item.target, {
+      codex: makeAdapter("codex", calls), claude: adapter, cursor: makeAdapter("cursor", calls),
+    });
+    const order: string[] = [];
+    assert.equal(await commands.executeCommand(
+      ["install", "--yes", "--capability", JX3, "--capability", NAVIGATION, "--capability", JX3],
+      {
+        ...captured.dependencies,
+        selectHost: () => { order.push("host"); return "claude"; },
+        selectCapabilities: () => { order.push("capabilities"); return [JX3, NAVIGATION]; },
+      },
+    ), 0);
+    assert.deepEqual(order, ["host"]);
+    assert.equal(calls.join("\n").includes(`selected:${NAVIGATION},${JX3}`), true);
+
+    const interactive = fixture();
+    try {
+      const interactiveCalls: string[] = [];
+      const interactiveAdapter = makeAdapter("claude", interactiveCalls);
+      const interactiveRender = interactiveAdapter.renderInstall as (context: Record<string, any>) => unknown;
+      interactiveAdapter.renderInstall = (context: Record<string, any>) => {
+        interactiveCalls.push(`selected:${(context.selectedCapabilities as readonly string[]).join(",")}`);
+        return interactiveRender(context);
+      };
+      const interactiveIo = io(interactive.target, {
+        codex: makeAdapter("codex", interactiveCalls),
+        claude: interactiveAdapter,
+        cursor: makeAdapter("cursor", interactiveCalls),
+      });
+      const interactiveOrder: string[] = [];
+      assert.equal(await commands.executeCommand(["install", "--yes"], {
+        ...interactiveIo.dependencies,
+        selectHost: () => { interactiveOrder.push("host"); return "claude"; },
+        selectCapabilities: (ids: readonly string[]) => {
+          interactiveOrder.push(`capabilities:${ids.join(",")}`);
+          return [JX3, NAVIGATION];
+        },
+      }), 0);
+      assert.deepEqual(interactiveOrder, ["host", `capabilities:${NAVIGATION},${JX3}`]);
+      assert.equal(interactiveCalls.join("\n").includes(`selected:${NAVIGATION},${JX3}`), true);
+    } finally {
+      fs.rmSync(interactive.root, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("compiled public CLI installs Claude capabilities additively in both orders", () => {
+  for (const order of [[NAVIGATION, JX3], [JX3, NAVIGATION]] as const) {
+    const item = fixture();
+    const homeDirectory = path.join(item.root, "home");
+    fs.mkdirSync(homeDirectory);
+    try {
+      for (const capability of order) {
+        const result = runPublicCli(item.target, homeDirectory, [
+          "install", "--host", "claude", "--capability", capability,
+        ]);
+        assert.equal(result.status, 0, result.stderr || result.stdout);
+        assert.equal(parseOnlyJson(result.stdout).ok, true);
+      }
+      assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, JX3]);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/jx3-code-style-correction/SKILL.md")), true);
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("duplicate additive install is byte and mtime stable without a transaction write", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    const first = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+    ]);
+    assert.equal(first.status, 0, first.stderr || first.stdout);
+    const before = projectSnapshot(item.target);
+    const repeated = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", JX3, "--capability", NAVIGATION,
+    ]);
+    assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
+    const output = parseOnlyJson(repeated.stdout);
+    assert.equal(output.changed, false);
+    assert.deepEqual(output.changedPaths, []);
+    assert.deepEqual(projectSnapshot(item.target), before);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("unsupported second capability add is zero-write and preserves the healthy first capability", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    const first = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "codex", "--capability", NAVIGATION,
+    ]);
+    assert.equal(first.status, 0, first.stderr || first.stdout);
+    const before = projectSnapshot(item.target);
+    const refused = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "codex", "--capability", JX3,
+    ]);
+    assert.equal(refused.status, 1, refused.stderr || refused.stdout);
+    assert.equal(parseOnlyJson(refused.stdout).error.code, "host_version_unsupported");
+    assert.deepEqual(installedCapabilities(item.target, "codex"), [NAVIGATION]);
+    assert.deepEqual(projectSnapshot(item.target), before);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
   }
 });

@@ -37,6 +37,21 @@ function uninstallContext(target: any, observation: any, selectedCapabilities: r
   };
 }
 
+test("Claude version parser accepts only exact official 2.1.241 output shapes", () => {
+  assert.equal(claude.parseClaudeVersionOutput("2.1.241 (Claude Code)\n"), "2.1.241");
+  assert.equal(claude.parseClaudeVersionOutput("Claude Code 2.1.241\n"), "2.1.241");
+  assert.equal(claude.parseClaudeVersionOutput("claude 2.1.241\n"), "2.1.241");
+  for (const invalid of [
+    "2.1.241 arbitrary",
+    "2.1.241 (Claude Code) trailing",
+    "Claude Code 2.1.241 9.9.9",
+    "version=2.1.241",
+    "2.1",
+  ]) {
+    assert.equal(claude.parseClaudeVersionOutput(invalid), undefined, invalid);
+  }
+});
+
 test("Claude 2.1.241 renders and partially removes the complete receipt-backed capability set", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-"));
   try {
