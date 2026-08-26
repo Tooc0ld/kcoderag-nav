@@ -311,6 +311,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260821-kqa | 修复 Codex bundled MCP direct map，硬停止重复来源，并发布 QA/Dev/Cursor 0.1.4 | 2026-08-21 | 1602284 | [260821-kqa-fix-codex-bundled-mcp-compatibility-with](./quick/260821-kqa-fix-codex-bundled-mcp-compatibility-with/) |
 | 260824-ecs | Enable stricter TypeScript compiler checks in source and test configs and verify the build | 2026-08-24 | 7dcbbfa | [260824-ecs-enable-stricter-typescript-compiler-chec](./quick/260824-ecs-enable-stricter-typescript-compiler-chec/) |
 | 260826-dut | Add project-only OpenCode support and four-host successful MCP-call markers | 2026-08-26 | 8e317b6, KCodeRag:5568e4c0 | [260826-dut-add-project-only-opencode-host-support-a](./quick/260826-dut-add-project-only-opencode-host-support-a/) |
+| 260826-uvk | Unify offline update checks and native notices across Codex, Claude Code, Cursor, and OpenCode | 2026-08-26 | 8aadcef, 8402f05, KCodeRag:7b32a794 | [260826-uvk-codex-claude-code-cursor-opencode](./quick/260826-uvk-codex-claude-code-cursor-opencode/) |
 
 ### Roadmap Evolution
 
