@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "host": "claude",
+  "version": "2.1.241",
+  "stableSessionField": "session_id",
+  "observations": {
+    "nativeInstall": true,
+    "cppCreated": true,
+    "cppModified": true,
+    "luaWritten": true,
+    "structuredTargets": true,
+    "stableSessionRepeated": true,
+    "sentinelVisible": true,
+    "sentinelOnce": true,
+    "validWriteCompleted": true,
+    "emptyWriteCompleted": true,
+    "malformedWriteCompleted": true,
+    "nonzeroWriteCompleted": true,
+    "timeoutWriteCompleted": true
+  },
+  "fixtureDigest": "8290cd7d8d4480fef79465c16000550e75094baea923aaa3b9635705efc98117",
+  "provenanceDigest": "d9c5a2292aa83df94a38e65261e437b17b7df52406207cb7429fe594e0b3a3c8",
+  "capturedAt": "2026-08-26T12:55:53.320Z",
+  "verdict": "PASS",
+  "reason": "verified"
+}
