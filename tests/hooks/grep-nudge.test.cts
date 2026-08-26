@@ -5,6 +5,7 @@ const path = require("node:path") as typeof import("node:path");
 
 interface HookModule {
   readonly NUDGE: string;
+  navigationContribution(data: unknown, updateNotice?: string): string | undefined;
   looksLikeSymbolLookup(pattern: unknown): boolean;
   shellLookupPatterns(command: unknown): readonly string[];
   lookupPatterns(toolInput: unknown): readonly string[];
@@ -136,6 +137,14 @@ test("hook protocol emits only bounded advisory JSON and stays silent otherwise"
   assert.match(hook.NUDGE, /get_call_chain/);
   assert.match(hook.NUDGE, /unavailable/);
   assert.doesNotMatch(hook.NUDGE, /QA and Dev|mcp__plugin_/);
+  assert.equal(
+    hook.navigationContribution({ tool_name: "Grep", tool_input: { pattern: "GetLevel" } }),
+    hook.NUDGE,
+  );
+  assert.equal(
+    hook.navigationContribution({ tool_name: "Bash", tool_input: { command: "rg TODO src" } }),
+    undefined,
+  );
 });
 
 test("compiled entry fails open for malformed, oversized, unknown, and exceptional input", () => {
