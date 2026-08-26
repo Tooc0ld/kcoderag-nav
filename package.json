@@ -24,6 +24,7 @@
     "dist/hosts/codex.cjs",
     "dist/hosts/cursor.cjs",
     "dist/hosts/host-adapter.cjs",
+    "dist/hosts/host-version-support.cjs",
     "dist/hosts/index.cjs",
     "dist/hosts/opencode.cjs",
     "dist/hosts/user-sources.cjs",

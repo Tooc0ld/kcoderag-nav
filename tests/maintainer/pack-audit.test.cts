@@ -27,6 +27,8 @@ const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
 const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
+const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
+const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -159,8 +161,16 @@ test("accepts historical Python and parity vocabulary as data inside declared ar
   assert.equal(Object.hasOwn(historical.packageJson.scripts, "verify:parity-before-retire"), false);
 });
 
-test("keeps pre-release and Head evidence validators outside the public archive", () => {
-  for (const validatorPath of [PRE_RELEASE_EVIDENCE_PATH, HEAD_ACCEPTANCE_PATH]) {
+test("publishes host support runtime and keeps repository-only evidence outputs outside the archive", () => {
+  const exact = baseline();
+  assert.equal(exact.expectedPaths.includes(HOST_VERSION_SUPPORT_PATH), true);
+  assert.equal(exact.expectedPaths.includes(HOST_DELIVERY_FIXTURE_PATH), false);
+
+  for (const validatorPath of [
+    HOST_DELIVERY_FIXTURE_PATH,
+    PRE_RELEASE_EVIDENCE_PATH,
+    HEAD_ACCEPTANCE_PATH,
+  ]) {
     for (const boundary of ["declared", "expected", "archive"] as const) {
       const current = baseline();
       if (boundary === "declared") current.packageJson.files.push(validatorPath);
