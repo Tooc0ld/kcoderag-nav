@@ -62,6 +62,16 @@ export interface SupportedCapabilityLifecycle {
   readonly conflictUninstallBlocked: boolean;
   readonly partialUninstall: boolean;
   readonly finalUninstall: boolean;
+  readonly nativeFirstWrite: boolean;
+  readonly singleTransaction: boolean;
+  readonly unrelatedTreePreserved: boolean;
+  readonly rollbackRestored: boolean;
+  readonly concurrentLoserBlocked: boolean;
+  readonly assetDriftFailOpen: boolean;
+  readonly patchEnvelope: boolean;
+  readonly missingStableIdSilent: boolean;
+  readonly markerSaturationSilent: boolean;
+  readonly sessionEndReceiptBound: boolean;
 }
 
 export interface UnsupportedCapabilityLifecycle {
@@ -124,6 +134,7 @@ export interface RunHostSmokeOptions {
 
 interface AcquiredPackage extends PackageProvenance {
   readonly lifecyclePackageSpec: string;
+  readonly runtimePackageRoot?: string;
 }
 
 interface NormalizedPackageRequest {
@@ -135,6 +146,7 @@ interface NormalizedPackageRequest {
 
 interface ValidatedAcquisition {
   readonly lifecycleArtifact: VerifiedTarballArtifact;
+  readonly runtimePackageRoot?: string;
   readonly provenance: PackageProvenance;
 }
 
@@ -362,7 +374,10 @@ function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
   }
   return value.navigationThenJx3 && value.jx3ThenNavigation && value.duplicateNoop &&
     value.failedSecondAddPreserved && value.update && value.conflictUninstallBlocked &&
-    value.partialUninstall && value.finalUninstall && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
+    value.partialUninstall && value.finalUninstall && value.nativeFirstWrite && value.singleTransaction &&
+    value.unrelatedTreePreserved && value.rollbackRestored && value.concurrentLoserBlocked &&
+    value.assetDriftFailOpen && value.patchEnvelope && value.missingStableIdSilent &&
+    value.markerSaturationSilent && value.sessionEndReceiptBound && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
 }
 
 function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessEnv {
@@ -709,6 +724,7 @@ async function acquirePackage(
     resolvedVersion,
     lifecycleTarballSha256: crypto.createHash("sha256").update(fs.readFileSync(lifecyclePackageSpec)).digest("hex"),
     lifecyclePackageSpec,
+    runtimePackageRoot: packageRoot,
     ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact }),
   });
 }
@@ -724,6 +740,7 @@ function validateAcquisition(
   const resolvedVersion = value.resolvedVersion;
   const lifecycleTarballSha256 = value.lifecycleTarballSha256;
   const lifecyclePackageSpec = value.lifecyclePackageSpec;
+  const runtimePackageRoot = value.runtimePackageRoot;
   const publicRegistryArtifact = value.publicRegistryArtifact;
   const expectedVersion = request.expectedVersion ?? value.expectedVersion;
   if (
@@ -783,7 +800,29 @@ function validateAcquisition(
     sha256: lifecycleTarballSha256,
     compromised: false,
   };
-  return Object.freeze({ lifecycleArtifact, provenance });
+  let validatedRuntimePackageRoot: string | undefined;
+  if (runtimePackageRoot !== undefined) {
+    try {
+      const realTemporaryRoot = fs.realpathSync(temporaryRoot);
+      const realRuntimeRoot = fs.realpathSync(runtimePackageRoot);
+      const metadata = fs.lstatSync(runtimePackageRoot);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink() || !isPathInside(realTemporaryRoot, realRuntimeRoot)) {
+        throw new Error("invalid_runtime_root");
+      }
+      const manifest: unknown = JSON.parse(fs.readFileSync(path.join(realRuntimeRoot, "package.json"), "utf8"));
+      if (!isRecord(manifest) || manifest.name !== PACKAGE_NAME || manifest.version !== resolvedVersion) {
+        throw new Error("invalid_runtime_root");
+      }
+      validatedRuntimePackageRoot = realRuntimeRoot;
+    } catch {
+      throw new Error("invalid_package_provenance");
+    }
+  }
+  return Object.freeze({
+    lifecycleArtifact,
+    ...(validatedRuntimePackageRoot === undefined ? {} : { runtimePackageRoot: validatedRuntimePackageRoot }),
+    provenance,
+  });
 }
 
 function assertArtifactFile(filePath: string, expectedRealPath: string, expectedSha256: string): void {
@@ -1252,9 +1291,240 @@ function isCliError(result: PackageCliResult, code: string): boolean {
   return result.code !== 0 && result.payload?.ok === false && result.payload.error?.code === code;
 }
 
+interface InstalledRuntimeEvidence {
+  readonly nativeFirstWrite: boolean;
+  readonly singleTransaction: boolean;
+  readonly unrelatedTreePreserved: boolean;
+  readonly rollbackRestored: boolean;
+  readonly concurrentLoserBlocked: boolean;
+  readonly assetDriftFailOpen: boolean;
+  readonly patchEnvelope: boolean;
+  readonly missingStableIdSilent: boolean;
+  readonly markerSaturationSilent: boolean;
+  readonly sessionEndReceiptBound: boolean;
+}
+
+function fileFingerprint(filePath: string): string {
+  const metadata = fs.lstatSync(filePath);
+  return sha256Parts([String(metadata.size), String(metadata.mtimeMs), fs.readFileSync(filePath)]);
+}
+
+function rollbackEvidence(packageRoot: string, fixtureRoot: string): boolean {
+  try {
+    const projectTarget = require(path.join(packageRoot, "dist/core/project-target.cjs")) as {
+      resolveProjectTarget(rawTarget: string): { readonly root: string };
+    };
+    const state = require(path.join(packageRoot, "dist/core/state.cjs")) as {
+      createDesiredState(input: Record<string, unknown>): unknown;
+    };
+    const transaction = require(path.join(packageRoot, "dist/core/transaction.cjs")) as {
+      applyTransaction(desired: unknown, options: { readonly failAtCommit: number }): unknown;
+    };
+    fs.mkdirSync(path.join(fixtureRoot, "managed"), { recursive: true });
+    const payloadPath = path.join(fixtureRoot, "managed", "payload.txt");
+    const stateFile = path.join(fixtureRoot, "managed", "state.json");
+    fs.writeFileSync(payloadPath, "original payload\n", "utf8");
+    fs.writeFileSync(stateFile, "original state\n", "utf8");
+    const before = treeFingerprint(fixtureRoot);
+    const digest = (value: Buffer): string => crypto.createHash("sha256").update(value).digest("hex");
+    const desired = state.createDesiredState({
+      host: "claude",
+      target: projectTarget.resolveProjectTarget(fixtureRoot),
+      managedRoots: ["managed"],
+      statePath: "managed/state.json",
+      entries: [
+        {
+          relativePath: "managed/payload.txt",
+          expectedDigest: digest(fs.readFileSync(payloadPath)),
+          content: Buffer.from("replacement payload\n", "utf8"),
+        },
+        {
+          relativePath: "managed/state.json",
+          expectedDigest: digest(fs.readFileSync(stateFile)),
+          content: Buffer.from("replacement state\n", "utf8"),
+        },
+      ],
+    });
+    let failedClosed = false;
+    try {
+      transaction.applyTransaction(desired, { failAtCommit: 1 });
+    } catch (error) {
+      failedClosed = isRecord(error) && error.code === "transaction_failed";
+    }
+    return failedClosed && treeFingerprint(fixtureRoot) === before &&
+      !fs.readdirSync(fixtureRoot).some((name) => name.startsWith(".kcoderag-nav-recovery-"));
+  } catch {
+    return false;
+  }
+}
+
+function installedRuntimeEvidence(
+  host: HostId,
+  packageRoot: string | undefined,
+  projectRoot: string,
+  artifact: VerifiedTarballArtifact,
+  projectsRoot: string,
+  runNpm: NpmRunner,
+): InstalledRuntimeEvidence {
+  const failed = Object.freeze({
+    nativeFirstWrite: false,
+    singleTransaction: false,
+    unrelatedTreePreserved: false,
+    rollbackRestored: false,
+    concurrentLoserBlocked: false,
+    assetDriftFailOpen: false,
+    patchEnvelope: false,
+    missingStableIdSilent: false,
+    markerSaturationSilent: false,
+    sessionEndReceiptBound: false,
+  });
+  if (packageRoot === undefined) return failed;
+  try {
+    const jx3 = require(path.join(packageRoot, "dist/hooks/jx3-style-nudge.cjs")) as {
+      readonly JX3_NUDGE: string;
+      structuredMutationPaths(payload: unknown): readonly string[];
+      jx3StyleContribution(payload: unknown, options: Record<string, unknown>): string | undefined;
+    };
+    const marker = require(path.join(packageRoot, "dist/hooks/once-marker.cjs")) as {
+      readonly MAX_NUDGE_MARKERS: number;
+      claimNudgeOnce(payload: unknown, options: Record<string, unknown>): { readonly claimed: boolean };
+    };
+    const cleanup = require(path.join(packageRoot, "dist/hooks/session-cleanup.cjs")) as {
+      sessionEndCleanupProven(host: HostId): boolean;
+      cleanupSessionClaim(payload: unknown, options: Record<string, unknown>): boolean;
+    };
+    const mutationLock = require(path.join(packageRoot, "dist/core/mutation-lock.cjs")) as {
+      acquireMutationLock(input: Record<string, unknown>): { readonly release: () => void };
+    };
+    const cacheRoot = path.join(projectsRoot, `${host}-installed-runtime-cache`);
+    const contributionOptions = { host, managedRoot: projectRoot, cacheRoot };
+    const writePayload = {
+      tool_name: "Write",
+      tool_input: { file_path: path.join(projectRoot, "src", "player.cpp") },
+      session_id: "packed-native-first-write",
+    };
+    const first = jx3.jx3StyleContribution(writePayload, contributionOptions);
+    const repeated = jx3.jx3StyleContribution(writePayload, contributionOptions);
+    const nativeFirstWrite = first === jx3.JX3_NUDGE && repeated === undefined;
+    const missingStableIdSilent = jx3.jx3StyleContribution({
+      tool_name: "Write",
+      tool_input: { file_path: path.join(projectRoot, "src", "missing-id.lua") },
+    }, contributionOptions) === undefined;
+
+    const patch = [
+      "*** Begin Patch",
+      "*** Add File: src/new.cpp",
+      "+int value = 1;",
+      "*** Update File: src/current.lua",
+      "@@",
+      "-local value = 1",
+      "+local value = 2",
+      "*** Delete File: src/deleted.cpp",
+      "*** End Patch",
+    ].join("\n");
+    const patchEnvelope = JSON.stringify(jx3.structuredMutationPaths({
+      tool_name: "apply_patch",
+      tool_input: { command: patch },
+    })) === JSON.stringify(["src/new.cpp", "src/current.lua"]);
+
+    const skillPath = path.join(projectRoot, ...jx3SkillPath(host).split("/"));
+    const skillBytes = fs.readFileSync(skillPath);
+    const beforeDriftMarkers = fs.existsSync(path.join(cacheRoot, "nudges"))
+      ? fs.readdirSync(path.join(cacheRoot, "nudges")).length
+      : 0;
+    fs.appendFileSync(skillPath, "drift\n", "utf8");
+    const driftResult = jx3.jx3StyleContribution({
+      ...writePayload,
+      session_id: "packed-asset-drift",
+    }, contributionOptions);
+    fs.writeFileSync(skillPath, skillBytes);
+    const afterDriftMarkers = fs.existsSync(path.join(cacheRoot, "nudges"))
+      ? fs.readdirSync(path.join(cacheRoot, "nudges")).length
+      : 0;
+    const assetDriftFailOpen = driftResult === undefined && afterDriftMarkers === beforeDriftMarkers;
+
+    const saturatedNames = Array.from({ length: marker.MAX_NUDGE_MARKERS }, (_, index) =>
+      `${crypto.createHash("sha256").update(String(index)).digest("hex")}.claim`);
+    let markerCreated = false;
+    const saturated = marker.claimNudgeOnce({ session_id: "saturated" }, {
+      host,
+      managedRoot: projectRoot,
+      capability: JX3,
+      cacheRoot,
+      files: {
+        ensureDirectory: () => undefined,
+        createExclusive: (filePath: string) => {
+          if (path.basename(filePath) === ".capacity.lock") return true;
+          markerCreated = true;
+          return true;
+        },
+        listFiles: () => saturatedNames,
+        remove: () => undefined,
+      },
+    });
+    const markerSaturationSilent = saturated.claimed === false && markerCreated === false;
+
+    let cleanupAttempted = false;
+    const sessionEndReceiptBound = cleanup.sessionEndCleanupProven(host) === false &&
+      cleanup.cleanupSessionClaim({ hook_event_name: "SessionEnd", session_id: "packed-native-first-write" }, {
+        host,
+        managedRoot: projectRoot,
+        capability: JX3,
+        cacheRoot,
+        remove: () => { cleanupAttempted = true; return true; },
+      }) === false && cleanupAttempted === false;
+
+    const combinedRoot = path.join(projectsRoot, `${host}-single-transaction`);
+    const combinedRuntime = path.join(projectsRoot, `${host}-single-runtime`);
+    fs.mkdirSync(combinedRoot, { recursive: true });
+    const unrelatedPath = path.join(combinedRoot, "user-owned.txt");
+    fs.writeFileSync(unrelatedPath, "preserve me\n", "utf8");
+    const unrelatedBefore = fileFingerprint(unrelatedPath);
+    const combined = runPackageCli(
+      artifact, combinedRoot, combinedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION, JX3] },
+    );
+    const singleTransaction = combined?.changed === true && exactCapabilities(host, combinedRoot, [NAVIGATION, JX3]);
+    const unrelatedTreePreserved = fileFingerprint(unrelatedPath) === unrelatedBefore;
+
+    const busyRoot = path.join(projectsRoot, `${host}-busy`);
+    const busyRuntime = path.join(projectsRoot, `${host}-busy-runtime`);
+    fs.mkdirSync(busyRoot, { recursive: true });
+    const busyLockRoot = process.platform === "win32"
+      ? path.join(busyRuntime, "local-app-data", "kcoderag-nav", "locks")
+      : path.join(busyRuntime, "xdg-cache", "kcoderag-nav", "locks");
+    const handle = mutationLock.acquireMutationLock({ host, targetRoot: busyRoot, lockRoot: busyLockRoot });
+    const beforeBusy = treeFingerprint(busyRoot);
+    let busy: PackageCliResult;
+    try {
+      busy = runPackageCliResult(
+        artifact, busyRoot, busyRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+      );
+    } finally {
+      handle.release();
+    }
+    const concurrentLoserBlocked = isCliError(busy, "target_busy") && treeFingerprint(busyRoot) === beforeBusy;
+
+    return Object.freeze({
+      nativeFirstWrite,
+      singleTransaction,
+      rollbackRestored: rollbackEvidence(packageRoot, path.join(projectsRoot, `${host}-rollback`)),
+      concurrentLoserBlocked,
+      assetDriftFailOpen,
+      patchEnvelope,
+      missingStableIdSilent,
+      markerSaturationSilent,
+      sessionEndReceiptBound,
+      unrelatedTreePreserved,
+    });
+  } catch {
+    return failed;
+  }
+}
+
 async function runRequiredHost(
   host: HostId,
   artifact: VerifiedTarballArtifact,
+  runtimePackageRoot: string | undefined,
   projectsRoot: string,
   stubUrl: string,
   receiptPath: string,
@@ -1272,6 +1542,7 @@ async function runRequiredHost(
   let sourceConflictPath: string | undefined;
   let navigationContract: NavigationContract | undefined;
   let capabilityLifecycle: CapabilityLifecycle | undefined;
+  let runtimeEvidence: InstalledRuntimeEvidence | undefined;
   try {
     const preinstallStatus = runPackageCliResult(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const preinstallDoctor = runPackageCliResult(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
@@ -1300,6 +1571,9 @@ async function runRequiredHost(
       );
       supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
         duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
+      runtimeEvidence = installedRuntimeEvidence(
+        host, runtimePackageRoot, projectRoot, artifact, projectsRoot, runNpm,
+      );
 
       const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
       const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
@@ -1423,6 +1697,16 @@ async function runRequiredHost(
           conflictUninstallBlocked: evidence.conflictUninstallBlocked,
           partialUninstall,
           finalUninstall: evidence.uninstall,
+          nativeFirstWrite: runtimeEvidence?.nativeFirstWrite === true,
+          singleTransaction: runtimeEvidence?.singleTransaction === true,
+          unrelatedTreePreserved: runtimeEvidence?.unrelatedTreePreserved === true,
+          rollbackRestored: runtimeEvidence?.rollbackRestored === true,
+          concurrentLoserBlocked: runtimeEvidence?.concurrentLoserBlocked === true,
+          assetDriftFailOpen: runtimeEvidence?.assetDriftFailOpen === true,
+          patchEnvelope: runtimeEvidence?.patchEnvelope === true,
+          missingStableIdSilent: runtimeEvidence?.missingStableIdSilent === true,
+          markerSaturationSilent: runtimeEvidence?.markerSaturationSilent === true,
+          sessionEndReceiptBound: runtimeEvidence?.sessionEndReceiptBound === true,
         });
     evidence.capabilityLifecycle = completeCapabilityLifecycle(capabilityLifecycle);
     installed = !evidence.uninstall;
@@ -1717,6 +2001,7 @@ export async function runHostSmoke(
         ? await runRequiredHost(
             host,
             acquiredPackage.lifecycleArtifact,
+            acquiredPackage.runtimePackageRoot,
             projectsRoot,
             server.url,
             receiptPath,
