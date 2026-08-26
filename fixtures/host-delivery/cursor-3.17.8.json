@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "host": "cursor",
+  "version": "3.17.8",
+  "stableSessionField": null,
+  "observations": {
+    "nativeInstall": true,
+    "cppCreated": false,
+    "cppModified": false,
+    "luaWritten": false,
+    "structuredTargets": false,
+    "stableSessionRepeated": false,
+    "sentinelVisible": false,
+    "sentinelOnce": false,
+    "validWriteCompleted": false,
+    "emptyWriteCompleted": false,
+    "malformedWriteCompleted": false,
+    "nonzeroWriteCompleted": false,
+    "timeoutWriteCompleted": false
+  },
+  "fixtureDigest": "873ef6dd1fa86ba8aaa4cd5cab5b98fb4ec877cb36f952951344bda771a17cac",
+  "provenanceDigest": "54dc332facf013060e48a62e03db6eee00743b79931073f5204998d2006158e9",
+  "capturedAt": "2026-08-26T13:05:40.257Z",
+  "verdict": "UNSUPPORTED",
+  "reason": "headless_host_unsupported"
+}

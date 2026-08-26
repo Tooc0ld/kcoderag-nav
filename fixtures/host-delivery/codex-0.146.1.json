@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "host": "codex",
+  "version": "0.146.1",
+  "stableSessionField": null,
+  "observations": {
+    "nativeInstall": true,
+    "cppCreated": false,
+    "cppModified": false,
+    "luaWritten": false,
+    "structuredTargets": false,
+    "stableSessionRepeated": false,
+    "sentinelVisible": false,
+    "sentinelOnce": false,
+    "validWriteCompleted": false,
+    "emptyWriteCompleted": false,
+    "malformedWriteCompleted": false,
+    "nonzeroWriteCompleted": false,
+    "timeoutWriteCompleted": false
+  },
+  "fixtureDigest": "0ac62fe8df4df0140a17d2e39821062a51b2d6be1f6ee18cc829f7e679386d7e",
+  "provenanceDigest": "901c7bac5ef7bf006e6964f82d6ca4f415add18a7e8d5a122cacc18335060a68",
+  "capturedAt": "2026-08-26T13:05:29.344Z",
+  "verdict": "UNSUPPORTED",
+  "reason": "native_context_unproved"
+}

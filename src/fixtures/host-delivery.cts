@@ -128,6 +128,14 @@ const MALFORMED_CPP = "fixture-malformed.cpp";
 const NONZERO_CPP = "fixture-nonzero.cpp";
 const TIMEOUT_CPP = "fixture-timeout.cpp";
 const PROBE_RELATIVE_PATH = ".claude/kcoderag-nav/fixture-host-delivery.cjs";
+const CODEX_PROBE_RELATIVE_PATH = ".codex/kcoderag-nav/fixture-host-delivery.cjs";
+
+const HOST_STATE_PATHS: Readonly<Record<HostId, string>> = Object.freeze({
+  claude: ".claude/kcoderag-nav/install-state.json",
+  codex: ".codex/kcoderag-nav/install-state.json",
+  cursor: ".cursor/kcoderag-nav/install-state.json",
+  opencode: ".opencode/kcoderag-nav/install-state.json",
+});
 
 const PROBE_SOURCE = String.raw`"use strict";
 const fs = require("node:fs");
@@ -187,6 +195,79 @@ const CLAUDE_PROMPT = [
   `6. Write ${TIMEOUT_CPP} with exactly: int TimeoutCase = 1;`,
   "A hook warning, malformed hook response, nonzero hook exit, or hook timeout is expected fixture behavior; continue to the next write.",
   `After all six actions complete, write exactly ${COMPLETION_SENTINEL} in assistant text.`,
+].join("\n");
+
+const CODEX_PROMPT = [
+  "Run this closed native-hook fixture exactly as written.",
+  "Use only native filesystem editing tools. Do not read credentials or call MCP tools.",
+  `1. Create ${MAIN_CPP} with exactly: int FixtureValue() { return 1; }`,
+  "After that tool call, if model context supplies a line beginning KCODERAG_FIXTURE_CONTEXT_, repeat the entire exact line in your next assistant text. The full value is not present in this prompt; do not guess it.",
+  `2. Modify ${MAIN_CPP}, changing return 1 to return 2.`,
+  `3. Create ${LUA_FILE} with exactly: return 2`,
+  `4. Create ${MALFORMED_CPP} with exactly: int MalformedCase = 1;`,
+  `5. Create ${NONZERO_CPP} with exactly: int NonzeroCase = 1;`,
+  `6. Create ${TIMEOUT_CPP} with exactly: int TimeoutCase = 1;`,
+  "A hook warning, malformed hook response, nonzero hook exit, or hook timeout is expected fixture behavior; continue to the next write.",
+  `After all six actions complete, write exactly ${COMPLETION_SENTINEL} in assistant text.`,
+].join("\n");
+
+const PORTABLE_PROBE_SOURCE = String.raw`"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  try {
+    const event = JSON.parse(input);
+    const toolInput = event && event.tool_input && typeof event.tool_input === "object"
+      ? event.tool_input
+      : {};
+    const encoded = JSON.stringify(toolInput).toLowerCase();
+    const names = [
+      "fixture-main.cpp",
+      "fixture-malformed.cpp",
+      "fixture-nonzero.cpp",
+      "fixture-timeout.cpp",
+    ];
+    const name = names.find((candidate) => encoded.includes(candidate)) || "";
+    if (name === "fixture-main.cpp") {
+      try {
+        const marker = path.resolve(process.cwd(), ".codex", "kcoderag-nav", "fixture-host-delivery.once");
+        const descriptor = fs.openSync(marker, "wx", 0o600);
+        fs.closeSync(descriptor);
+        process.stdout.write(JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            additionalContext: "KCODERAG_FIXTURE_CONTEXT_7F6D981B9D3C4A22",
+          },
+        }));
+      } catch (error) {
+        if (!error || error.code !== "EEXIST") throw error;
+      }
+      return;
+    }
+    if (name === "fixture-malformed.cpp") {
+      process.stdout.write("{");
+      return;
+    }
+    if (name === "fixture-nonzero.cpp") {
+      process.exitCode = 1;
+      return;
+    }
+    if (name === "fixture-timeout.cpp") {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
+    }
+  } catch {
+    process.exitCode = 0;
+  }
+});
+`;
+
+const SIMPLE_WRITE_PROMPT = [
+  `Create ${MAIN_CPP} with exactly: int FixtureValue() { return 2; }`,
+  `Then create ${LUA_FILE} with exactly: return 2`,
+  `After both writes, reply exactly ${COMPLETION_SENTINEL}.`,
 ].join("\n");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -330,7 +411,8 @@ function isolatedInstallEnvironment(runtimeRoot: string): NodeJS.ProcessEnv {
   fs.mkdirSync(claudeRoot, { recursive: true });
   fs.mkdirSync(npmCache, { recursive: true });
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-    !/^(?:npm_config_.*|node_auth_token|npm_token|node_options)$/iu.test(key)));
+    !/^(?:npm_config_.*|node_auth_token|npm_token|node_options|codex_home|cursor_config_dir|opencode_config_dir)$/iu
+      .test(key)));
   return {
     ...environment,
     CLAUDE_CONFIG_DIR: claudeRoot,
@@ -379,6 +461,7 @@ function packRepository(repositoryRoot: string, runtimeRoot: string): string {
 }
 
 function installPackedCli(
+  host: HostId,
   tarballPath: string,
   projectPath: string,
   runtimeRoot: string,
@@ -392,7 +475,7 @@ function installPackedCli(
     "kcoderag-nav",
     "install",
     "--host",
-    "claude",
+    host,
     "--target",
     projectPath,
     "--yes",
@@ -404,7 +487,7 @@ function installPackedCli(
     commandShim: true,
   });
   const installed = result.code === 0 && !result.timedOut &&
-    fs.existsSync(path.join(projectPath, ".claude", "kcoderag-nav", "install-state.json"));
+    fs.existsSync(path.join(projectPath, ...HOST_STATE_PATHS[host].split("/")));
   if (!installed) {
     try {
       const payload: unknown = JSON.parse(result.stdout);
@@ -447,6 +530,29 @@ function installFixtureProbe(projectPath: string): void {
   fs.writeFileSync(probePath, PROBE_SOURCE, { encoding: "utf8", mode: 0o600, flag: "wx" });
   settings.hooks.PreToolUse = [fixtureHookEntry(), ...preToolUse];
   fs.writeFileSync(settingsPath, canonicalJson(settings), { flag: "w" });
+}
+
+function installCodexFixtureProbe(projectPath: string): void {
+  const probePath = path.join(projectPath, ...CODEX_PROBE_RELATIVE_PATH.split("/"));
+  const hooksPath = path.join(projectPath, ".codex", "hooks.json");
+  const document: unknown = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+  if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks.PreToolUse)) {
+    throw new Error("fixture_install_failed");
+  }
+  fs.mkdirSync(path.dirname(probePath), { recursive: true });
+  fs.writeFileSync(probePath, PORTABLE_PROBE_SOURCE, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  document.hooks.PreToolUse = [{
+    matcher: ".*",
+    hooks: [{
+      type: "command",
+      command: `node \"${CODEX_PROBE_RELATIVE_PATH}\"`,
+      commandWindows: `node \"${CODEX_PROBE_RELATIVE_PATH.replaceAll("/", "\\\\")}\"`,
+      timeout: 1,
+      statusMessage: "Checking native delivery fixture",
+      additionalContextLimit: 256,
+    }],
+  }, ...document.hooks.PreToolUse];
+  fs.writeFileSync(hooksPath, canonicalJson(document), { flag: "w" });
 }
 
 function strictClaudeVersion(cwd: string): string | undefined {
@@ -508,9 +614,27 @@ function strictKsccVersion(cwd: string): string | undefined {
   return /^(\d+\.\d+\.\d+)\s*$/u.exec(result.stdout)?.[1];
 }
 
+function strictNativeHostVersion(host: Exclude<HostId, "claude">, cwd: string): string | undefined {
+  const result = runProcess(host, ["--version"], {
+    cwd,
+    timeoutMs: 5_000,
+    commandShim: true,
+  });
+  if (result.code !== 0 || result.timedOut || Buffer.byteLength(result.stdout, "utf8") > 1024) return undefined;
+  if (host === "codex") return /^codex-cli (\d+\.\d+\.\d+)\s*$/u.exec(result.stdout)?.[1];
+  if (host === "cursor") return /^(\d+\.\d+\.\d+)(?:\r?\n|$)/u.exec(result.stdout)?.[1];
+  return /^(\d+\.\d+\.\d+)\s*$/u.exec(result.stdout)?.[1];
+}
+
 function expectedTarget(input: unknown): string | undefined {
-  if (!isRecord(input) || typeof input.file_path !== "string" || input.file_path.length > 32 * 1024) return undefined;
-  return path.basename(input.file_path).toLowerCase();
+  if (!isRecord(input)) return undefined;
+  if (typeof input.file_path === "string" && input.file_path.length <= 32 * 1024) {
+    return path.basename(input.file_path).toLowerCase();
+  }
+  let encoded: string;
+  try { encoded = JSON.stringify(input).toLowerCase(); } catch { return undefined; }
+  return [MAIN_CPP, LUA_FILE, MALFORMED_CPP, NONZERO_CPP, TIMEOUT_CPP]
+    .find((candidate) => encoded.includes(candidate));
 }
 
 function observeClaudeStream(stdout: string): StreamObservations {
@@ -596,6 +720,52 @@ function runClaudeSession(projectPath: string): {
   return Object.freeze({ result, stream: observeClaudeStream(result.stdout) });
 }
 
+function runCodexSession(projectPath: string): {
+  readonly result: CommandResult;
+  readonly stream: StreamObservations;
+} {
+  const result = runProcess("codex", [
+    "exec",
+    "--ephemeral",
+    "--ignore-user-config",
+    "--dangerously-bypass-hook-trust",
+    "--json",
+    "--sandbox", "workspace-write",
+    "--cd", projectPath,
+    CODEX_PROMPT,
+  ], {
+    cwd: projectPath,
+    env: realClaudeEnvironment(),
+    timeoutMs: CLAUDE_SESSION_TIMEOUT_MS,
+    commandShim: true,
+  });
+  return Object.freeze({ result, stream: observeClaudeStream(result.stdout) });
+}
+
+function runOpenCodeSession(projectPath: string): CommandResult {
+  return runProcess("opencode", [
+    "run",
+    "--format", "json",
+    "--dir", projectPath,
+    "--auto",
+    SIMPLE_WRITE_PROMPT,
+  ], {
+    cwd: projectPath,
+    env: realClaudeEnvironment(),
+    timeoutMs: COMMAND_TIMEOUT_MS,
+    commandShim: true,
+  });
+}
+
+function runCursorCapabilityProbe(projectPath: string): CommandResult {
+  return runProcess("cursor", ["agent", "--help"], {
+    cwd: projectPath,
+    env: realClaudeEnvironment(),
+    timeoutMs: 10_000,
+    commandShim: true,
+  });
+}
+
 function completeObservationRecord(value: Partial<HostDeliveryObservations>): HostDeliveryObservations {
   return Object.freeze(Object.fromEntries(
     OBSERVATION_KEYS.map((key) => [key, value[key] === true]),
@@ -649,23 +819,127 @@ function removeTemporaryTree(treePath: string): boolean {
   return false;
 }
 
-function captureUnsupported(options: CaptureOptions): HostDeliveryReceipt {
-  const observations = completeObservationRecord({});
-  const stable = {
-    schemaVersion: 1 as const,
-    host: options.host,
-    version: options.expectedVersion,
-    stableSessionField: null,
-    observations,
-    fixtureDigest: sha256(`${options.host}\0${PROBE_SOURCE}\0${CLAUDE_PROMPT}`),
-    provenanceDigest: sha256(`${options.host}\0${options.expectedVersion}\0unsupported`),
-    verdict: "UNSUPPORTED" as const,
-    reason: "headless_host_unsupported" as const,
-  };
-  return parseHostDeliveryReceipt({
-    ...stable,
-    capturedAt: captureTimestamp(options.receiptPath, stable),
-  });
+async function captureNativeHost(
+  options: CaptureOptions & { readonly host: Exclude<HostId, "claude"> },
+): Promise<HostDeliveryReceipt> {
+  const repositoryRoot = path.resolve(__dirname, "../..");
+  const projectPath = safeProjectPath(repositoryRoot, options.projectPath);
+  if (fs.existsSync(projectPath)) throw new Error("project_exists");
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-host-delivery-"));
+  let projectCreated = false;
+  let captureError: Error | undefined;
+  let receipt: HostDeliveryReceipt | undefined;
+  try {
+    const observedVersion = strictNativeHostVersion(options.host, repositoryRoot);
+    if (observedVersion === undefined || observedVersion !== options.expectedVersion) {
+      throw new Error("version_mismatch");
+    }
+    const tarballPath = packRepository(repositoryRoot, runtimeRoot);
+    const tarballBytes = fs.readFileSync(tarballPath);
+    fs.mkdirSync(projectPath, { recursive: true });
+    projectCreated = true;
+    const installed = installPackedCli(options.host, tarballPath, projectPath, runtimeRoot, repositoryRoot);
+
+    let stableSessionField: StableSessionField | null = null;
+    let observations = completeObservationRecord({ nativeInstall: installed });
+    let verdict: HostDeliveryVerdict = "UNSUPPORTED";
+    let reason: HostDeliveryReason;
+    let fixtureSource: string;
+
+    if (options.host === "codex") {
+      installCodexFixtureProbe(projectPath);
+      const session = runCodexSession(projectPath);
+      const mainFinal = fileEquals(projectPath, MAIN_CPP, "int FixtureValue() { return 2; }");
+      const luaFinal = fileEquals(projectPath, LUA_FILE, "return 2");
+      const malformedFinal = fileEquals(projectPath, MALFORMED_CPP, "int MalformedCase = 1;");
+      const nonzeroFinal = fileEquals(projectPath, NONZERO_CPP, "int NonzeroCase = 1;");
+      const timeoutFinal = fileEquals(projectPath, TIMEOUT_CPP, "int TimeoutCase = 1;");
+      const sentinelClaimed = fs.existsSync(path.join(
+        projectPath,
+        ".codex",
+        "kcoderag-nav",
+        "fixture-host-delivery.once",
+      ));
+      const targetCounts = session.stream.targetCounts;
+      const targetsObserved = (targetCounts.get(MAIN_CPP) ?? 0) >= 2 &&
+        [LUA_FILE, MALFORMED_CPP, NONZERO_CPP, TIMEOUT_CPP]
+          .every((name) => (targetCounts.get(name) ?? 0) >= 1);
+      stableSessionField = session.stream.stableSessionField;
+      observations = completeObservationRecord({
+        nativeInstall: installed,
+        cppCreated: mainFinal,
+        cppModified: mainFinal && (targetCounts.get(MAIN_CPP) ?? 0) >= 2,
+        luaWritten: luaFinal,
+        structuredTargets: targetsObserved,
+        stableSessionRepeated: stableSessionField !== null,
+        sentinelVisible: session.stream.sentinelAssistantTexts === 1,
+        sentinelOnce: sentinelClaimed && session.stream.sentinelAssistantTexts === 1,
+        validWriteCompleted: mainFinal,
+        emptyWriteCompleted: luaFinal,
+        malformedWriteCompleted: malformedFinal,
+        nonzeroWriteCompleted: nonzeroFinal,
+        timeoutWriteCompleted: timeoutFinal,
+      });
+      const passed = session.result.code === 0 && !session.result.timedOut &&
+        session.stream.completionVisible && OBSERVATION_KEYS.every((key) => observations[key]);
+      verdict = passed ? "PASS" : "UNSUPPORTED";
+      reason = passed
+        ? "verified"
+        : session.result.code !== 0 || session.result.timedOut
+          ? "native_session_failed"
+          : "native_context_unproved";
+      fixtureSource = `${PORTABLE_PROBE_SOURCE}\0${CODEX_PROMPT}\0codex-0.146.1-v1`;
+    } else if (options.host === "opencode") {
+      runOpenCodeSession(projectPath);
+      const mainFinal = fileEquals(projectPath, MAIN_CPP, "int FixtureValue() { return 2; }");
+      const luaFinal = fileEquals(projectPath, LUA_FILE, "return 2");
+      observations = completeObservationRecord({
+        nativeInstall: installed,
+        cppCreated: mainFinal,
+        luaWritten: luaFinal,
+        validWriteCompleted: mainFinal,
+        emptyWriteCompleted: luaFinal,
+      });
+      reason = "native_context_unproved";
+      fixtureSource = `${SIMPLE_WRITE_PROMPT}\0opencode-post-execution-only-v1`;
+    } else {
+      const capability = runCursorCapabilityProbe(projectPath);
+      reason = capability.code === 0 && !capability.timedOut
+        ? "headless_host_unsupported"
+        : "native_session_failed";
+      fixtureSource = "cursor-agent-headless-capability-probe-v1";
+    }
+
+    const stable = {
+      schemaVersion: 1 as const,
+      host: options.host,
+      version: observedVersion,
+      stableSessionField,
+      observations,
+      fixtureDigest: sha256(fixtureSource),
+      provenanceDigest: sha256(Buffer.concat([
+        tarballBytes,
+        Buffer.from(`\0${options.host}\0${observedVersion}`, "utf8"),
+      ])),
+      verdict,
+      reason,
+    };
+    receipt = parseHostDeliveryReceipt({
+      ...stable,
+      capturedAt: captureTimestamp(options.receiptPath, stable),
+    });
+  } catch (error) {
+    captureError = error instanceof Error ? error : new Error("capture_failed");
+  } finally {
+    let cleanupFailed = false;
+    if (projectCreated) cleanupFailed = !removeTemporaryTree(projectPath);
+    cleanupFailed = !removeTemporaryTree(runtimeRoot) || cleanupFailed;
+    if (cleanupFailed) captureError = new Error("cleanup_failed");
+  }
+  if (receipt !== undefined) writeReceipt(options.receiptPath, receipt);
+  if (captureError !== undefined) throw captureError;
+  if (receipt === undefined) throw new Error("capture_failed");
+  return receipt;
 }
 
 async function captureClaude(options: CaptureOptions): Promise<HostDeliveryReceipt> {
@@ -687,7 +961,7 @@ async function captureClaude(options: CaptureOptions): Promise<HostDeliveryRecei
     const provenanceDigest = sha256(fs.readFileSync(tarballPath));
     fs.mkdirSync(projectPath, { recursive: true });
     projectCreated = true;
-    const installed = installPackedCli(tarballPath, projectPath, runtimeRoot, repositoryRoot);
+    const installed = installPackedCli("claude", tarballPath, projectPath, runtimeRoot, repositoryRoot);
     installFixtureProbe(projectPath);
     const session = runClaudeSession(projectPath);
     if (session.result.code !== 0 || session.result.timedOut) throw new Error("native_session_failed");
@@ -759,9 +1033,7 @@ async function captureClaude(options: CaptureOptions): Promise<HostDeliveryRecei
 
 async function capture(options: CaptureOptions): Promise<HostDeliveryReceipt> {
   if (options.host !== "claude") {
-    const receipt = captureUnsupported(options);
-    writeReceipt(options.receiptPath, receipt);
-    return receipt;
+    return captureNativeHost({ ...options, host: options.host });
   }
   return captureClaude(options);
 }
