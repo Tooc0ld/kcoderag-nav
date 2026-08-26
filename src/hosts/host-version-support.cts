@@ -1,14 +1,6 @@
-/** Exact JX3 host support derived only from frozen PASS receipt digests. */
-
-const fs = require("node:fs") as typeof import("node:fs");
-const path = require("node:path") as typeof import("node:path");
+/** Runtime-self-contained JX3 support frozen from build-time verified PASS receipts. */
 
 import type { HostId } from "../core/contracts.cjs";
-import {
-  receiptDigest,
-  verifyReceiptFile,
-  type HostDeliveryReceipt,
-} from "../fixtures/host-delivery.cjs";
 
 export interface HostVersionSupportRow {
   readonly host: HostId;
@@ -28,50 +20,22 @@ export const HOST_VERSION_SUPPORT_ROWS: readonly HostVersionSupportRow[] = Objec
   Object.freeze({
     host: "claude" as const,
     version: "2.1.241",
+    // Build-time fixture tests bind this audit locator to the frozen digest below.
     receiptPath: "fixtures/host-delivery/claude-2.1.241.json",
     receiptDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
   }),
 ]);
 
-function isContainedReceipt(repositoryRoot: string, relativePath: string): string | undefined {
-  try {
-    const root = fs.realpathSync(repositoryRoot);
-    const absolutePath = path.resolve(root, ...relativePath.split("/"));
-    const relative = path.relative(root, absolutePath);
-    if (relative.length === 0 || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      return undefined;
-    }
-    return absolutePath;
-  } catch {
-    return undefined;
-  }
-}
-
-function validatedRowReceipt(
-  row: HostVersionSupportRow,
-  repositoryRoot: string,
-): HostDeliveryReceipt | undefined {
-  const receiptPath = isContainedReceipt(repositoryRoot, row.receiptPath);
-  if (receiptPath === undefined) return undefined;
-  try {
-    const receipt = verifyReceiptFile(receiptPath, true);
-    if (receipt.host !== row.host || receipt.version !== row.version || receiptDigest(receipt) !== row.receiptDigest) {
-      return undefined;
-    }
-    return receipt;
-  } catch {
-    return undefined;
-  }
-}
-
 export function evaluateHostVersionSupport(
   host: HostId,
   version: string,
-  repositoryRoot: string = path.resolve(__dirname, "../.."),
+  repositoryRoot?: string,
 ): HostVersionSupportResult {
+  // Kept as a compatibility-only parameter; runtime support never reads repository evidence.
+  void repositoryRoot;
   const row = HOST_VERSION_SUPPORT_ROWS.find((candidate) =>
     candidate.host === host && candidate.version === version);
-  if (row !== undefined && validatedRowReceipt(row, repositoryRoot) !== undefined) {
+  if (row !== undefined) {
     return Object.freeze({
       navigation: true as const,
       jx3StyleNudge: true,
