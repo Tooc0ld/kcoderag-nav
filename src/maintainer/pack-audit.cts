@@ -30,6 +30,7 @@ export class PackAuditError extends Error {
 const REQUIRED_ASSETS = Object.freeze([
   "dist/bin/kcoderag-nav.cjs",
   "dist/cli/commands.cjs",
+  "dist/core/mutation-lock.cjs",
   "dist/core/project-root.cjs",
   "dist/core/transaction.cjs",
   "dist/hosts/codex.cjs",

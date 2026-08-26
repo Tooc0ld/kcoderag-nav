@@ -29,6 +29,7 @@ const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
 const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
 const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
 const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
+const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -87,6 +88,7 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
 test("requires exact archive equality and all self-contained host assets", () => {
   const exact = baseline();
   assert.equal(packAudit.validatePack(exact).entryCount, exact.expectedPaths.length);
+  assert.equal(exact.expectedPaths.includes(MUTATION_LOCK_PATH), true);
 
   const missing = baseline();
   missing.archiveEntries.delete("kcoderag-qa/hooks/grep-nudge.cjs");
@@ -102,6 +104,17 @@ test("requires exact archive equality and all self-contained host assets", () =>
   missingHost.archiveEntries.delete("kcoderag-cursor/rules/kcoderag-navigation.mdc");
   expectCode(
     () => packAudit.validatePack({ ...missingHost, expectedPaths: reduced }),
+    "missing_self_contained_asset",
+  );
+
+  const missingLock = baseline();
+  const withoutLock = missingLock.expectedPaths.filter((relativePath) => relativePath !== MUTATION_LOCK_PATH);
+  missingLock.packageJson.files = missingLock.packageJson.files.filter(
+    (relativePath: string) => relativePath !== MUTATION_LOCK_PATH,
+  );
+  missingLock.archiveEntries.delete(MUTATION_LOCK_PATH);
+  expectCode(
+    () => packAudit.validatePack({ ...missingLock, expectedPaths: withoutLock }),
     "missing_self_contained_asset",
   );
 });
