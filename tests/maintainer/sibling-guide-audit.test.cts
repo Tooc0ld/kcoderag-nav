@@ -112,13 +112,19 @@ test("records and verifies guide-only commit evidence with unchanged unrelated s
     commitGuide(item.siblingRepo);
     const receipt = audit.recordSiblingReceipt(baseline, item);
     assert.deepEqual(audit.verifySiblingReceipt(receipt), receipt);
+    assert.equal(receipt.schemaVersion, 3);
     assert.equal(receipt.beforeUnrelatedStatusDigest, receipt.afterUnrelatedStatusDigest);
     assert.equal(receipt.commitParent, receipt.baselineHead);
     assert.deepEqual(receipt.commitFiles, [GUIDE]);
     assert.equal(receipt.baselineGuideDigest, baseline.guideDigest);
     assert.equal(receipt.guideDigest, sha256File(path.join(item.siblingRepo, GUIDE)));
+    assert.equal(receipt.guideCommit, receipt.kcoderag_head);
+    assert.equal(receipt.guideCommitParent, receipt.commitParent);
+    assert.equal(receipt.guideCommitDigest, receipt.guideDigest);
     assert.equal(Object.hasOwn(receipt, "siblingRepo"), false);
     assert.equal(receipt.secret_scan, true);
+    assert.equal(receipt.unrelatedStatusPreserved, true);
+    assert.equal(receipt.dualHeadsValid, true);
     assert.match(receipt.kcoderag_head, /^[0-9a-f]{40}$/);
     assert.match(receipt.kcoderag_nav_head, /^[0-9a-f]{40}$/);
   } finally {
@@ -241,7 +247,7 @@ test("refuses added, removed, or changed unrelated sibling status", () => {
   }
 });
 
-test("receipt verification rejects extra commit files, invalid hashes, digest drift, and secret values", () => {
+test("receipt verification rejects commit binding drift, extra files, invalid hashes, status drift, and secrets", () => {
   const item = fixture();
   try {
     const baseline = audit.captureBaseline(item);
@@ -251,6 +257,10 @@ test("receipt verification rejects extra commit files, invalid hashes, digest dr
       [(receipt: JsonMap) => receipt.commitFiles.push("extra.md"), "invalid_commit_files"],
       [(receipt: JsonMap) => { receipt.kcoderag_head = "abc"; }, "invalid_hash"],
       [(receipt: JsonMap) => { receipt.afterUnrelatedStatusDigest = "0".repeat(64); }, "unrelated_status_changed"],
+      [(receipt: JsonMap) => { receipt.guideCommit = "f".repeat(40); }, "guide_commit_binding_mismatch"],
+      [(receipt: JsonMap) => { receipt.guideCommitDigest = "f".repeat(64); }, "guide_commit_binding_mismatch"],
+      [(receipt: JsonMap) => { receipt.unrelatedStatusPreserved = false; }, "invalid_receipt"],
+      [(receipt: JsonMap) => { receipt.dualHeadsValid = false; }, "invalid_receipt"],
       [(receipt: JsonMap) => { receipt.baselineDigest = "0".repeat(64); }, "baseline_digest_mismatch"],
       [(receipt: JsonMap) => { receipt.note = "Bearer secret-value-that-must-never-echo"; }, "secret_like_value"],
     ] as const) {

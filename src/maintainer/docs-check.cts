@@ -26,8 +26,8 @@ const POLICIES = new Set<DocsPolicy>([
   "sibling-guide",
 ]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".mdc", ".markdown", ".tmpl"]);
-const ACTIVE_HEADING = /(?:install|setup|quick\s*start|usage|update|uninstall|接入|安装|使用|更新|卸载)/i;
-const HISTORY_HEADING = /(?:history|historical|migration\s+history|changelog|planning|历史|规划|回溯)/i;
+const ACTIVE_HEADING = /(?:install|setup|quick\s*start|usage|update|uninstall|cleanup|migration|source|capabilit|state|support|integrity|marker|接入|安装|使用|更新|卸载|清理|迁移|来源|能力|状态|支持|完整性|缓存|提示)/i;
+const HISTORY_HEADING = /(?:history|historical|superseded|retired|migration\s+history|changelog|planning|历史|规划|回溯|归档|已取代)/i;
 const SECRET_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i,
   /\b(?:api[_-]?key|access[_-]?token|secret)\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,}/i,
@@ -64,7 +64,11 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_project_npx",
-    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor|opencode)/iu,
+    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor|opencode)[\s\S]{0,160}--capability\s+kcoderag-navigation/iu,
+  },
+  {
+    code: "missing_topic_capabilities",
+    pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*jx3-style-nudge)/u,
   },
   {
     code: "missing_topic_lifecycle",
@@ -79,8 +83,28 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     pattern: /source_conflict[\s\S]{0,120}ok\s*[:：]?\s*`?false/iu,
   },
   {
-    code: "missing_topic_manual_only",
-    pattern: /(?:manual-only|只报告[^\n]{0,80}人工|人工清理)/iu,
+    code: "missing_topic_all_mutation_gate",
+    pattern: /(?=[\s\S]*(?:install|安装))(?=[\s\S]*(?:update|更新))(?=[\s\S]*(?:uninstall|卸载))(?=[\s\S]*(?:same\s+(?:source\s+)?gate|all\s+mutations|全部变更命令|同一来源门禁))[\s\S]*(?:zero\s+writes?|零写|写入前|before[^\n]{0,40}writ)/iu,
+  },
+  {
+    code: "missing_topic_no_source_authority",
+    pattern: /(?:does\s+not|no|without|不|没有|无)[^\n]{0,100}(?:migrat|adopt|automatic(?:ally)?\s+clean|cleanup\s+(?:path|authority|command)|迁移|接管|自动清理|清理命令)/iu,
+  },
+  {
+    code: "missing_topic_additive_lifecycle",
+    pattern: /(?:installed\s*[∪\u222a]\s*selected|installed[^\n]{0,80}selected|已安装集合[^\n]{0,80}(?:所选|选择)|所选[^\n]{0,80}加入已安装集合)/iu,
+  },
+  {
+    code: "missing_topic_explicit_uninstall",
+    pattern: /(?:uninstall|卸载)[\s\S]{0,240}(?:--all|explicit[^\n]{0,60}capability|显式[^\n]{0,60}(?:capability|能力)|绝不默认全删|never\s+defaults?)/iu,
+  },
+  {
+    code: "missing_topic_complete_integrity",
+    pattern: /(?=[\s\S]*(?:composite\s+digest|compositeDigest|复合摘要))(?=[\s\S]*(?:every|all|全部|每个)[^\n]{0,80}(?:managed\s+file|受管文件))(?=[\s\S]*capability_drift)/iu,
+  },
+  {
+    code: "missing_topic_d19_manual_reset",
+    pattern: /(?=[\s\S]*(?:close|关闭)[\s\S]{0,180}(?:session|会话))(?=[\s\S]*kcoderag-nav[\\/]nudges)(?=[\s\S]*(?:status|doctor)[\s\S]{0,160}(?:read-only|只读))(?=[\s\S]*fail-open)/iu,
   },
   {
     code: "missing_topic_evidence_boundary",
@@ -90,20 +114,8 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
-    code: "missing_topic_fingerprint_cleanup",
-    pattern: /--allow-owned-source-cleanup[\s\S]{0,160}--cleanup-fingerprint\s+sha256:/iu,
-  },
-  {
-    code: "missing_topic_codex_capability",
-    pattern: /codex\s+plugin\s+remove\s+PLUGIN@MARKETPLACE\s+--json[\s\S]{0,500}codex\s+plugin\s+marketplace\s+remove\s+kcoderag-nav\s+--json/iu,
-  },
-  {
-    code: "missing_topic_claude_capability",
-    pattern: /claude\s+plugin\s+uninstall\s+PLUGIN@MARKETPLACE\s+--scope\s+user\|project\|local[\s\S]{0,500}claude\s+plugin\s+marketplace\s+remove\s+MARKETPLACE\s+--scope\s+SCOPE/iu,
-  },
-  {
-    code: "missing_topic_post_cleanup_rescan",
-    pattern: /(?:post-removal[\s\S]{0,80}rescan|清理后[\s\S]{0,100}(?:复扫|rescan)|完整\s*post-removal\s+rescan)/iu,
+    code: "missing_topic_exact_host_support",
+    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,80}2\.1\.241[^\n]{0,100}(?:PASS|支持|supported))(?=[\s\S]*Codex[^\n]{0,80}0\.146\.1[^\n]{0,100}UNSUPPORTED)(?=[\s\S]*Cursor[^\n]{0,80}3\.17\.8[^\n]{0,100}UNSUPPORTED)(?=[\s\S]*OpenCode[^\n]{0,80}1\.18\.23[^\n]{0,100}UNSUPPORTED)/iu,
   },
   {
     code: "missing_topic_nearest_state",
@@ -315,7 +327,8 @@ function inspectFile(
     }
 
     if (!inspectAsCommand) continue;
-    if (/\bpython(?:3)?\b[^\n]*(?:\.py\b|manage_|install|update|uninstall)/i.test(line)) {
+    if (/\bpython(?:3)?\b[^\n]*(?:\.py\b|manage_|install|update|uninstall)/i.test(line) &&
+        !/(?:do\s+not\s+need|don't\s+need|without|retired|ha(?:s|ve)\s+no|不需要|无需|已退役)/iu.test(line)) {
       addDiagnostic(diagnostics, "forbidden_python_command", displayPath, lineNumber);
     }
     if (/\bgit\s+clone\b/i.test(line)) {
@@ -334,6 +347,19 @@ function inspectFile(
     }
     if (/\bnpx\s+kcoderag-nav@latest\s+doctor\b[^\n]*--fix\b/iu.test(line)) {
       addDiagnostic(diagnostics, "doctor_fix_claim", displayPath, lineNumber);
+    }
+    if (/--allow-(?:owned-source-cleanup|legacy-dev-migration|legacy-user-removal)\b|--cleanup-fingerprint\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "retired_authority_claim", displayPath, lineNumber);
+    }
+    if (/\b(?:codex|claude)\s+plugin\s+(?:remove|uninstall|marketplace\s+remove)\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "retired_cleanup_command", displayPath, lineNumber);
+    }
+    if (/\b(?:python\s+[^\n]*(?:scanner|scan)|jx3[^\n]*(?:scanner|scan)|scanner[^\n]*(?:passed|通过)|静态扫描通过)\b/iu.test(line)) {
+      addDiagnostic(diagnostics, "scanner_claim", displayPath, lineNumber);
+    }
+    if (/\b(?:Codex|Cursor|OpenCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}\bJX3\b/iu.test(line) &&
+        !/(?:UNSUPPORTED|unsupported|does\s+not|not\s+supported|不支持|拒绝|不能|零写)/iu.test(line)) {
+      addDiagnostic(diagnostics, "unsupported_jx3_claim", displayPath, lineNumber);
     }
     if (/\bcodex\s+plugin\s+marketplace\s+remove\b/iu.test(line) &&
         !/\bcodex\s+plugin\s+marketplace\s+remove\s+kcoderag-nav\s+--json\b/iu.test(line)) {

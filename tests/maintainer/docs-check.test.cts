@@ -78,31 +78,28 @@ const CANONICAL_REPO_DOCS = Object.freeze([
 
 function completePublicContract(): string {
   return [
-    "# Install QA into one project",
-    "QA is the only public environment. The current directory is the exact project target.",
+    "# Install capabilities into one project",
+    "QA is the only public environment for MCP. The current directory is the exact project target.",
+    "The built-ins are kcoderag-navigation and jx3-style-nudge.",
+    "Install composes installed ∪ selected. Uninstall needs an explicit capability or --all and never defaults to everything.",
     "status is a fast read-only project check; doctor is a read-only deep source scan.",
-    "An active source is source_conflict with ok: false. Ambiguous sources stay manual-only.",
-    "Cleanup requires a versioned capability preflight, exact sha256: fingerprint, and complete post-removal rescan.",
-    "The degraded path is exclusive legacy ownership; Claude marketplace removal needs exclusive ownership.",
+    "An active source is source_conflict with ok: false. The same source gate covers all mutations before writes.",
+    "The CLI does not migrate, adopt, or automatically clean manual sources.",
+    "Current state binds one composite digest and every managed file; drift reports capability_drift.",
+    "Close every related host session, remove kcoderag-nav/nudges, then reopen. status and doctor remain read-only; failure is fail-open.",
+    "Claude Code 2.1.241 is supported with PASS.",
+    "Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.",
     "Codex and Claude find the nearest state; a damaged boundary never falls through; complete project move works.",
     "Cursor uses an always-on Rule and does not use an equivalent PreToolUse Hook.",
     "Phase 06 owns authenticated real-host MCP query evidence.",
     "",
     "```powershell",
-    "npx kcoderag-nav@latest install --host codex",
+    "npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation",
     "npx kcoderag-nav@latest status --host codex",
     "npx kcoderag-nav@latest doctor --host codex",
     "npx kcoderag-nav@latest update --host codex",
-    "npx kcoderag-nav@latest uninstall --host codex",
-    "npx kcoderag-nav@latest update --host codex --yes --allow-owned-source-cleanup --cleanup-fingerprint sha256:<64-lowercase-hex>",
-    "codex plugin remove PLUGIN@MARKETPLACE --json",
-    "codex plugin marketplace remove kcoderag-nav --json",
-    "claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local",
-    "claude plugin marketplace remove MARKETPLACE --scope SCOPE",
+    "npx kcoderag-nav@latest uninstall --host codex --capability kcoderag-navigation",
     "```",
-    "",
-    "# Exact legacy Dev migration",
-    "Dev is not installable; exact legacy state is accepted only for verified migration or uninstall.",
     "",
   ].join("\n");
 }
@@ -191,7 +188,7 @@ test("reports links, obsolete commands, host flags, Cursor hook claims, guide co
   }
 });
 
-test("canonical public contract requires exact QA lifecycle, diagnostics, cleanup, Hook, and evidence topics", () => {
+test("canonical public contract requires capability lifecycle, support, integrity, D-19, Hook, and evidence topics", () => {
   const root = temporaryDirectory("kcoderag-docs-contract-");
   const sibling = temporaryDirectory("kcoderag-docs-contract-sibling-");
   const guide = path.join(sibling, "MCP_QA_EXPERIENCE_GUIDE.md");
@@ -204,10 +201,13 @@ test("canonical public contract requires exact QA lifecycle, diagnostics, cleanu
 
     const cases: readonly [string, string, string, string?][] = [
       ["status is a fast read-only project check; doctor is a read-only deep source scan.", "status and doctor are commands.", "missing_topic_status_doctor"],
-      ["--allow-owned-source-cleanup --cleanup-fingerprint", "--allow-owned-source-cleanup", "missing_topic_fingerprint_cleanup"],
-      ["codex plugin marketplace remove kcoderag-nav --json", "codex cleanup is available", "missing_topic_codex_capability"],
-      ["claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local", "claude cleanup is available", "missing_topic_claude_capability"],
-      ["complete post-removal rescan", "rescan later", "missing_topic_post_cleanup_rescan"],
+      ["The built-ins are kcoderag-navigation and jx3-style-nudge.", "The built-ins are navigation only.", "missing_topic_capabilities"],
+      ["Install composes installed ∪ selected.", "Install replaces selection.", "missing_topic_additive_lifecycle"],
+      ["The same source gate covers all mutations before writes.", "Sources are listed.", "missing_topic_all_mutation_gate"],
+      ["The CLI does not migrate, adopt, or automatically clean manual sources.", "Sources are listed.", "missing_topic_no_source_authority"],
+      ["Current state binds one composite digest and every managed file; drift reports capability_drift.", "Current state records files.", "missing_topic_complete_integrity"],
+      ["Close every related host session, remove kcoderag-nav/nudges, then reopen. status and doctor remain read-only; failure is fail-open.", "Markers are cached.", "missing_topic_d19_manual_reset"],
+      ["Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.", "Other hosts vary.", "missing_topic_exact_host_support"],
       ["a damaged boundary never falls through; complete project move works", "a boundary exists", "missing_topic_nearest_state"],
       ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary", "plugin-src/cursor/README.md.tmpl"],
     ];
@@ -223,7 +223,7 @@ test("canonical public contract requires exact QA lifecycle, diagnostics, cleanu
   }
 });
 
-test("active docs reject public Dev, catalog, clone, Python, unsafe cleanup, and doctor fix instructions", () => {
+test("active docs reject retired authorities, scanner claims, unsupported JX3 parity, and obsolete install surfaces", () => {
   const root = temporaryDirectory("kcoderag-docs-active-policy-");
   try {
     const fixtures: readonly [string, string][] = [
@@ -234,6 +234,11 @@ test("active docs reject public Dev, catalog, clone, Python, unsafe cleanup, and
       ["python scripts/manage_project_install.py install", "forbidden_python_command"],
       ["codex plugin marketplace remove another-marketplace --json", "unsafe_cleanup_command"],
       ["npx kcoderag-nav@latest doctor --host codex --fix", "doctor_fix_claim"],
+      ["npx kcoderag-nav@latest update --host codex --yes --allow-owned-source-cleanup --cleanup-fingerprint sha256:abc", "retired_authority_claim"],
+      ["npx kcoderag-nav@latest update --host codex --yes --allow-legacy-dev-migration", "retired_authority_claim"],
+      ["codex plugin remove PLUGIN@MARKETPLACE --json", "retired_cleanup_command"],
+      ["Run the JX3 scanner and report scanner passed.", "scanner_claim"],
+      ["Cursor supports native pre-write JX3.", "unsupported_jx3_claim"],
     ];
     for (const [instruction, expectedCode] of fixtures) {
       write(root, "README.md", `# Install\n\n${instruction}\n`);
@@ -241,11 +246,9 @@ test("active docs reject public Dev, catalog, clone, Python, unsafe cleanup, and
     }
 
     write(root, "README.md", [
-      "# Exact legacy Dev migration",
-      "Dev is not installable. An exact legacy Dev state may be migrated to QA or uninstalled.",
-      "```powershell",
-      "npx kcoderag-nav@latest update --host codex --yes --allow-legacy-dev-migration",
-      "```",
+      "# Historical migration record",
+      "The retired release used --allow-legacy-dev-migration and codex plugin remove OLD@SOURCE --json.",
+      "Those authorities are unavailable now.",
     ].join("\n"));
     assert.deepEqual(docsCheck.checkDocs(["README.md"], "user-docs", { repoRoot: root }).diagnostics, []);
   } finally {

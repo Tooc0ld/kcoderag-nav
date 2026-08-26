@@ -33,7 +33,7 @@ interface Baseline {
 }
 
 interface Receipt {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly siblingRepoDigest: string;
   readonly guide: string;
   readonly baselineDigest: string;
@@ -41,12 +41,17 @@ interface Receipt {
   readonly guideDigest: string;
   readonly baselineHead: string;
   readonly commitParent: string;
+  readonly guideCommit: string;
+  readonly guideCommitParent: string;
+  readonly guideCommitDigest: string;
   readonly beforeUnrelatedStatusDigest: string;
   readonly afterUnrelatedStatusDigest: string;
   readonly kcoderag_head: string;
   readonly kcoderag_nav_head: string;
   readonly commitFiles: readonly string[];
   readonly secret_scan: true;
+  readonly unrelatedStatusPreserved: true;
+  readonly dualHeadsValid: true;
 }
 
 interface AuthoritativeGuideAudit {
@@ -65,8 +70,8 @@ interface AuthoritativeGuideAudit {
 }
 
 const GUIDE = "MCP_QA_EXPERIENCE_GUIDE.md";
-const PLAN_14_GUIDE_DIGEST = "b2b9b6c3b68d71e1b95278059822915e2212a4767a87bc7c6911c02dd8af0144";
-const PLAN_14_GUIDE_COMMIT = "879c7df0453abc1c1927b908c0d8a0cd9356118d";
+const PLAN_12_GUIDE_DIGEST = "0c122370f1a470d6ac471bd177f83bfa5decf2f4f643618cbbb93698c7c04a2d";
+const PLAN_12_GUIDE_COMMIT = "6617f2cbe450913edc5f78698f5f58e0c83a0bac";
 const HASH_PATTERN = /^[0-9a-f]{40}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const SECRET_PATTERNS = [
@@ -77,8 +82,8 @@ const PACKAGE_ROOT = path.resolve(__dirname, "../..");
 const DEFAULT_OPTIONS: AuditOptions = Object.freeze({
   siblingRepo: path.resolve(PACKAGE_ROOT, "../KCodeRag"),
   navRepo: PACKAGE_ROOT,
-  expectedGuideDigest: PLAN_14_GUIDE_DIGEST,
-  expectedGuideCommit: PLAN_14_GUIDE_COMMIT,
+  expectedGuideDigest: PLAN_12_GUIDE_DIGEST,
+  expectedGuideCommit: PLAN_12_GUIDE_COMMIT,
 });
 
 class SiblingGuideAuditError extends Error {
@@ -284,7 +289,7 @@ function recordSiblingReceipt(
   failUnless(HASH_PATTERN.test(commitParent), "invalid_hash");
   failUnless(currentHead !== baseline.head && commitParent === baseline.head, "baseline_head_mismatch");
   const receipt: Receipt = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     siblingRepoDigest: baseline.siblingRepoDigest,
     guide: GUIDE,
     baselineDigest: baselineEvidenceDigest({
@@ -298,12 +303,17 @@ function recordSiblingReceipt(
     guideDigest: fileDigest(guidePath),
     baselineHead: baseline.head,
     commitParent,
+    guideCommit: currentHead,
+    guideCommitParent: commitParent,
+    guideCommitDigest: fileDigest(guidePath),
     beforeUnrelatedStatusDigest: beforeDigest,
     afterUnrelatedStatusDigest: afterDigest,
     kcoderag_head: currentHead,
     kcoderag_nav_head: readHead(options.navRepo),
     commitFiles,
     secret_scan: true,
+    unrelatedStatusPreserved: true,
+    dualHeadsValid: true,
   };
   return verifySiblingReceipt(receipt);
 }
@@ -319,23 +329,29 @@ function verifySiblingReceipt(value: unknown): Receipt {
     "beforeUnrelatedStatusDigest",
     "commitFiles",
     "commitParent",
+    "dualHeadsValid",
     "guide",
     "guideDigest",
+    "guideCommit",
+    "guideCommitDigest",
+    "guideCommitParent",
     "kcoderag_head",
     "kcoderag_nav_head",
     "schemaVersion",
     "secret_scan",
     "siblingRepoDigest",
+    "unrelatedStatusPreserved",
   ].sort().join("\0");
   failUnless(Object.keys(value).sort().join("\0") === expectedKeys, "invalid_receipt");
   failUnless(
-    value.schemaVersion === 2 && value.guide === GUIDE && value.secret_scan === true,
+    value.schemaVersion === 3 && value.guide === GUIDE && value.secret_scan === true &&
+      value.unrelatedStatusPreserved === true && value.dualHeadsValid === true,
     "invalid_receipt",
   );
-  for (const key of ["baselineHead", "commitParent", "kcoderag_head", "kcoderag_nav_head"] as const) {
+  for (const key of ["baselineHead", "commitParent", "guideCommit", "guideCommitParent", "kcoderag_head", "kcoderag_nav_head"] as const) {
     failUnless(typeof value[key] === "string" && HASH_PATTERN.test(value[key]), "invalid_hash");
   }
-  for (const key of ["baselineDigest", "baselineGuideDigest", "guideDigest", "siblingRepoDigest", "beforeUnrelatedStatusDigest", "afterUnrelatedStatusDigest"] as const) {
+  for (const key of ["baselineDigest", "baselineGuideDigest", "guideDigest", "guideCommitDigest", "siblingRepoDigest", "beforeUnrelatedStatusDigest", "afterUnrelatedStatusDigest"] as const) {
     failUnless(typeof value[key] === "string" && DIGEST_PATTERN.test(value[key]), "invalid_digest");
   }
   failUnless(
@@ -343,6 +359,11 @@ function verifySiblingReceipt(value: unknown): Receipt {
     "unrelated_status_changed",
   );
   failUnless(value.commitParent === value.baselineHead, "baseline_head_mismatch");
+  failUnless(
+    value.guideCommit === value.kcoderag_head && value.guideCommitParent === value.commitParent &&
+      value.guideCommitDigest === value.guideDigest,
+    "guide_commit_binding_mismatch",
+  );
   failUnless(
     value.baselineDigest === baselineEvidenceDigest({
       siblingRepoDigest: value.siblingRepoDigest,
@@ -378,8 +399,8 @@ function auditAuthoritativeGuide(options: AuditOptions = DEFAULT_OPTIONS): Autho
   failUnless(!fs.lstatSync(guidePath).isSymbolicLink(), "symlink_not_allowed", GUIDE);
   assertNoSecretLikeValue(fs.readFileSync(guidePath, "utf8"));
 
-  const expectedGuideDigest = options.expectedGuideDigest ?? PLAN_14_GUIDE_DIGEST;
-  const expectedGuideCommit = options.expectedGuideCommit ?? PLAN_14_GUIDE_COMMIT;
+  const expectedGuideDigest = options.expectedGuideDigest ?? PLAN_12_GUIDE_DIGEST;
+  const expectedGuideCommit = options.expectedGuideCommit ?? PLAN_12_GUIDE_COMMIT;
   failUnless(DIGEST_PATTERN.test(expectedGuideDigest), "invalid_digest");
   failUnless(HASH_PATTERN.test(expectedGuideCommit), "invalid_hash");
   const guideDigest = fileDigest(guidePath);

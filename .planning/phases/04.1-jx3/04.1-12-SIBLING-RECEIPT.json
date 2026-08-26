@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 3,
+  "siblingRepoDigest": "1e7b9e76b27596a4b4d9fc25a6e9b3716e0205a9c923688fe6d640ee5e100a61",
+  "guide": "MCP_QA_EXPERIENCE_GUIDE.md",
+  "baselineDigest": "b83892b7542cf05c4bbfdb8b09eb79e49c068c1ae38cf4916887e65bebdfa62d",
+  "baselineGuideDigest": "9efbf1e8b701a46159cc18474bd0746b7c40e8576329196690af16f2d3fdb84f",
+  "guideDigest": "0c122370f1a470d6ac471bd177f83bfa5decf2f4f643618cbbb93698c7c04a2d",
+  "baselineHead": "5c9a3a42e54320bd2151d385d7224e8a918812ac",
+  "commitParent": "5c9a3a42e54320bd2151d385d7224e8a918812ac",
+  "guideCommit": "6617f2cbe450913edc5f78698f5f58e0c83a0bac",
+  "guideCommitParent": "5c9a3a42e54320bd2151d385d7224e8a918812ac",
+  "guideCommitDigest": "0c122370f1a470d6ac471bd177f83bfa5decf2f4f643618cbbb93698c7c04a2d",
+  "beforeUnrelatedStatusDigest": "3afe6f10fbc009221faec51785623bf23b0aea445e5d01fc4ac3d3c9bc193be2",
+  "afterUnrelatedStatusDigest": "3afe6f10fbc009221faec51785623bf23b0aea445e5d01fc4ac3d3c9bc193be2",
+  "kcoderag_head": "6617f2cbe450913edc5f78698f5f58e0c83a0bac",
+  "kcoderag_nav_head": "7a718b182321237367831b609f9f1c1050acef72",
+  "commitFiles": [
+    "MCP_QA_EXPERIENCE_GUIDE.md"
+  ],
+  "secret_scan": true,
+  "unrelatedStatusPreserved": true,
+  "dualHeadsValid": true
+}
