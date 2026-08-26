@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 current_phase: 04.1
-current_phase_name: jx3
+current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Phase 04.1 context gathered
-last_updated: "2026-08-26T11:42:44.643Z"
+stopped_at: Completed 04.1-02-PLAN.md
+last_updated: "2026-08-26T12:25:31.458Z"
 last_activity: 2026-08-26
-last_activity_desc: Quick 260826-dut completed OpenCode support and four-host MCP call markers
-state_head: cb85989263eb404886abd8c943108639cde32884
+last_activity_desc: Phase 04.1 execution started
+state_head: 77e147697d4e959979fcc1f8f4418183faa7ea17
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 53
+  completed_plans: 54
   percent: 50
 ---
 
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 04.1 — 多能力安装平台与 JX3 规范提示
+**Current focus:** Phase 04.1 — JX3 multi-capability platform
 
 ## Current Position
 
-Phase: 04.1 (jx3) — READY TO EXECUTE
-Plan: Not started
+Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
+Plan: 2 of 12
 Status: Ready to execute
-Last activity: 2026-08-26 — Quick 260826-dut completed OpenCode support and four-host MCP call markers
+Last activity: 2026-08-26 — Phase 04.1 execution started
 
-Progress: [██████░░░░] 56%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -107,6 +107,7 @@ Progress: [██████░░░░] 56%
 | Phase 04-deployment-reliability P13 | 22min | 3 tasks | 8 files |
 | Phase 04 P19 | 20min | 3 tasks | 8 files |
 | Phase 04 P15 | 92m | 3 tasks | 14 files |
+| Phase 04.1 P02 | 13 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -254,6 +255,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: 04-15: preserve distinct immutable implementation, evidence, and release commits in one direct-child chain
 - [Phase 04]: 04-15: retire failed attestation forward and refreeze rather than reuse stale evidence
 - [Phase 04]: Public 0.2.0 and 0.2.1 remain immutable; parser and Windows launcher defects were repaired forward and real Head acceptance converged on exact/latest 0.2.2.
+- [Phase 04.1]: Keep all 27 JX3 rule IDs exactly once in SKILL.md while validating deliberate repetitions by exact reference partition. — This separates compact index completeness from progressive-disclosure detail.
+- [Phase 04.1]: Ship four shallow Markdown references without scanner, Python, SVN, history, build, or deployment workflow content. — The nudge capability remains pure pre-write guidance and future deterministic audit retains scanner ownership.
+- [Phase 04.1]: Treat precedence, changed-region scope, minimal correction, and honest evidence questions as behavior-test contracts. — False-positive restraint is tested alongside positive prescriptions.
 
 ### Pending Todos
 
@@ -316,6 +320,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T08:22:10.189Z
-Stopped at: Phase 04.1 context gathered
-Resume file: .planning/phases/04.1-jx3/04.1-CONTEXT.md
+Last session: 2026-08-26T12:25:31.023Z
+Stopped at: Completed 04.1-02-PLAN.md
+Resume file: None

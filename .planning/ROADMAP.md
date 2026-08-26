@@ -303,9 +303,22 @@ Plans:
   4. 对旧手工 MCP、marketplace/plugin、Python Hook 和多来源冲突只进行 secret-safe 检测，并在写入前硬停止；用户人工清理后可以重试。
   5. 自动化覆盖能力组合、独立更新与卸载、共享配置合成、事务回滚和 legacy 硬停止；公共包继续保持 Node.js 22+、零生产依赖、零 Python 运行时。
 
-**Plans:** 0 plans
+**Plans:** 1/12 plans executed
 
 Plans:
+
+- [ ] 04.1-01-PLAN.md
+- [x] 04.1-02-PLAN.md
+- [ ] 04.1-03-PLAN.md
+- [ ] 04.1-04-PLAN.md
+- [ ] 04.1-05-PLAN.md
+- [ ] 04.1-06-PLAN.md
+- [ ] 04.1-07-PLAN.md
+- [ ] 04.1-08-PLAN.md
+- [ ] 04.1-09-PLAN.md
+- [ ] 04.1-10-PLAN.md
+- [ ] 04.1-11-PLAN.md
+- [ ] 04.1-12-PLAN.md
 
 - [ ] TBD (run $gsd-plan-phase 04.1 to break down)
 
