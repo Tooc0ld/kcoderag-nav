@@ -80,6 +80,8 @@ test("release steps are immutable and execute every gate before one publish", ()
     "npm run deps:audit",
     "npm test",
     "npm run generate:check",
+    "npm run docs:check",
+    "npm run audit:retirement",
     "npm run smoke:required",
     "npm run pack:audit",
     "npm publish --access public --ignore-scripts",
@@ -91,6 +93,8 @@ test("release steps are immutable and execute every gate before one publish", ()
     previous = current;
   }
   assert.equal(source.match(/npm publish/gu)?.length, 1);
+  assert.equal(source.match(/npm run docs:check/gu)?.length, 2);
+  assert.equal(source.match(/npm run audit:retirement/gu)?.length, 2);
 });
 
 test("tag is checked against package version before any build or publication", () => {

@@ -13,6 +13,7 @@ interface GenerationEvidence {
 }
 
 interface ReleaseModule {
+  readonly RELEASE_GATE_SCRIPTS: readonly string[];
   readonly RELEASE_OWNED_PATHS: readonly string[];
   readonly VERSION_MANIFEST_PATHS: readonly string[];
   ReleaseError: new (code: string) => Error & { code: string };
@@ -143,6 +144,8 @@ function snapshotRepository(root: string): Readonly<Record<string, unknown>> {
 }
 
 test("minor dry-run derives exact immutable 0.2.0 state after every configured gate", () => {
+  assert.deepEqual(release.RELEASE_GATE_SCRIPTS, ["ci:local", "docs:check", "audit:retirement"]);
+  assert.equal(Object.isFrozen(release.RELEASE_GATE_SCRIPTS), true);
   assert.deepEqual(release.VERSION_MANIFEST_PATHS, EXPECTED_VERSION_MANIFEST_PATHS);
   assert.deepEqual(release.RELEASE_OWNED_PATHS, EXPECTED_RELEASE_OWNED_PATHS);
   assert.equal(Object.isFrozen(release.VERSION_MANIFEST_PATHS), true);

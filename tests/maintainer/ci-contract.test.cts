@@ -64,6 +64,8 @@ test("every required lane installs the lock without scripts and runs all gates",
     "npm run test:launcher",
     "npm test",
     "npm run generate:check",
+    "npm run docs:check",
+    "npm run audit:retirement",
     "npm run pack:audit",
     "npm run smoke:required",
   ];

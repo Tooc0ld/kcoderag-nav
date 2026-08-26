@@ -25,8 +25,36 @@ const EVIDENCE_PATHS = Object.freeze([
   ".planning/phases/04-deployment-reliability/04-SECURITY.md",
   ".planning/phases/04-deployment-reliability/04-PRE-RELEASE-VERIFICATION.md",
 ] as const);
-const REQUIREMENTS = Object.freeze(["DEP-01", "DEP-02", "DEP-03"] as const);
-const DECISIONS = Object.freeze(Array.from({ length: 16 }, (_, index) => `D-${String(index + 1).padStart(2, "0")}`));
+const REQUIREMENTS = Object.freeze([
+  "PLAT-01", "PLAT-02", "PLAT-03", "LEG-01", "JX3-01", "TEST-10",
+] as const);
+const DECISIONS = Object.freeze(Array.from({ length: 28 }, (_, index) => `D-${String(index + 1).padStart(2, "0")}`));
+const RECEIPTS = Object.freeze([
+  {
+    host: "claude", version: "2.1.241", verdict: "PASS",
+    path: "fixtures/host-delivery/claude-2.1.241.json",
+    receiptDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
+  },
+  {
+    host: "codex", version: "0.146.1", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/codex-0.146.1.json",
+    receiptDigest: "c91ba5c2076543e24cb230a5b92799223f713dcd2746420f3a60c47e1ba25656",
+  },
+  {
+    host: "cursor", version: "3.17.8", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/cursor-3.17.8.json",
+    receiptDigest: "851af61862a80bd9b3bbb1c1714fa23f3aafb208ddada0f4f0a41a047b49b8d1",
+  },
+  {
+    host: "opencode", version: "1.18.23", verdict: "UNSUPPORTED",
+    path: "fixtures/host-delivery/opencode-1.18.23.json",
+    receiptDigest: "401716d80a6f77ce9d218fc6a56996c03132bfa90a6974681e6621ee30a05d45",
+  },
+] as const);
+const READINESS_CHECKS = Object.freeze([
+  "generated-qa", "generated-cursor", "pack-audit", "required-smoke",
+  "docs-check", "security-review", "retirement-audit",
+] as const);
 
 function validFixture(): Record<string, any> {
   return {
@@ -56,6 +84,8 @@ function validFixture(): Record<string, any> {
         verdict: "PASS",
         requirements: [...REQUIREMENTS],
         decisions: [...DECISIONS],
+        receipts: RECEIPTS.map((receipt) => ({ ...receipt })),
+        checks: READINESS_CHECKS.map((name) => ({ name, conclusion: "PASS" })),
       },
     },
     evidenceCommit: {
@@ -97,6 +127,10 @@ test("accepts one immutable subject, evidence-only child, pushed head, and exact
     subjectSha: SUBJECT_SHA,
     subjectTree: SUBJECT_TREE,
     evidenceCommitSha: EVIDENCE_SHA,
+    requirementCount: 6,
+    decisionCount: 28,
+    receiptCount: 4,
+    readinessCheckCount: 7,
     ciJobCount: 4,
   });
   assert.equal(Object.isFrozen(result), true);
@@ -120,6 +154,46 @@ test("rejects bad verdicts and incomplete requirement or decision coverage", () 
   expectCode((fixture) => { fixture.artifacts.security.openHighThreats = 1; }, "security_not_secured");
   expectCode((fixture) => { fixture.artifacts.verification.requirements.pop(); }, "verification_incomplete");
   expectCode((fixture) => { fixture.artifacts.verification.decisions[15] = "D-15"; }, "verification_incomplete");
+});
+
+test("requires exact receipt digests, mandatory Claude PASS, and closed readiness checks", () => {
+  expectCode((fixture) => { fixture.artifacts.verification.receipts.pop(); }, "receipt_inventory_mismatch");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.receipts.push({ ...RECEIPTS[0], host: "extra" });
+  }, "receipt_inventory_mismatch");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.receipts[0].receiptDigest = "4".repeat(64);
+  }, "receipt_digest_mismatch");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.receipts[0].verdict = "NOT_RUN";
+  }, "receipt_verdict_mismatch");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.receipts[1].verdict = "PASS";
+  }, "receipt_verdict_mismatch");
+  expectCode((fixture) => { fixture.artifacts.verification.checks.pop(); }, "readiness_incomplete");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.checks.push({ name: "extra", conclusion: "PASS" });
+  }, "readiness_incomplete");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.checks[0].conclusion = "NOT_RUN";
+  }, "readiness_incomplete");
+  expectCode((fixture) => {
+    fixture.artifacts.verification.checks[0].conclusion = "FAIL";
+  }, "readiness_incomplete");
+});
+
+test("rejects secret-bearing evidence with one stable code and never echoes the value", () => {
+  const sentinel = "Bearer pre-release-secret-value";
+  const fixture = validFixture();
+  fixture.artifacts.verification.checks[0].detail = sentinel;
+  assert.throws(
+    () => evidence.validatePreReleaseEvidence(fixture),
+    (error: unknown) => {
+      assert.equal((error as { code?: unknown }).code, "secret_like_value");
+      assert.equal((error as Error).message.includes(sentinel), false);
+      return true;
+    },
+  );
 });
 
 test("rejects missing, extra, duplicate, failed, or stale CI lanes", () => {
@@ -160,6 +234,8 @@ function artifact(kind: "review" | "security" | "verification", subjectSha: stri
     "verdict: PASS",
     `requirements: ${JSON.stringify(REQUIREMENTS)}`,
     `decisions: ${JSON.stringify(DECISIONS)}`,
+    `receipts: ${JSON.stringify(RECEIPTS)}`,
+    `checks: ${JSON.stringify(READINESS_CHECKS.map((name) => ({ name, conclusion: "PASS" })))}`,
   );
   return `${shared.join("\n")}\n---\n\n# ${kind}\n\nBound audit evidence.\n`;
 }
@@ -231,6 +307,10 @@ test("compiled CLI binds strict Markdown frontmatter to Git and normalized CI ev
       subjectSha: git(repo, ["rev-parse", "HEAD^"]),
       subjectTree: git(repo, ["rev-parse", "HEAD^^{tree}"]),
       evidenceCommitSha: git(repo, ["rev-parse", "HEAD"]),
+      requirementCount: 6,
+      decisionCount: 28,
+      receiptCount: 4,
+      readinessCheckCount: 7,
       ciJobCount: 4,
     });
   } finally {
