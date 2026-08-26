@@ -101,6 +101,9 @@ function packageFixture(base: string) {
       },
     })}\n`);
     write(root, `${name}/hooks/mcp-call-marker.cjs`, `${environment}:marker\n`);
+    write(root, `${name}/hooks/update-check.cjs`, `${environment}:check\n`);
+    write(root, `${name}/hooks/update-notice.cjs`, `${environment}:notice\n`);
+    write(root, `${name}/hooks/update-worker.cjs`, `${environment}:worker\n`);
   }
   write(root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "---\nalwaysApply: true\n---\nUse KCodeRag.\n");
   write(root, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md", "# Cursor lookup\n");
@@ -221,7 +224,7 @@ async function run(
   };
 }
 
-test("Cursor project lifecycle uses Rule, skill, MCP, and afterMCPExecution marker", async () => {
+test("Cursor lifecycle uses Rule, skill, MCP, success marker, and postToolUse update notice", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-life-"));
   try {
     const pkg = packageFixture(base);
@@ -235,8 +238,14 @@ test("Cursor project lifecycle uses Rule, skill, MCP, and afterMCPExecution mark
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/skills/kcoderag-nav/SKILL.md")), true);
     const hooks = JSON.parse(fs.readFileSync(path.join(target.root, ".cursor/hooks.json"), "utf8"));
     assert.equal(hooks.hooks.afterMCPExecution.length, 1);
+    assert.equal(hooks.hooks.postToolUse.length, 1);
     assert.match(JSON.stringify(hooks), /mcp-call-marker\.cjs cursor/u);
+    assert.equal(
+      hooks.hooks.postToolUse[0].command,
+      "node .cursor/kcoderag-nav/hooks/update-notice.cjs cursor",
+    );
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs")), true);
+    assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/update-notice.cjs")), true);
     const installedTree = snapshot(target.root);
 
     assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "status")).output.status, "healthy");
@@ -256,6 +265,7 @@ test("Cursor project lifecycle uses Rule, skill, MCP, and afterMCPExecution mark
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/skills/kcoderag-nav/SKILL.md")), false);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/hooks.json")), false);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs")), false);
+    assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/update-notice.cjs")), false);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

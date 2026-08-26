@@ -39,6 +39,9 @@ function packageFixture(base: string) {
     },
   })}\n`);
   write(root, "kcoderag-qa/hooks/mcp-call-marker.cjs", "module.exports={recordKCodeRagCall(){}};\n");
+  write(root, "kcoderag-qa/hooks/update-check.cjs", "module.exports={};\n");
+  write(root, "kcoderag-qa/hooks/update-notice.cjs", "module.exports={};\n");
+  write(root, "kcoderag-qa/hooks/update-worker.cjs", "module.exports={};\n");
   write(root, "kcoderag-qa/opencode/kcoderag-nav.js", "export const KCodeRagNav=async()=>({});\n");
   write(root, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md", "# OpenCode QA lookup\n");
   return { root, secret };
@@ -116,6 +119,7 @@ test("OpenCode JSONC lifecycle is project-only, lossless, idempotent, and QA-onl
     assert.equal(fs.existsSync(path.join(target, ".opencode/plugins/kcoderag-nav.js")), true);
     assert.equal(fs.existsSync(path.join(target, ".opencode/skills/kcoderag-nav/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(target, ".opencode/kcoderag-nav/hooks/mcp-call-marker.cjs")), true);
+    assert.equal(fs.existsSync(path.join(target, ".opencode/kcoderag-nav/hooks/update-notice.cjs")), true);
     const state = JSON.parse(fs.readFileSync(path.join(target, ...STATE_PATH.split("/")), "utf8"));
     assert.equal(state.host, "opencode");
     assert.equal(state.environment, "qa");
@@ -135,6 +139,7 @@ test("OpenCode JSONC lifecycle is project-only, lossless, idempotent, and QA-onl
     assert.equal((await run(target, pkg.root, adapter, "uninstall")).exitCode, 0);
     assert.equal(fs.readFileSync(path.join(target, "opencode.jsonc"), "utf8"), original);
     assert.equal(fs.existsSync(path.join(target, ".opencode/plugins/kcoderag-nav.js")), false);
+    assert.equal(fs.existsSync(path.join(target, ".opencode/kcoderag-nav/hooks/update-notice.cjs")), false);
     assert.equal(fs.existsSync(path.join(target, ...STATE_PATH.split("/"))), false);
     assert.equal((await run(target, pkg.root, adapter, "status")).output.status, "not_installed");
   } finally {
