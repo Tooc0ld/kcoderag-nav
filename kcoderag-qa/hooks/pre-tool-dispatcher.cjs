@@ -8,10 +8,17 @@ exports.dispatchPayload = dispatchPayload;
 exports.dispatchRawInput = dispatchRawInput;
 exports.main = main;
 const fs = require("node:fs");
-const grep_nudge_cjs_1 = require("./grep-nudge.cjs");
 const jx3_style_nudge_cjs_1 = require("./jx3-style-nudge.cjs");
 exports.MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
+const navigation = (() => {
+    try {
+        return require("./grep-nudge.cjs");
+    }
+    catch {
+        return undefined;
+    }
+})();
 const updateNotice = (() => {
     try {
         return require("./update-notice.cjs");
@@ -48,7 +55,7 @@ function createDefaultContributors(runtime = {}) {
             const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
                 ? undefined
                 : updateNotice.readHostUpdateNotice(runtimeHost, payload, noticeOptions);
-            const contribution = (0, grep_nudge_cjs_1.navigationContribution)(payload, notice);
+            const contribution = navigation?.navigationContribution(payload, notice);
             if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
                 updateNotice.scheduleHostUpdateRefresh(runtimeHost, payload, noticeOptions);
             }

@@ -66,6 +66,51 @@ function runPublicCli(
   return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
 }
 
+function runInstalledClaudeLauncher(
+  target: string,
+  homeDirectory: string,
+  sessionId: string,
+): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+  const launcher = path.join(
+    target,
+    ".claude",
+    "kcoderag-nav",
+    "qa",
+    "hooks",
+    process.platform === "win32" ? "run_hook.cmd" : "run_hook.sh",
+  );
+  const payload = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "Write",
+    tool_input: { file_path: "src/runtime-check.cpp", content: "int value = 1;\n" },
+    session_id: sessionId,
+  });
+  const env = {
+    ...process.env,
+    HOME: homeDirectory,
+    USERPROFILE: homeDirectory,
+    XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+    KCODERAG_NAV_UPDATE_CHECK: "0",
+  };
+  const result = process.platform === "win32"
+    ? childProcess.spawnSync(process.env.COMSPEC ?? "cmd.exe", ["/d", "/c", "call", launcher, "claude"], {
+        cwd: target,
+        input: `${payload}\n`,
+        encoding: "utf8",
+        timeout: 10_000,
+        windowsHide: true,
+        env,
+      })
+    : childProcess.spawnSync("/bin/sh", [launcher, "claude"], {
+        cwd: target,
+        input: `${payload}\n`,
+        encoding: "utf8",
+        timeout: 10_000,
+        env,
+      });
+  return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+}
+
 function parseOnlyJson(output: string): Record<string, any> {
   const lines = output.trim().split(/\r?\n/u).filter((line) => line.length > 0);
   assert.equal(lines.length, 1, `expected one JSON value, received: ${output}`);
@@ -822,6 +867,48 @@ test("compiled public CLI installs Claude capabilities additively in both orders
       assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, JX3]);
       assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md")), true);
       assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/jx3-code-style-correction/SKILL.md")), true);
+    } finally {
+      fs.rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("installed Claude launcher keeps JX3 operational without the navigation runtime", () => {
+  for (const lifecycle of ["jx3-only", "navigation-removed"] as const) {
+    const item = fixture();
+    const homeDirectory = path.join(item.root, "home");
+    fs.mkdirSync(homeDirectory);
+    try {
+      const initialCapabilities = lifecycle === "jx3-only" ? [JX3] : [NAVIGATION, JX3];
+      const installed = runPublicCli(item.target, homeDirectory, [
+        "install",
+        "--host",
+        "claude",
+        ...initialCapabilities.flatMap((capability) => ["--capability", capability]),
+      ]);
+      assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+      if (lifecycle === "navigation-removed") {
+        const removed = runPublicCli(item.target, homeDirectory, [
+          "uninstall", "--host", "claude", "--capability", NAVIGATION,
+        ]);
+        assert.equal(removed.status, 0, removed.stderr || removed.stdout);
+      }
+
+      assert.deepEqual(installedCapabilities(item.target, "claude"), [JX3]);
+      assert.equal(
+        fs.existsSync(path.join(item.target, ".claude/kcoderag-nav/qa/hooks/grep-nudge.cjs")),
+        false,
+      );
+      const launched = runInstalledClaudeLauncher(
+        item.target,
+        homeDirectory,
+        `cr01-${lifecycle}-${crypto.randomUUID()}`,
+      );
+      assert.equal(launched.status, 0, launched.stderr || launched.stdout);
+      assert.equal(launched.stderr, "");
+      const output = parseOnlyJson(launched.stdout);
+      assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
+      assert.match(output.hookSpecificOutput.additionalContext, /\$jx3-code-style-correction/u);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }

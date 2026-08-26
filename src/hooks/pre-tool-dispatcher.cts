@@ -3,7 +3,6 @@
 
 const fs = require("node:fs") as typeof import("node:fs");
 import type { HostId } from "../core/contracts.cjs";
-import { navigationContribution } from "./grep-nudge.cjs";
 import { jx3StyleContribution } from "./jx3-style-nudge.cjs";
 
 export const MAX_ADDITIONAL_CONTEXT_CHARS = 600;
@@ -32,6 +31,18 @@ interface UpdateNoticeModule {
     options?: { readonly statePath?: string; readonly cwd?: string },
   ): boolean;
 }
+
+interface NavigationModule {
+  navigationContribution(payload: unknown, updateNotice?: string): string | undefined;
+}
+
+const navigation: NavigationModule | undefined = (() => {
+  try {
+    return require("./grep-nudge.cjs") as NavigationModule;
+  } catch {
+    return undefined;
+  }
+})();
 
 const updateNotice: UpdateNoticeModule | undefined = (() => {
   try {
@@ -74,7 +85,7 @@ export function createDefaultContributors(
       const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
         ? undefined
         : updateNotice.readHostUpdateNotice(runtimeHost, payload, noticeOptions);
-      const contribution = navigationContribution(payload, notice);
+      const contribution = navigation?.navigationContribution(payload, notice);
       if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
         updateNotice.scheduleHostUpdateRefresh(runtimeHost, payload, noticeOptions);
       }
