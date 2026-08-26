@@ -17,8 +17,8 @@ The target is exactly the current directory unless `--target PATH` names another
 does not walk to a Git or SVN root. It displays the normalized target before mutation and rejects
 filesystem roots, the user home, and host user config, plugin, or cache roots.
 
-The Cursor adapter owns only declared files and the KCodeRag section under `.cursor/rules/`,
-`.cursor/skills/`, and `.cursor/mcp.json`. It preserves unrelated Cursor configuration and never
+The Cursor adapter owns only declared files and the KCodeRag sections under `.cursor/rules/`,
+`.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`. It preserves unrelated Cursor configuration and never
 modifies Codex or Claude Code installs in the same project.
 
 ## Five project lifecycle commands
@@ -74,11 +74,12 @@ Legacy migration authority does not authorize raw/manual source cleanup.
 
 Cursor receives graph-first routing through its always-on Rule and shared skill, and calls the
 configured QA MCP server directly. It does not use or claim a Codex/Claude Code-style `PreToolUse`
-Hook. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
+Hook. Its project `afterMCPExecution` Hook records only a secret-free, fail-open marker after a
+KCodeRag MCP call; it stores no arguments, results, URL, headers, or Bearer. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
 scoped local search.
 
-The CLI treats cwd and `--target` as exact project targets. Cursor has no Hook ancestor walk to
-emulate; its Rule, skill, and MCP files move with a complete project copy or rename. After install
+The CLI treats cwd and `--target` as exact project targets. Cursor has no `PreToolUse` ancestor walk to
+emulate; its Rule, skill, MCP, and `afterMCPExecution` files move with a complete project copy or rename. After install
 or update, restart Cursor or run **Developer: Reload Window**.
 
 ## Evidence and internal profile boundaries

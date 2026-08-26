@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 interface HostAdapter {
   readonly id: HostId;
@@ -158,10 +158,13 @@ function packageFixture(base: string): { readonly root: string; readonly secret:
     })}\n`);
     for (const asset of [
       "grep-nudge.cjs",
+      "mcp-call-marker.cjs",
       "update-check.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",
+      "run_marker.cmd",
+      "run_marker.sh",
     ]) {
       write(root, `${name}/hooks/${asset}`, `${environment}:${asset}\n`);
     }
@@ -324,8 +327,8 @@ test("Claude preserves pre-existing empty shared JSON containers across install 
     const pkg = packageFixture(base);
     const mcpOriginal = "{ \"mcpServers\" : {} }\n";
     for (const [name, settingsOriginal, expectedCreated] of [
-      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse"]],
-      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", []],
+      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse", "hooks.PostToolUse"]],
+      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", ["hooks.PostToolUse"]],
     ] as const) {
       const target = targetFixture(base, name);
       const mcpPath = path.join(target.root, ".mcp.json");

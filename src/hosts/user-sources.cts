@@ -126,7 +126,7 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 function isHost(value: unknown): value is HostId {
-  return value === "codex" || value === "claude" || value === "cursor";
+  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
 }
 
 function isSecretLike(value: string): boolean {

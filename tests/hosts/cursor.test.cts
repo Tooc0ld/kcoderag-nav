@@ -6,7 +6,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 type EnvironmentId = "qa" | "dev";
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 interface CursorModule {
   readonly cursorAdapter: Record<string, any>;
@@ -100,6 +100,7 @@ function packageFixture(base: string) {
         },
       },
     })}\n`);
+    write(root, `${name}/hooks/mcp-call-marker.cjs`, `${environment}:marker\n`);
   }
   write(root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "---\nalwaysApply: true\n---\nUse KCodeRag.\n");
   write(root, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md", "# Cursor lookup\n");
@@ -220,7 +221,7 @@ async function run(
   };
 }
 
-test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks", async () => {
+test("Cursor project lifecycle uses Rule, skill, MCP, and afterMCPExecution marker", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-life-"));
   try {
     const pkg = packageFixture(base);
@@ -232,7 +233,10 @@ test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks
     assert.deepEqual(Object.keys(document.mcpServers).sort(), ["kcoderag", "unrelated"]);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/rules/kcoderag-navigation.mdc")), true);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/skills/kcoderag-nav/SKILL.md")), true);
-    assert.equal(snapshot(target.root).some((entry) => /hook/i.test(entry)), false);
+    const hooks = JSON.parse(fs.readFileSync(path.join(target.root, ".cursor/hooks.json"), "utf8"));
+    assert.equal(hooks.hooks.afterMCPExecution.length, 1);
+    assert.match(JSON.stringify(hooks), /mcp-call-marker\.cjs cursor/u);
+    assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs")), true);
     const installedTree = snapshot(target.root);
 
     assert.equal((await run(target.root, pkg.root, cursor.cursorAdapter, "status")).output.status, "healthy");
@@ -250,6 +254,8 @@ test("Cursor project lifecycle uses Rule, skill, and one MCP entry without hooks
     assert.deepEqual(fs.readFileSync(path.join(target.root, ".cursor/mcp.json")), target.mcp);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/rules/kcoderag-navigation.mdc")), false);
     assert.equal(fs.existsSync(path.join(target.root, ".cursor/skills/kcoderag-nav/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(target.root, ".cursor/hooks.json")), false);
+    assert.equal(fs.existsSync(path.join(target.root, ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs")), false);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -272,6 +278,16 @@ test("Cursor exact project legacy Dev requires dedicated authority and converts 
     fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 4)}\n`);
     const statePath = path.join(target.root, ...STATE_PATH.split("/"));
     const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    for (const relativePath of [
+      ".cursor/hooks.json",
+      ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs",
+    ]) {
+      state.managedFiles = state.managedFiles.filter((candidate: string) => candidate !== relativePath);
+      delete state.originals[relativePath];
+      delete state.digests[relativePath];
+      delete state.sections[relativePath];
+      fs.rmSync(path.join(target.root, ...relativePath.split("/")), { force: true });
+    }
     state.environment = "dev";
     state.sections[".cursor/mcp.json"].digest = sha256(
       Buffer.from(JSON.stringify(mcp.mcpServers.kcoderag), "utf8"),

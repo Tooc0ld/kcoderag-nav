@@ -1,6 +1,6 @@
 # KCodeRag Nav
 
-KCodeRag Nav 是面向 Codex、Claude Code 与 Cursor 的 KCodeRag 项目集成。公共 npm CLI
+KCodeRag Nav 是面向 Codex、Claude Code、Cursor 与 OpenCode 的 KCodeRag 项目集成。公共 npm CLI
 `kcoderag-nav` 将已编译的 CJS 运行时、导航 skill、QA MCP 配置和宿主资产写入明确目标项目的
 原生目录。它不是 marketplace plugin；用户不需要 Git checkout、Python 或运行时 TypeScript
 编译。
@@ -21,21 +21,22 @@ KCodeRag Nav 是面向 Codex、Claude Code 与 Cursor 的 KCodeRag 项目集成�
 npx kcoderag-nav@latest install
 ```
 
-未传 `--host` 时，安装器会交互选择 Codex、Claude Code 或 Cursor。自动化场景一次显式管理
+未传 `--host` 时，安装器会交互选择 Codex、Claude Code、Cursor 或 OpenCode。自动化场景一次显式管理
 一个宿主，并用 `--yes` 接受安装器显示的规范化目标路径：
 
 ```powershell
 npx kcoderag-nav@latest install --host codex --yes
 npx kcoderag-nav@latest install --host claude --yes
 npx kcoderag-nav@latest install --host cursor --yes
+npx kcoderag-nav@latest install --host opencode --yes
 ```
 
 目标默认为当前工作目录；`--target PATH` 可以指定另一个精确项目。CLI 不向上推断 Git/SVN
 根，也不要求目标含有 Git、SVN 或专用 marker。文件系统根、用户主目录，以及 Codex、Claude
-Code、Cursor 的用户级 config/plugin/cache 根会被拒绝；其他明确目录在显示规范化绝对路径并
+Code、Cursor、OpenCode 的用户级 config/plugin/cache 根会被拒绝；其他明确目录在显示规范化绝对路径并
 确认后可以使用。
 
-一次命令只管理和扫描一个宿主，因此同一项目的 Codex、Claude Code 和 Cursor 项目级 QA
+一次命令只管理和扫描一个宿主，因此同一项目的 Codex、Claude Code、Cursor 和 OpenCode 项目级 QA
 安装可以共存，不会互相卸载或覆盖。
 
 ## 五个生命周期命令
@@ -131,6 +132,7 @@ npx kcoderag-nav@latest update --host codex --target "D:\path\to\project" --yes 
 | Codex | `.codex/`、`.agents/skills/` | advisory、fail-open 的 `PreToolUse` Hook |
 | Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` 的 KCodeRag section | advisory、fail-open 的 `PreToolUse` Hook |
 | Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json` 的 KCodeRag section | always-on Rule 与共享 skill；不声明等价的 `PreToolUse` Hook |
+| OpenCode | `opencode.json`/`opencode.jsonc` 的 KCodeRag section、`.opencode/plugins/`、`.opencode/skills/` | 本地 plugin 的 `tool.execute.after` 成功调用标记 |
 
 Codex/Claude Hook 从宿主会话当前目录向父目录逐级查找，选择最近的对应宿主
 `kcoderag-nav/install-state.json`。在项目根和任意深层子目录启动都落到同一最近项目；嵌套受管
@@ -142,8 +144,22 @@ fail-open，绝不穿透去运行外层项目的 Hook。
 精确目标；只有运行时 Hook 做向上最近状态发现。
 
 Codex/Claude Hook 完全离线运行，任何异常都输出空结果并退出成功，不阻断原始 Grep、Glob 或
-shell。Cursor 使用 Rule、skill 与 MCP，不伪装宿主不存在的事件 Hook。安装或更新后，请重新
-打开 Codex thread、Claude Code session，或在 Cursor 执行 **Developer: Reload Window**。
+shell。Cursor 使用 Rule、skill 与 MCP，并通过 `afterMCPExecution` 记录 KCodeRag 已调用；它仍
+不伪装为 `PreToolUse`。OpenCode 使用稳定的项目本地 plugin 事件 `tool.execute.after` 记录同一
+事实。安装或更新后，请重新打开对应宿主会话；Cursor 可执行 **Developer: Reload Window**。
+
+四个宿主的成功调用标记都只在操作系统本地缓存中保存哈希后的 session/turn 身份、宿主、范围和
+时间，不保存 MCP 参数、结果、URL、Header 或 Bearer；写入失败始终静默 fail-open。Codex 与
+Claude Code 使用 `PostToolUse`，Cursor 使用 `afterMCPExecution`，OpenCode 使用
+`tool.execute.after`。该标记为后续识别“图谱查询后的本地精确复核”提供事实，不改变当前
+advisory 提醒，也不阻断任何工具。
+
+OpenCode 项目同时存在 `opencode.json` 与 `opencode.jsonc` 时，安装器会以
+`ambiguous_project_config` 硬停止；只存在其中一个时保留其格式和无关内容，两个都不存在时创建
+`opencode.json`。OpenCode 适配以稳定 1.x plugin API 为边界，真机验收基线为 `1.18.23`。
+OpenCode 首次加载项目 plugin 时会自行在 `.opencode/` 下准备匹配版本的
+`@opencode-ai/plugin` 运行依赖，网络较慢时可能明显久于后续启动；这些 SDK 缓存文件由 OpenCode
+拥有，`kcoderag-nav uninstall` 不会删除它们。
 
 首次符合条件的 Codex/Claude Hook 事件只读本地更新状态，并可分离启动后台 npm Registry
 refresh；前台不等待网络，任何更新失败都 fail-open。发现新版本时只提示运行
@@ -170,7 +186,7 @@ kcoderag-nav@0.2.0 doctor
 和 latest 保持不变，不 unpublish 或回退 dist-tag，只以 `0.2.1` 修复前进。
 
 Phase 04 的证据只证明项目生命周期、来源门禁和 Hook/Rule 合同。真实 Codex、Claude Code、
-Cursor MCP 工具注册及已认证图查询证据属于 Phase 06，本文不把 loopback/offline 检查描述为
+Cursor、OpenCode MCP 工具注册及已认证图查询证据属于 Phase 06，本文不把 loopback/offline 检查描述为
 真实查询成功。
 
 ## 维护者流程

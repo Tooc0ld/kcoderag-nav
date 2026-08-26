@@ -1,4 +1,4 @@
-/** Honest three-state host smoke runner with package acquisition and loopback receipts. */
+/** Honest three-state, four-host smoke runner with package acquisition and loopback receipts. */
 
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -7,6 +7,7 @@ const childProcess = require("node:child_process") as typeof import("node:child_
 const crypto = require("node:crypto") as typeof import("node:crypto");
 
 import type { HostId } from "../core/contracts.cjs";
+import { parseJsoncObject } from "../core/json-splice.cjs";
 import {
   readReceipts,
   startStubMcpServer,
@@ -39,7 +40,7 @@ export interface SmokeEvidence {
 }
 
 export interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -139,7 +140,7 @@ interface McpConnection {
   readonly url: string;
 }
 
-const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor"] as const);
+const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode"] as const);
 export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "packageAcquired",
   "preinstall",
@@ -292,10 +293,14 @@ childProcess.execFile = function(executable, args, options, callback) {
 
 function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessEnv {
   const hostHome = path.join(root, "host-home");
+  const localAppData = path.join(root, "local-app-data");
+  const xdgCacheHome = path.join(root, "xdg-cache");
   const npmCache = path.join(root, "npm-cache");
   const npmUserConfig = path.join(root, "user.npmrc");
   const npmGlobalConfig = path.join(root, "global.npmrc");
   fs.mkdirSync(hostHome, { recursive: true });
+  fs.mkdirSync(localAppData, { recursive: true });
+  fs.mkdirSync(xdgCacheHome, { recursive: true });
   fs.mkdirSync(npmCache, { recursive: true });
   if (!fs.existsSync(npmUserConfig)) fs.writeFileSync(npmUserConfig, "", "utf8");
   if (!fs.existsSync(npmGlobalConfig)) fs.writeFileSync(npmGlobalConfig, "", "utf8");
@@ -306,6 +311,8 @@ function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessE
   const preload = syntheticNative ? syntheticNativePreload(root) : undefined;
   return {
     ...inheritedEnvironment,
+    LOCALAPPDATA: localAppData,
+    XDG_CACHE_HOME: xdgCacheHome,
     ...(process.platform === "win32" ? { USERPROFILE: hostHome } : { HOME: hostHome }),
     CODEX_HOME: hostHome,
     CLAUDE_CONFIG_DIR: hostHome,
@@ -833,6 +840,17 @@ function readConnection(host: HostId, projectRoot: string): McpConnection | unde
       const url: unknown = JSON.parse(block[2]);
       return typeof url === "string" ? { serverName: block[1], url } : undefined;
     }
+    if (host === "opencode") {
+      const configName = fs.existsSync(path.join(projectRoot, "opencode.jsonc"))
+        ? "opencode.jsonc"
+        : "opencode.json";
+      const document = parseJsoncObject(fs.readFileSync(path.join(projectRoot, configName), "utf8"));
+      if (!isRecord(document.mcp)) return undefined;
+      const entry = document.mcp[expectedServerName(host)];
+      return isRecord(entry) && typeof entry.url === "string"
+        ? { serverName: expectedServerName(host), url: entry.url }
+        : undefined;
+    }
     const relativePath = host === "claude" ? ".mcp.json" : ".cursor/mcp.json";
     const document: unknown = JSON.parse(fs.readFileSync(path.join(projectRoot, ...relativePath.split("/")), "utf8"));
     if (!isRecord(document) || !isRecord(document.mcpServers)) return undefined;
@@ -948,6 +966,24 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       return undefined;
     }
   }
+  if (host === "opencode") {
+    try {
+      const pluginBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "plugins", "kcoderag-nav.js"));
+      const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag-nav", "SKILL.md"));
+      const markerBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "kcoderag-nav", "hooks", "mcp-call-marker.cjs"));
+      const valid = pluginBytes.includes(Buffer.from("tool.execute.after", "utf8")) &&
+        skillBytes.includes(Buffer.from("KCodeRag", "utf8"));
+      return Object.freeze({
+        kind: "plugin_skill_mcp" as const,
+        root: valid,
+        deep: valid,
+        sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
+        fingerprint: sha256Parts([pluginBytes, skillBytes, markerBytes]),
+      });
+    } catch {
+      return undefined;
+    }
+  }
   const command = readRegisteredHookCommand(host, projectRoot);
   if (command === undefined) return undefined;
   try {
@@ -1025,7 +1061,13 @@ async function driveMcp(
 }
 
 function statePath(host: HostId, projectRoot: string): string {
-  const hostRoot = host === "cursor" ? ".cursor" : host === "claude" ? ".claude" : ".codex";
+  const hostRoot = host === "cursor"
+    ? ".cursor"
+    : host === "claude"
+      ? ".claude"
+      : host === "opencode"
+        ? ".opencode"
+        : ".codex";
   return path.join(projectRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 
@@ -1060,6 +1102,12 @@ function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): void
   }
   if (host === "claude") {
     fs.writeFileSync(path.join(hostHome, ".claude.json"), `${JSON.stringify({ mcpServers: { kcoderag: {} } })}\n`, "utf8");
+    return;
+  }
+  if (host === "opencode") {
+    const opencodeRoot = path.join(hostHome, ".config", "opencode");
+    fs.mkdirSync(opencodeRoot, { recursive: true });
+    fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), `${JSON.stringify({ mcp: { "kcoderag-qa": {} } })}\n`, "utf8");
     return;
   }
   const cursorRoot = path.join(hostHome, ".cursor");
@@ -1189,7 +1237,8 @@ function structuredLiveEvidence(output: string): { readonly hook: boolean; reado
     if (!isRecord(value)) return;
     const eventName = value.hook_event_name ?? value.hookEventName;
     if (eventName === "PreToolUse") hook = true;
-    if (value.tool_name === SYNTHETIC_TOOL || value.name === SYNTHETIC_TOOL) tool = true;
+    if ([value.tool_name, value.name, value.tool].some((name) =>
+      typeof name === "string" && (name === SYNTHETIC_TOOL || name.endsWith(`_${SYNTHETIC_TOOL}`)))) tool = true;
     for (const child of Object.values(value)) visit(child);
   };
   for (const line of output.split(/\r?\n/u)) {
@@ -1210,10 +1259,33 @@ function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string):
       "--json", "--sandbox", "read-only", "--cd", projectRoot, prompt,
     ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
   }
+  if (host === "opencode") {
+    return runProcess("opencode", [
+      "run", "--format", "json", "--dir", projectRoot, prompt,
+    ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
+  }
   return runProcess("claude", [
     "-p", prompt, "--mcp-config", path.join(projectRoot, ".mcp.json"), "--strict-mcp-config",
     "--output-format", "stream-json", "--verbose",
   ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
+}
+
+function hasMcpCallMarker(host: HostId, runtimeRoot: string): boolean {
+  const cacheBase = process.platform === "win32"
+    ? path.join(runtimeRoot, "local-app-data")
+    : path.join(runtimeRoot, "xdg-cache");
+  const directory = path.join(cacheBase, "kcoderag-nav", "mcp-calls");
+  try {
+    return fs.readdirSync(directory).some((name) => {
+      if (!/^[0-9a-f]{64}\.json$/u.test(name)) return false;
+      const value: unknown = JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
+      return isRecord(value) && value.host === host &&
+        (value.scope === "turn" || value.scope === "session") &&
+        typeof value.recordedAt === "number";
+    });
+  } catch {
+    return false;
+  }
 }
 
 async function runOptionalHost(
@@ -1234,7 +1306,7 @@ async function runOptionalHost(
       provenance,
     });
   }
-  const command = host === "codex" ? "codex" : "claude";
+  const command = host === "codex" ? "codex" : host === "opencode" ? "opencode" : "claude";
   if (!commandAvailable(command, projectsRoot)) {
     return evaluateHostEvidence({
       host,
@@ -1268,10 +1340,11 @@ async function runOptionalHost(
     const before = readReceipts(receiptPath).length;
     const live = runLiveCommand(host, projectRoot, runtimeRoot);
     const structured = structuredLiveEvidence(live.stdout);
+    const markerRecorded = hasMcpCallMarker(host, runtimeRoot);
     const receipts = readReceipts(receiptPath).slice(before);
     const has = (method: string, toolName: string = ""): boolean =>
       receipts.some((receipt: StubReceipt) => receipt.method === method && receipt.toolName === toolName);
-    evidence.navigation = structured.hook;
+    evidence.navigation = host === "opencode" ? markerRecorded : structured.hook && markerRecorded;
     evidence.mcpInitialize = has("initialize");
     evidence.mcpList = has("tools/list");
     evidence.mcpCall = structured.tool && has("tools/call", SYNTHETIC_TOOL);

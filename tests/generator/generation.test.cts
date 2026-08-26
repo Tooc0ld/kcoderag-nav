@@ -52,23 +52,30 @@ const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 
 const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
-    "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/update-check.cjs", "hooks/update-worker.cjs"],
-    "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh"],
-    "runtime-registration": ["hooks/hooks.json"],
+    "runtime-cjs": ["hooks/grep-nudge.cjs", "hooks/mcp-call-marker.cjs", "hooks/update-check.cjs", "hooks/update-worker.cjs"],
+    "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
+    "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
       "hooks/grep-nudge.cjs",
+      "hooks/mcp-call-marker.cjs",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
+      "hooks/run_marker.cmd",
+      "hooks/run_marker.sh",
       "hooks/update-check.cjs",
       "hooks/update-worker.cjs",
     ],
     runtime: [
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
+      "hooks/mcp-call-marker.cjs",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
+      "hooks/run_marker.cmd",
+      "hooks/run_marker.sh",
       "hooks/update-check.cjs",
       "hooks/update-worker.cjs",
+      "opencode/kcoderag-nav.js",
     ],
     "metadata-config": [
       ".claude-plugin/plugin.json",
@@ -96,10 +103,14 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "agents/kcode-explorer.md",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
+      "hooks/mcp-call-marker.cjs",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
+      "hooks/run_marker.cmd",
+      "hooks/run_marker.sh",
       "hooks/update-check.cjs",
       "hooks/update-worker.cjs",
+      "opencode/kcoderag-nav.js",
       "skills/code-lookup-discipline/SKILL.md",
     ],
   },
@@ -198,12 +209,16 @@ function createFixture(): Fixture {
       rule: { intent: "default", routes: ["qa"] },
     }),
   );
-  write(sourceRoot, "plugin-src/hooks/hooks.json", canonicalJson({ hooks: { PreToolUse: [] } }));
+  write(sourceRoot, "plugin-src/hooks/hooks.json", canonicalJson({ hooks: { PreToolUse: [], PostToolUse: [] } }));
   write(sourceRoot, "plugin-src/hooks/run_hook.cmd", "@node grep-nudge.cjs\r\n");
   write(sourceRoot, "plugin-src/hooks/run_hook.sh", "#!/bin/sh\r\nnode grep-nudge.cjs\r\n");
+  write(sourceRoot, "plugin-src/hooks/run_marker.cmd", "@node mcp-call-marker.cjs claude\r\n");
+  write(sourceRoot, "plugin-src/hooks/run_marker.sh", "#!/bin/sh\r\nnode mcp-call-marker.cjs claude\r\n");
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
+  write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
   write(sourceRoot, "dist/hooks/update-check.cjs", "module.exports={name:'check'};\n");
   write(sourceRoot, "dist/hooks/update-worker.cjs", "module.exports={name:'worker'};\n");
+  write(sourceRoot, "plugin-src/opencode/kcoderag-nav.js", "export const KCodeRagNav=async()=>({});\n");
   write(
     sourceRoot,
     "plugin-src/README.md.tmpl",
@@ -273,6 +288,7 @@ test("writes only changed selected paths and keeps check mode byte-for-byte read
     });
     assert.deepEqual(first.writtenPaths, [
       "kcoderag-qa/hooks/grep-nudge.cjs",
+      "kcoderag-qa/hooks/mcp-call-marker.cjs",
       "kcoderag-qa/hooks/update-check.cjs",
       "kcoderag-qa/hooks/update-worker.cjs",
     ]);
@@ -322,7 +338,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 18);
+    assert.equal(first.writtenPaths.length, 22);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({

@@ -62,7 +62,7 @@ jobs:
         run: npm run generate:check
       - name: Audit real npm tarball
         run: npm run pack:audit
-      - name: Run required three-host contract smoke
+      - name: Run required four-host contract smoke
         run: npm run smoke:required
 
   authenticated-live:

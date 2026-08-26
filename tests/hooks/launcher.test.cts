@@ -113,8 +113,11 @@ function adapterPackage(base: string): string {
   write(root, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md", "# QA lookup\n");
   for (const asset of [
     "grep-nudge.cjs",
+    "mcp-call-marker.cjs",
     "run_hook.cmd",
     "run_hook.sh",
+    "run_marker.cmd",
+    "run_marker.sh",
     "update-check.cjs",
     "update-worker.cjs",
   ]) {
@@ -358,14 +361,14 @@ function assertSilentSuccess(result: ReturnType<typeof childProcess.spawnSync>):
   assert.equal(result.stderr, "");
 }
 
-test("hook registration is limited to the required PreToolUse tools and launchers", () => {
+test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
   const registration = JSON.parse(fs.readFileSync(generatedRegistration, "utf8")) as {
     hooks: Record<string, readonly {
       matcher: string;
       hooks: readonly { command: string; commandWindows: string }[];
     }[]>;
   };
-  assert.deepEqual(Object.keys(registration.hooks), ["PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks), ["PostToolUse", "PreToolUse"]);
   assert.equal(registration.hooks.PreToolUse?.length, 1);
   assert.equal(registration.hooks.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash)$");
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.command ?? "", /run_hook\.sh/);
@@ -374,6 +377,10 @@ test("hook registration is limited to the required PreToolUse tools and launcher
   assert.match(registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /install-state\.json/);
   assert.doesNotMatch(JSON.stringify(registration), /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/);
   assert.ok((registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows.length ?? 8_192) < 8_192);
+  assert.equal(registration.hooks.PostToolUse?.length, 1);
+  assert.equal(registration.hooks.PostToolUse?.[0]?.matcher, "^mcp__kcoderag-qa__.*$");
+  assert.match(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command ?? "", /run_marker\.sh/);
+  assert.match(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows ?? "", /run_marker\.cmd/);
 
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
@@ -381,6 +388,12 @@ test("hook registration is limited to the required PreToolUse tools and launcher
     assert.match(source, />= 22/);
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
+    assert.doesNotMatch(source, /%CD%|\$PWD/iu);
+  }
+  for (const launcher of ["run_marker.cmd", "run_marker.sh"]) {
+    const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
+    assert.match(source, /mcp-call-marker\.cjs/);
+    assert.doesNotMatch(source, /python|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /%CD%|\$PWD/iu);
   }
 });

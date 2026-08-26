@@ -108,11 +108,17 @@ function sortedUnion(...groups: readonly (readonly string[])[]): readonly string
 
 const QA_RUNTIME_CJS = Object.freeze([
   "hooks/grep-nudge.cjs",
+  "hooks/mcp-call-marker.cjs",
   "hooks/update-check.cjs",
   "hooks/update-worker.cjs",
 ]);
-const QA_RUNTIME_LAUNCHER = Object.freeze(["hooks/run_hook.cmd", "hooks/run_hook.sh"]);
-const QA_RUNTIME_REGISTRATION = Object.freeze(["hooks/hooks.json"]);
+const QA_RUNTIME_LAUNCHER = Object.freeze([
+  "hooks/run_hook.cmd",
+  "hooks/run_hook.sh",
+  "hooks/run_marker.cmd",
+  "hooks/run_marker.sh",
+]);
+const QA_RUNTIME_REGISTRATION = Object.freeze(["hooks/hooks.json", "opencode/kcoderag-nav.js"]);
 const QA_METADATA_CONFIG = Object.freeze([
   ".claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
@@ -510,16 +516,22 @@ function renderQaAsset(
   relativePath: string,
 ): Buffer {
   if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
+  if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
   if (relativePath === "hooks/update-check.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-check.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
   if (relativePath === "hooks/run_hook.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.sh");
+  if (relativePath === "hooks/run_marker.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.cmd");
+  if (relativePath === "hooks/run_marker.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.sh");
   if (relativePath === "hooks/hooks.json") {
     const commands = renderProjectHookCommands("claude");
+    const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
     const registration = readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json");
     const renderCommand = (value: unknown): unknown => {
       if (value === "{{project_hook_command_posix}}") return commands.command;
       if (value === "{{project_hook_command_windows}}") return commands.commandWindows;
+      if (value === "{{project_marker_command_posix}}") return markerCommands.command;
+      if (value === "{{project_marker_command_windows}}") return markerCommands.commandWindows;
       if (Array.isArray(value)) return value.map(renderCommand);
       if (typeof value === "object" && value !== null) {
         return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, renderCommand(nested)]));
@@ -527,6 +539,9 @@ function renderQaAsset(
       return value;
     };
     return canonicalJson(renderCommand(registration));
+  }
+  if (relativePath === "opencode/kcoderag-nav.js") {
+    return normalizedText(inputs.sourceRoot, "plugin-src/opencode/kcoderag-nav.js");
   }
   if (relativePath === ".mcp.json") return readBytes(inputs.sourceRoot, environment.mcp_source);
   if (relativePath === ".codex.mcp.json") {

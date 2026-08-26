@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 const commands = require("../../dist/cli/commands.cjs") as {
   executeCommand(argv: string[], dependencies?: Record<string, unknown>): Promise<number>;
@@ -22,6 +22,9 @@ const claude = require("../../dist/hosts/claude.cjs") as {
 };
 const cursor = require("../../dist/hosts/cursor.cjs") as {
   createCursorAdapter(options: Record<string, unknown>): Record<string, unknown>;
+};
+const opencode = require("../../dist/hosts/opencode.cjs") as {
+  createOpenCodeAdapter(options: Record<string, unknown>): Record<string, unknown>;
 };
 
 const isolatedCodexAdapter = codex.createCodexAdapter({
@@ -89,10 +92,15 @@ const isolatedCursorAdapter = cursor.createCursorAdapter({
   }),
 });
 
+const isolatedOpenCodeAdapter = opencode.createOpenCodeAdapter({
+  homeDirectory: path.join(os.tmpdir(), `kcoderag-opencode-home-${crypto.randomUUID()}`),
+});
+
 const isolatedAdapters: Readonly<Record<HostId, Record<string, unknown>>> = Object.freeze({
   codex: isolatedCodexAdapter,
   claude: isolatedClaudeAdapter,
   cursor: isolatedCursorAdapter,
+  opencode: isolatedOpenCodeAdapter,
 });
 
 function write(root: string, relativePath: string, value: string | Buffer): void {
@@ -119,10 +127,13 @@ function packageFixture(base: string): string {
     } })}\n`);
     for (const asset of [
       "grep-nudge.cjs",
+      "mcp-call-marker.cjs",
       "update-check.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",
+      "run_marker.cmd",
+      "run_marker.sh",
     ]) {
       write(root, `${name}/hooks/${asset}`, `${environment}:${asset}\n`);
     }
@@ -130,6 +141,7 @@ function packageFixture(base: string): string {
   }
   write(root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "---\nalwaysApply: true\n---\nUse KCodeRag.\n");
   write(root, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md", "# Cursor\n");
+  write(root, "kcoderag-qa/opencode/kcoderag-nav.js", "export const KCodeRagNav=async()=>({});\n");
   return root;
 }
 
@@ -141,6 +153,7 @@ function targetFixture(base: string): string {
   write(root, ".claude/settings.json", '{"permissions":{"allow":["Read"]}}\n');
   write(root, ".mcp.json", '{"mcpServers":{"claude-unrelated":{"command":"safe"}}}\n');
   write(root, ".cursor/mcp.json", '{"mcpServers":{"cursor-unrelated":{"command":"safe"}}}\n');
+  write(root, "opencode.jsonc", '{\n  // keep\n  "mcp": {},\n}\n');
   return root;
 }
 
@@ -171,7 +184,8 @@ function snapshotPaths(root: string, relativePaths: readonly string[]): readonly
 function hostSnapshot(root: string, host: HostId): readonly string[] {
   if (host === "codex") return snapshotPaths(root, [".codex", ".agents"]);
   if (host === "claude") return snapshotPaths(root, [".claude", ".mcp.json"]);
-  return snapshotPaths(root, [".cursor"]);
+  if (host === "cursor") return snapshotPaths(root, [".cursor"]);
+  return snapshotPaths(root, [".opencode", "opencode.json", "opencode.jsonc"]);
 }
 
 async function run(
@@ -198,39 +212,43 @@ async function run(
   return { exitCode, output: JSON.parse(stdout[0] ?? "{}") as Record<string, unknown>, stderr };
 }
 
-test("registry exposes exactly three fixed adapters and rejects unsupported hosts", () => {
-  assert.deepEqual(registry.HOST_ADAPTERS.map((adapter: any) => adapter.id), ["codex", "claude", "cursor"]);
-  for (const host of ["codex", "claude", "cursor"] as const) {
+test("registry exposes exactly four fixed adapters and rejects unsupported hosts", () => {
+  assert.deepEqual(registry.HOST_ADAPTERS.map((adapter: any) => adapter.id), ["codex", "claude", "cursor", "opencode"]);
+  for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
     assert.equal(registry.getHostAdapter(host).id, host);
   }
-  assert.throws(() => registry.getHostAdapter("opencode" as HostId), /unsupported_host/);
-  assert.equal(JSON.stringify(registry.HOST_ADAPTERS).includes("opencode"), false);
+  assert.throws(() => registry.getHostAdapter("unsupported" as HostId), /unsupported_host/);
 });
 
-test("Codex, Claude, and Cursor coexist while one-host update and uninstall leave siblings unchanged", async () => {
+test("Codex, Claude, Cursor, and OpenCode coexist while one-host changes leave siblings unchanged", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cross-host-"));
   try {
     const packageRoot = packageFixture(base);
     const target = targetFixture(base);
-    for (const host of ["codex", "claude", "cursor"] as const) {
+    for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
       assert.equal((await run(target, packageRoot, "install", host)).exitCode, 0, host);
       assert.equal((await run(target, packageRoot, "status", host)).output.status, "healthy", host);
     }
 
     const claudeBefore = hostSnapshot(target, "claude");
     const cursorBefore = hostSnapshot(target, "cursor");
+    const opencodeBefore = hostSnapshot(target, "opencode");
     write(packageRoot, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:updated\n");
     assert.equal((await run(target, packageRoot, "update", "codex")).exitCode, 0);
     assert.deepEqual(hostSnapshot(target, "claude"), claudeBefore);
     assert.deepEqual(hostSnapshot(target, "cursor"), cursorBefore);
+    assert.deepEqual(hostSnapshot(target, "opencode"), opencodeBefore);
 
     const codexBefore = hostSnapshot(target, "codex");
     const cursorStillBefore = hostSnapshot(target, "cursor");
+    const opencodeStillBefore = hostSnapshot(target, "opencode");
     assert.equal((await run(target, packageRoot, "uninstall", "claude")).exitCode, 0);
     assert.deepEqual(hostSnapshot(target, "codex"), codexBefore);
     assert.deepEqual(hostSnapshot(target, "cursor"), cursorStillBefore);
+    assert.deepEqual(hostSnapshot(target, "opencode"), opencodeStillBefore);
     assert.equal((await run(target, packageRoot, "status", "codex")).output.status, "healthy");
     assert.equal((await run(target, packageRoot, "status", "cursor")).output.status, "healthy");
+    assert.equal((await run(target, packageRoot, "status", "opencode")).output.status, "healthy");
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -263,7 +281,7 @@ test("interactive host selection installs only the selected QA adapter", async (
       getAdapter: (selectedHost: HostId) => isolatedAdapters[selectedHost],
     });
     assert.equal(selected, 0);
-    assert.deepEqual(seen, [["codex", "claude", "cursor"]]);
+    assert.deepEqual(seen, [["codex", "claude", "cursor", "opencode"]]);
     assert.equal(fs.existsSync(path.join(interactiveTarget, ".claude/kcoderag-nav/install-state.json")), true);
     assert.equal(fs.existsSync(path.join(interactiveTarget, ".codex")), false);
     assert.equal(fs.existsSync(path.join(interactiveTarget, ".cursor")), false);

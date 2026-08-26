@@ -1,15 +1,17 @@
-/** Stable three-host adapter registry used by both interactive and explicit CLI selection. */
+/** Stable four-host adapter registry used by both interactive and explicit CLI selection. */
 
 import { InstallError, type HostId } from "../core/contracts.cjs";
 import { claudeAdapter } from "./claude.cjs";
 import { codexAdapter } from "./codex.cjs";
 import { cursorAdapter } from "./cursor.cjs";
+import { opencodeAdapter } from "./opencode.cjs";
 import type { HostAdapter } from "./host-adapter.cjs";
 
 export const HOST_ADAPTERS: readonly HostAdapter[] = Object.freeze([
   codexAdapter,
   claudeAdapter,
   cursorAdapter,
+  opencodeAdapter,
 ]);
 
 const BY_HOST = new Map<HostId, HostAdapter>(

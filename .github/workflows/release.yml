@@ -65,7 +65,7 @@ jobs:
         run: npm test
       - name: Check deterministic generated products
         run: npm run generate:check
-      - name: Run required three-host contract smoke
+      - name: Run required four-host contract smoke
         run: npm run smoke:required
       - name: Audit real npm tarball
         run: npm run pack:audit
@@ -102,7 +102,7 @@ jobs:
         run: npm test
       - name: Check deterministic generated products
         run: npm run generate:check
-      - name: Run required three-host contract smoke
+      - name: Run required four-host contract smoke
         run: npm run smoke:required
       - name: Audit real npm tarball
         run: npm run pack:audit

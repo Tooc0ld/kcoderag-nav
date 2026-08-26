@@ -19,7 +19,7 @@ import {
   type ProjectTarget,
   type StatusIssue,
 } from "../core/contracts.cjs";
-import { validateManagedPath } from "../core/project-target.cjs";
+import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import {
   removeJsonArrayElement,
@@ -92,6 +92,16 @@ const SKILL_PATH = ".claude/skills/kcoderag-nav/SKILL.md";
 const MANAGED_ROOTS = Object.freeze([".claude", MCP_PATH] as const);
 const HOOK_ASSETS = Object.freeze([
   "grep-nudge.cjs",
+  "mcp-call-marker.cjs",
+  "run_hook.cmd",
+  "run_hook.sh",
+  "run_marker.cmd",
+  "run_marker.sh",
+  "update-check.cjs",
+  "update-worker.cjs",
+]);
+const PRE_MARKER_HOOK_ASSETS = Object.freeze([
+  "grep-nudge.cjs",
   "run_hook.cmd",
   "run_hook.sh",
   "update-check.cjs",
@@ -148,12 +158,26 @@ function managedPaths(environment: CurrentEnvironmentId = "qa"): readonly string
   }));
 }
 
+function preMarkerManagedPaths(environment: CurrentEnvironmentId = "qa"): readonly string[] {
+  return Object.freeze([
+    MCP_PATH,
+    SETTINGS_PATH,
+    SKILL_PATH,
+    ...PRE_MARKER_HOOK_ASSETS.map((asset) => `${hookPrefix(environment)}/${asset}`),
+    STATE_PATH,
+  ].sort((left, right) => {
+    if (left === STATE_PATH) return 1;
+    if (right === STATE_PATH) return -1;
+    return left.localeCompare(right);
+  }));
+}
+
 function legacyManagedPaths(environment: LegacyEnvironmentId): readonly string[] {
   return Object.freeze([
     MCP_PATH,
     SETTINGS_PATH,
     SKILL_PATH,
-    ...HOOK_ASSETS.map((asset) => `${hookPrefix(environment)}/${asset}`),
+    ...PRE_MARKER_HOOK_ASSETS.map((asset) => `${hookPrefix(environment)}/${asset}`),
     STATE_PATH,
   ].sort((left, right) => {
     if (left === STATE_PATH) return 1;
@@ -366,6 +390,26 @@ function hookEnvironment(entry: unknown): LegacyEnvironmentId | undefined {
   return undefined;
 }
 
+function markerHookEnvironment(entry: unknown): LegacyEnvironmentId | undefined {
+  if (!isRecord(entry) || !Array.isArray(entry.hooks)) return undefined;
+  const encoded = JSON.stringify(entry);
+  for (const environment of ["qa", "dev"] as const) {
+    if (encoded.includes(`${hookPrefix(environment)}/run_marker.sh`) ||
+        encoded.includes(`${hookPrefix(environment).replaceAll("/", "\\\\")}\\\\run_marker.cmd`)) {
+      return environment;
+    }
+  }
+  return undefined;
+}
+
+function hookSectionId(environment: CurrentEnvironmentId): string {
+  return `hooks.kcoderag-nav.${environment}.v2`;
+}
+
+function hookBundle(preToolUse: unknown, postToolUse: unknown): JsonMap {
+  return { PreToolUse: preToolUse, PostToolUse: postToolUse };
+}
+
 function renderSettings(
   current: Buffer | undefined,
   environment: CurrentEnvironmentId,
@@ -389,71 +433,113 @@ function renderSettings(
   const baselineHooks = baselineDocument !== undefined && isRecord(baselineDocument.hooks)
     ? baselineDocument.hooks
     : undefined;
+  const currentPreToolUseExisted = hooks.PreToolUse !== undefined;
+  const currentPostToolUseExisted = hooks.PostToolUse !== undefined;
   const preToolUseExisted = baselineDocument === undefined
     ? hooks.PreToolUse !== undefined
     : baselineHooks?.PreToolUse !== undefined;
+  const postToolUseExisted = baselineDocument === undefined
+    ? hooks.PostToolUse !== undefined
+    : baselineHooks?.PostToolUse !== undefined;
   if (hooks.PreToolUse === undefined) hooks.PreToolUse = [];
-  if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord)) {
+  if (hooks.PostToolUse === undefined) hooks.PostToolUse = [];
+  if (!Array.isArray(hooks.PreToolUse) || !hooks.PreToolUse.every(isRecord) ||
+      !Array.isArray(hooks.PostToolUse) || !hooks.PostToolUse.every(isRecord)) {
     throw new InstallError("invalid_json", SETTINGS_PATH);
   }
   const ownedIndexes = hooks.PreToolUse
-    .map((entry, index) => ({ index, environment: hookEnvironment(entry) }))
-    .filter((entry) => entry.environment !== undefined);
-  let insertionIndex: number | undefined;
-  let previousOwnedEntry: unknown;
+    .map((candidate, index) => ({ index, environment: hookEnvironment(candidate) }))
+    .filter((candidate) => candidate.environment !== undefined);
+  const markerIndexes = hooks.PostToolUse
+    .map((candidate, index) => ({ index, environment: markerHookEnvironment(candidate) }))
+    .filter((candidate) => candidate.environment !== undefined);
+  let preIndex = hooks.PreToolUse.length;
+  let postIndex = hooks.PostToolUse.length;
+  let previousPre: unknown;
+  let previousPost: unknown;
   if (owned !== undefined) {
-    const expectedEnvironment = owned.id.split(".").at(-1);
-    const matched = ownedIndexes.filter((entry) => entry.environment === expectedEnvironment);
-    if (matched.length !== 1) throw new InstallError("managed_content_changed", SETTINGS_PATH);
-    const index = matched[0]?.index;
-    if (index === undefined) throw new InstallError("managed_content_changed", SETTINGS_PATH);
-    verifySection(owned, `hooks.PreToolUse.kcoderag-nav.${expectedEnvironment}`, hooks.PreToolUse[index], SETTINGS_PATH);
-    previousOwnedEntry = hooks.PreToolUse[index];
-    hooks.PreToolUse.splice(index, 1);
-    insertionIndex = index;
-  } else if (allowLegacyOwned) {
-    for (const entry of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
-      hooks.PreToolUse.splice(entry.index, 1);
+    const legacyRecord = owned.id.startsWith("hooks.PreToolUse.");
+    const expectedEnvironment = owned.id.split(".").at(legacyRecord ? -1 : -2);
+    if (expectedEnvironment !== environment || (!legacyRecord && owned.id !== hookSectionId(environment))) {
+      throw new InstallError("managed_content_changed", SETTINGS_PATH);
     }
-  } else if (ownedIndexes.length > 0 || JSON.stringify(document).includes("Checking code lookup strategy (KCodeRag")) {
+    const matched = ownedIndexes.filter((candidate) => candidate.environment === expectedEnvironment);
+    const matchedMarkers = markerIndexes.filter((candidate) => candidate.environment === expectedEnvironment);
+    if (matched.length !== 1 || matched[0] === undefined) {
+      throw new InstallError("managed_content_changed", SETTINGS_PATH);
+    }
+    preIndex = matched[0].index;
+    previousPre = hooks.PreToolUse[preIndex];
+    if (legacyRecord) {
+      if (matchedMarkers.length !== 0) throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
+      verifySection(owned, owned.id, previousPre, SETTINGS_PATH);
+    } else {
+      if (matchedMarkers.length !== 1 || matchedMarkers[0] === undefined) {
+        throw new InstallError("managed_content_changed", SETTINGS_PATH);
+      }
+      postIndex = matchedMarkers[0].index;
+      previousPost = hooks.PostToolUse[postIndex];
+      verifySection(owned, hookSectionId(environment), hookBundle(previousPre, previousPost), SETTINGS_PATH);
+    }
+  } else if (allowLegacyOwned) {
+    for (const candidate of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
+      hooks.PreToolUse.splice(candidate.index, 1);
+    }
+    for (const candidate of [...markerIndexes].sort((left, right) => right.index - left.index)) {
+      hooks.PostToolUse.splice(candidate.index, 1);
+    }
+    preIndex = hooks.PreToolUse.length;
+    postIndex = hooks.PostToolUse.length;
+  } else if (ownedIndexes.length > 0 || markerIndexes.length > 0 ||
+      JSON.stringify(document).includes("Checking code lookup strategy (KCodeRag")) {
     throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
   }
   const entry = managedHook(environment);
-  if (insertionIndex === undefined) hooks.PreToolUse.push(entry);
-  else hooks.PreToolUse.splice(insertionIndex, 0, entry);
-  const renderedIndex = hooks.PreToolUse.length - 1;
-  const preserveManaged = owned !== undefined && previousOwnedEntry !== undefined &&
-    sectionDigest(previousOwnedEntry) === sectionDigest(entry);
+  const markerEntry = managedMarkerHook();
+  if (preIndex === hooks.PreToolUse.length) hooks.PreToolUse.push(entry);
+  else hooks.PreToolUse[preIndex] = entry;
+  if (postIndex === hooks.PostToolUse.length) hooks.PostToolUse.push(markerEntry);
+  else hooks.PostToolUse[postIndex] = markerEntry;
+  const preservePre = previousPre !== undefined && sectionDigest(previousPre) === sectionDigest(entry);
+  const preservePost = previousPost !== undefined && sectionDigest(previousPost) === sectionDigest(markerEntry);
   let bytes: Buffer;
   if (current === undefined) {
     bytes = canonicalJson(document);
   } else {
     bytes = losslessJson(current, SETTINGS_PATH, (original) => {
-      if (preserveManaged) return original;
       let rendered = original;
-      if (owned !== undefined && insertionIndex !== undefined) {
-        return upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], insertionIndex, entry);
-      }
       if (allowLegacyOwned) {
         for (const ownedEntry of [...ownedIndexes].sort((left, right) => right.index - left.index)) {
           rendered = removeJsonArrayElement(rendered, ["hooks", "PreToolUse"], ownedEntry.index);
         }
-        return upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], renderedIndex, entry);
+        for (const ownedEntry of [...markerIndexes].sort((left, right) => right.index - left.index)) {
+          rendered = removeJsonArrayElement(rendered, ["hooks", "PostToolUse"], ownedEntry.index);
+        }
       }
-      return preToolUseExisted
-        ? upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], renderedIndex, entry)
-        : upsertJsonObjectProperty(rendered, ["hooks"], "PreToolUse", [entry]);
+      if (!preservePre) {
+        rendered = currentPreToolUseExisted
+          ? upsertJsonArrayElement(rendered, ["hooks", "PreToolUse"], preIndex, entry)
+          : upsertJsonObjectProperty(rendered, ["hooks"], "PreToolUse", [entry]);
+      }
+      if (!preservePost) {
+        rendered = currentPostToolUseExisted
+          ? upsertJsonArrayElement(rendered, ["hooks", "PostToolUse"], postIndex, markerEntry)
+          : upsertJsonObjectProperty(rendered, ["hooks"], "PostToolUse", [markerEntry]);
+      }
+      return rendered;
     });
   }
   return {
     bytes,
     section: sectionRecord(
-      `hooks.PreToolUse.kcoderag-nav.${environment}`,
-      entry,
+      hookSectionId(environment),
+      hookBundle(entry, markerEntry),
       fileExisted,
-      owned?.createdContainers ?? [
+      [
+        ...(owned?.createdContainers ?? []),
         ...(hooksExisted ? [] : ["hooks"]),
         ...(preToolUseExisted ? [] : ["hooks.PreToolUse"]),
+        ...(postToolUseExisted ? [] : ["hooks.PostToolUse"]),
       ],
     ),
   };
@@ -490,7 +576,14 @@ function details(observation: HostObservation): ClaudeObservationDetails {
 
 function validateCurrentState(state: InstallState): InstallState {
   if (state.host !== "claude") throw new InstallError("invalid_state", STATE_PATH);
-  const paths = managedPaths(state.environment);
+  const currentPaths = managedPaths(state.environment);
+  const previousPaths = preMarkerManagedPaths(state.environment);
+  const encodedPaths = state.managedFiles.join("\0");
+  const paths = encodedPaths === currentPaths.join("\0")
+    ? currentPaths
+    : encodedPaths === previousPaths.join("\0")
+      ? previousPaths
+      : [];
   const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
   const dedicated = owned.filter((relativePath) => !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]));
   const secureState = state.sections !== undefined;
@@ -535,16 +628,29 @@ function validateOwnedSections(
   if (!isRecord(settingsDocument.hooks) || !Array.isArray(settingsDocument.hooks.PreToolUse)) {
     throw new InstallError("managed_content_changed", SETTINGS_PATH);
   }
-  const environment = settingsRecord.id.split(".").at(-1);
+  const legacyRecord = settingsRecord.id.startsWith("hooks.PreToolUse.");
+  const environment = settingsRecord.id.split(".").at(legacyRecord ? -1 : -2);
   const matched = settingsDocument.hooks.PreToolUse.filter((entry) =>
     hookEnvironment(entry) === environment);
   if (matched.length !== 1 || matched[0] === undefined) {
     throw new InstallError("managed_content_changed", SETTINGS_PATH);
   }
+  if (legacyRecord) {
+    verifySection(settingsRecord, `hooks.PreToolUse.kcoderag-nav.${environment}`, matched[0], SETTINGS_PATH);
+    return;
+  }
+  if (!Array.isArray(settingsDocument.hooks.PostToolUse)) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
+  const matchedMarkers = settingsDocument.hooks.PostToolUse.filter((entry) =>
+    markerHookEnvironment(entry) === environment);
+  if (matchedMarkers.length !== 1 || matchedMarkers[0] === undefined) {
+    throw new InstallError("managed_content_changed", SETTINGS_PATH);
+  }
   verifySection(
     settingsRecord,
-    `hooks.PreToolUse.kcoderag-nav.${environment}`,
-    matched[0],
+    hookSectionId(state.environment as CurrentEnvironmentId),
+    hookBundle(matched[0], matchedMarkers[0]),
     SETTINGS_PATH,
   );
 }
@@ -580,7 +686,7 @@ function validateLegacyState(target: ProjectTarget, state: LegacyInstallState): 
     !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]));
   const secureState = state.sections !== undefined;
   if (
-    state.managedFiles.join("\0") !== paths.join("\0") ||
+    paths.length === 0 ||
     Object.keys(state.originals).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
     Object.keys(state.digests).sort().join("\0") !==
@@ -865,6 +971,14 @@ function renderInstall(context: HostInstallContext): DesiredState {
     ? captureOriginals(context.target, context.environment)
     : Object.fromEntries(Object.entries(existing.originals).filter(([relativePath]) =>
       !SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number])));
+  for (const relativePath of paths) {
+    if (relativePath === STATE_PATH || SHARED_PATHS.includes(relativePath as typeof SHARED_PATHS[number]) ||
+        originals[relativePath] !== undefined) continue;
+    if (readManagedOptional(context.target, relativePath) !== undefined) {
+      throw new InstallError("unmanaged_name_conflict", relativePath);
+    }
+    originals[relativePath] = encodeOriginal(undefined);
+  }
   const rendered = desiredPayloads(context);
   const payloads = rendered.payloads;
   const digests: Record<string, string> = {};
@@ -942,22 +1056,43 @@ function uninstallShared(
   if (!isRecord(settingsDocument.hooks) || !Array.isArray(settingsDocument.hooks.PreToolUse)) {
     throw new InstallError("managed_content_changed", SETTINGS_PATH);
   }
-  const environment = settingsRecord.id.split(".").at(-1);
+  const legacyRecord = settingsRecord.id.startsWith("hooks.PreToolUse.");
+  const environment = settingsRecord.id.split(".").at(legacyRecord ? -1 : -2);
   const matched = settingsDocument.hooks.PreToolUse
     .map((entry, index) => ({ entry, index, environment: hookEnvironment(entry) }))
     .filter((entry) => entry.environment === environment);
   if (matched.length !== 1 || matched[0] === undefined) {
     throw new InstallError("managed_content_changed", SETTINGS_PATH);
   }
-  verifySection(
-    settingsRecord,
-    `hooks.PreToolUse.kcoderag-nav.${environment}`,
-    matched[0].entry,
-    SETTINGS_PATH,
-  );
+  let matchedMarker: { readonly entry: unknown; readonly index: number } | undefined;
+  if (legacyRecord) {
+    verifySection(settingsRecord, `hooks.PreToolUse.kcoderag-nav.${environment}`, matched[0].entry, SETTINGS_PATH);
+  } else {
+    if (!Array.isArray(settingsDocument.hooks.PostToolUse)) {
+      throw new InstallError("managed_content_changed", SETTINGS_PATH);
+    }
+    const markers = settingsDocument.hooks.PostToolUse
+      .map((entry, index) => ({ entry, index, environment: markerHookEnvironment(entry) }))
+      .filter((entry) => entry.environment === environment);
+    if (markers.length !== 1 || markers[0] === undefined) {
+      throw new InstallError("managed_content_changed", SETTINGS_PATH);
+    }
+    matchedMarker = markers[0];
+    verifySection(
+      settingsRecord,
+      hookSectionId(environment as CurrentEnvironmentId),
+      hookBundle(matched[0].entry, matchedMarker.entry),
+      SETTINGS_PATH,
+    );
+  }
   settingsDocument.hooks.PreToolUse.splice(matched[0].index, 1);
   let renderedSettings = losslessJson(currentSettings, SETTINGS_PATH, (original) =>
     removeJsonArrayElement(original, ["hooks", "PreToolUse"], matched[0]!.index), "managed_content_changed");
+  if (matchedMarker !== undefined && Array.isArray(settingsDocument.hooks.PostToolUse)) {
+    settingsDocument.hooks.PostToolUse.splice(matchedMarker.index, 1);
+    renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
+      removeJsonArrayElement(original, ["hooks", "PostToolUse"], matchedMarker!.index), "managed_content_changed");
+  }
   if (settingsDocument.hooks.PreToolUse.length === 0 &&
       settingsRecord.createdContainers?.includes("hooks.PreToolUse")) {
     delete settingsDocument.hooks.PreToolUse;
@@ -965,6 +1100,14 @@ function uninstallShared(
   if (settingsDocument.hooks.PreToolUse === undefined) {
     renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
       removeJsonObjectProperty(original, ["hooks"], "PreToolUse"), "managed_content_changed");
+  }
+  if (Array.isArray(settingsDocument.hooks.PostToolUse) && settingsDocument.hooks.PostToolUse.length === 0 &&
+      settingsRecord.createdContainers?.includes("hooks.PostToolUse")) {
+    delete settingsDocument.hooks.PostToolUse;
+  }
+  if (settingsDocument.hooks.PostToolUse === undefined && matchedMarker !== undefined) {
+    renderedSettings = losslessJson(renderedSettings, SETTINGS_PATH, (original) =>
+      removeJsonObjectProperty(original, ["hooks"], "PostToolUse"), "managed_content_changed");
   }
   if (Object.keys(settingsDocument.hooks).length === 0 &&
       settingsRecord.createdContainers?.includes("hooks")) {
@@ -1027,7 +1170,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
     target: context.target,
     managedRoots: MANAGED_ROOTS,
     statePath: STATE_PATH,
-    entries: managedPaths(state.environment).map((relativePath) => ({
+    entries: state.managedFiles.map((relativePath) => ({
       relativePath,
       expectedDigest: expectedDigest(context.target, relativePath, state, stateBytes),
       content: relativePath === STATE_PATH
@@ -1145,6 +1288,19 @@ function defaultClaudeUserSourceReader(claudeRoot: string, userHome: string): Cl
       cachePaths: Object.freeze([...cachePaths]),
       ambiguousPaths: Object.freeze([...ambiguousPaths]),
     });
+  };
+}
+
+function managedMarkerHook(): JsonMap {
+  const commands = renderProjectHookCommands("claude", "mcp-call-marker");
+  return {
+    matcher: "^mcp__kcoderag-qa__.*$",
+    hooks: [{
+      type: "command",
+      command: commands.command,
+      commandWindows: commands.commandWindows,
+      timeout: 5,
+    }],
   };
 }
 
@@ -1588,7 +1744,7 @@ function claudeStatus(context: HostStatusContext) {
   const state = context.observation.currentState;
   if (state === undefined) {
     const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS);
-    if (fs.existsSync(path.dirname(root.absolutePath))) {
+    if (hasManagedRootResidue(path.dirname(root.absolutePath))) {
       return createStatusResult({
         status: "invalid",
         host: "claude",

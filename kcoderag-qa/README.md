@@ -14,21 +14,23 @@ install one selected host:
 npx kcoderag-nav@latest install --host codex
 npx kcoderag-nav@latest install --host claude
 npx kcoderag-nav@latest install --host cursor
+npx kcoderag-nav@latest install --host opencode
 ```
 
-Without `--host`, the CLI interactively offers Codex, Claude Code, and Cursor. Automation passes
-`--host codex|claude|cursor` and `--yes`. The target is exactly the current directory unless
+Without `--host`, the CLI interactively offers Codex, Claude Code, Cursor, and OpenCode. Automation passes
+`--host codex|claude|cursor|opencode` and `--yes`. The target is exactly the current directory unless
 `--target PATH` names another project. The CLI does not walk upward to a Git or SVN root. It shows
 the normalized target before mutation and rejects filesystem roots, the user home, and host user
 config, plugin, or cache roots.
 
-One command manages and scans one host. Independent Codex, Claude Code, and Cursor QA installs can
+One command manages and scans one host. Independent Codex, Claude Code, Cursor, and OpenCode QA installs can
 coexist in the same project. Their native project locations are:
 
 - Codex: `.codex/` and `.agents/skills/`.
 - Claude Code: `.claude/settings.json`, `.claude/skills/`, and the KCodeRag section in root
   `.mcp.json`.
 - Cursor: `.cursor/rules/`, `.cursor/skills/`, and the KCodeRag section in `.cursor/mcp.json`.
+- OpenCode: one of `opencode.json`/`opencode.jsonc`, `.opencode/plugins/`, and `.opencode/skills/`.
 
 ## Five project lifecycle commands
 
@@ -120,6 +122,12 @@ unknown owner stops before mutation.
   original Grep, Glob, or shell command.
 - Cursor uses an always-on Rule, shared skill, and MCP configuration. It does not claim an
   equivalent `PreToolUse` Hook.
+- Successful KCodeRag calls are recorded with secret-free, fail-open local markers: Codex and
+  Claude Code use `PostToolUse`, Cursor uses `afterMCPExecution`, and OpenCode uses
+  `tool.execute.after`. Marker files contain no arguments, results, URL, headers, or Bearer.
+- On its first project-plugin load, OpenCode may prepare its matching `@opencode-ai/plugin`
+  runtime under `.opencode/`. That host-owned cache can make the first start slower and is
+  intentionally preserved by `kcoderag-nav uninstall`.
 
 ## QA routing
 

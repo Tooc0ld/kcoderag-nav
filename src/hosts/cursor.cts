@@ -18,8 +18,13 @@ import {
   type ProjectTarget,
   type StatusIssue,
 } from "../core/contracts.cjs";
-import { validateManagedPath } from "../core/project-target.cjs";
-import { removeJsonObjectProperty, upsertJsonObjectProperty } from "../core/json-splice.cjs";
+import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
+import {
+  removeJsonArrayElement,
+  removeJsonObjectProperty,
+  upsertJsonArrayElement,
+  upsertJsonObjectProperty,
+} from "../core/json-splice.cjs";
 import {
   createDesiredState,
   createStatusResult,
@@ -112,8 +117,10 @@ interface CursorMigrationAdapter extends HostAdapter {
 
 const STATE_PATH = ".cursor/kcoderag-nav/install-state.json";
 const MCP_PATH = ".cursor/mcp.json";
+const HOOKS_PATH = ".cursor/hooks.json";
 const RULE_PATH = ".cursor/rules/kcoderag-navigation.mdc";
 const SKILL_PATH = ".cursor/skills/kcoderag-nav/SKILL.md";
+const MARKER_PATH = ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs";
 const MANAGED_ROOTS = Object.freeze([".cursor"] as const);
 const LEGACY_PLUGIN_NAME = "kcoderag-nav";
 const LEGACY_STATE_NAME = ".kcoderag-nav.install-state.json";
@@ -187,6 +194,14 @@ function packageName(environment: CurrentEnvironmentId): string {
 }
 
 function managedPaths(): readonly string[] {
+  return Object.freeze([MCP_PATH, HOOKS_PATH, RULE_PATH, SKILL_PATH, MARKER_PATH, STATE_PATH].sort((left, right) => {
+    if (left === STATE_PATH) return 1;
+    if (right === STATE_PATH) return -1;
+    return left.localeCompare(right);
+  }));
+}
+
+function preMarkerManagedPaths(): readonly string[] {
   return Object.freeze([MCP_PATH, RULE_PATH, SKILL_PATH, STATE_PATH].sort((left, right) => {
     if (left === STATE_PATH) return 1;
     if (right === STATE_PATH) return -1;
@@ -332,6 +347,143 @@ function removeInstalledMcp(
     : rendered;
 }
 
+function managedCursorHook(): JsonMap {
+  return {
+    command: `node ${MARKER_PATH} cursor`,
+    timeout: 5,
+  };
+}
+
+function isManagedCursorHook(value: unknown): boolean {
+  return isRecord(value) && value.command === `node ${MARKER_PATH} cursor`;
+}
+
+function cursorHookSectionRecord(
+  value: unknown,
+  fileExisted: boolean,
+  createdContainers: readonly string[] = [],
+): ManagedSectionRecord {
+  return {
+    id: "hooks.afterMCPExecution.kcoderag-nav",
+    digest: sectionDigest(value),
+    fileExisted,
+    createdContainers: [...createdContainers],
+  };
+}
+
+function verifyCursorHookSection(record: ManagedSectionRecord, value: unknown): void {
+  if (record.id !== "hooks.afterMCPExecution.kcoderag-nav" || sectionDigest(value) !== record.digest) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+}
+
+function renderCursorHooks(
+  current: Buffer | undefined,
+  owned: ManagedSectionRecord | undefined,
+  fileExisted: boolean,
+): { readonly bytes: Buffer; readonly section: ManagedSectionRecord } {
+  const document = current === undefined ? { version: 1, hooks: {} as JsonMap } :
+    parseJsonBytes(current, "invalid_json", HOOKS_PATH);
+  const hooksExisted = current !== undefined && document.hooks !== undefined;
+  if (document.version === undefined) document.version = 1;
+  if (document.version !== 1) throw new InstallError("invalid_json", HOOKS_PATH);
+  if (document.hooks === undefined) document.hooks = {};
+  if (!isRecord(document.hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
+  const eventExisted = document.hooks.afterMCPExecution !== undefined;
+  if (document.hooks.afterMCPExecution === undefined) document.hooks.afterMCPExecution = [];
+  if (!Array.isArray(document.hooks.afterMCPExecution) ||
+      !document.hooks.afterMCPExecution.every(isRecord)) {
+    throw new InstallError("invalid_json", HOOKS_PATH);
+  }
+  const matches = document.hooks.afterMCPExecution
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => isManagedCursorHook(entry));
+  let index = document.hooks.afterMCPExecution.length;
+  let previous: unknown;
+  if (owned !== undefined) {
+    if (matches.length !== 1 || matches[0] === undefined) {
+      throw new InstallError("managed_content_changed", HOOKS_PATH);
+    }
+    index = matches[0].index;
+    previous = matches[0].entry;
+    verifyCursorHookSection(owned, previous);
+  } else if (matches.length > 0) {
+    throw new InstallError("unmanaged_name_conflict", HOOKS_PATH);
+  }
+  const entry = managedCursorHook();
+  if (index === document.hooks.afterMCPExecution.length) document.hooks.afterMCPExecution.push(entry);
+  else document.hooks.afterMCPExecution[index] = entry;
+  const preserve = previous !== undefined && sectionDigest(previous) === sectionDigest(entry);
+  let bytes: Buffer;
+  if (current === undefined) {
+    bytes = canonicalJson(document);
+  } else {
+    bytes = Buffer.from((() => {
+      const original = decodeUtf8(current, HOOKS_PATH);
+      if (preserve) return original;
+      try {
+        return eventExisted
+          ? upsertJsonArrayElement(original, ["hooks", "afterMCPExecution"], index, entry)
+          : upsertJsonObjectProperty(original, ["hooks"], "afterMCPExecution", [entry]);
+      } catch {
+        throw new InstallError("invalid_json", HOOKS_PATH);
+      }
+    })(), "utf8");
+  }
+  return {
+    bytes,
+    section: cursorHookSectionRecord(entry, fileExisted, [
+      ...(owned?.createdContainers ?? []),
+      ...(hooksExisted ? [] : ["hooks"]),
+      ...(eventExisted ? [] : ["hooks.afterMCPExecution"]),
+    ]),
+  };
+}
+
+function removeInstalledCursorHook(
+  current: Buffer | null,
+  record: ManagedSectionRecord | undefined,
+): Buffer | null {
+  if (current === null || record === undefined) throw new InstallError("invalid_state", STATE_PATH);
+  const document = parseJsonBytes(current, "invalid_json", HOOKS_PATH);
+  if (!isRecord(document.hooks) || !Array.isArray(document.hooks.afterMCPExecution)) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  const matches = document.hooks.afterMCPExecution
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => isManagedCursorHook(entry));
+  if (matches.length !== 1 || matches[0] === undefined) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  verifyCursorHookSection(record, matches[0].entry);
+  document.hooks.afterMCPExecution.splice(matches[0].index, 1);
+  let rendered: Buffer;
+  try {
+    rendered = Buffer.from(removeJsonArrayElement(
+      decodeUtf8(current, HOOKS_PATH),
+      ["hooks", "afterMCPExecution"],
+      matches[0].index,
+    ), "utf8");
+    if (document.hooks.afterMCPExecution.length === 0 &&
+        record.createdContainers?.includes("hooks.afterMCPExecution")) {
+      delete document.hooks.afterMCPExecution;
+      rendered = Buffer.from(removeJsonObjectProperty(
+        decodeUtf8(rendered, HOOKS_PATH), ["hooks"], "afterMCPExecution"), "utf8");
+    }
+    if (Object.keys(document.hooks).length === 0 && record.createdContainers?.includes("hooks")) {
+      delete document.hooks;
+      rendered = Buffer.from(removeJsonObjectProperty(
+        decodeUtf8(rendered, HOOKS_PATH), [], "hooks"), "utf8");
+    }
+  } catch (error) {
+    if (error instanceof InstallError) throw error;
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  return !record.fileExisted && Object.keys(document).length === 1 && document.version === 1
+    ? null
+    : rendered;
+}
+
 function sourceAsset(packageRoot: string, relativePath: string): Buffer {
   try {
     return fs.readFileSync(path.join(packageRoot, ...relativePath.split("/")));
@@ -363,25 +515,35 @@ function details(observation: HostObservation): CursorObservationDetails {
 
 function validateCurrentState(state: InstallState): InstallState {
   if (state.host !== "cursor") throw new InstallError("invalid_state", STATE_PATH);
-  const paths = managedPaths();
+  const currentPaths = managedPaths();
+  const previousPaths = preMarkerManagedPaths();
+  const encodedPaths = state.managedFiles.join("\0");
+  const currentLayout = encodedPaths === currentPaths.join("\0");
+  const paths = currentLayout
+    ? currentPaths
+    : encodedPaths === previousPaths.join("\0")
+      ? previousPaths
+      : [];
   const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
-  const dedicated = owned.filter((relativePath) => relativePath !== MCP_PATH);
+  const sharedPaths = currentLayout ? [MCP_PATH, HOOKS_PATH] : [MCP_PATH];
+  const dedicated = owned.filter((relativePath) => !sharedPaths.includes(relativePath));
   const secureState = state.sections !== undefined;
   if (
-    state.managedFiles.join("\0") !== paths.join("\0") ||
+    paths.length === 0 ||
     Object.keys(state.originals).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
     Object.keys(state.digests).sort().join("\0") !==
       [...(secureState ? dedicated : owned)].sort().join("\0") ||
-    (secureState && Object.keys(state.sections ?? {}).join("\0") !== MCP_PATH) ||
-    (secureState && state.sections?.[MCP_PATH]?.id !== "mcpServers.kcoderag")
+    (secureState && Object.keys(state.sections ?? {}).sort().join("\0") !== [...sharedPaths].sort().join("\0")) ||
+    (secureState && state.sections?.[MCP_PATH]?.id !== "mcpServers.kcoderag") ||
+    (secureState && currentLayout && state.sections?.[HOOKS_PATH]?.id !== "hooks.afterMCPExecution.kcoderag-nav")
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
   return state;
 }
 
-function validateOwnedSection(
+function validateOwnedSections(
   target: ProjectTarget,
   state: Pick<LegacyInstallState, "sections"> | InstallState,
 ): void {
@@ -393,6 +555,19 @@ function validateOwnedSection(
   const document = parseJsonBytes(current, "invalid_json", MCP_PATH);
   if (!isRecord(document.mcpServers)) throw new InstallError("managed_content_changed", MCP_PATH);
   verifyMcpSection(record, document.mcpServers.kcoderag);
+  const hookRecord = state.sections?.[HOOKS_PATH];
+  if (hookRecord === undefined) return;
+  const currentHooks = readManagedOptional(target, HOOKS_PATH);
+  if (currentHooks === undefined) throw new InstallError("managed_content_changed", HOOKS_PATH);
+  const hookDocument = parseJsonBytes(currentHooks, "invalid_json", HOOKS_PATH);
+  if (!isRecord(hookDocument.hooks) || !Array.isArray(hookDocument.hooks.afterMCPExecution)) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  const matches = hookDocument.hooks.afterMCPExecution.filter(isManagedCursorHook);
+  if (matches.length !== 1 || matches[0] === undefined) {
+    throw new InstallError("managed_content_changed", HOOKS_PATH);
+  }
+  verifyCursorHookSection(hookRecord, matches[0]);
 }
 
 function legacyTreeDigest(digests: Readonly<Record<string, string>>): string {
@@ -517,7 +692,7 @@ function validateLegacyProjectState(target: ProjectTarget, state: LegacyInstallS
   if (state.source !== "node" || state.host !== "cursor") {
     throw new InstallError("invalid_state", STATE_PATH);
   }
-  const paths = managedPaths();
+  const paths = preMarkerManagedPaths();
   const owned = paths.filter((relativePath) => relativePath !== STATE_PATH);
   const dedicated = owned.filter((relativePath) => relativePath !== MCP_PATH);
   const secureState = state.sections !== undefined;
@@ -532,7 +707,7 @@ function validateLegacyProjectState(target: ProjectTarget, state: LegacyInstallS
   ) {
     throw new InstallError("invalid_state", STATE_PATH);
   }
-  if (secureState) validateOwnedSection(target, state);
+  if (secureState) validateOwnedSections(target, state);
 }
 
 export function inspectCursorLegacyInstall(
@@ -613,7 +788,7 @@ function detectCursor(
         // Exact legacy decoding below owns compatibility; invalid inputs remain invalid.
       }
       if (currentState !== undefined) {
-        if (currentState.sections !== undefined) validateOwnedSection(context.target, currentState);
+        if (currentState.sections !== undefined) validateOwnedSections(context.target, currentState);
       } else {
         if (legacyProjectEnvironment === undefined) throw new InstallError("invalid_state", STATE_PATH);
         legacyProjectState = parseLegacyInstallState(stateBytes, {
@@ -681,7 +856,7 @@ function captureOriginals(target: ProjectTarget): Record<string, OriginalRecord>
   const originals: Record<string, OriginalRecord> = {};
   for (const relativePath of managedPaths()) {
     if (relativePath === STATE_PATH) continue;
-    if (relativePath === MCP_PATH) continue;
+    if (relativePath === MCP_PATH || relativePath === HOOKS_PATH) continue;
     const current = readManagedOptional(target, relativePath);
     if (current !== undefined) {
       throw new InstallError("unmanaged_name_conflict", relativePath);
@@ -698,7 +873,7 @@ function expectedDigest(
   stateBytes: Buffer | undefined,
 ): string | null {
   if (relativePath === STATE_PATH) return stateBytes === undefined ? null : sha256(stateBytes);
-  if (state !== undefined && relativePath === MCP_PATH) {
+  if (state !== undefined && (relativePath === MCP_PATH || relativePath === HOOKS_PATH)) {
     const current = readManagedOptional(target, relativePath);
     return current === undefined ? null : sha256(current);
   }
@@ -732,7 +907,15 @@ function renderInstall(context: HostInstallContext): DesiredState {
   const originals = priorState === undefined
     ? captureOriginals(context.target)
     : Object.fromEntries(Object.entries(priorState.originals).filter(([relativePath]) =>
-      relativePath !== MCP_PATH));
+      relativePath !== MCP_PATH && relativePath !== HOOKS_PATH));
+  for (const relativePath of managedPaths()) {
+    if (relativePath === STATE_PATH || relativePath === MCP_PATH || relativePath === HOOKS_PATH ||
+        originals[relativePath] !== undefined) continue;
+    if (readManagedOptional(context.target, relativePath) !== undefined) {
+      throw new InstallError("unmanaged_name_conflict", relativePath);
+    }
+    originals[relativePath] = encodeOriginal(undefined);
+  }
   const currentMcp = readManagedOptional(context.target, MCP_PATH);
   const legacyState = priorState !== undefined && priorState.sections === undefined;
   const mcpOriginalRecord = priorState?.originals[MCP_PATH];
@@ -749,14 +932,22 @@ function renderInstall(context: HostInstallContext): DesiredState {
       (legacyState ? mcpOriginalRecord?.kind !== "absent" : currentMcp !== undefined),
     mcpOwnershipBaseline,
   );
+  const currentHooks = readManagedOptional(context.target, HOOKS_PATH);
+  const renderedHooks = renderCursorHooks(
+    currentHooks,
+    priorState?.sections?.[HOOKS_PATH],
+    priorState?.sections?.[HOOKS_PATH]?.fileExisted ?? currentHooks !== undefined,
+  );
   const payloads = new Map<string, Buffer>([
     [MCP_PATH, renderedMcp.bytes],
+    [HOOKS_PATH, renderedHooks.bytes],
     [RULE_PATH, sourceAsset(context.packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc")],
     [SKILL_PATH, sourceAsset(context.packageRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md")],
+    [MARKER_PATH, sourceAsset(context.packageRoot, "kcoderag-qa/hooks/mcp-call-marker.cjs")],
   ]);
   const digests: Record<string, string> = {};
   for (const [relativePath, bytes] of payloads) {
-    if (relativePath !== MCP_PATH) digests[relativePath] = sha256(bytes);
+    if (relativePath !== MCP_PATH && relativePath !== HOOKS_PATH) digests[relativePath] = sha256(bytes);
   }
   const state: InstallState = {
     schemaVersion: CORE_SCHEMA_VERSION,
@@ -766,7 +957,7 @@ function renderInstall(context: HostInstallContext): DesiredState {
     managedFiles: [...managedPaths()],
     originals,
     digests,
-    sections: { [MCP_PATH]: renderedMcp.section },
+    sections: { [MCP_PATH]: renderedMcp.section, [HOOKS_PATH]: renderedHooks.section },
   };
   payloads.set(STATE_PATH, canonicalJson(state));
   const stateBytes = observationDetails.stateBytes;
@@ -809,7 +1000,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
       target: context.target,
       managedRoots: MANAGED_ROOTS,
       statePath: STATE_PATH,
-      entries: managedPaths().map((relativePath) => ({
+      entries: legacyProject.managedFiles.map((relativePath) => ({
         relativePath,
         expectedDigest: relativePath === STATE_PATH
           ? sha256(stateBytes)
@@ -830,6 +1021,7 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
   if (state === undefined || stateBytes === undefined) throw new InstallError("not_installed", STATE_PATH);
   if (state.environment !== context.environment) throw new InstallError("environment_not_installed", STATE_PATH);
   let mcpPayload: Buffer | null | undefined;
+  let hooksPayload: Buffer | null | undefined;
   if (state.sections !== undefined) {
     const record = state.sections[MCP_PATH];
     const current = readManagedOptional(context.target, MCP_PATH);
@@ -837,19 +1029,28 @@ function renderUninstall(context: HostUninstallContext): DesiredState {
       throw new InstallError("managed_content_changed", MCP_PATH);
     }
     mcpPayload = removeInstalledMcp(current, record);
+    const hookRecord = state.sections[HOOKS_PATH];
+    if (hookRecord !== undefined) {
+      hooksPayload = removeInstalledCursorHook(
+        readManagedOptional(context.target, HOOKS_PATH) ?? null,
+        hookRecord,
+      );
+    }
   }
   return createDesiredState({
     host: "cursor",
     target: context.target,
     managedRoots: MANAGED_ROOTS,
     statePath: STATE_PATH,
-    entries: managedPaths().map((relativePath) => ({
+    entries: state.managedFiles.map((relativePath) => ({
       relativePath,
       expectedDigest: expectedDigest(context.target, relativePath, state, stateBytes),
       content: relativePath === STATE_PATH
         ? null
         : relativePath === MCP_PATH && state.sections !== undefined
           ? mcpPayload ?? null
+          : relativePath === HOOKS_PATH && state.sections?.[HOOKS_PATH] !== undefined
+            ? hooksPayload ?? null
           : decodeOriginal(state.originals[relativePath], relativePath),
     })),
   });
@@ -1145,7 +1346,7 @@ function cursorStatus(context: HostStatusContext) {
   const state = context.observation.currentState;
   if (state === undefined) {
     const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS);
-    if (fs.existsSync(path.dirname(root.absolutePath))) {
+    if (hasManagedRootResidue(path.dirname(root.absolutePath))) {
       return createStatusResult({
         status: "invalid",
         host: "cursor",
@@ -1355,6 +1556,8 @@ function projectRollbackState(desired: DesiredState): DesiredState {
         ? null
         : entry.path.relativePath === MCP_PATH && state.sections !== undefined
           ? removeInstalledMcp(entry.content, state.sections[MCP_PATH])
+          : entry.path.relativePath === HOOKS_PATH && state.sections !== undefined
+            ? removeInstalledCursorHook(entry.content, state.sections[HOOKS_PATH])
           : decodeOriginal(state.originals[entry.path.relativePath], entry.path.relativePath),
     })),
   });

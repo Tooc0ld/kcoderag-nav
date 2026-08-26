@@ -4,18 +4,19 @@
 
 **KCodeRag Nav**
 
-KCodeRag Nav 是 KCodeRag MCP 查询服务的 Node.js 项目集成，面向 Codex、Claude Code 与
-Cursor。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、导航 skill、MCP 配置和宿主资产
+KCodeRag Nav 是 KCodeRag MCP 查询服务的 Node.js 项目集成，面向 Codex、Claude Code、
+Cursor 与 OpenCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、导航 skill、MCP 配置和宿主资产
 部署到目标项目的原生目录；它不是 marketplace plugin，也不依赖 Python、Git checkout 或
 运行时 TypeScript 编译。标准入口是 `npx kcoderag-nav@latest install`。
 
-未指定宿主时交互选择 Codex、Claude Code 或 Cursor；自动化使用
-`--host codex|claude|cursor`，一次调用只管理一个宿主。自 `0.2.0` 起 QA 是唯一公开可安装、
+未指定宿主时交互选择 Codex、Claude Code、Cursor 或 OpenCode；自动化使用
+`--host codex|claude|cursor|opencode`，一次调用只管理一个宿主。自 `0.2.0` 起 QA 是唯一公开可安装、
 更新和生成的环境；旧 QA/Dev 状态只作为一次性迁移或卸载的精确 legacy 解码输入。跨宿主的
 项目级 QA 安装可以共存。
 
 Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
-和共享 skill，不声称 hook 行为等价。install/update/uninstall 只修改 adapter 声明的受管
+和共享 skill，OpenCode 使用项目 plugin。四宿主成功调用事件写入 secret-free、fail-open marker。
+install/update/uninstall 只修改 adapter 声明的受管
 项目文件和 section，遇到漂移、危险 target 或用户级活动重复来源时写前硬停止，并按单宿主
 事务完整回滚。`status` 快速报告项目健康；`doctor` 深扫所选宿主的用户级来源且始终只读。
 
@@ -25,7 +26,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 - **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
 - **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；`0.2.0` 起公共产品 QA-only，根 marketplace catalog 不得恢复
-- **宿主边界**: 一次命令只管理 Codex、Claude Code 或 Cursor 中的一个；跨宿主安装可以共存
+- **宿主边界**: 一次命令只管理 Codex、Claude Code、Cursor 或 OpenCode 中的一个；跨宿主安装可以共存
 - **旧状态**: Dev 不是可安装产品，只能由精确 schema、完整所有权和摘要验证的 legacy 解码器读取，用于显式迁移/卸载
 - **项目边界**: 默认只修改目标项目内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
@@ -34,11 +35,13 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - **诊断**: status/doctor 只读且 secret-safe；`source_conflict` 为 `ok:false`，输出不得包含 URL、Header、Bearer 或配置正文
 - **Hook**: Codex/Claude 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
+- **成功调用记录**: Codex/Claude `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
+  `tool.execute.after` 共用 secret-free、有界、fail-open marker
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
 - **发布**: 全部门禁通过后直接发布不可变 `0.2.0`；若 Head 迁移失败仅以 `0.2.1` 修复前进，不回退 tag/latest 或 unpublish
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
 - **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
-- **OpenCode**: 仅保留 adapter 扩展能力；实现与真实宿主验证延后
+- **OpenCode**: 只允许项目级安装；JSON/JSONC 双配置硬停止；真机验收基线为 `1.18.23`
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
 <!-- GSD:project-end -->
@@ -63,7 +66,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 ## Frameworks
 
 - Model Context Protocol (MCP) - the external KCodeRag QA service is projected into each selected host's native project configuration; Dev survives only as legacy state input.
-- Host adapters - Codex, Claude Code, and Cursor render host-specific desired state behind a shared read/render-only interface.
+- Host adapters - Codex, Claude Code, Cursor, and OpenCode render host-specific desired state behind a shared read/render-only interface.
 - Node built-in test runner - compiled `dist-tests/**/*.test.cjs` provides unit, integration, pack, lifecycle, smoke, and release coverage.
 - npm/npx - package acquisition and the five-command project lifecycle; marketplace catalogs are not a distribution surface.
 
@@ -72,19 +75,19 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - Runtime dependencies: none beyond Node.js built-ins.
 - Dev dependencies: audited TypeScript and Node 22 declarations only; dependency graph or integrity drift requires re-audit.
 - KCodeRag QA MCP service - provides graph lookup tools; endpoint and authorization values remain opaque sensitive inputs.
-- Codex/Claude hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, and MCP configuration instead.
+- Codex/Claude hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, MCP, and `afterMCPExecution`; OpenCode consumes a project plugin and MCP configuration.
 
 ## Configuration
 
-- `src/hosts/` declares Codex, Claude Code, and Cursor project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
+- `src/hosts/` declares Codex, Claude Code, Cursor, and OpenCode project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
 - `plugin-src/` is the deterministic template/config source; generated QA/Cursor assets remain self-contained and version-aligned, while no public Dev product is generated.
-- Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, and `.cursor/mcp.json`.
+- Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`; OpenCode targets one root config plus `.opencode/`.
 - MCP configuration files may contain credentials. Never inspect, print, snapshot, or include their values in diagnostics.
 
 ## Platform Requirements
 
 - Node.js 22+ and npm/npx on Windows or Linux.
-- At least one selected host: Codex, Claude Code, or Cursor; OpenCode remains deferred.
+- At least one selected host: Codex, Claude Code, Cursor, or OpenCode.
 - Network access for initial npm acquisition and the internal QA MCP service. Installed hooks run offline and update checks fail open.
 
 <!-- GSD:stack-end -->
@@ -159,7 +162,8 @@ CLI policy -> selected HostAdapter (read/render only) -> atomic transaction -> p
         +-> status/doctor (read-only)                             +-> managed state/digests
 
 Installed Codex/Claude launcher -> CJS advisory hook -> optional detached npm update worker
-Installed Cursor project files  -> Rule + skill + MCP (native capability boundary)
+Installed Cursor project files  -> Rule + skill + MCP + afterMCPExecution marker
+Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 ```
 
 ## Component Responsibilities
@@ -169,7 +173,7 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 | npm CLI | Parses five commands, selects one host/environment, confirms target, and formats stable output | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
 | Core contracts | Defines safe errors, target/state/status types, runtime checks, and managed-path validation | `src/core/` |
 | Atomic transaction | Performs the only installation filesystem commit, state-last ordering, and complete rollback | `src/core/transaction.cts` |
-| Host adapters | Detect and render Codex, Claude Code, or Cursor project-native desired state without writing | `src/hosts/` |
+| Host adapters | Detect and render Codex, Claude Code, Cursor, or OpenCode project-native desired state without writing | `src/hosts/` |
 | Advisory hook | Classifies structural search, emits bounded guidance, and fails open | `src/hooks/grep-nudge.cts` |
 | Update runtime | Reads bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
 | Generator | Produces deterministic self-contained QA/Cursor assets while retaining only exact legacy Dev decoding | `src/generator/index.cts`, `plugin-src/` |
@@ -180,7 +184,8 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 ## Pattern Overview
 
 - The npm CLI is the composition root. One invocation targets one host; host adapters provide data and the shared transaction owns writes.
-- QA is the only public environment. Exact legacy QA/Dev state is readable only for authorized migration/uninstall, and a project may contain independent QA installations for Codex, Claude Code, and Cursor.
+- QA is the only public environment. Exact legacy QA/Dev state is readable only for authorized migration/uninstall, and a project may contain independent QA installations for Codex, Claude Code, Cursor, and OpenCode.
+- OpenCode is also project-only; it selects exactly one JSON/JSONC project config and never writes user-global config.
 - Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained and Dev is never regenerated as a public product.
 - Codex/Claude hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
 - All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
@@ -209,7 +214,8 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 1. Codex/Claude invokes the generated launcher before matched search tools; from the session cwd it walks upward to the nearest selected-host managed state, treats a damaged nearest state as a fail-open boundary, resolves relative sibling CJS, and never falls through to an outer project.
 2. The hook parses bounded input and emits advisory JSON only for eligible structural searches.
 3. A session's first eligible event may schedule a detached npm Registry refresh; foreground execution reads local bounded state only.
-4. Cursor receives equivalent navigation policy through its Rule/skill and uses MCP directly, without a hook event claim.
+4. Cursor receives navigation policy through its Rule/skill and uses MCP directly; `afterMCPExecution` records a bounded successful-call marker without emulating PreToolUse.
+5. OpenCode uses a project plugin's stable `tool.execute.after` event to record the same marker.
 
 ## Key Abstractions
 
@@ -238,7 +244,7 @@ Installed Cursor project files  -> Rule + skill + MCP (native capability boundar
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
 - **Release boundary:** Publish immutable `0.2.0` only after implementation, tests, review, pack, four-lane CI, and public-artifact gates; post-publication deployment failure fixes forward as `0.2.1` without unpublish or dist-tag rollback.
 - **Documentation boundary:** The sibling KCodeRag repository exclusively owns `MCP_QA_EXPERIENCE_GUIDE.md`; this repository keeps no copy.
-- **Deferred boundary:** Do not absorb Phase 05 Hook precision, Phase 06 authenticated real MCP queries, Phase 07 global GSD Hook work, Phase 08 identity/HTTPS/token rotation, or OpenCode behavior.
+- **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries and OpenCode `1.18.23` evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
 
 ## Anti-Patterns
 

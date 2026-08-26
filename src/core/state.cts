@@ -147,7 +147,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isHost(value: unknown): value is HostId {
-  return value === "codex" || value === "claude" || value === "cursor";
+  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
 }
 
 function isLegacyEnvironment(value: unknown): value is LegacyEnvironmentId {

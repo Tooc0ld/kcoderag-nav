@@ -6,6 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 import { InstallError, type ProjectTarget, type ValidatedPath } from "./contracts.cjs";
 
 const validatedTargets = new WeakSet<object>();
+const MAX_EMPTY_MANAGED_DIRECTORIES = 64;
 
 export interface ProjectTargetOptions {
   readonly homeDirectory?: string;
@@ -112,6 +113,42 @@ export function resolveProjectTarget(
 
 export function isProjectTarget(value: unknown): value is ProjectTarget {
   return typeof value === "object" && value !== null && validatedTargets.has(value);
+}
+
+/**
+ * Treat a recursively empty directory tree as harmless uninstall residue.
+ * Any file, link, special entry, unreadable directory, or unexpectedly large
+ * tree remains residue so status never hides user content or unsafe paths.
+ */
+export function hasManagedRootResidue(rootPath: string): boolean {
+  let rootMetadata: import("node:fs").Stats;
+  try {
+    rootMetadata = fs.lstatSync(rootPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return true;
+  }
+  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) return true;
+
+  const pending = [rootPath];
+  let visited = 0;
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (directory === undefined) break;
+    visited += 1;
+    if (visited > MAX_EMPTY_MANAGED_DIRECTORIES) return true;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return true;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink() || !entry.isDirectory()) return true;
+      pending.push(path.join(directory, entry.name));
+    }
+  }
+  return false;
 }
 
 export function validateManagedPath(

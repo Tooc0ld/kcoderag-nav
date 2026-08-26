@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 function digest(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -116,7 +116,7 @@ function makeAdapter(
   };
 }
 
-function io(target: string, adapters: Record<HostId, Record<string, unknown>>) {
+function io(target: string, adapters: Readonly<Record<string, Record<string, unknown>>>) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   return {
@@ -131,7 +131,11 @@ function io(target: string, adapters: Record<HostId, Record<string, unknown>>) {
       confirmTarget: () => true,
       confirmLegacyUserRemoval: () => false,
       selectHost: () => "codex",
-      getAdapter: (host: HostId) => adapters[host],
+      getAdapter: (host: HostId) => {
+        const adapter = adapters[host];
+        if (adapter === undefined) throw new Error(`missing test adapter: ${host}`);
+        return adapter;
+      },
     },
   };
 }
@@ -432,7 +436,7 @@ test("interactive selection uses the fixed host list, cwd/target confirmation, a
     );
 
     assert.equal(exitCode, 2);
-    assert.deepEqual(hostLists, [["codex", "claude", "cursor"]]);
+    assert.deepEqual(hostLists, [["codex", "claude", "cursor", "opencode"]]);
     assert.equal(confirmations[0]?.target, fs.realpathSync(explicit));
     assert.equal("environment" in (confirmations[0] ?? {}), false);
     assert.deepEqual(calls, []);
@@ -594,7 +598,7 @@ test("machine output and exit codes are stable and redact unexpected adapter fai
     const invalid = io(item.target, adapters);
     assert.equal(
       await commands.executeCommand(
-        ["install", "--host", "opencode", "--yes", "--json"],
+        ["install", "--host", "windsurf", "--yes", "--json"],
         invalid.dependencies,
       ),
       2,

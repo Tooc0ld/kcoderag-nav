@@ -58,10 +58,14 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "agents/kcode-explorer.md",
     "hooks/grep-nudge.cjs",
     "hooks/hooks.json",
+    "hooks/mcp-call-marker.cjs",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
+    "hooks/run_marker.cmd",
+    "hooks/run_marker.sh",
     "hooks/update-check.cjs",
     "hooks/update-worker.cjs",
+    "opencode/kcoderag-nav.js",
     "skills/code-lookup-discipline/SKILL.md",
   ]),
   cursor: Object.freeze([
@@ -146,7 +150,7 @@ function assertQaStructure(version: string): void {
   const claudeServers = claudeMcp.mcpServers;
   assert.deepEqual(sortedKeys(claudeServers), [expectedName], "qa:claude-mcp-namespace");
 
-  for (const runtime of ["grep-nudge.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
+  for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-worker.cjs"] as const) {
     assert.equal(
       fs.readFileSync(productPath("qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
@@ -155,7 +159,7 @@ function assertQaStructure(version: string): void {
       `qa:${runtime}`,
     );
   }
-  for (const launcher of ["run_hook.cmd", "run_hook.sh"] as const) {
+  for (const launcher of ["run_hook.cmd", "run_hook.sh", "run_marker.cmd", "run_marker.sh"] as const) {
     assert.equal(
       fs.readFileSync(productPath("qa", `hooks/${launcher}`)).equals(
         normalizeText(fs.readFileSync(path.join(repositoryRoot, "plugin-src", "hooks", launcher))),
@@ -170,6 +174,10 @@ function assertQaStructure(version: string): void {
   assert.equal(typeof hooks === "object" && hooks !== null && !Array.isArray(hooks), true, "qa:hooks");
   const preToolUse = (hooks as Record<string, unknown>).PreToolUse;
   assert.equal(Array.isArray(preToolUse) && preToolUse.length === 1, true, "qa:pre-tool-use");
+  const postToolUse = (hooks as Record<string, unknown>).PostToolUse;
+  assert.equal(Array.isArray(postToolUse) && postToolUse.length === 1, true, "qa:post-tool-use");
+  assert.match(JSON.stringify(postToolUse), /mcp__kcoderag-qa__/u);
+  assert.equal(fs.statSync(productPath("qa", "opencode/kcoderag-nav.js")).size > 0, true);
 
   for (const relativePath of [
     "agents/kcode-explorer.md",
@@ -268,7 +276,10 @@ test("missing and stale generated asset fixtures fail closed while check mode re
       outputRoot: fixtureRoot,
     });
     assert.equal(missing.ok, false);
-    assert.deepEqual(missing.changedPaths, ["kcoderag-qa/hooks/hooks.json"]);
+    assert.deepEqual(missing.changedPaths, [
+      "kcoderag-qa/hooks/hooks.json",
+      "kcoderag-qa/opencode/kcoderag-nav.js",
+    ]);
     assert.deepEqual(missing.writtenPaths, []);
     assert.deepEqual(evidenceForSelectedAssets(), missingBefore);
 
@@ -284,7 +295,10 @@ test("missing and stale generated asset fixtures fail closed while check mode re
       outputRoot: fixtureRoot,
     });
     assert.equal(stale.ok, false);
-    assert.deepEqual(stale.changedPaths, ["kcoderag-qa/hooks/hooks.json"]);
+    assert.deepEqual(stale.changedPaths, [
+      "kcoderag-qa/hooks/hooks.json",
+      "kcoderag-qa/opencode/kcoderag-nav.js",
+    ]);
     assert.deepEqual(stale.writtenPaths, []);
     assert.equal(fs.readFileSync(stalePath).equals(staleBefore), true);
     assert.equal(fs.statSync(stalePath).mtimeMs, staleMtime);

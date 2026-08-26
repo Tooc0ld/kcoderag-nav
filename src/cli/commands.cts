@@ -187,6 +187,9 @@ function isMutation(command: CommandName): boolean {
 function defaultHostGlobalRoots(host: HostId, homeDirectory: string): readonly string[] {
   if (host === "codex") return Object.freeze([path.join(homeDirectory, ".codex")]);
   if (host === "claude") return Object.freeze([path.join(homeDirectory, ".claude")]);
+  if (host === "opencode") {
+    return Object.freeze([path.join(homeDirectory, ".config", "opencode")]);
+  }
   const roots = [path.join(homeDirectory, ".cursor")];
   if (process.platform === "win32") {
     roots.push(

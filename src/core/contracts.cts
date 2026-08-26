@@ -2,7 +2,7 @@
 
 export const CORE_SCHEMA_VERSION = 1 as const;
 
-export type HostId = "codex" | "claude" | "cursor";
+export type HostId = "codex" | "claude" | "cursor" | "opencode";
 export type CurrentEnvironmentId = "qa";
 export type LegacyEnvironmentId = CurrentEnvironmentId | "dev";
 /** Transitional compatibility input for legacy readers and pre-0.2.0 generators. */

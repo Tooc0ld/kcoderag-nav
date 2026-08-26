@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 interface HostAdapter {
   readonly id: HostId;
@@ -110,10 +110,13 @@ function packageFixture(base: string): { readonly root: string; readonly secret:
     );
     for (const asset of [
       "grep-nudge.cjs",
+      "mcp-call-marker.cjs",
       "update-check.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",
+      "run_marker.cmd",
+      "run_marker.sh",
     ]) {
       write(root, `${packageName}/hooks/${asset}`, `${environment}:${asset}\n`);
     }
@@ -283,8 +286,8 @@ test("Codex preserves pre-existing empty hook containers across install update a
   try {
     const pkg = packageFixture(base);
     for (const [name, hooksOriginal, expectedCreated] of [
-      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse"]],
-      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", []],
+      ["hooks", "{ \"hooks\" : {} }\n", ["hooks.PreToolUse", "hooks.PostToolUse"]],
+      ["pretool", "{ \"hooks\" : { \"PreToolUse\" : [] } }\n", ["hooks.PostToolUse"]],
     ] as const) {
       const target = targetFixture(base, name);
       const hooksPath = path.join(target.root, ".codex", "hooks.json");

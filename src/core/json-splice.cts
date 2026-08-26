@@ -55,7 +55,26 @@ class JsonScanner {
   }
 
   private skipWhitespace(): void {
-    while (/\s/u.test(this.character())) this.index += 1;
+    while (this.index < this.text.length) {
+      if (/\s/u.test(this.character())) {
+        this.index += 1;
+        continue;
+      }
+      if (this.text.startsWith("//", this.index)) {
+        this.index += 2;
+        while (this.index < this.text.length && this.character() !== "\n" && this.character() !== "\r") {
+          this.index += 1;
+        }
+        continue;
+      }
+      if (this.text.startsWith("/*", this.index)) {
+        const close = this.text.indexOf("*/", this.index + 2);
+        if (close < 0) throw new JsonSpliceError();
+        this.index = close + 2;
+        continue;
+      }
+      break;
+    }
   }
 
   private parseValue(): JsonNode {
@@ -142,6 +161,11 @@ class JsonScanner {
       if (this.character() !== ",") throw new JsonSpliceError();
       this.index += 1;
       this.skipWhitespace();
+      if (this.character() === "}") {
+        const close = this.index;
+        this.index += 1;
+        return { kind: "object", start, close, end: this.index, properties };
+      }
     }
     throw new JsonSpliceError();
   }
@@ -167,6 +191,11 @@ class JsonScanner {
       if (this.character() !== ",") throw new JsonSpliceError();
       this.index += 1;
       this.skipWhitespace();
+      if (this.character() === "]") {
+        const close = this.index;
+        this.index += 1;
+        return { kind: "array", start, close, end: this.index, items };
+      }
     }
     throw new JsonSpliceError();
   }
@@ -291,4 +320,71 @@ export function removeJsonArrayElement(
   if (next !== undefined) return splice(text, current.start, next.start, "");
   if (previous !== undefined) return splice(text, previous.end, current.end, "");
   return splice(text, current.start, current.end, "");
+}
+
+/** Parse JSONC for semantic validation while splice operations preserve unrelated source bytes. */
+export function parseJsoncObject(text: string): Record<string, unknown> {
+  // Validate syntax, duplicate owned paths, and comment termination first.
+  rootObject(text);
+  let withoutComments = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text.charAt(index);
+    if (inString) {
+      withoutComments += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      withoutComments += character;
+      continue;
+    }
+    if (character === "/" && text.charAt(index + 1) === "/") {
+      index += 2;
+      while (index < text.length && text.charAt(index) !== "\n" && text.charAt(index) !== "\r") index += 1;
+      if (index < text.length) withoutComments += text.charAt(index);
+      continue;
+    }
+    if (character === "/" && text.charAt(index + 1) === "*") {
+      const close = text.indexOf("*/", index + 2);
+      if (close < 0) throw new JsonSpliceError();
+      const comment = text.slice(index, close + 2);
+      withoutComments += comment.replace(/[^\r\n]/gu, " ");
+      index = close + 1;
+      continue;
+    }
+    withoutComments += character;
+  }
+
+  let normalized = "";
+  inString = false;
+  escaped = false;
+  for (let index = 0; index < withoutComments.length; index += 1) {
+    const character = withoutComments.charAt(index);
+    if (inString) {
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      normalized += character;
+      continue;
+    }
+    if (character === ",") {
+      let next = index + 1;
+      while (/\s/u.test(withoutComments.charAt(next))) next += 1;
+      if (withoutComments.charAt(next) === "}" || withoutComments.charAt(next) === "]") continue;
+    }
+    normalized += character;
+  }
+  const value: unknown = JSON.parse(normalized);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new JsonSpliceError();
+  return value as Record<string, unknown>;
 }

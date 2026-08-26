@@ -64,7 +64,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_project_npx",
-    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor)/iu,
+    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor|opencode)/iu,
   },
   {
     code: "missing_topic_lifecycle",
@@ -356,15 +356,15 @@ function inspectFile(
     }
     for (const host of line.matchAll(/--host(?:=|\s+)([^\s`"']+)/gi)) {
       const values = (host[1] ?? "").toLowerCase().split("|");
-      if (values.length === 0 || values.some((value) => !new Set(["codex", "claude", "cursor"]).has(value))) {
+      if (values.length === 0 || values.some((value) => !new Set(["codex", "claude", "cursor", "opencode"]).has(value))) {
         addDiagnostic(diagnostics, "invalid_host_flag", displayPath, lineNumber);
       }
     }
     if (/\bNode(?:\.js)?\s*(?:1\d|20|21)(?:\b|\.)/i.test(line)) {
       addDiagnostic(diagnostics, "invalid_node_requirement", displayPath, lineNumber);
     }
-    if (/\bCursor\b[^\n]*(?:PreToolUse|\bhook\b)/i.test(line) &&
-        !/(?:\bnot\b|does\s+not|doesn't|without|不是|不使用|没有|并非)[^\n]*(?:PreToolUse|\bhook\b)|(?:Rule)[^\n]*(?:\bnot\b|不是|而非)[^\n]*(?:PreToolUse|\bhook\b)/i.test(line)) {
+    if (/\bCursor\b[^\n]*PreToolUse/i.test(line) &&
+        !/(?:\bnot\b|does\s+not|doesn't|without|不是|不使用|没有|并非)[^\n]*PreToolUse|(?:Rule)[^\n]*(?:\bnot\b|不是|而非)[^\n]*PreToolUse/i.test(line)) {
       addDiagnostic(diagnostics, "cursor_hook_claim", displayPath, lineNumber);
     }
   }

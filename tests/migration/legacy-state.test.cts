@@ -161,10 +161,13 @@ function makePackage(base: string): string {
     );
     for (const asset of [
       "grep-nudge.cjs",
+      "mcp-call-marker.cjs",
       "update-check.cjs",
       "update-worker.cjs",
       "run_hook.cmd",
       "run_hook.sh",
+      "run_marker.cmd",
+      "run_marker.sh",
     ]) {
       write(root, `${name}/hooks/${asset}`, `new-${environment}-${asset}\n`);
     }

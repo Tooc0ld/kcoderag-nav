@@ -6,7 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 
-type HostId = "codex" | "claude" | "cursor";
+type HostId = "codex" | "claude" | "cursor" | "opencode";
 type SmokeMode = "required-contract" | "optional-live";
 type SmokeStatus = "PASS" | "FAIL" | "NOT_RUN";
 
@@ -32,7 +32,7 @@ interface SmokeEvidence {
 }
 
 interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -400,7 +400,7 @@ test("package acquisition failure occurs before any host project is created", as
         mode: "required-contract",
         packageSpec: "kcoderag-nav@0.0.0",
         temporaryRoot: root,
-        hosts: ["codex", "claude", "cursor"],
+        hosts: ["codex", "claude", "cursor", "opencode"],
       },
       {
         acquirePackage: async () => {
@@ -536,7 +536,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           packageSpec: requestedPackageSpec,
           ...(selector === "latest" ? { expectedVersion: fixture.version } : {}),
           temporaryRoot: root,
-          hosts: ["codex", "claude", "cursor"],
+          hosts: ["codex", "claude", "cursor", "opencode"],
         },
         {
           runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
@@ -586,7 +586,14 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           "root",
           "sameProject",
         ]);
-        assert.equal(host.navigationContract?.kind, host.host === "cursor" ? "rule_skill_mcp" : "pretooluse_hook");
+        assert.equal(
+          host.navigationContract?.kind,
+          host.host === "cursor"
+            ? "rule_skill_mcp"
+            : host.host === "opencode"
+              ? "plugin_skill_mcp"
+              : "pretooluse_hook",
+        );
         assert.equal(host.navigationContract?.root, true);
         assert.equal(host.navigationContract?.deep, true);
         assert.equal(host.navigationContract?.sameProject, true);
@@ -721,7 +728,7 @@ test("every host fails when a per-command content-addressed tarball is replaced 
         packageSpec: `kcoderag-nav@${fixture.version}`,
         expectedVersion: fixture.version,
         temporaryRoot: root,
-        hosts: ["codex", "claude", "cursor"],
+        hosts: ["codex", "claude", "cursor", "opencode"],
       },
       {
         runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
