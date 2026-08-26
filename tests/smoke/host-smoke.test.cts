@@ -39,6 +39,33 @@ interface NavigationContract {
   readonly fingerprint: string;
 }
 
+interface SupportedCapabilityLifecycle {
+  readonly schemaVersion: 1;
+  readonly branch: "supported";
+  readonly hostVersion: string;
+  readonly receiptDigest: string;
+  readonly navigationThenJx3: boolean;
+  readonly jx3ThenNavigation: boolean;
+  readonly duplicateNoop: boolean;
+  readonly failedSecondAddPreserved: boolean;
+  readonly update: boolean;
+  readonly conflictUninstallBlocked: boolean;
+  readonly partialUninstall: boolean;
+  readonly finalUninstall: boolean;
+}
+
+interface UnsupportedCapabilityLifecycle {
+  readonly schemaVersion: 1;
+  readonly branch: "unsupported";
+  readonly hostVersion: string;
+  readonly navigationInstalled: boolean;
+  readonly refusalCode: "host_version_unsupported";
+  readonly zeroWrite: boolean;
+  readonly navigationPreserved: boolean;
+}
+
+type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+
 interface HostSmokeResult {
   readonly schemaVersion: 1;
   readonly host: HostId;
@@ -47,6 +74,7 @@ interface HostSmokeResult {
   readonly reason: string;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
+  readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }
 
@@ -603,6 +631,32 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
         assert.equal(host.navigationContract?.deep, true);
         assert.equal(host.navigationContract?.sameProject, true);
         assert.match(host.navigationContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
+        if (host.host === "claude") {
+          assert.deepEqual(host.capabilityLifecycle, {
+            schemaVersion: 1,
+            branch: "supported",
+            hostVersion: "2.1.241",
+            receiptDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
+            navigationThenJx3: true,
+            jx3ThenNavigation: true,
+            duplicateNoop: true,
+            failedSecondAddPreserved: true,
+            update: true,
+            conflictUninstallBlocked: true,
+            partialUninstall: true,
+            finalUninstall: true,
+          });
+        } else {
+          assert.deepEqual(host.capabilityLifecycle, {
+            schemaVersion: 1,
+            branch: "unsupported",
+            hostVersion: host.host === "codex" ? "0.146.1" : host.host === "cursor" ? "3.17.8" : "1.18.23",
+            navigationInstalled: true,
+            refusalCode: "host_version_unsupported",
+            zeroWrite: true,
+            navigationPreserved: true,
+          });
+        }
       }
       assert.deepEqual([...lifecycleCommands].sort(), ["doctor", "install", "status", "uninstall", "update"]);
       const serialized = JSON.stringify(result);
