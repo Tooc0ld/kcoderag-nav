@@ -37,6 +37,7 @@ const HOOK_ROOT = ".cursor/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".cursor"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
 const JX3 = "jx3-style-nudge" as const;
+const MCP_SERVER = "kcoderag";
 
 function isRecord(value: unknown): value is JsonMap { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function sha256(value: Buffer | string): string { return crypto.createHash("sha256").update(value).digest("hex"); }
@@ -73,7 +74,7 @@ function defaultVersion(): string | undefined { try { const result = childProces
 function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CursorAdapterOptions): void { if (!selected.includes(JX3)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(JX3).evaluateSupport({ host: "cursor", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
 
 function mergeMcp(current: Buffer | undefined, packageRoot: string, owned: boolean) {
-  const document = current === undefined ? {} : parseJson(current, "invalid_json", MCP_PATH); const servers = document.mcpServers === undefined ? {} : document.mcpServers; if (!isRecord(servers)) throw new InstallError("invalid_json", MCP_PATH); if (!owned && servers["kcoderag-qa"] !== undefined) throw new InstallError("unmanaged_name_conflict", MCP_PATH); const entry = qaEntry(packageRoot); servers["kcoderag-qa"] = entry; document.mcpServers = servers; return Object.freeze({ bytes: canonicalJson(document), entry });
+  const document = current === undefined ? {} : parseJson(current, "invalid_json", MCP_PATH); const servers = document.mcpServers === undefined ? {} : document.mcpServers; if (!isRecord(servers)) throw new InstallError("invalid_json", MCP_PATH); if (!owned && servers[MCP_SERVER] !== undefined) throw new InstallError("unmanaged_name_conflict", MCP_PATH); const entry = qaEntry(packageRoot); servers[MCP_SERVER] = entry; document.mcpServers = servers; return Object.freeze({ bytes: canonicalJson(document), entry });
 }
 function managedHook(command: string): JsonMap { return { command, timeout: 5 }; }
 function mergeHooks(current: Buffer | undefined, selected: readonly CapabilityId[], owned: boolean) {
