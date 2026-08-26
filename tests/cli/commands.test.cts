@@ -1140,7 +1140,7 @@ test("duplicate additive install is byte and mtime stable without a transaction 
     ]);
     assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
     const output = parseOnlyJson(repeated.stdout);
-    assert.equal(output.changed, false);
+    assert.equal(output.changed, false, JSON.stringify(output.changedPaths));
     assert.deepEqual(output.changedPaths, []);
     assert.deepEqual(projectSnapshot(item.target), before);
   } finally {

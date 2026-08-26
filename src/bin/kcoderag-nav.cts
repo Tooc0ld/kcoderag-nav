@@ -8,6 +8,7 @@ import {
   type TargetConfirmation,
 } from "../cli/commands.cjs";
 import { type HostId } from "../core/contracts.cjs";
+import { type CapabilityId } from "../capabilities/contracts.cjs";
 import { getHostAdapter } from "../hosts/index.cjs";
 
 async function question(prompt: string): Promise<string> {
@@ -32,6 +33,19 @@ async function selectHost(hosts: readonly HostId[]): Promise<HostId | undefined>
   return Number.isInteger(index) ? hosts[index] : undefined;
 }
 
+async function selectCapabilities(
+  capabilities: readonly CapabilityId[],
+): Promise<readonly CapabilityId[] | undefined> {
+  const choices = capabilities.map((capability, index) => `${index + 1}) ${capability}`).join("  ");
+  const answer = (await question(`Select capabilities (comma-separated): ${choices}\n> `)).trim();
+  if (answer.length === 0) return undefined;
+  const indexes = answer.split(",").map((value) => Number.parseInt(value.trim(), 10) - 1);
+  if (indexes.some((index) => !Number.isInteger(index) || capabilities[index] === undefined)) {
+    return undefined;
+  }
+  return Object.freeze(indexes.map((index) => capabilities[index] as CapabilityId));
+}
+
 async function confirmTarget(request: TargetConfirmation): Promise<boolean> {
   const answer = await question(
     `${request.command} KCodeRag Nav for ${request.host} in ${request.target}? [y/N] `,
@@ -54,6 +68,7 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
     stdout: (text) => process.stdout.write(`${text}\n`),
     stderr: (text) => process.stderr.write(`${text}\n`),
     selectHost,
+    selectCapabilities,
     confirmTarget,
     confirmLegacyUserRemoval,
     getAdapter: getHostAdapter,

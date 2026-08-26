@@ -200,6 +200,12 @@ function selectedAfterUninstall(context: HostUninstallContext): readonly Capabil
   return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id)));
 }
 
+export function parseClaudeVersionOutput(output: string): string | undefined {
+  if (output.length > 128) return undefined;
+  const match = /^(?:(?:claude(?: code)?\s+)?(\d+\.\d+\.\d+)|(\d+\.\d+\.\d+) \(Claude Code\))\r?\n?$/iu.exec(output);
+  return match?.[1] ?? match?.[2];
+}
+
 function defaultClaudeVersion(): string | undefined {
   try {
     const result = childProcess.spawnSync("claude", ["--version"], {
@@ -209,8 +215,7 @@ function defaultClaudeVersion(): string | undefined {
       windowsHide: true,
     });
     if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined;
-    const match = /^(?:claude(?: code)?\s+)?(\d+\.\d+\.\d+)\r?\n?$/iu.exec(result.stdout);
-    return match?.[1];
+    return parseClaudeVersionOutput(result.stdout);
   } catch {
     return undefined;
   }
@@ -483,3 +488,4 @@ export const claudeAdapter: HostAdapter = createClaudeAdapter();
 exports.STATE_PATH = STATE_PATH;
 exports.managedPaths = () => Object.freeze([STATE_PATH]);
 exports.createClaudeAdapter = createClaudeAdapter;
+exports.parseClaudeVersionOutput = parseClaudeVersionOutput;

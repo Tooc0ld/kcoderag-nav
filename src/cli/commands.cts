@@ -12,6 +12,13 @@ import {
   type StatusIssue,
   type StatusResult,
 } from "../core/contracts.cjs";
+import type { DesiredState } from "../core/contracts.cjs";
+import type { CapabilityId } from "../capabilities/contracts.cjs";
+import {
+  BUILT_IN_CAPABILITIES,
+  resolveCapabilitySelection,
+} from "../capabilities/registry.cjs";
+import { acquireMutationLock } from "../core/mutation-lock.cjs";
 import { resolveProjectTarget } from "../core/project-target.cjs";
 import { assertMutationRuntime, createStatusResult, runtimeStatusIssue } from "../core/state.cjs";
 import { applyTransaction } from "../core/transaction.cjs";
@@ -54,6 +61,7 @@ interface ParsedArguments {
   readonly target?: string;
   readonly yes: boolean;
   readonly json: boolean;
+  readonly capabilities: readonly CapabilityId[];
   readonly allowLegacyUserRemoval: boolean;
   readonly allowLegacyDevMigration: boolean;
   readonly allowOwnedSourceCleanup: boolean;
@@ -87,6 +95,9 @@ export interface CommandDependencies {
   readonly selectHost?: (
     hosts: readonly HostId[],
   ) => HostId | undefined | Promise<HostId | undefined>;
+  readonly selectCapabilities?: (
+    capabilities: readonly CapabilityId[],
+  ) => readonly CapabilityId[] | undefined | Promise<readonly CapabilityId[] | undefined>;
   readonly confirmTarget?: (
     request: TargetConfirmation,
   ) => boolean | Promise<boolean>;
@@ -98,6 +109,7 @@ export interface CommandDependencies {
     request: OwnedSourceCleanupConfirmation,
   ) => string | undefined | Promise<string | undefined>;
   readonly getAdapter?: (host: HostId) => HostAdapter;
+  readonly mutationLockRoot?: string;
 }
 
 function isCommand(value: string | undefined): value is CommandName {
@@ -123,6 +135,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let target: string | undefined;
   let yes = false;
   let json = false;
+  const capabilities: string[] = [];
   let allowLegacyUserRemoval = false;
   let allowLegacyDevMigration = false;
   let allowOwnedSourceCleanup = false;
@@ -131,14 +144,15 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index] as string;
-    if (seen.has(argument)) throw new InstallError("invalid_arguments");
-    seen.add(argument);
+    if (argument !== "--capability" && seen.has(argument)) throw new InstallError("invalid_arguments");
+    if (argument !== "--capability") seen.add(argument);
     if (argument === "--yes") yes = true;
     else if (argument === "--json") json = true;
     else if (argument === "--allow-legacy-user-removal") allowLegacyUserRemoval = true;
     else if (argument === "--allow-legacy-dev-migration") allowLegacyDevMigration = true;
     else if (argument === "--allow-owned-source-cleanup") allowOwnedSourceCleanup = true;
     else if (argument === "--cleanup-fingerprint") cleanupFingerprint = requireFlagValue(argv, index++);
+    else if (argument === "--capability") capabilities.push(requireFlagValue(argv, index++));
     else if (argument === "--fix" || argument.startsWith("--fix=")) {
       throw new InstallError("owned_source_cleanup_authority_invalid");
     }
@@ -162,6 +176,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     target?: string;
     yes: boolean;
     json: boolean;
+    capabilities: readonly CapabilityId[];
     allowLegacyUserRemoval: boolean;
     allowLegacyDevMigration: boolean;
     allowOwnedSourceCleanup: boolean;
@@ -170,6 +185,9 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     command,
     yes,
     json,
+    capabilities: capabilities.length === 0
+      ? Object.freeze([])
+      : Object.freeze(resolveCapabilitySelection(capabilities).map((entry) => entry.id)),
     allowLegacyUserRemoval,
     allowLegacyDevMigration,
     allowOwnedSourceCleanup,
@@ -178,6 +196,18 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (target !== undefined) parsed.target = target;
   if (cleanupFingerprint !== undefined) parsed.cleanupFingerprint = cleanupFingerprint;
   return parsed;
+}
+
+async function selectInstallCapabilities(
+  args: ParsedArguments,
+  dependencies: CommandDependencies,
+): Promise<readonly CapabilityId[]> {
+  if (args.capabilities.length > 0) return args.capabilities;
+  if (args.json) throw new InstallError("capability_selection_required");
+  const available = Object.freeze(BUILT_IN_CAPABILITIES.map((entry) => entry.id));
+  const selected = await (dependencies.selectCapabilities?.(available) ?? undefined);
+  if (selected === undefined) throw new InstallError("cancelled");
+  return Object.freeze(resolveCapabilitySelection(selected).map((entry) => entry.id));
 }
 
 function isMutation(command: CommandName): boolean {
@@ -268,6 +298,35 @@ function packageVersion(packageRoot: string): string | undefined {
     // Version is optional command metadata; adapters still validate their package inputs.
   }
   return undefined;
+}
+
+function desiredStateIsCurrent(
+  desired: DesiredState,
+  preserveValidatedState: boolean,
+): boolean {
+  for (const entry of desired.entries) {
+    let stats: import("node:fs").Stats;
+    try {
+      stats = fs.lstatSync(entry.path.absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (entry.content === null) continue;
+        return false;
+      }
+      return false;
+    }
+    if (entry.content === null || !stats.isFile() || stats.isSymbolicLink()) return false;
+    if (
+      preserveValidatedState &&
+      entry.path.relativePath === desired.statePath.relativePath
+    ) continue;
+    try {
+      if (!fs.readFileSync(entry.path.absolutePath).equals(entry.content)) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 function withRuntimeIssue(
@@ -417,10 +476,14 @@ export async function executeCommand(
   const stdout = dependencies.stdout ?? ((text: string) => process.stdout.write(`${text}\n`));
   const stderr = dependencies.stderr ?? ((text: string) => process.stderr.write(`${text}\n`));
   let json = argv.includes("--json");
+  let releaseMutationLock: (() => void) | undefined;
   try {
     const args = parseArguments(argv);
     json = args.json;
     const host = await selectHost(args, dependencies);
+    const requestedCapabilities = args.command === "install"
+      ? await selectInstallCapabilities(args, dependencies)
+      : args.capabilities;
     if (args.allowLegacyDevMigration && (args.command !== "install" && args.command !== "update")) {
       throw new InstallError("legacy_dev_migration_authority_invalid");
     }
@@ -461,6 +524,17 @@ export async function executeCommand(
     if (isMutation(args.command) && !args.yes) {
       const confirmed = await (dependencies.confirmTarget?.(request) ?? false);
       if (!confirmed) throw new InstallError("cancelled");
+    }
+
+    if (isMutation(args.command)) {
+      const lock = acquireMutationLock({
+        host,
+        targetRoot: target.root,
+        ...(dependencies.mutationLockRoot === undefined
+          ? {}
+          : { lockRoot: dependencies.mutationLockRoot }),
+      });
+      releaseMutationLock = lock.release;
     }
 
     const adapter = assertHostAdapter(dependencies.getAdapter?.(host) ?? getHostAdapter(host), host);
@@ -545,6 +619,13 @@ export async function executeCommand(
     const allowLegacyDevMigration = args.command === "install" || args.command === "update"
       ? legacyDevMigrationAuthority(args, observation)
       : false;
+    const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
+    const targetCapabilities = args.command === "install"
+      ? Object.freeze(resolveCapabilitySelection([
+          ...installedCapabilities,
+          ...requestedCapabilities,
+        ]).map((entry) => entry.id))
+      : requestedCapabilities;
     const sharedMutationContext = {
       target,
       packageRoot,
@@ -552,6 +633,7 @@ export async function executeCommand(
       observation,
       allowLegacyUserRemoval,
       allowLegacyDevMigration,
+      ...(targetCapabilities.length === 0 ? {} : { selectedCapabilities: targetCapabilities }),
     };
     const desired = args.command === "uninstall"
       ? adapter.renderUninstall({
@@ -564,11 +646,17 @@ export async function executeCommand(
     if (desired.host !== host || desired.target !== target) {
       throw new InstallError("invalid_host_adapter");
     }
-    const transaction = observation.legacyUserRemoval !== undefined && allowLegacyUserRemoval
-      ? hasLegacyMigration(adapter)
-        ? adapter.migrateLegacy(desired, observation)
-        : (() => { throw new InstallError("invalid_host_adapter"); })()
-      : applyTransaction(desired);
+    const exactInstalledTarget = args.command === "install" &&
+      installedCapabilities.length === targetCapabilities.length &&
+      installedCapabilities.every((id, index) => id === targetCapabilities[index]);
+    const noChange = desiredStateIsCurrent(desired, exactInstalledTarget);
+    const transaction = noChange
+      ? Object.freeze({ changedPaths: Object.freeze([] as string[]) })
+      : observation.legacyUserRemoval !== undefined && allowLegacyUserRemoval
+        ? hasLegacyMigration(adapter)
+          ? adapter.migrateLegacy(desired, observation)
+          : (() => { throw new InstallError("invalid_host_adapter"); })()
+        : applyTransaction(desired);
     const verb = args.command === "install"
       ? "installed"
       : args.command === "update"
@@ -582,7 +670,9 @@ export async function executeCommand(
       host,
       environment: QA_ENVIRONMENT,
       target: target.root,
+      changed: transaction.changedPaths.length > 0,
       changedPaths: transaction.changedPaths,
+      capabilities: targetCapabilities,
       managedFiles: desired.entries.map((entry) => entry.path.relativePath),
     };
     if (version !== undefined) payload.version = version;
@@ -601,6 +691,8 @@ export async function executeCommand(
     if (json) writeJson(stdout, payload);
     else stderr(JSON.stringify(payload));
     return errorExitCode(safe.code);
+  } finally {
+    releaseMutationLock?.();
   }
 }
 
