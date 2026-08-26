@@ -44,6 +44,11 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "mcp.json",
   "rules/kcoderag-navigation.mdc",
   "skills/code-lookup-discipline/SKILL.md",
+  "skills/jx3-code-style-correction/SKILL.md",
+  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+  "skills/jx3-code-style-correction/references/lua-contracts.md",
+  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
 ]);
 
 function compare(left: string, right: string): number {
@@ -111,7 +116,8 @@ function inspectCursorProduct(root: string, expectedVersion: string): CursorEvid
   const qaOnly = /QA/u.test(`${manifest.description ?? ""}\n${activeText}`)
     && !/kcoderag-dev|--environment\s+dev/iu.test(activeText);
   if (!qaOnly) fail("qa_only_boundary");
-  const ruleBoundary = /Rule|alwaysApply/u.test(activeText) && !/PreToolUse|Hook[- ]equivalent/iu.test(activeText);
+  const ruleBoundary = /Rule|alwaysApply/u.test(activeText)
+    && !/PreToolUse|Hook[- ]equivalent|native pre[- ]write/iu.test(activeText);
   if (!ruleBoundary) fail("rule_capability_boundary");
 
   return Object.freeze({
@@ -169,7 +175,7 @@ function generateCursorFixture(): { readonly root: string; readonly productRoot:
   return Object.freeze({ root, productRoot: path.join(root, "kcoderag-cursor") });
 }
 
-test("Cursor non-document product is a closed deterministic four-file inventory", () => {
+test("Cursor non-document product is a closed deterministic nine-file inventory", () => {
   const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
   const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
     version: string;
@@ -220,6 +226,7 @@ test("Cursor product rejects Dev and Hook-equivalence wording deterministically"
   const fixtures = [
     { member: "rules/kcoderag-navigation.mdc", text: "\nInstall kcoderag-dev.\n", code: "qa_only_boundary" },
     { member: "skills/code-lookup-discipline/SKILL.md", text: "\nPreToolUse Hook-equivalent.\n", code: "rule_capability_boundary" },
+    { member: "skills/code-lookup-discipline/SKILL.md", text: "\nNative pre-write context.\n", code: "rule_capability_boundary" },
   ] as const;
   for (const mutation of fixtures) {
     const fixture = generateCursorFixture();
