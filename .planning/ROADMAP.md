@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
 - [x] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。 (completed 2026-08-26)
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
-- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code 与 Cursor 真宿主上固化生命周期、工具注册和 hook/Rule 证据。
+- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor 与 OpenCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
 - [ ] **Phase 8: 生产安全与自动化发布** - 交付身份、HTTPS、凭据轮换、版本化制品和宿主兼容矩阵。
 
@@ -307,7 +307,7 @@ Plans:
 
 ### Phase 6: 真实宿主兼容与发布证据
 
-**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code 或 Cursor 后，可用可审计证据确认 MCP 工具名、hook/Rule 和完整项目生命周期真实工作。
+**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code、Cursor 或 OpenCode 后，可用可审计证据确认 MCP 工具名、hook/Rule/plugin 和完整项目生命周期真实工作。
 **Mode:** mvp
 **Requirements**: TEST-07, TEST-08, TEST-09
 **Depends on:** Phase 5
@@ -316,9 +316,10 @@ Plans:
   1. 在干净临时项目和隔离的 Codex 配置中，用已发布的 exact `kcoderag-nav` npx 版本真实执行 install/status/update/uninstall，验证 direct server map 工具注册和 hook advisory；不依赖开发者现有全局配置或 marketplace。
   2. Claude Code 在干净项目中通过同一 exact npx 包完成 project install/status/update/uninstall，验证 MCP 工具注册名与 Grep/Glob/Bash hook 出参。
   3. Cursor 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，并在必要的项目 reload 后验证 MCP、Rule 与 skill 可见性；不依赖 user-local plugin 或 Team 订阅。
-  4. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
-  5. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
-  6. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
+  4. OpenCode `1.18.23` 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，验证项目 MCP、skill、稳定 1.x plugin API 与 `tool.execute.after` 成功调用 marker。
+  5. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
+  6. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
+  7. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
 
 **Plans**: TBD
 
@@ -348,8 +349,8 @@ Plans:
   1. 用户通过个人或组织身份取得短期凭据，公开或长期分发包不再包含共享 Bearer。
   2. MCP 使用 HTTPS 并验证服务身份，凭据可独立轮换而无需重新发布整个插件代码树。
   3. `package.json` 版本与 matching `vX.Y.Z` 标签触发 GitHub Actions 重新测试、构建、审计并发布公共 npm 包；普通 `master` push 只测试、不发布。
-  4. 支持的 Codex、Claude Code、Cursor、Node.js 22/24 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略。
-  5. 三个宿主继续通过统一 npx 项目集成保留低门槛安装、只读诊断、显式更新和安全卸载路径。
+  4. 支持的 Codex、Claude Code、Cursor、OpenCode、Node.js 22/24 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略。
+  5. 四个宿主继续通过统一 npx 项目集成保留低门槛安装、只读诊断、显式更新和安全卸载路径。
 
 **Plans**: TBD
 

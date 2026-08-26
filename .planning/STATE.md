@@ -4,10 +4,10 @@ current_phase: 05
 current_phase_name: 低误报 Hook 与诚实路由
 status: planning
 stopped_at: Phase 04 complete, ready to plan Phase 05
-last_updated: "2026-08-25T19:21:13.411Z"
+last_updated: "2026-08-26T13:24:55.9087549+08:00"
 last_activity: 2026-08-26
-last_activity_desc: Phase 04 complete, transitioned to Phase 05
-state_head: e9b6566ac2149485f9b31c5cf948ccc959b39d60
+last_activity_desc: Quick 260826-dut completed OpenCode support and four-host MCP call markers
+state_head: 8e317b61137c2c9b9ccf943aa702647e9659e9b4
 progress:
   total_phases: 9
   completed_phases: 5
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 Phase: 05 — 低误报 Hook 与诚实路由
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-26 — Phase 04 complete, transitioned to Phase 05
+Last activity: 2026-08-26 — Quick 260826-dut completed OpenCode support and four-host MCP call markers
 
 Progress: [██████░░░░] 56%
 
@@ -124,6 +124,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 6]: loopback CI 不等于真实宿主 PASS；Codex、Claude Code 与 Cursor 必须分别留下可复跑证据。
 - [Phase 7]: KCodeRag hook 与全局 GSD hook 分属不同所有者；GSD runtime 修复需要持久化或上游化。
 - [Phase 8]: 内部内置凭据风险继续被接受到生产安全阶段，不提前声称已解决。
+- [Quick 260826-dut]: QA-only 项目生命周期扩展到 OpenCode；四宿主使用各自原生成功事件写入同一有界、去敏、fail-open 的 KCodeRag 调用 marker，历史三宿主发布证据保持不变。
 - [Phase 03.1]: Node dependency and build outputs use only exact root-anchored ignore rules. — This keeps npm/build artifacts out of Git without hiding nested paths, product packages, source, tests, planning, or unrelated work.
 - [Phase 03.1]: Accepted the exact audited TypeScript 6.0.3, @types/node 22.20.1, and undici-types 6.21.0 graph; any graph, integrity, ownership, or lifecycle drift requires re-audit.
 - [Phase 03.1]: Confirmed the public unscoped kcoderag-nav package and npx kcoderag-nav@latest install command.
@@ -261,7 +262,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 ### Blockers/Concerns
 
 - Phase 1–3 是基于当前代码、quick history 与测试的回溯完成记录；实现提交仍保留在 quick task 历史中。
-- required CI 与真实 Head 三宿主项目验收已通过；authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
+- required CI 已覆盖四宿主，历史 Head 三宿主验收保持有效；OpenCode 1.18.23 已通过未发布 tarball 真机验收，但公共 exact/latest 证据仍待新版本发布。authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
 - GSD runtime 本地补丁当前解析正确，但 GSD 更新可能覆盖，且全局 context monitor 仍注册过宽。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
 - Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
@@ -288,6 +289,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260821-g07 | 将 QA/Dev/Cursor 基础版本升级到 0.1.3，验证并推送累计本地改动 | 2026-08-21 | 71f6778 | [260821-g07-bump-plugin-base-version-to-0-1-3-regene](./quick/260821-g07-bump-plugin-base-version-to-0-1-3-regene/) |
 | 260821-kqa | 修复 Codex bundled MCP direct map，硬停止重复来源，并发布 QA/Dev/Cursor 0.1.4 | 2026-08-21 | 1602284 | [260821-kqa-fix-codex-bundled-mcp-compatibility-with](./quick/260821-kqa-fix-codex-bundled-mcp-compatibility-with/) |
 | 260824-ecs | Enable stricter TypeScript compiler checks in source and test configs and verify the build | 2026-08-24 | 7dcbbfa | [260824-ecs-enable-stricter-typescript-compiler-chec](./quick/260824-ecs-enable-stricter-typescript-compiler-chec/) |
+| 260826-dut | Add project-only OpenCode support and four-host successful MCP-call markers | 2026-08-26 | 8e317b6, KCodeRag:5568e4c0 | [260826-dut-add-project-only-opencode-host-support-a](./quick/260826-dut-add-project-only-opencode-host-support-a/) |
 
 ## Deferred Items
 
