@@ -26,7 +26,7 @@ interface SmokeEvidence {
   readonly sourceConflict: boolean;
   readonly conflictInstallBlocked: boolean;
   readonly conflictUpdateBlocked: boolean;
-  readonly conflictUninstallAllowed: boolean;
+  readonly conflictUninstallBlocked: boolean;
   readonly uninstall: boolean;
   readonly stubReceipt: boolean;
 }
@@ -265,7 +265,7 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
     "sourceConflict",
     "conflictInstallBlocked",
     "conflictUpdateBlocked",
-    "conflictUninstallAllowed",
+    "conflictUninstallBlocked",
     "uninstall",
     "stubReceipt",
   ]);
@@ -336,7 +336,7 @@ test("optional live keeps NOT_RUN honest and never converts a failure into succe
       sourceConflict: false,
       conflictInstallBlocked: false,
       conflictUpdateBlocked: false,
-      conflictUninstallAllowed: false,
+      conflictUninstallBlocked: false,
     }),
   });
   assert.equal(liveScope.status, "PASS");
@@ -544,6 +544,11 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
             const executable = args.indexOf("kcoderag-nav");
             const command = executable < 0 ? undefined : args[executable + 1];
             if (command !== undefined) lifecycleCommands.add(command);
+            if (command === "install") {
+              const capability = args.indexOf("--capability");
+              assert.equal(args[capability + 1], "kcoderag-navigation");
+            }
+            if (command === "uninstall") assert.equal(args.includes("--all"), true);
             assert.equal(args.includes("--env"), false);
             assert.equal(args.includes("--environment"), false);
             assert.equal(args.some((argument) => argument === "dev"), false);
