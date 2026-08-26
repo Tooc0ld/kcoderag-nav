@@ -88,9 +88,9 @@ function packageVersion(packageRoot: string): string {
   return value.version;
 }
 function qaMcpEntry(packageRoot: string): JsonMap {
-  const safePath = "plugin-src/environments/qa.mcp.json";
+  const safePath = "kcoderag-qa/.codex.mcp.json";
   const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath);
-  const entry = isRecord(source.mcpServers) ? source.mcpServers["kcoderag-qa"] : undefined;
+  const entry = source["kcoderag-qa"];
   if (!isRecord(entry) || typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", safePath);
   return entry;
 }
@@ -152,11 +152,11 @@ function assertSupport(selected: readonly CapabilityId[], context: HostInstallCo
 }
 
 function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { readonly pre?: unknown; readonly post?: unknown } {
-  const template = parseJson(sourceAsset(packageRoot, "plugin-src/hooks/hooks.json"), "invalid_package", "plugin-src/hooks/hooks.json");
+  const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const hooks = isRecord(template.hooks) ? template.hooks : {};
   const render = (value: unknown, commands: { readonly command: string; readonly commandWindows: string }): unknown => {
     const copy = JSON.parse(JSON.stringify(value)) as unknown;
-    if (!isRecord(copy) || !Array.isArray(copy.hooks) || !isRecord(copy.hooks[0])) throw new InstallError("invalid_package", "plugin-src/hooks/hooks.json");
+    if (!isRecord(copy) || !Array.isArray(copy.hooks) || !isRecord(copy.hooks[0])) throw new InstallError("invalid_package", "kcoderag-qa/hooks/hooks.json");
     copy.hooks[0].command = commands.command;
     copy.hooks[0].commandWindows = commands.commandWindows;
     return copy;
@@ -185,9 +185,9 @@ function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: 
 }
 function tomlString(value: string): string { return JSON.stringify(value); }
 function renderTomlEntry(entry: JsonMap): string {
-  if (typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", "plugin-src/environments/qa.mcp.json");
+  if (typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", "kcoderag-qa/.codex.mcp.json");
   const headers = isRecord(entry.http_headers) ? entry.http_headers : isRecord(entry.headers) ? entry.headers : undefined;
-  if (headers === undefined || !Object.values(headers).every((value) => typeof value === "string")) throw new InstallError("invalid_mcp_source", "plugin-src/environments/qa.mcp.json");
+  if (headers === undefined || !Object.values(headers).every((value) => typeof value === "string")) throw new InstallError("invalid_mcp_source", "kcoderag-qa/.codex.mcp.json");
   const pairs = Object.entries(headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value as string)}`).join(", ");
   return `${TOML_BEGIN}\n[mcp_servers.kcoderag-qa]\nurl = ${tomlString(entry.url)}\nhttp_headers = { ${pairs} }\n${TOML_END}`;
 }
@@ -215,8 +215,8 @@ function projectedFile(target: ProjectTarget, state: InstallState | undefined, r
 function section(relativePath: string, id: string, value: unknown, fileExisted: boolean): ProjectedCapabilitySection { return Object.freeze({ relativePath, id, digest: sha256(JSON.stringify(value)), fileExisted, shared: true }); }
 const NAV_RUNTIME = Object.freeze([
   ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"], ["dist/hooks/update-check.cjs", "update-check.cjs"], ["dist/hooks/update-notice.cjs", "update-notice.cjs"], ["dist/hooks/update-worker.cjs", "update-worker.cjs"], ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
-  ["plugin-src/hooks/run_marker.cmd", "run_marker.cmd"], ["plugin-src/hooks/run_marker.sh", "run_marker.sh"],
-  ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["plugin-src/hooks/run_hook.cmd", "run_hook.cmd"], ["plugin-src/hooks/run_hook.sh", "run_hook.sh"],
+  ["kcoderag-qa/hooks/run_marker.cmd", "run_marker.cmd"], ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
+  ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
 const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-serialization-data.md", "lua-contracts.md", "change-hygiene-self-review.md"] as const);
 function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
@@ -228,7 +228,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
     const config = mergeToml(configCurrent, packageRoot, state !== undefined);
     result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
       projectedFile(target, state, CONFIG_PATH, config.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
-      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "plugin-src/skills/code-lookup-discipline/SKILL.md"), false),
+      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ]), sections: Object.freeze([
       section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
@@ -239,7 +239,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
       projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false),
       ...REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)),
-      projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "plugin-src/hooks/run_hook.cmd"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "plugin-src/hooks/run_hook.sh"), true),
+      projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
     ]), sections: Object.freeze([section(HOOKS_PATH, "jx3:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
   }
   return Object.freeze(result);

@@ -121,7 +121,7 @@ function packageVersion(packageRoot: string): string {
 }
 
 function qaMcpEntry(packageRoot: string): JsonMap {
-  const safePath = "plugin-src/environments/qa.mcp.json";
+  const safePath = "kcoderag-qa/.mcp.json";
   const document = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath);
   const entry = isRecord(document.mcpServers) ? document.mcpServers["kcoderag-qa"] : undefined;
   if (!isRecord(entry)) throw new InstallError("invalid_mcp_source", safePath);
@@ -234,14 +234,14 @@ function assertSupport(
 }
 
 function managedHookEntry(packageRoot: string, selected: readonly CapabilityId[]): { readonly pre?: unknown; readonly post?: unknown } {
-  const template = parseJson(sourceAsset(packageRoot, "plugin-src/hooks/hooks.json"), "invalid_package", "plugin-src/hooks/hooks.json");
+  const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const commands = renderProjectHookCommands("claude");
   const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
   const hooks = isRecord(template.hooks) ? template.hooks : {};
   const renderEntry = (value: unknown, renderedCommands: { readonly command: string; readonly commandWindows: string }): unknown => {
     const copy = JSON.parse(JSON.stringify(value)) as unknown;
     if (!isRecord(copy) || !Array.isArray(copy.hooks) || !isRecord(copy.hooks[0])) {
-      throw new InstallError("invalid_package", "plugin-src/hooks/hooks.json");
+      throw new InstallError("invalid_package", "kcoderag-qa/hooks/hooks.json");
     }
     copy.hooks[0].command = renderedCommands.command;
     copy.hooks[0].commandWindows = renderedCommands.commandWindows;
@@ -326,14 +326,14 @@ const NAV_RUNTIME = Object.freeze([
   ["dist/hooks/update-notice.cjs", "update-notice.cjs"],
   ["dist/hooks/update-worker.cjs", "update-worker.cjs"],
   ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
-  ["plugin-src/hooks/run_marker.cmd", "run_marker.cmd"],
-  ["plugin-src/hooks/run_marker.sh", "run_marker.sh"],
+  ["kcoderag-qa/hooks/run_marker.cmd", "run_marker.cmd"],
+  ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
   // The canonical launcher imports the composed dispatcher even in navigation-only installs.
   ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"],
   ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"],
   ["dist/hooks/once-marker.cjs", "once-marker.cjs"],
-  ["plugin-src/hooks/run_hook.cmd", "run_hook.cmd"],
-  ["plugin-src/hooks/run_hook.sh", "run_hook.sh"],
+  ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"],
+  ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
 const JX3_REFERENCES = Object.freeze([
   "cpp-lifetime-control-flow.md",
@@ -357,7 +357,7 @@ function projectContributions(
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, MCP_PATH, mcp.bytes, true, true),
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
-      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "plugin-src/skills/code-lookup-discipline/SKILL.md"), false),
+      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ];
     contributions.push(Object.freeze({
@@ -378,8 +378,8 @@ function projectContributions(
       projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), true),
       projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true),
       projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "plugin-src/hooks/run_hook.cmd"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "plugin-src/hooks/run_hook.sh"), true),
+      projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true),
+      projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
     ];
     contributions.push(Object.freeze({
       capabilityId: JX3,
