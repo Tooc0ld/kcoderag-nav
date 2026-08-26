@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 7
 waived_count: 0
-fixed_count: 14
-total_count: 21
-last_updated: 2026-08-26T14:22:00.840Z
+fixed_count: 15
+total_count: 22
+last_updated: 2026-08-26T14:53:46.373Z
 ---
 
 # Broken Windows Ledger
@@ -36,6 +36,7 @@ last_updated: 2026-08-26T14:22:00.840Z
 | 19 | 04.1 | stub | src/hosts/opencode.cts | 171 | OpenCode native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:22:00.294Z |  |
 | 20 | 04.1 | deviation | dist/capabilities/compose.cjs |  | Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration. | open |  | 2026-08-26T14:22:00.572Z |  |
 | 21 | 04.1 | deviation | src/cli/commands.cts |  | Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent. | open |  | 2026-08-26T14:22:00.840Z |  |
+| 22 | 04.1 | deviation | src/hooks/pre-tool-dispatcher.cts |  | Path-limited GREEN commits bypassed the shared pre-commit wrapper only after fresh scoped verification because unrelated canonical work was dirty. | fixed |  | 2026-08-26T14:53:18.023Z | 2026-08-26T14:53:46.373Z |
 
 ````json
 [
@@ -290,6 +291,18 @@ last_updated: 2026-08-26T14:22:00.840Z
     "reason": "",
     "recorded_at": "2026-08-26T14:22:00.840Z",
     "resolved_at": null
+  },
+  {
+    "id": 22,
+    "kind": "deviation",
+    "phase": "04.1",
+    "file": "src/hooks/pre-tool-dispatcher.cts",
+    "line": null,
+    "description": "Path-limited GREEN commits bypassed the shared pre-commit wrapper only after fresh scoped verification because unrelated canonical work was dirty.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:53:18.023Z",
+    "resolved_at": "2026-08-26T14:53:46.373Z"
   }
 ]
 ````
