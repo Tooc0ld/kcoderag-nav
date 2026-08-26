@@ -389,11 +389,12 @@ test("install and observation commands dispatch through the lifecycle seam witho
           [command, "--host", "claude", "--json"],
           { ...captured.dependencies, nodeVersion: "21.9.0" },
         ),
-        0,
+        1,
       );
       assert.deepEqual(calls, ["claude:detect", "claude:status"]);
       assert.deepEqual(fs.readdirSync(item.target), before);
       const output = captured.stdout.join("\n");
+      assert.equal(JSON.parse(output).ok, false);
       assert.equal(JSON.parse(output).status, "invalid");
       assert.match(output, /unsupported_node/);
       assert.doesNotMatch(output, new RegExp(secret));
@@ -873,6 +874,59 @@ test("compiled public CLI installs Claude capabilities additively in both orders
   }
 });
 
+test("drifted and invalid status or doctor results fail in JSON and human modes", async () => {
+  for (const command of ["status", "doctor"] as const) {
+    for (const unhealthyStatus of ["drifted", "invalid"] as const) {
+      for (const json of [true, false] as const) {
+        const item = fixture();
+        try {
+          const calls: string[] = [];
+          const adapter = makeAdapter("claude", calls);
+          adapter.status = () => ({
+            schemaVersion: 1,
+            status: unhealthyStatus,
+            host: "claude",
+            issues: [{
+              code: unhealthyStatus === "drifted" ? "capability_drift" : "invalid_state",
+              path: ".claude/kcoderag-nav/install-state.json",
+            }],
+            findings: [],
+          });
+          const captured = io(item.target, {
+            codex: makeAdapter("codex", calls),
+            claude: adapter,
+            cursor: makeAdapter("cursor", calls),
+          });
+          const exitCode = await commands.executeCommand([
+            command,
+            "--host",
+            "claude",
+            ...(json ? ["--json"] : []),
+          ], captured.dependencies);
+
+          assert.equal(exitCode, 1);
+          assert.equal(captured.stderr.length, 0);
+          const issueCode = unhealthyStatus === "drifted" ? "capability_drift" : "invalid_state";
+          if (json) {
+            const output = parseOnlyJson(captured.stdout[0] ?? "");
+            assert.equal(output.ok, false);
+            assert.equal(output.status, unhealthyStatus);
+            assert.equal(output.issues[0].code, issueCode);
+          } else {
+            assert.match(captured.stdout[0] ?? "", new RegExp(`^${command}: ${unhealthyStatus} claude at `, "u"));
+            assert.equal(
+              captured.stdout.includes(`${issueCode}: .claude/kcoderag-nav/install-state.json`),
+              true,
+            );
+          }
+        } finally {
+          fs.rmSync(item.root, { recursive: true, force: true });
+        }
+      }
+    }
+  }
+});
+
 test("installed Claude launcher keeps JX3 operational without the navigation runtime", () => {
   for (const lifecycle of ["jx3-only", "navigation-removed"] as const) {
     const item = fixture();
@@ -1041,9 +1095,11 @@ test("status reports conservative per-capability drift and doctor reports stale 
     fs.appendFileSync(path.join(item.target, ...(jx3File?.path.split("/") ?? [])), "drift\n");
 
     const drifted = runPublicCli(item.target, homeDirectory, ["status", "--host", "claude"]);
-    assert.equal(drifted.status, 0, drifted.stderr || drifted.stdout);
+    assert.equal(drifted.status, 1, drifted.stderr || drifted.stdout);
     const driftOutput = parseOnlyJson(drifted.stdout);
+    assert.equal(driftOutput.ok, false);
     assert.equal(driftOutput.status, "drifted");
+    assert.equal(driftOutput.issues[0].code, "capability_drift");
     assert.deepEqual(driftOutput.capabilities, [
       { id: NAVIGATION, installed: null, status: "capability_drift" },
       { id: JX3, installed: null, status: "capability_drift" },

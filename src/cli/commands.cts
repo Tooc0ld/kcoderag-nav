@@ -474,7 +474,9 @@ export async function executeCommand(
           : { lockRoot: dependencies.mutationLockRoot }),
       });
       const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
-      const ok = status.status !== "source_conflict";
+      const ok = status.status === "healthy" ||
+        status.status === "not_installed" ||
+        status.status === "update_available";
       const payload = {
         schemaVersion: CORE_SCHEMA_VERSION,
         ok,
@@ -494,6 +496,9 @@ export async function executeCommand(
       if (args.json) writeJson(stdout, payload);
       else {
         stdout(`${args.command}: ${status.status} ${host} at ${target.root}`);
+        for (const issue of status.issues) {
+          stdout(`${issue.code}: ${issue.path}`);
+        }
         for (const finding of status.findings) {
           stdout(`${finding.code}: ${finding.safePath}`);
         }
