@@ -8,6 +8,10 @@
   },
   "files": [
     "dist/bin/kcoderag-nav.cjs",
+    "dist/capabilities/contracts.cjs",
+    "dist/capabilities/jx3-style-nudge.cjs",
+    "dist/capabilities/navigation.cjs",
+    "dist/capabilities/registry.cjs",
     "dist/cli/commands.cjs",
     "dist/core/contracts.cjs",
     "dist/core/json-splice.cjs",
