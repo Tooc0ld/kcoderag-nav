@@ -97,6 +97,17 @@ test("synthetic providers declare canonical host-neutral requirements", () => {
   assert.equal(contributions.every((contribution) => Object.isFrozen(contribution)), true);
   assert.equal(contributions.every((contribution) => Object.isFrozen(contribution.files)), true);
   assert.equal(contributions.every((contribution) => Object.isFrozen(contribution.sections)), true);
+  assert.equal(
+    contributions.every((contribution) =>
+      contribution.files.every((file) => Object.isFrozen(file))),
+    true,
+  );
+  assert.throws(() => {
+    (jx3.files as unknown as Array<Record<string, unknown>>).push({});
+  }, TypeError);
+  assert.throws(() => {
+    Object.assign(jx3.files[0] ?? {}, { sourcePath: "caller-mutated" });
+  }, TypeError);
   assert.notStrictEqual(
     contributions[0],
     registry.resolveCapabilityContributions(["kcoderag-navigation"])[0],
@@ -138,6 +149,12 @@ test("JX3 support delegates to the exact checked-in PASS receipt", () => {
       jx3.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
       { eligible: false, code: "host_version_unsupported" },
       `${host}@${hostVersion}`,
+    );
+    assert.equal(
+      Object.isFrozen(
+        jx3.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
+      ),
+      true,
     );
   }
 });

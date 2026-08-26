@@ -10,19 +10,24 @@ import {
   type CapabilitySupportContext,
 } from "./contracts.cjs";
 import { navigationCapabilityProvider } from "./navigation.cjs";
+import { jx3StyleNudgeCapabilityProvider } from "./jx3-style-nudge.cjs";
 
-export const BUILT_IN_CAPABILITIES: readonly CapabilityManifest[] = Object.freeze([
-  Object.freeze({ id: "kcoderag-navigation" as const }),
-  Object.freeze({ id: "jx3-style-nudge" as const }),
+const BUILT_IN_PROVIDERS: readonly CapabilityProvider[] = Object.freeze([
+  navigationCapabilityProvider,
+  jx3StyleNudgeCapabilityProvider,
 ]);
+
+export const BUILT_IN_CAPABILITIES: readonly CapabilityManifest[] = Object.freeze(
+  BUILT_IN_PROVIDERS.map((provider) => Object.freeze({ id: provider.id })),
+);
 
 const KNOWN_IDS = new Set<CapabilityId>(
   BUILT_IN_CAPABILITIES.map((manifest) => manifest.id),
 );
 
-const PROVIDER_BY_ID = new Map<CapabilityId, CapabilityProvider>([
-  [navigationCapabilityProvider.id, navigationCapabilityProvider],
-]);
+const PROVIDER_BY_ID = new Map<CapabilityId, CapabilityProvider>(
+  BUILT_IN_PROVIDERS.map((provider) => [provider.id, provider]),
+);
 
 function copyProvider(provider: CapabilityProvider): CapabilityProvider {
   return Object.freeze({

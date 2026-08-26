@@ -29,10 +29,65 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         kind: "handler",
         shared: true,
       },
+      {
+        id: "navigation:update-check",
+        sourcePath: "dist/hooks/update-check.cjs",
+        kind: "handler",
+        shared: true,
+      },
+      {
+        id: "navigation:update-worker",
+        sourcePath: "dist/hooks/update-worker.cjs",
+        kind: "handler",
+        shared: true,
+      },
+      {
+        id: "navigation:success-marker",
+        sourcePath: "dist/hooks/mcp-call-marker.cjs",
+        kind: "marker",
+        shared: true,
+      },
+      {
+        id: "navigation:pre-tool-launcher-windows",
+        sourcePath: "plugin-src/hooks/run_hook.cmd",
+        kind: "launcher",
+        shared: true,
+      },
+      {
+        id: "navigation:pre-tool-launcher-posix",
+        sourcePath: "plugin-src/hooks/run_hook.sh",
+        kind: "launcher",
+        shared: true,
+      },
+      {
+        id: "navigation:marker-launcher-windows",
+        sourcePath: "plugin-src/hooks/run_marker.cmd",
+        kind: "launcher",
+        shared: true,
+      },
+      {
+        id: "navigation:marker-launcher-posix",
+        sourcePath: "plugin-src/hooks/run_marker.sh",
+        kind: "launcher",
+        shared: true,
+      },
+      {
+        id: "navigation:cursor-rule",
+        sourcePath: "plugin-src/cursor/rules/kcoderag-navigation.mdc",
+        kind: "rule",
+        shared: false,
+      },
+      {
+        id: "navigation:opencode-plugin",
+        sourcePath: "plugin-src/opencode/kcoderag-nav.js",
+        kind: "plugin",
+        shared: true,
+      },
     ],
     sections: [
       { id: "navigation:mcp", kind: "mcp", shared: true },
       { id: "navigation:pre-tool", kind: "pre-tool", shared: true },
+      { id: "navigation:post-tool", kind: "post-tool", shared: true },
     ],
   });
 
@@ -46,4 +101,3 @@ export const navigationCapabilityProvider: CapabilityProvider = Object.freeze({
   contribution: () => copyCapabilityContribution(NAVIGATION_REQUIREMENTS),
   evaluateSupport: () => NAVIGATION_SUPPORT,
 });
-
