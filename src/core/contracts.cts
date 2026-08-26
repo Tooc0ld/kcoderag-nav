@@ -6,9 +6,6 @@ export const CORE_SCHEMA_VERSION = 1 as const;
 
 export type HostId = "codex" | "claude" | "cursor" | "opencode";
 export type CurrentEnvironmentId = "qa";
-export type LegacyEnvironmentId = CurrentEnvironmentId | "dev";
-/** Transitional compatibility input for legacy readers and pre-0.2.0 generators. */
-export type EnvironmentId = LegacyEnvironmentId;
 export type InstallStatus =
   | "healthy"
   | "not_installed"
@@ -37,8 +34,11 @@ export interface SourceFinding {
   readonly sourceType: SourceType;
   readonly scope: SourceScope;
   readonly safePath: string;
-  readonly cleanupEligible: boolean;
+  /** Compile-only seam for the not-yet-replaced public controller; runtime findings omit it. */
+  readonly cleanupEligible?: boolean;
+  /** Compile-only seam for Plan 07-owned callers; never populated by current adapters. */
   readonly cleanupCommand?: string;
+  /** Compile-only seam for Plan 07-owned callers; never populated by current adapters. */
   readonly cleanupFingerprint?: string;
 }
 
@@ -51,7 +51,7 @@ export interface StatusResult {
   readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
   readonly status: InstallStatus;
   readonly host?: HostId;
-  readonly environment?: EnvironmentId;
+  readonly environment?: CurrentEnvironmentId;
   readonly issues: readonly StatusIssue[];
   readonly findings: readonly SourceFinding[];
 }
@@ -137,7 +137,7 @@ export interface CapabilityManagedSectionRecord {
  * Exact current capability state. The composite digest binds the selected set and
  * every ownership record without exposing any managed payload in diagnostics.
  */
-export interface CapabilityInstallState {
+export interface InstallState {
   readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
   readonly packageVersion: string;
   readonly host: HostId;
@@ -145,18 +145,6 @@ export interface CapabilityInstallState {
   readonly files: readonly CapabilityManagedFileRecord[];
   readonly sections: readonly CapabilityManagedSectionRecord[];
   readonly compositeDigest: string;
-}
-
-export interface InstallState {
-  readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
-  readonly packageVersion: string;
-  readonly host: HostId;
-  readonly environment: CurrentEnvironmentId;
-  readonly managedFiles: readonly string[];
-  readonly originals: Readonly<Record<string, OriginalRecord>>;
-  readonly digests: Readonly<Record<string, string>>;
-  /** Present for section-owned shared files; legacy whole-file states omit this field. */
-  readonly sections?: Readonly<Record<string, ManagedSectionRecord>>;
 }
 
 export function sanitizeSafeRelativePath(input?: string): string | undefined {

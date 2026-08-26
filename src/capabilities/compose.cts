@@ -5,7 +5,7 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
-  type CapabilityInstallState,
+  type InstallState,
   type CapabilityManagedFileRecord,
   type CapabilityManagedSectionRecord,
   type DesiredState,
@@ -14,9 +14,9 @@ import {
   type ProjectTarget,
 } from "../core/contracts.cjs";
 import {
-  createCapabilityInstallState,
+  createInstallState,
   createDesiredState,
-  isValidatedCapabilityInstallState,
+  isValidatedInstallState,
 } from "../core/state.cjs";
 import { validateManagedPath } from "../core/project-target.cjs";
 import type { CapabilityId } from "./contracts.cjs";
@@ -59,7 +59,7 @@ export interface CapabilityCompositionInput {
   readonly stateExpectedDigest: string | null;
   readonly selectedCapabilities: readonly CapabilityId[];
   readonly contributions: readonly ProjectedCapabilityContribution[];
-  readonly previousState?: CapabilityInstallState;
+  readonly previousState?: InstallState;
 }
 
 interface MutableFileComposition {
@@ -155,7 +155,7 @@ function assertCompositionInput(input: CapabilityCompositionInput): readonly Cap
       throw new InstallError("invalid_capability_composition");
     }
   } else if (
-    !isValidatedCapabilityInstallState(input.previousState) ||
+    !isValidatedInstallState(input.previousState) ||
     input.previousState.host !== input.host ||
     typeof input.stateExpectedDigest !== "string" ||
     !DIGEST_PATTERN.test(input.stateExpectedDigest)
@@ -332,7 +332,7 @@ function createState(
   selected: readonly CapabilityId[],
   files: ReadonlyMap<string, MutableFileComposition>,
   sections: ReadonlyMap<string, MutableSectionComposition>,
-): CapabilityInstallState {
+): InstallState {
   const fileRecords: CapabilityManagedFileRecord[] = [...files.values()]
     .map((file) => Object.freeze({
       path: file.path,
@@ -351,7 +351,7 @@ function createState(
         : { createdContainers: Object.freeze([...section.createdContainers]) }),
       contributors: canonicalContributors(selected, section.contributors),
     }));
-  return createCapabilityInstallState({
+  return createInstallState({
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: input.packageVersion,
     host: input.host,
@@ -371,7 +371,7 @@ function createState(
   });
 }
 
-function encodeState(state: CapabilityInstallState): Buffer {
+function encodeState(state: InstallState): Buffer {
   return Buffer.from(`${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 

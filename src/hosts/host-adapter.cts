@@ -6,7 +6,6 @@ import {
   type DesiredState,
   type HostId,
   type InstallState,
-  type LegacyEnvironmentId,
   type ProjectTarget,
   type StatusIssue,
   type StatusResult,
@@ -35,11 +34,6 @@ export interface HostCapabilityProjectionContext extends HostReadContext {
   readonly contributions: readonly CapabilityContribution[];
 }
 
-export interface LegacyUserRemovalObservation {
-  /** Normalized user-local directory shown only in its independent confirmation prompt. */
-  readonly path: string;
-}
-
 /**
  * Immutable output from a host-specific read-only inspection.
  * `details` is adapter-private and must never be serialized by the CLI.
@@ -48,10 +42,11 @@ export interface HostObservation {
   readonly host: HostId;
   readonly target: ProjectTarget;
   readonly currentState?: InstallState;
-  /** Exact legacy identity only; it is never a desired public environment. */
-  readonly legacyEnvironment?: LegacyEnvironmentId;
+  /** Compile-only seam for the Plan 07-owned controller; current adapters never set it. */
+  readonly legacyEnvironment?: CurrentEnvironmentId | "dev";
+  /** Compile-only seam for the Plan 07-owned controller; current adapters never set it. */
+  readonly legacyUserRemoval?: { readonly path: string };
   readonly issues?: readonly StatusIssue[];
-  readonly legacyUserRemoval?: LegacyUserRemovalObservation;
   readonly details?: unknown;
 }
 
@@ -59,16 +54,18 @@ export interface HostInstallContext extends HostReadContext {
   readonly command: MutationCommand;
   readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
-  /** Independent authority; it is never inferred from general target confirmation. */
+  /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyUserRemoval: boolean;
-  /** Independent authority; general target confirmation never implies legacy conversion. */
+  /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyDevMigration: boolean;
 }
 
 export interface HostUninstallContext extends HostReadContext {
   readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
+  /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyUserRemoval: boolean;
+  /** Compile-only Plan 07 seam; current adapters ignore it. */
   readonly allowLegacyDevMigration: boolean;
 }
 
@@ -96,6 +93,7 @@ export interface HostAdapter {
   status(context: HostStatusContext): StatusResult;
   /** Optional until a host implements the shared selected-host source contract. */
   scanUserSources?(context: HostSourceScanContext): Promise<SourceScanResult> | SourceScanResult;
+  /** Compile-only Plan 07 seam; current adapter objects never implement it. */
   cleanupOwnedSource?(
     plan: NativeCleanupPlan,
     authority: OwnedCleanupAuthority,

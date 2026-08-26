@@ -5,19 +5,15 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 import {
   CORE_SCHEMA_VERSION,
   InstallError,
-  type CapabilityInstallState,
   type CapabilityManagedFileRecord,
   type CapabilityManagedSectionRecord,
   type CapabilityStateRecord,
   sanitizeSafeRelativePath,
   type CurrentEnvironmentId,
   type DesiredState,
-  type EnvironmentId,
   type HostId,
   type InstallState,
   type InstallStatus,
-  type LegacyEnvironmentId,
-  type ManagedSectionRecord,
   type OriginalRecord,
   type ProjectTarget,
   type SourceFinding,
@@ -29,7 +25,7 @@ import { isProjectTarget, validateManagedPath } from "./project-target.cjs";
 
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const validatedDesiredStates = new WeakSet<object>();
-const validatedCapabilityInstallStates = new WeakSet<object>();
+const validatedInstallStates = new WeakSet<object>();
 const CAPABILITY_ORDER = Object.freeze([
   "kcoderag-navigation",
   "jx3-style-nudge",
@@ -50,27 +46,10 @@ type DesiredStateInput = {
 type StatusInput = {
   readonly status?: InstallStatus;
   readonly host?: HostId;
-  readonly environment?: EnvironmentId;
+  readonly environment?: CurrentEnvironmentId;
   readonly issues?: readonly { readonly code: string; readonly path?: string }[];
   readonly findings?: readonly SourceFinding[];
 };
-
-export interface LegacyInstallState {
-  readonly version: 1;
-  readonly source: "python" | "node";
-  readonly environment: LegacyEnvironmentId;
-  readonly managedFiles: readonly string[];
-  readonly originals: Readonly<Record<string, OriginalRecord>>;
-  readonly digests: Readonly<Record<string, string>>;
-  readonly packageVersion?: string;
-  readonly host?: HostId;
-  readonly sections?: Readonly<Record<string, ManagedSectionRecord>>;
-}
-
-interface LegacyStateOptions {
-  readonly allowedPaths: readonly string[];
-  readonly requiredPaths: readonly string[];
-}
 
 function nodeMajor(version: string): number | undefined {
   const match = /^(?:v)?(\d+)(?:\.|$)/.exec(version);
@@ -99,7 +78,7 @@ export function createStatusResult(input: StatusInput = {}): StatusResult {
     schemaVersion: typeof CORE_SCHEMA_VERSION;
     status: InstallStatus;
     host?: HostId;
-    environment?: EnvironmentId;
+    environment?: CurrentEnvironmentId;
     issues: readonly StatusIssue[];
     findings: readonly SourceFinding[];
   } = {
@@ -162,14 +141,6 @@ function isHost(value: unknown): value is HostId {
   return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
 }
 
-function isLegacyEnvironment(value: unknown): value is LegacyEnvironmentId {
-  return value === "qa" || value === "dev";
-}
-
-function isCurrentEnvironment(value: unknown): value is CurrentEnvironmentId {
-  return value === "qa";
-}
-
 function validateOriginal(value: unknown): value is OriginalRecord {
   if (!isRecord(value) || (value.kind !== "absent" && value.kind !== "base64")) return false;
   if (value.kind === "absent") return value.data === undefined;
@@ -179,81 +150,7 @@ function validateOriginal(value: unknown): value is OriginalRecord {
   return Buffer.from(value.data, "base64").toString("base64") === value.data;
 }
 
-function validateSection(value: unknown): value is ManagedSectionRecord {
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value).sort().join("\0");
-  if (keys !== "digest\0fileExisted\0id" && keys !== "createdContainers\0digest\0fileExisted\0id") {
-    return false;
-  }
-  return typeof value.id === "string" &&
-    value.id.length > 0 &&
-    value.id.length <= 160 &&
-    /^[A-Za-z0-9_.:-]+$/.test(value.id) &&
-    typeof value.digest === "string" &&
-    DIGEST_PATTERN.test(value.digest) &&
-    typeof value.fileExisted === "boolean" &&
-    (value.createdContainers === undefined || (
-      Array.isArray(value.createdContainers) &&
-      value.createdContainers.length <= 8 &&
-      new Set(value.createdContainers).size === value.createdContainers.length &&
-      value.createdContainers.every((container) =>
-        typeof container === "string" && /^[A-Za-z0-9_.:-]+$/.test(container))
-    ));
-}
-
-function freezeOriginals(value: Record<string, unknown>): Readonly<Record<string, OriginalRecord>> {
-  const originals: Record<string, OriginalRecord> = {};
-  for (const relativePath of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
-    const record = value[relativePath];
-    if (!validateOriginal(record)) throw new InstallError("invalid_state");
-    originals[relativePath] = Object.freeze(
-      record.kind === "absent"
-        ? { kind: "absent" }
-        : { kind: "base64", data: record.data as string },
-    );
-  }
-  return Object.freeze(originals);
-}
-
-function freezeDigests(value: Record<string, unknown>): Readonly<Record<string, string>> {
-  const digests: Record<string, string> = {};
-  for (const relativePath of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
-    const digest = value[relativePath];
-    if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
-      throw new InstallError("invalid_state");
-    }
-    digests[relativePath] = digest;
-  }
-  return Object.freeze(digests);
-}
-
-function freezeSections(
-  value: Record<string, unknown> | undefined,
-): Readonly<Record<string, ManagedSectionRecord>> | undefined {
-  if (value === undefined) return undefined;
-  const sections: Record<string, ManagedSectionRecord> = {};
-  for (const relativePath of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
-    const record = value[relativePath];
-    if (!validateSection(record)) throw new InstallError("invalid_state");
-    const frozen: {
-      id: string;
-      digest: string;
-      fileExisted: boolean;
-      createdContainers?: readonly string[];
-    } = {
-      id: record.id,
-      digest: record.digest,
-      fileExisted: record.fileExisted,
-    };
-    if (record.createdContainers !== undefined) {
-      frozen.createdContainers = Object.freeze([...record.createdContainers]);
-    }
-    sections[relativePath] = Object.freeze(frozen);
-  }
-  return Object.freeze(sections);
-}
-
-type CapabilityInstallStateInput = Omit<CapabilityInstallState, "compositeDigest">;
+type InstallStateInput = Omit<InstallState, "compositeDigest">;
 
 function codeUnitCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -287,7 +184,7 @@ function sectionReference(pathValue: string, id: string): string {
   return `${pathValue}#${id}`;
 }
 
-function capabilityDigestPayload(input: CapabilityInstallStateInput): Buffer {
+function capabilityDigestPayload(input: InstallStateInput): Buffer {
   return Buffer.from(JSON.stringify({
     schemaVersion: input.schemaVersion,
     packageVersion: input.packageVersion,
@@ -298,11 +195,11 @@ function capabilityDigestPayload(input: CapabilityInstallStateInput): Buffer {
   }), "utf8");
 }
 
-function calculateCapabilityCompositeDigest(input: CapabilityInstallStateInput): string {
+function calculateCapabilityCompositeDigest(input: InstallStateInput): string {
   return crypto.createHash("sha256").update(capabilityDigestPayload(input)).digest("hex");
 }
 
-function decodeCapabilityState(value: unknown): CapabilityInstallState {
+function decodeInstallState(value: unknown): InstallState {
   if (!isRecord(value) || !exactKeys(value, [
     "capabilities",
     "compositeDigest",
@@ -453,7 +350,7 @@ function decodeCapabilityState(value: unknown): CapabilityInstallState {
     }
   }
 
-  const withoutComposite: CapabilityInstallStateInput = Object.freeze({
+  const withoutComposite: InstallStateInput = Object.freeze({
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: value.packageVersion,
     host: value.host,
@@ -468,12 +365,12 @@ function decodeCapabilityState(value: unknown): CapabilityInstallState {
     ...withoutComposite,
     compositeDigest: value.compositeDigest,
   });
-  validatedCapabilityInstallStates.add(decoded);
+  validatedInstallStates.add(decoded);
   return decoded;
 }
 
 /** Build and deep-freeze a canonical current capability state. */
-export function createCapabilityInstallState(input: CapabilityInstallStateInput): CapabilityInstallState {
+export function createInstallState(input: InstallStateInput): InstallState {
   const capabilityRank = (id: CapabilityId): number => CAPABILITY_ORDER.indexOf(id);
   const capabilities = [...input.capabilities]
     .map((capability) => ({
@@ -505,7 +402,7 @@ export function createCapabilityInstallState(input: CapabilityInstallStateInput)
       sectionReference(left.path, left.id),
       sectionReference(right.path, right.id),
     ));
-  const normalized: CapabilityInstallStateInput = {
+  const normalized: InstallStateInput = {
     schemaVersion: CORE_SCHEMA_VERSION,
     packageVersion: input.packageVersion,
     host: input.host,
@@ -513,210 +410,13 @@ export function createCapabilityInstallState(input: CapabilityInstallStateInput)
     files,
     sections,
   };
-  return decodeCapabilityState({
+  return decodeInstallState({
     ...normalized,
     compositeDigest: calculateCapabilityCompositeDigest(normalized),
   });
 }
 
 /** Parse only the exact capability schema; legacy product/environment records are rejected. */
-export function parseCapabilityInstallState(bytes: Buffer): CapabilityInstallState {
-  let value: unknown;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new InstallError("invalid_state");
-  }
-  return decodeCapabilityState(value);
-}
-
-export function isValidatedCapabilityInstallState(value: unknown): value is CapabilityInstallState {
-  return typeof value === "object" && value !== null && validatedCapabilityInstallStates.has(value);
-}
-
-interface DecodedNodeState {
-  readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
-  readonly packageVersion: string;
-  readonly host: HostId;
-  readonly environment: LegacyEnvironmentId;
-  readonly managedFiles: readonly string[];
-  readonly originals: Readonly<Record<string, OriginalRecord>>;
-  readonly digests: Readonly<Record<string, string>>;
-  readonly sections?: Readonly<Record<string, ManagedSectionRecord>>;
-}
-
-function decodeNodeState(value: unknown): DecodedNodeState {
-  if (!isRecord(value)) throw new InstallError("invalid_state");
-  const keys = Object.keys(value).sort().join("\0");
-  if (
-    keys !== "digests\0environment\0host\0managedFiles\0originals\0packageVersion\0schemaVersion" &&
-    keys !== "digests\0environment\0host\0managedFiles\0originals\0packageVersion\0schemaVersion\0sections"
-  ) {
-    throw new InstallError("invalid_state");
-  }
-  if (
-    value.schemaVersion !== CORE_SCHEMA_VERSION ||
-    typeof value.packageVersion !== "string" ||
-    value.packageVersion.length === 0 ||
-    !isHost(value.host) ||
-    !isLegacyEnvironment(value.environment) ||
-    !Array.isArray(value.managedFiles) ||
-    !value.managedFiles.every((item) =>
-      typeof item === "string" && sanitizeSafeRelativePath(item) === item && item !== ".") ||
-    new Set(value.managedFiles).size !== value.managedFiles.length ||
-    !isRecord(value.originals) ||
-    !isRecord(value.digests) ||
-    (value.sections !== undefined && !isRecord(value.sections))
-  ) {
-    throw new InstallError("invalid_state");
-  }
-  const managedFiles = Object.freeze([...(value.managedFiles as string[])]);
-  const managed = new Set(managedFiles);
-  const originals = freezeOriginals(value.originals);
-  const digests = freezeDigests(value.digests);
-  const sections = freezeSections(isRecord(value.sections) ? value.sections : undefined);
-  if (
-    Object.keys(originals).some((item) => !managed.has(item)) ||
-    Object.keys(digests).some((item) => !managed.has(item)) ||
-    (sections !== undefined && Object.keys(sections).some((item) => !managed.has(item)))
-  ) {
-    throw new InstallError("invalid_state");
-  }
-  const decoded: {
-    schemaVersion: typeof CORE_SCHEMA_VERSION;
-    packageVersion: string;
-    host: HostId;
-    environment: LegacyEnvironmentId;
-    managedFiles: readonly string[];
-    originals: Readonly<Record<string, OriginalRecord>>;
-    digests: Readonly<Record<string, string>>;
-    sections?: Readonly<Record<string, ManagedSectionRecord>>;
-  } = {
-    schemaVersion: CORE_SCHEMA_VERSION,
-    packageVersion: value.packageVersion,
-    host: value.host,
-    environment: value.environment,
-    managedFiles,
-    originals,
-    digests,
-  };
-  if (sections !== undefined) decoded.sections = sections;
-  return Object.freeze(decoded);
-}
-
-function assertLegacyOwnership(
-  state: Pick<LegacyInstallState, "managedFiles" | "originals" | "digests" | "sections">,
-  options: LegacyStateOptions,
-): void {
-  const allowed = new Set(options.allowedPaths);
-  const required = new Set(options.requiredPaths);
-  if (
-    state.managedFiles.some((item) => !allowed.has(item)) ||
-    [...required].some((item) => !state.managedFiles.includes(item)) ||
-    Object.keys(state.originals).some((item) => !allowed.has(item)) ||
-    Object.keys(state.digests).some((item) => !allowed.has(item)) ||
-    Object.keys(state.sections ?? {}).some((item) => !allowed.has(item))
-  ) {
-    throw new InstallError("invalid_state");
-  }
-}
-
-function decodeLegacyOriginal(value: unknown): OriginalRecord | undefined {
-  if (
-    !isRecord(value) ||
-    Object.keys(value).sort().join("\0") !== "base64\0existed" ||
-    typeof value.existed !== "boolean" ||
-    typeof value.base64 !== "string"
-  ) {
-    return undefined;
-  }
-  if (!value.existed) return value.base64.length === 0 ? { kind: "absent" } : undefined;
-  if (
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64) ||
-    Buffer.from(value.base64, "base64").toString("base64") !== value.base64
-  ) {
-    return undefined;
-  }
-  return { kind: "base64", data: value.base64 };
-}
-
-/** Parse the retired Python installer schema against adapter-supplied ownership boundaries. */
-export function parseLegacyInstallState(
-  bytes: Buffer,
-  options: LegacyStateOptions,
-): LegacyInstallState {
-  let value: unknown;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new InstallError("invalid_state");
-  }
-  if (isRecord(value) && "schemaVersion" in value) {
-    const decoded = decodeNodeState(value);
-    const normalized: LegacyInstallState = {
-      version: 1,
-      source: "node",
-      environment: decoded.environment,
-      managedFiles: decoded.managedFiles,
-      originals: decoded.originals,
-      digests: decoded.digests,
-      packageVersion: decoded.packageVersion,
-      host: decoded.host,
-      ...(decoded.sections === undefined ? {} : { sections: decoded.sections }),
-    };
-    assertLegacyOwnership(normalized, options);
-    return Object.freeze(normalized);
-  }
-  if (
-    !isRecord(value) ||
-    Object.keys(value).sort().join("\0") !==
-      "active_environments\0digests\0originals\0version" ||
-    value.version !== 1 ||
-    !Array.isArray(value.active_environments) ||
-    value.active_environments.length !== 1 ||
-    !isLegacyEnvironment(value.active_environments[0]) ||
-    !isRecord(value.originals) ||
-    !isRecord(value.digests)
-  ) {
-    throw new InstallError("invalid_state");
-  }
-  const environment = value.active_environments[0];
-  const allowed = new Set(options.allowedPaths);
-  const required = new Set(options.requiredPaths);
-  const originalPaths = Object.keys(value.originals);
-  const digestPaths = Object.keys(value.digests);
-  if (
-    originalPaths.some((item) => !allowed.has(item)) ||
-    digestPaths.some((item) => !allowed.has(item)) ||
-    [...required].some((item) => !originalPaths.includes(item) || !digestPaths.includes(item)) ||
-    digestPaths.some((item) => !originalPaths.includes(item))
-  ) {
-    throw new InstallError("invalid_state");
-  }
-  const originals: Record<string, OriginalRecord> = {};
-  for (const [relativePath, legacyOriginal] of Object.entries(value.originals)) {
-    const converted = decodeLegacyOriginal(legacyOriginal);
-    if (converted === undefined) throw new InstallError("invalid_state");
-    originals[relativePath] = converted;
-  }
-  const digests: Record<string, string> = {};
-  for (const [relativePath, digest] of Object.entries(value.digests)) {
-    if (typeof digest !== "string" || !DIGEST_PATTERN.test(digest)) {
-      throw new InstallError("invalid_state");
-    }
-    digests[relativePath] = digest;
-  }
-  return Object.freeze({
-    version: 1 as const,
-    source: "python" as const,
-    environment,
-    managedFiles: Object.freeze([...digestPaths].sort((left, right) => left.localeCompare(right))),
-    originals: Object.freeze(originals),
-    digests: Object.freeze(digests),
-  });
-}
-
-/** Parse a current schema without exposing original payload bytes in errors. */
 export function parseInstallState(bytes: Buffer): InstallState {
   let value: unknown;
   try {
@@ -724,7 +424,9 @@ export function parseInstallState(bytes: Buffer): InstallState {
   } catch {
     throw new InstallError("invalid_state");
   }
-  const decoded = decodeNodeState(value);
-  if (!isCurrentEnvironment(decoded.environment)) throw new InstallError("invalid_state");
-  return decoded as InstallState;
+  return decodeInstallState(value);
+}
+
+export function isValidatedInstallState(value: unknown): value is InstallState {
+  return typeof value === "object" && value !== null && validatedInstallStates.has(value);
 }
