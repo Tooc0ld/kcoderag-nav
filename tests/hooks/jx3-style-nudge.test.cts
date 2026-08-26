@@ -1,12 +1,19 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
+const path = require("node:path") as typeof import("node:path");
 
 interface Jx3NudgeModule {
   readonly JX3_NUDGE: string;
   readonly JX3_SOURCE_EXTENSIONS: readonly string[];
   isJx3SourcePath(value: unknown): boolean;
   structuredMutationPaths(payload: unknown): readonly string[];
-  jx3StyleContribution(payload: unknown): string | undefined;
+  jx3StyleContribution(payload: unknown, options?: {
+    readonly host: "claude";
+    readonly managedRoot: string;
+    readonly cacheRoot: string;
+  }): string | undefined;
 }
 
 const jx3 = require("../../dist/hooks/jx3-style-nudge.cjs") as Jx3NudgeModule;
@@ -29,10 +36,18 @@ test("JX3 source extensions are exact, case-insensitive, and directory-neutral",
 });
 
 test("only fixed structured content-write tools expose their exact file_path", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-jx3-contribution-"));
+  let session = 0;
+  const contribution = (payload: Readonly<Record<string, unknown>>): string | undefined =>
+    jx3.jx3StyleContribution(
+      { ...payload, session_id: `session-${session += 1}` },
+      { host: "claude", managedRoot: path.join(root, "project"), cacheRoot: root },
+    );
+  try {
   for (const toolName of ["Write", "Edit", "MultiEdit"]) {
     const payload = { tool_name: toolName, tool_input: { file_path: "src/player.CPP" } };
     assert.deepEqual(jx3.structuredMutationPaths(payload), ["src/player.CPP"]);
-    assert.equal(jx3.jx3StyleContribution(payload), jx3.JX3_NUDGE);
+    assert.equal(contribution(payload), jx3.JX3_NUDGE);
   }
 
   for (const payload of [
@@ -45,11 +60,17 @@ test("only fixed structured content-write tools expose their exact file_path", (
     { tool_name: "Unknown", tool_input: { file_path: "player.cpp" } },
   ]) {
     assert.deepEqual(jx3.structuredMutationPaths(payload), []);
-    assert.equal(jx3.jx3StyleContribution(payload), undefined);
+    assert.equal(contribution(payload), undefined);
+  }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("native apply_patch uses bounded envelope headers and coalesces relevant mutations", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-jx3-patch-"));
+  let session = 0;
+  try {
   const patchCases: readonly (readonly [string, readonly string[]])[] = [
     ["*** Begin Patch\n*** Add File: src/new.lua\n+return true\n*** End Patch", ["src/new.lua"]],
     ["*** Begin Patch\n*** Update File: src/player.cpp\n@@\n-old\n+new\n*** End Patch", ["src/player.cpp"]],
@@ -64,7 +85,13 @@ test("native apply_patch uses bounded envelope headers and coalesces relevant mu
   for (const [command, paths] of patchCases) {
     const payload = { tool_name: "apply_patch", tool_input: { command } };
     assert.deepEqual(jx3.structuredMutationPaths(payload), paths, command);
-    assert.equal(jx3.jx3StyleContribution(payload), paths.some(jx3.isJx3SourcePath) ? jx3.JX3_NUDGE : undefined);
+    assert.equal(
+      jx3.jx3StyleContribution(
+        { ...payload, session_id: `patch-${session += 1}` },
+        { host: "claude", managedRoot: path.join(root, "project"), cacheRoot: root },
+      ),
+      paths.some(jx3.isJx3SourcePath) ? jx3.JX3_NUDGE : undefined,
+    );
   }
 
   for (const command of [
@@ -75,6 +102,24 @@ test("native apply_patch uses bounded envelope headers and coalesces relevant mu
     "*** Begin Patch\n*** Add File: src/new.cpp\n+" + "x".repeat(131_073) + "\n*** End Patch",
   ]) {
     assert.deepEqual(jx3.structuredMutationPaths({ tool_name: "apply_patch", tool_input: { command } }), []);
+  }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("JX3 contribution requires a stable identity and emits once per host/root/session", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-jx3-once-"));
+  const runtime = { host: "claude" as const, managedRoot: path.join(root, "project"), cacheRoot: root };
+  const event = { tool_name: "Write", tool_input: { file_path: "src/player.cpp" }, session_id: "stable" };
+  try {
+    assert.equal(jx3.jx3StyleContribution({ ...event, session_id: undefined }, runtime), undefined);
+    assert.equal(jx3.jx3StyleContribution({ ...event, session_id: 123 }, runtime), undefined);
+    assert.equal(jx3.jx3StyleContribution(event), undefined);
+    assert.equal(jx3.jx3StyleContribution(event, runtime), jx3.JX3_NUDGE);
+    assert.equal(jx3.jx3StyleContribution(event, runtime), undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
