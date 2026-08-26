@@ -1039,3 +1039,132 @@ test("unsupported second capability add is zero-write and preserves the healthy 
     fs.rmSync(item.root, { recursive: true, force: true });
   }
 });
+
+test("update defaults to installed capabilities and filters cannot install an absent capability", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    const installed = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+    ]);
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const updated = runPublicCli(item.target, homeDirectory, ["update", "--host", "claude"]);
+    assert.equal(updated.status, 0, updated.stderr || updated.stdout);
+    assert.deepEqual(parseOnlyJson(updated.stdout).capabilities, [NAVIGATION, JX3]);
+
+    const separate = fixture();
+    const separateHome = path.join(separate.root, "home");
+    fs.mkdirSync(separateHome);
+    try {
+      assert.equal(runPublicCli(separate.target, separateHome, [
+        "install", "--host", "claude", "--capability", NAVIGATION,
+      ]).status, 0);
+      const before = projectSnapshot(separate.target);
+      const refused = runPublicCli(separate.target, separateHome, [
+        "update", "--host", "claude", "--capability", JX3,
+      ]);
+      assert.equal(refused.status, 1, refused.stderr || refused.stdout);
+      assert.equal(parseOnlyJson(refused.stdout).error.code, "capability_not_installed");
+      assert.deepEqual(projectSnapshot(separate.target), before);
+    } finally {
+      fs.rmSync(separate.root, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("status and doctor report every built-in capability without writing", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    assert.equal(runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION,
+    ]).status, 0);
+    const before = projectSnapshot(item.target);
+    for (const command of ["status", "doctor"] as const) {
+      const result = runPublicCli(item.target, homeDirectory, [command, "--host", "claude"]);
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      const output = parseOnlyJson(result.stdout);
+      assert.deepEqual(output.capabilities, [
+        { id: NAVIGATION, installed: true, status: "healthy" },
+        { id: JX3, installed: false, status: "not_installed" },
+      ]);
+      assert.deepEqual(projectSnapshot(item.target), before);
+    }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("uninstall is explicit, recomposes a subset, and --all removes the final capability", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    assert.equal(runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+    ]).status, 0);
+    const missing = runPublicCli(item.target, homeDirectory, ["uninstall", "--host", "claude"]);
+    assert.equal(missing.status, 2, missing.stderr || missing.stdout);
+    assert.equal(parseOnlyJson(missing.stdout).error.code, "capability_selection_required");
+    assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, JX3]);
+
+    const partial = runPublicCli(item.target, homeDirectory, [
+      "uninstall", "--host", "claude", "--capability", JX3,
+    ]);
+    assert.equal(partial.status, 0, partial.stderr || partial.stdout);
+    assert.deepEqual(parseOnlyJson(partial.stdout).capabilities, [NAVIGATION]);
+    assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION]);
+
+    const final = runPublicCli(item.target, homeDirectory, ["uninstall", "--host", "claude", "--all"]);
+    assert.equal(final.status, 0, final.stderr || final.stdout);
+    assert.deepEqual(parseOnlyJson(final.stdout).capabilities, []);
+    assert.equal(fs.existsSync(path.join(item.target, ".claude/kcoderag-nav/install-state.json")), false);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("parallel mutation loser is target_busy before scan or render", async () => {
+  const item = fixture();
+  try {
+    const calls: string[] = [];
+    const adapter = makeAdapter("codex", calls);
+    let releaseScan: (() => void) | undefined;
+    const scanBlocked = new Promise<void>((resolve) => { releaseScan = resolve; });
+    let firstScanStarted: (() => void) | undefined;
+    const firstScan = new Promise<void>((resolve) => { firstScanStarted = resolve; });
+    adapter.scanUserSources = async () => {
+      calls.push("scan");
+      firstScanStarted?.();
+      await scanBlocked;
+      return userSources.createSourceScanResult("gate", []);
+    };
+    const captured = io(item.target, {
+      codex: adapter, claude: makeAdapter("claude", calls), cursor: makeAdapter("cursor", calls),
+    });
+    const mutationLockRoot = path.join(item.root, "locks");
+    const first = commands.executeCommand([
+      "install", "--host", "codex", "--capability", NAVIGATION, "--yes", "--json",
+    ], { ...captured.dependencies, mutationLockRoot });
+    await firstScan;
+    const loserOutput: string[] = [];
+    const loser = await commands.executeCommand([
+      "install", "--host", "codex", "--capability", NAVIGATION, "--yes", "--json",
+    ], {
+      ...captured.dependencies,
+      mutationLockRoot,
+      stdout: (text: string) => loserOutput.push(text),
+    });
+    assert.equal(loser, 1);
+    assert.equal(parseOnlyJson(loserOutput[0] as string).error.code, "target_busy");
+    assert.deepEqual(calls, ["codex:detect", "scan"]);
+    releaseScan?.();
+    assert.equal(await first, 0);
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
