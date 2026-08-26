@@ -49,6 +49,27 @@ const delivery = require("../../dist/fixtures/host-delivery.cjs") as HostDeliver
 const support = require("../../dist/hosts/host-version-support.cjs") as HostVersionSupportModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const receiptPath = path.join(repositoryRoot, "fixtures", "host-delivery", "claude-2.1.241.json");
+const expectedReceipts = Object.freeze([
+  { host: "claude" as const, version: "2.1.241", verdict: "PASS" as const, reason: "verified" },
+  {
+    host: "codex" as const,
+    version: "0.146.1",
+    verdict: "UNSUPPORTED" as const,
+    reason: "native_context_unproved",
+  },
+  {
+    host: "cursor" as const,
+    version: "3.17.8",
+    verdict: "UNSUPPORTED" as const,
+    reason: "headless_host_unsupported",
+  },
+  {
+    host: "opencode" as const,
+    version: "1.18.23",
+    verdict: "UNSUPPORTED" as const,
+    reason: "native_context_unproved",
+  },
+]);
 
 function completeObservations(overrides: Readonly<Record<string, boolean>> = {}): Readonly<Record<string, boolean>> {
   return Object.freeze({
@@ -184,3 +205,48 @@ test("Claude support is exact-version and frozen-receipt-digest bound", () => {
   }
 });
 
+test("every real host probe emits one closed receipt without inferring unsupported PASS claims", () => {
+  for (const expected of expectedReceipts) {
+    const fixturePath = path.join(
+      repositoryRoot,
+      "fixtures",
+      "host-delivery",
+      `${expected.host}-${expected.version}.json`,
+    );
+    const receipt = delivery.verifyReceiptFile(fixturePath);
+    assert.equal(receipt.host, expected.host);
+    assert.equal(receipt.version, expected.version);
+    assert.equal(receipt.verdict, expected.verdict);
+    assert.equal(receipt.reason, expected.reason);
+    assert.equal(receipt.observations.nativeInstall, true);
+    assert.match(delivery.receiptDigest(receipt), /^[a-f0-9]{64}$/u);
+
+    if (receipt.verdict !== "PASS") {
+      assert.equal(receipt.stableSessionField, null);
+      assert.equal(
+        delivery.OBSERVATION_KEYS.some((key) => receipt.observations[key] !== true),
+        true,
+      );
+      assert.throws(() => delivery.verifyReceiptFile(fixturePath, true), {
+        message: "receipt_not_pass",
+      });
+    }
+  }
+});
+
+test("JX3 support rows are exact and exist only for frozen PASS receipts", () => {
+  assert.deepEqual(
+    support.HOST_VERSION_SUPPORT_ROWS.map(({ host, version }) => ({ host, version })),
+    [{ host: "claude", version: "2.1.241" }],
+  );
+
+  for (const expected of expectedReceipts) {
+    const result = support.evaluateHostVersionSupport(expected.host, expected.version, repositoryRoot);
+    assert.equal(result.navigation, true);
+    assert.equal(result.jx3StyleNudge, expected.verdict === "PASS");
+    if (expected.verdict !== "PASS") {
+      assert.equal(result.code, "host_version_unsupported");
+      assert.equal(result.receiptDigest, undefined);
+    }
+  }
+});
