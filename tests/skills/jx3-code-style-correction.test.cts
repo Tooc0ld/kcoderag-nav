@@ -15,6 +15,22 @@ const expectedReferences = Object.freeze([
   "references/lua-contracts.md",
   "references/change-hygiene-self-review.md",
 ]);
+const expectedPartitions: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "references/cpp-lifetime-control-flow.md": Object.freeze([
+    "JX3-R01", "JX3-R02", "JX3-R05", "JX3-R06", "JX3-R07",
+    "JX3-R11", "JX3-R14", "JX3-R15", "JX3-R17", "JX3-S02",
+  ]),
+  "references/protocol-serialization-data.md": Object.freeze([
+    "JX3-R03", "JX3-R04", "JX3-R12", "JX3-R13", "JX3-R16",
+    "JX3-R19", "JX3-S03", "JX3-S04", "JX3-S05", "JX3-S06",
+  ]),
+  "references/lua-contracts.md": Object.freeze([
+    "JX3-R08", "JX3-R09", "JX3-R10", "JX3-R18",
+  ]),
+  "references/change-hygiene-self-review.md": Object.freeze([
+    "JX3-S01", "JX3-S07", "JX3-S08",
+  ]),
+});
 
 function readSkill(): string {
   return fs.readFileSync(skillPath, "utf8");
@@ -82,4 +98,39 @@ test("the compact Skill remains prescriptive and contains no executable legacy w
   assert.doesNotMatch(markdown, /audit_added_lines|historical-revisions|svn\s+(?:status|diff|cat)|python\s+scripts|clang-format|scan(?:ner)?\s+passed/i);
   assert.match(markdown, /pre-write/i);
   assert.match(markdown, /guidance, not (?:a )?(?:scan|scanner)/i);
+});
+
+test("four detailed references exist and repeat only their assigned partition IDs", () => {
+  const allReferenceIds: string[] = [];
+
+  for (const target of expectedReferences) {
+    const referencePath = path.join(skillRoot, target);
+    assert.equal(fs.existsSync(referencePath), true, `${target} must exist`);
+    const markdown = fs.readFileSync(referencePath, "utf8");
+    const actualIds = [...extractRuleIds(markdown)];
+    const assignedIds = expectedPartitions[target];
+    assert.ok(assignedIds !== undefined, `missing partition declaration for ${target}`);
+
+    assert.equal(actualIds.length, assignedIds.length, `${target} repeats or omits an ID`);
+    assert.deepEqual([...actualIds].sort(), [...assignedIds].sort(), `${target} has partition drift`);
+    allReferenceIds.push(...actualIds);
+
+    for (const id of assignedIds) {
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const section = markdown.match(new RegExp(`^## ${escapedId}\\b[\\s\\S]*?(?=^## JX3-|\\Z)`, "mu"));
+      assert.ok(section !== null, `${target} needs a section for ${id}`);
+      assert.ok(section[0].length >= 220, `${target} ${id} needs actionable detail`);
+      assert.match(section[0], /\*\*Write:\*\*/);
+      assert.match(section[0], /\*\*Boundary:\*\*/);
+      assert.match(section[0], /\*\*Review:\*\*/);
+    }
+
+    assert.ok(markdown.split(/\r?\n/u).length < 220, `${target} exceeds its line budget`);
+    assert.ok(Buffer.byteLength(markdown, "utf8") < 20_000, `${target} exceeds its byte budget`);
+    assert.doesNotMatch(markdown, /```(?:bash|powershell|python|shell|cmd)|audit_added_lines|historical-revisions|svn\s+(?:status|diff|cat)|python\s+scripts/i);
+  }
+
+  assert.equal(allReferenceIds.length, expectedRuleIds.length);
+  assert.deepEqual([...allReferenceIds].sort(), [...expectedRuleIds].sort());
+  assert.equal(extractRuleIds(readSkill()).length, expectedRuleIds.length, "reference repetition must not affect index uniqueness");
 });
