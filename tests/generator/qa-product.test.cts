@@ -24,16 +24,25 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "agents/kcode-explorer.md",
   "hooks/grep-nudge.cjs",
   "hooks/hooks.json",
+  "hooks/jx3-style-nudge.cjs",
   "hooks/mcp-call-marker.cjs",
+  "hooks/once-marker.cjs",
+  "hooks/pre-tool-dispatcher.cjs",
   "hooks/run_hook.cmd",
   "hooks/run_hook.sh",
   "hooks/run_marker.cmd",
   "hooks/run_marker.sh",
+  "hooks/session-cleanup.cjs",
   "hooks/update-check.cjs",
   "hooks/update-notice.cjs",
   "hooks/update-worker.cjs",
   "opencode/kcoderag-nav.js",
   "skills/code-lookup-discipline/SKILL.md",
+  "skills/jx3-code-style-correction/SKILL.md",
+  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
+  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
+  "skills/jx3-code-style-correction/references/lua-contracts.md",
+  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
 ]);
 
 function compare(left: string, right: string): number {
@@ -57,7 +66,7 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-test("QA non-document product is a closed deterministic seventeen-file inventory", () => {
+test("QA non-document product is a closed deterministic twenty-six-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   assert.deepEqual(filesBelow(qaRoot).filter((member) => member !== "README.md"), EXPECTED_NON_DOCUMENT);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
