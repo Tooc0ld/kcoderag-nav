@@ -102,7 +102,7 @@
 ### 多能力安装平台与 JX3 规范提示
 
 - [x] **PLAT-01**: 公共 npm 包以内置 capability manifest 注册 KCodeRag navigation 与 `jx3-style-nudge`；安装状态、受管文件、摘要和配置 section 按 capability 记录，同一宿主所选能力集合通过一次事务原子提交，独立更新或卸载不会破坏其他能力、宿主或用户配置
-- [ ] **PLAT-02**: 五个 CLI 命令支持 capability 粒度的安全语义：交互 install 在单宿主内多选，自动化重复传 `--capability`；status/doctor 默认展示所选宿主全部能力，update 默认更新全部已安装能力且可筛选，uninstall 必须交互选择或显式指定
+- [x] **PLAT-02**: 五个 CLI 命令支持 capability 粒度的安全语义：交互 install 在单宿主内多选，自动化重复传 `--capability`；status/doctor 默认展示所选宿主全部能力，update 默认更新全部已安装能力且可筛选，uninstall 必须交互选择或显式指定
 - [x] **PLAT-03**: 一份包内 canonical Skill/handler 资产由 Codex、Claude Code、Cursor 与 OpenCode adapter 确定性投影到宿主原生项目路径；写前能力必须通过真实宿主 fixture 证明结构化目标路径、稳定会话标识和非阻断模型上下文注入，宿主版本未知、不可解析、过低或未证明时只拒绝该能力而不伪装降级
 - [x] **LEG-01**: 删除尚未公开使用的旧 CLI、旧状态 schema 和 QA/Dev 迁移兼容逻辑；对 pre-npm 手工 MCP、marketplace/plugin、Python Hook 和多来源冲突仅做 secret-safe、只读检测并在写前硬停止，不迁移、接管或自动删除
 - [x] **JX3-01**: `jx3-style-nudge` 以纯 CJS/JS Hook 配合受管 Markdown `$jx3-code-style-correction` Skill 工作，只在每个稳定宿主会话首次相关 C/C++/头文件/Lua 内容写入前注入一次短提示；无稳定会话 ID、资产漂移或任何运行异常均静默 fail-open，且不运行 Python、SVN、网络、逐次 PostToolUse scanner 或宣称静态扫描通过
@@ -196,7 +196,7 @@
 | DEP-02 | Phase 4 | Complete |
 | DEP-03 | Phase 4 | Complete |
 | PLAT-01 | Phase 04.1 | Complete |
-| PLAT-02 | Phase 04.1 | Pending |
+| PLAT-02 | Phase 04.1 | Complete |
 | PLAT-03 | Phase 04.1 | Complete |
 | LEG-01 | Phase 04.1 | Complete |
 | JX3-01 | Phase 04.1 | Complete |

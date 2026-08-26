@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.1
 current_phase_name: JX3 multi-capability platform
 status: executing
-stopped_at: Completed 04.1-06-PLAN.md
-last_updated: "2026-08-26T15:44:20.599Z"
+stopped_at: Completed 04.1-07-PLAN.md
+last_updated: "2026-08-26T16:31:33.520Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 04.1 execution started
-state_head: 0850ac78ea8f9e055d9db314c2749161f96b45d6
+state_head: e6e6e83f26b8b88a1b47e066d6e309407cce6ca5
 progress:
   total_phases: 10
   completed_phases: 5
   total_plans: 65
-  completed_plans: 59
+  completed_plans: 60
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.1 (JX3 multi-capability platform) — EXECUTING
-Plan: 7 of 12
+Plan: 8 of 12
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 04.1 execution started
 
@@ -113,6 +113,7 @@ Progress: [█████░░░░░] 50%
 | Phase 04.1 P04 | 30min | 2 tasks | 13 files |
 | Phase 04.1-jx3 P05 | 21min | 3 tasks | 14 files |
 | Phase 04.1 P06 | 34min | 3 tasks | 13 files |
+| Phase 04.1 P07 | 43m | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -280,6 +281,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Published host support uses a self-contained frozen lookup while checked-in receipt parsing and digest proof remain build-time only.
 - [Phase 04.1]: Nearest-project launch requires the exact current capability schema, composite digest, and every managed file digest; invalid nearest boundaries never fall through.
 - [Phase 04.1]: Cursor retains its native kcoderag MCP identity while the other host projections use their native kcoderag-qa registrations.
+- [Phase 04.1]: Install composes the canonical installed-union-selected capability target and exact duplicate targets are byte- and mtime-stable no-ops.
+- [Phase 04.1]: Install, update, and uninstall share one selected-host source-conflict gate without legacy migration or cleanup authority.
+- [Phase 04.1]: Host-target mutations use an exclusive user-cache lock; stale locks block writes and remain visible to read-only diagnostics.
 
 ### Pending Todos
 
@@ -343,6 +347,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-26T15:44:20.083Z
-Stopped at: Completed 04.1-06-PLAN.md
+Last session: 2026-08-26T16:31:33.021Z
+Stopped at: Completed 04.1-07-PLAN.md
 Resume file: None
