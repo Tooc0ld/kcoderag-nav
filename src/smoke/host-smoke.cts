@@ -8,6 +8,7 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 
 import type { HostId } from "../core/contracts.cjs";
 import { parseJsoncObject } from "../core/json-splice.cjs";
+import { HOST_VERSION_SUPPORT_ROWS } from "../hosts/host-version-support.cjs";
 import {
   readReceipts,
   startStubMcpServer,
@@ -22,6 +23,7 @@ export interface SmokeEvidence {
   readonly packageAcquired: boolean;
   readonly preinstall: boolean;
   readonly install: boolean;
+  readonly capabilityLifecycle: boolean;
   readonly qaOnly: boolean;
   readonly status: boolean;
   readonly doctor: boolean;
@@ -47,6 +49,33 @@ export interface NavigationContract {
   readonly fingerprint: string;
 }
 
+export interface SupportedCapabilityLifecycle {
+  readonly schemaVersion: 1;
+  readonly branch: "supported";
+  readonly hostVersion: string;
+  readonly receiptDigest: string;
+  readonly navigationThenJx3: boolean;
+  readonly jx3ThenNavigation: boolean;
+  readonly duplicateNoop: boolean;
+  readonly failedSecondAddPreserved: boolean;
+  readonly update: boolean;
+  readonly conflictUninstallBlocked: boolean;
+  readonly partialUninstall: boolean;
+  readonly finalUninstall: boolean;
+}
+
+export interface UnsupportedCapabilityLifecycle {
+  readonly schemaVersion: 1;
+  readonly branch: "unsupported";
+  readonly hostVersion: string;
+  readonly navigationInstalled: boolean;
+  readonly refusalCode: "host_version_unsupported";
+  readonly zeroWrite: boolean;
+  readonly navigationPreserved: boolean;
+}
+
+export type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+
 export interface HostSmokeResult {
   readonly schemaVersion: 1;
   readonly host: HostId;
@@ -55,6 +84,7 @@ export interface HostSmokeResult {
   readonly reason: string;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
+  readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }
 
@@ -140,11 +170,25 @@ interface McpConnection {
   readonly url: string;
 }
 
+interface PackageCliOptions {
+  readonly capabilities?: readonly ("kcoderag-navigation" | "jx3-style-nudge")[];
+  readonly all?: boolean;
+}
+
 const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode"] as const);
+const NAVIGATION = "kcoderag-navigation" as const;
+const JX3 = "jx3-style-nudge" as const;
+const RECEIPT_HOST_VERSIONS: Readonly<Record<HostId, string>> = Object.freeze({
+  codex: "0.146.1",
+  claude: "2.1.241",
+  cursor: "3.17.8",
+  opencode: "1.18.23",
+});
 export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "packageAcquired",
   "preinstall",
   "install",
+  "capabilityLifecycle",
   "qaOnly",
   "status",
   "doctor",
@@ -215,11 +259,13 @@ export function evaluateHostEvidence(input: {
   readonly unavailableReason?: string;
   readonly failureReason?: string;
   readonly navigationContract?: NavigationContract;
+  readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }): HostSmokeResult {
   const evidence = normalizeEvidence(input.evidence);
   const provenance = input.provenance === undefined ? {} : { provenance: input.provenance };
   const navigation = input.navigationContract === undefined ? {} : { navigationContract: input.navigationContract };
+  const capability = input.capabilityLifecycle === undefined ? {} : { capabilityLifecycle: input.capabilityLifecycle };
   if (input.unavailableReason !== undefined) {
     return Object.freeze({
       schemaVersion: 1,
@@ -229,6 +275,7 @@ export function evaluateHostEvidence(input: {
       reason: input.unavailableReason,
       evidence,
       ...navigation,
+      ...capability,
       ...provenance,
     });
   }
@@ -242,6 +289,7 @@ export function evaluateHostEvidence(input: {
     reason: complete ? "verified" : (input.failureReason ?? "evidence_incomplete"),
     evidence,
     ...navigation,
+    ...capability,
     ...provenance,
   });
 }
@@ -259,6 +307,22 @@ function syntheticNativePreload(root: string): string {
     fs.writeFileSync(preloadPath, `"use strict";
 const childProcess = require("node:child_process");
 const originalExecFile = childProcess.execFile;
+const originalSpawnSync = childProcess.spawnSync;
+const exactVersions = Object.freeze({
+  codex: "codex-cli 0.146.1\\n",
+  claude: "2.1.241 (Claude Code)\\n",
+  cursor: "3.17.8\\n",
+  opencode: "1.18.23\\n",
+});
+childProcess.spawnSync = function(executable, args) {
+  const argv = Array.isArray(args) ? [...args] : [];
+  const name = String(executable).replace(/\\\\/g, "/").split("/").pop().replace(/\\.cmd$/i, "");
+  if (argv.length === 1 && argv[0] === "--version" && exactVersions[name] !== undefined) {
+    const stdout = exactVersions[name];
+    return { pid: process.pid, output: [null, stdout, ""], stdout, stderr: "", status: 0, signal: null };
+  }
+  return originalSpawnSync.apply(this, arguments);
+};
 childProcess.execFile = function(executable, args, options, callback) {
   const argv = Array.isArray(args) ? [...args] : [];
   const done = typeof options === "function" ? options : callback;
@@ -289,6 +353,16 @@ childProcess.execFile = function(executable, args, options, callback) {
 `, { encoding: "utf8", mode: 0o600 });
   }
   return preloadPath;
+}
+
+function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
+  if (value.branch === "unsupported") {
+    return value.navigationInstalled && value.refusalCode === "host_version_unsupported" &&
+      value.zeroWrite && value.navigationPreserved;
+  }
+  return value.navigationThenJx3 && value.jx3ThenNavigation && value.duplicateNoop &&
+    value.failedSecondAddPreserved && value.update && value.conflictUninstallBlocked &&
+    value.partialUninstall && value.finalUninstall && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
 }
 
 function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessEnv {
@@ -787,6 +861,7 @@ function runPackageCliResult(
   command: "install" | "status" | "doctor" | "update" | "uninstall",
   host: HostId,
   runNpm: NpmRunner,
+  options: PackageCliOptions = {},
 ): PackageCliResult {
   return withVerifiedInvocationTarball(artifact, runtimeRoot, command, (packageSpec) => {
     const args = [
@@ -803,8 +878,9 @@ function runPackageCliResult(
       projectRoot,
       "--json",
     ];
-    if (command === "install") args.push("--capability", "kcoderag-navigation");
-    if (command === "uninstall") args.push("--all");
+    const capabilities = options.capabilities ?? (command === "install" ? [NAVIGATION] : []);
+    for (const capability of capabilities) args.push("--capability", capability);
+    if (command === "uninstall" && (options.all ?? capabilities.length === 0)) args.push("--all");
     if (command !== "status" && command !== "doctor") args.push("--yes");
     const result = runNpm(args, projectRoot, safeEnvironment(runtimeRoot, true));
     const payload = parseCliDocument(result);
@@ -819,8 +895,9 @@ function runPackageCli(
   command: "install" | "status" | "doctor" | "update" | "uninstall",
   host: HostId,
   runNpm: NpmRunner,
+  options: PackageCliOptions = {},
 ): Record<string, any> | undefined {
-  const result = runPackageCliResult(artifact, projectRoot, runtimeRoot, command, host, runNpm);
+  const result = runPackageCliResult(artifact, projectRoot, runtimeRoot, command, host, runNpm, options);
   const normalized: CommandResult = {
     code: result.code,
     stdout: result.payload === undefined ? "" : JSON.stringify(result.payload),
@@ -1088,6 +1165,28 @@ function statePath(host: HostId, projectRoot: string): string {
   return path.join(projectRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 
+function installedCapabilities(host: HostId, projectRoot: string): readonly string[] | undefined {
+  try {
+    const state: unknown = JSON.parse(fs.readFileSync(statePath(host, projectRoot), "utf8"));
+    if (!isRecord(state) || !Array.isArray(state.capabilities)) return undefined;
+    const ids = state.capabilities.map((entry: unknown) => isRecord(entry) ? entry.id : undefined);
+    return ids.every((id): id is string => typeof id === "string") ? Object.freeze(ids) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function exactCapabilities(host: HostId, projectRoot: string, expected: readonly string[]): boolean {
+  const actual = installedCapabilities(host, projectRoot);
+  return actual !== undefined && actual.length === expected.length &&
+    actual.every((capability, index) => capability === expected[index]);
+}
+
+function supportReceipt(host: HostId, version: string): { readonly receiptDigest: string } | undefined {
+  const row = HOST_VERSION_SUPPORT_ROWS.find((candidate) => candidate.host === host && candidate.version === version);
+  return row === undefined ? undefined : Object.freeze({ receiptDigest: row.receiptDigest });
+}
+
 function treeFingerprint(root: string): string {
   const entries: (string | Buffer)[] = [];
   const visit = (current: string, relative: string): void => {
@@ -1142,6 +1241,17 @@ function isConflictFailure(result: PackageCliResult): boolean {
     result.payload.code === "source_conflict" && result.payload.error?.code === "source_conflict";
 }
 
+function jx3SkillPath(host: HostId): string {
+  if (host === "codex") return ".agents/skills/jx3-code-style-correction/SKILL.md";
+  if (host === "claude") return ".claude/skills/jx3-code-style-correction/SKILL.md";
+  if (host === "cursor") return ".cursor/skills/jx3-code-style-correction/SKILL.md";
+  return ".opencode/skills/jx3-code-style-correction/SKILL.md";
+}
+
+function isCliError(result: PackageCliResult, code: string): boolean {
+  return result.code !== 0 && result.payload?.ok === false && result.payload.error?.code === code;
+}
+
 async function runRequiredHost(
   host: HostId,
   artifact: VerifiedTarballArtifact,
@@ -1153,32 +1263,97 @@ async function runRequiredHost(
 ): Promise<HostSmokeResult> {
   const projectRoot = path.join(projectsRoot, host);
   const runtimeRoot = path.join(projectsRoot, `${host}-runtime`);
+  const hostVersion = RECEIPT_HOST_VERSIONS[host];
+  const receipt = supportReceipt(host, hostVersion);
   fs.mkdirSync(projectRoot, { recursive: true });
   fs.writeFileSync(path.join(projectRoot, "synthetic.cpp"), "int SyntheticSymbol() { return 7; }\n", "utf8");
   const evidence = { ...blankEvidence(), packageAcquired: true } as Record<keyof SmokeEvidence, boolean>;
   let installed = false;
   let sourceConflictPath: string | undefined;
   let navigationContract: NavigationContract | undefined;
+  let capabilityLifecycle: CapabilityLifecycle | undefined;
   try {
     const preinstallStatus = runPackageCliResult(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const preinstallDoctor = runPackageCliResult(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
     evidence.preinstall = isStatusPayload(preinstallStatus, "status", "not_installed") &&
       isStatusPayload(preinstallDoctor, "doctor", "not_installed");
 
-    const install = runPackageCli(artifact, projectRoot, runtimeRoot, "install", host, runNpm);
-    evidence.install = install !== undefined;
+    const navigationInstall = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION] },
+    );
+    let supportedNavigationThenJx3 = false;
+    let supportedJx3ThenNavigation = false;
+    let supportedDuplicateNoop = false;
+    let supportedFailedSecondAdd = false;
+    let unsupportedRefusal = false;
+    let unsupportedZeroWrite = false;
+    let unsupportedNavigationPreserved = false;
+    if (receipt !== undefined) {
+      const addJx3 = runPackageCli(
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3] },
+      );
+      supportedNavigationThenJx3 = navigationInstall !== undefined && addJx3 !== undefined &&
+        exactCapabilities(host, projectRoot, [NAVIGATION, JX3]);
+      const beforeDuplicate = treeFingerprint(projectRoot);
+      const duplicate = runPackageCli(
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3, NAVIGATION] },
+      );
+      supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
+        duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
+
+      const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
+      const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
+      fs.mkdirSync(reverseRoot, { recursive: true });
+      const reverseJx3 = runPackageCli(
+        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [JX3] },
+      );
+      const reverseNavigation = runPackageCli(
+        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+      );
+      supportedJx3ThenNavigation = reverseJx3 !== undefined && reverseNavigation !== undefined &&
+        exactCapabilities(host, reverseRoot, [NAVIGATION, JX3]);
+
+      const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
+      const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
+      fs.mkdirSync(failedRoot, { recursive: true });
+      const failedNavigation = runPackageCli(
+        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+      );
+      const conflictPath = path.join(failedRoot, ...jx3SkillPath(host).split("/"));
+      fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
+      fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
+      const beforeFailedAdd = treeFingerprint(failedRoot);
+      const failedAdd = runPackageCliResult(
+        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [JX3] },
+      );
+      supportedFailedSecondAdd = failedNavigation !== undefined &&
+        isCliError(failedAdd, "unmanaged_name_conflict") &&
+        treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
+      evidence.install = supportedNavigationThenJx3;
+    } else {
+      evidence.install = navigationInstall !== undefined && exactCapabilities(host, projectRoot, [NAVIGATION]);
+      const beforeRefusal = treeFingerprint(projectRoot);
+      const refused = runPackageCliResult(
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3] },
+      );
+      unsupportedRefusal = isCliError(refused, "host_version_unsupported");
+      unsupportedZeroWrite = unsupportedRefusal && treeFingerprint(projectRoot) === beforeRefusal;
+    }
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
       mode: "required-contract",
       evidence,
       failureReason: "install_failed",
+      ...(capabilityLifecycle === undefined ? {} : { capabilityLifecycle }),
       provenance,
     });
     const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const doctor = runPackageCli(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
     evidence.status = status?.status === "healthy" && status.environment === "qa";
     evidence.doctor = doctor?.status === "healthy" && doctor.environment === "qa";
+    unsupportedNavigationPreserved = receipt === undefined && unsupportedRefusal &&
+      status?.status === "healthy" && exactCapabilities(host, projectRoot, [NAVIGATION]);
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
     navigationContract = navigationEvidence(host, projectRoot, runtimeRoot);
@@ -1187,7 +1362,7 @@ async function runRequiredHost(
     if (connection?.url === stubUrl) Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
     const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
     evidence.update = update !== undefined;
-    evidence.qaOnly = [preinstallStatus.payload, preinstallDoctor.payload, install, status, doctor, update]
+    evidence.qaOnly = [preinstallStatus.payload, preinstallDoctor.payload, navigationInstall, status, doctor, update]
       .every((payload) => payload?.environment === "qa");
 
     sourceConflictPath = installSyntheticSourceConflict(host, runtimeRoot);
@@ -1211,15 +1386,52 @@ async function runRequiredHost(
 
     fs.unlinkSync(sourceConflictPath);
     sourceConflictPath = undefined;
-    const uninstall = runPackageCli(artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm);
+    let partialUninstall = false;
+    if (receipt !== undefined) {
+      const partial = runPackageCli(
+        artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [JX3], all: false },
+      );
+      const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
+      partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
+        exactCapabilities(host, projectRoot, [NAVIGATION]);
+    }
+    const uninstall = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { all: true },
+    );
     evidence.uninstall = uninstall !== undefined && uninstall.environment === "qa" &&
       !fs.existsSync(statePath(host, projectRoot));
+    capabilityLifecycle = receipt === undefined
+      ? Object.freeze({
+          schemaVersion: 1 as const,
+          branch: "unsupported" as const,
+          hostVersion,
+          navigationInstalled: evidence.install,
+          refusalCode: "host_version_unsupported" as const,
+          zeroWrite: unsupportedZeroWrite,
+          navigationPreserved: unsupportedNavigationPreserved,
+        })
+      : Object.freeze({
+          schemaVersion: 1 as const,
+          branch: "supported" as const,
+          hostVersion,
+          receiptDigest: receipt.receiptDigest,
+          navigationThenJx3: supportedNavigationThenJx3,
+          jx3ThenNavigation: supportedJx3ThenNavigation,
+          duplicateNoop: supportedDuplicateNoop,
+          failedSecondAddPreserved: supportedFailedSecondAdd,
+          update: evidence.update,
+          conflictUninstallBlocked: evidence.conflictUninstallBlocked,
+          partialUninstall,
+          finalUninstall: evidence.uninstall,
+        });
+    evidence.capabilityLifecycle = completeCapabilityLifecycle(capabilityLifecycle);
     installed = !evidence.uninstall;
     return evaluateHostEvidence({
       host,
       mode: "required-contract",
       evidence,
       ...(navigationContract === undefined ? {} : { navigationContract }),
+      capabilityLifecycle,
       provenance,
     });
   } catch {
@@ -1228,6 +1440,7 @@ async function runRequiredHost(
       mode: "required-contract",
       evidence,
       failureReason: "contract_execution_failed",
+      ...(capabilityLifecycle === undefined ? {} : { capabilityLifecycle }),
       provenance,
     });
   } finally {

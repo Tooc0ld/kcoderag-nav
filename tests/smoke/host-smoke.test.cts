@@ -14,6 +14,7 @@ interface SmokeEvidence {
   readonly packageAcquired: boolean;
   readonly preinstall: boolean;
   readonly install: boolean;
+  readonly capabilityLifecycle: boolean;
   readonly qaOnly: boolean;
   readonly status: boolean;
   readonly doctor: boolean;
@@ -281,6 +282,7 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
     "packageAcquired",
     "preinstall",
     "install",
+    "capabilityLifecycle",
     "qaOnly",
     "status",
     "doctor",
@@ -360,6 +362,7 @@ test("optional live keeps NOT_RUN honest and never converts a failure into succe
     mode: "optional-live",
     evidence: smoke.completeEvidence({
       preinstall: false,
+      capabilityLifecycle: false,
       doctor: false,
       sourceConflict: false,
       conflictInstallBlocked: false,
@@ -573,10 +576,18 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
             const command = executable < 0 ? undefined : args[executable + 1];
             if (command !== undefined) lifecycleCommands.add(command);
             if (command === "install") {
-              const capability = args.indexOf("--capability");
-              assert.equal(args[capability + 1], "kcoderag-navigation");
+              const capabilities = args.flatMap((argument, index) =>
+                argument === "--capability" && args[index + 1] !== undefined ? [args[index + 1]] : []);
+              assert.equal(capabilities.length > 0, true);
+              assert.equal(capabilities.every((capability) =>
+                capability === "kcoderag-navigation" || capability === "jx3-style-nudge"), true);
             }
-            if (command === "uninstall") assert.equal(args.includes("--all"), true);
+            if (command === "uninstall") {
+              const hasAll = args.includes("--all");
+              const selectedJx3 = args.some((argument, index) =>
+                argument === "--capability" && args[index + 1] === "jx3-style-nudge");
+              assert.equal(hasAll !== selectedJx3, true);
+            }
             assert.equal(args.includes("--env"), false);
             assert.equal(args.includes("--environment"), false);
             assert.equal(args.some((argument) => argument === "dev"), false);
