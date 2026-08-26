@@ -875,7 +875,7 @@ test("source diagnosis invokes only the selected host and never lets another hos
       const captured = io(item.target, adapters);
       assert.equal(
         await commands.executeCommand(
-          ["install", "--host", selected, "--yes", "--json"],
+          ["install", "--host", selected, "--yes", "--json", "--capability", NAVIGATION],
           captured.dependencies,
         ),
         0,

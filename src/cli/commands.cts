@@ -30,17 +30,11 @@ import {
 import { getHostAdapter, HOST_ADAPTERS } from "../hosts/index.cjs";
 import {
   createSourceScanResult,
-  type NativeCleanupPlan,
-  type OwnedCleanupAuthority,
   type SourceScanMode,
   type SourceScanResult,
 } from "../hosts/user-sources.cjs";
 
 const QA_ENVIRONMENT: CurrentEnvironmentId = "qa";
-
-interface LegacyMigrationAdapter extends HostAdapter {
-  migrateLegacy(desired: ReturnType<HostAdapter["renderInstall"]>, observation: HostObservation): ReturnType<typeof applyTransaction>;
-}
 
 export const COMMANDS = Object.freeze([
   "install",
@@ -62,26 +56,12 @@ interface ParsedArguments {
   readonly yes: boolean;
   readonly json: boolean;
   readonly capabilities: readonly CapabilityId[];
-  readonly allowLegacyUserRemoval: boolean;
-  readonly allowLegacyDevMigration: boolean;
-  readonly allowOwnedSourceCleanup: boolean;
-  readonly cleanupFingerprint?: string;
 }
 
 export interface TargetConfirmation {
   readonly command: CommandName;
   readonly host: HostId;
   readonly target: string;
-}
-
-export interface LegacyRemovalConfirmation extends TargetConfirmation {
-  readonly legacyPath: string;
-}
-
-export interface OwnedSourceCleanupConfirmation extends TargetConfirmation {
-  readonly cleanupCommand: string;
-  readonly cleanupFingerprint: string;
-  readonly safePath: string;
 }
 
 export interface CommandDependencies {
@@ -101,13 +81,6 @@ export interface CommandDependencies {
   readonly confirmTarget?: (
     request: TargetConfirmation,
   ) => boolean | Promise<boolean>;
-  readonly confirmLegacyUserRemoval?: (
-    request: LegacyRemovalConfirmation,
-  ) => boolean | Promise<boolean>;
-  /** Return the displayed fingerprint verbatim; boolean confirmation is intentionally insufficient. */
-  readonly confirmOwnedSourceCleanup?: (
-    request: OwnedSourceCleanupConfirmation,
-  ) => string | undefined | Promise<string | undefined>;
   readonly getAdapter?: (host: HostId) => HostAdapter;
   readonly mutationLockRoot?: string;
 }
@@ -136,10 +109,6 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let yes = false;
   let json = false;
   const capabilities: string[] = [];
-  let allowLegacyUserRemoval = false;
-  let allowLegacyDevMigration = false;
-  let allowOwnedSourceCleanup = false;
-  let cleanupFingerprint: string | undefined;
   const seen = new Set<string>();
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -148,14 +117,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (argument !== "--capability") seen.add(argument);
     if (argument === "--yes") yes = true;
     else if (argument === "--json") json = true;
-    else if (argument === "--allow-legacy-user-removal") allowLegacyUserRemoval = true;
-    else if (argument === "--allow-legacy-dev-migration") allowLegacyDevMigration = true;
-    else if (argument === "--allow-owned-source-cleanup") allowOwnedSourceCleanup = true;
-    else if (argument === "--cleanup-fingerprint") cleanupFingerprint = requireFlagValue(argv, index++);
     else if (argument === "--capability") capabilities.push(requireFlagValue(argv, index++));
-    else if (argument === "--fix" || argument.startsWith("--fix=")) {
-      throw new InstallError("owned_source_cleanup_authority_invalid");
-    }
     else if (argument === "--host") {
       const value = requireFlagValue(argv, index++);
       if (!isHost(value)) throw new InstallError("unsupported_host");
@@ -177,10 +139,6 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     yes: boolean;
     json: boolean;
     capabilities: readonly CapabilityId[];
-    allowLegacyUserRemoval: boolean;
-    allowLegacyDevMigration: boolean;
-    allowOwnedSourceCleanup: boolean;
-    cleanupFingerprint?: string;
   } = {
     command,
     yes,
@@ -188,13 +146,9 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     capabilities: capabilities.length === 0
       ? Object.freeze([])
       : Object.freeze(resolveCapabilitySelection(capabilities).map((entry) => entry.id)),
-    allowLegacyUserRemoval,
-    allowLegacyDevMigration,
-    allowOwnedSourceCleanup,
   };
   if (host !== undefined) parsed.host = host;
   if (target !== undefined) parsed.target = target;
-  if (cleanupFingerprint !== undefined) parsed.cleanupFingerprint = cleanupFingerprint;
   return parsed;
 }
 
@@ -256,24 +210,11 @@ function errorExitCode(code: string): number {
     "environment_selector_retired",
     "host_required",
     "invalid_arguments",
-    "legacy_removal_cancelled",
-    "legacy_removal_authority_required",
-    "legacy_removal_authority_invalid",
-    "legacy_dev_migration_authority_invalid",
-    "legacy_dev_migration_authority_required",
-    "owned_source_cleanup_authority_invalid",
-    "owned_source_cleanup_authority_required",
-    "cleanup_fingerprint_required",
-    "cleanup_fingerprint_mismatch",
     "unsupported_environment",
     "unsupported_host",
   ]).has(code)
     ? 2
     : 1;
-}
-
-function hasLegacyMigration(adapter: HostAdapter): adapter is LegacyMigrationAdapter {
-  return typeof (adapter as Partial<LegacyMigrationAdapter>).migrateLegacy === "function";
 }
 
 function writeJson(
@@ -361,65 +302,6 @@ async function scanUserSources(
     : await adapter.scanUserSources({ target, packageRoot, observation, mode });
 }
 
-function exactCleanupPlan(scan: SourceScanResult): NativeCleanupPlan | undefined {
-  if (scan.cleanupPlans.length === 0) return undefined;
-  if (scan.cleanupPlans.length !== 1 || scan.findings.some((finding) =>
-    finding.severity === "conflict" &&
-    (!finding.cleanupEligible || finding.cleanupFingerprint !== scan.cleanupPlans[0]?.fingerprint))) {
-    throw new InstallError("source_conflict");
-  }
-  return scan.cleanupPlans[0];
-}
-
-/** Exact digest-owned Cursor legacy migration is governed by its separate authority, never native cleanup. */
-function isCursorLegacyMigrationSource(
-  host: HostId,
-  observation: HostObservation,
-  scan: SourceScanResult,
-): boolean {
-  if (host !== "cursor" || observation.legacyUserRemoval === undefined || scan.cleanupPlans.length !== 0) {
-    return false;
-  }
-  const conflicts = scan.findings.filter((finding) => finding.severity === "conflict");
-  return conflicts.length === 1 &&
-    conflicts[0]?.code === "active_plugin_source" &&
-    conflicts[0].sourceType === "active_plugin" &&
-    conflicts[0].scope === "user" &&
-    conflicts[0].safePath === ".cursor/plugins/local/kcoderag-nav" &&
-    conflicts[0].cleanupEligible === false;
-}
-
-async function ownedCleanupAuthority(
-  args: ParsedArguments,
-  request: TargetConfirmation,
-  plan: NativeCleanupPlan,
-  dependencies: CommandDependencies,
-): Promise<OwnedCleanupAuthority> {
-  if (args.allowOwnedSourceCleanup) {
-    if (args.cleanupFingerprint === undefined) throw new InstallError("cleanup_fingerprint_required");
-    if (args.cleanupFingerprint !== plan.fingerprint) throw new InstallError("cleanup_fingerprint_mismatch");
-    return Object.freeze({
-      allowOwnedSourceCleanup: true,
-      cleanupFingerprint: args.cleanupFingerprint,
-    });
-  }
-  if (args.cleanupFingerprint !== undefined || args.json) {
-    throw new InstallError("owned_source_cleanup_authority_required");
-  }
-  const confirmedFingerprint = await (dependencies.confirmOwnedSourceCleanup?.({
-    ...request,
-    cleanupCommand: plan.command,
-    cleanupFingerprint: plan.fingerprint,
-    safePath: plan.safePath,
-  }) ?? undefined);
-  if (confirmedFingerprint === undefined) throw new InstallError("cancelled");
-  if (confirmedFingerprint !== plan.fingerprint) throw new InstallError("cleanup_fingerprint_mismatch");
-  return Object.freeze({
-    allowOwnedSourceCleanup: true,
-    cleanupFingerprint: confirmedFingerprint,
-  });
-}
-
 async function selectHost(
   args: ParsedArguments,
   dependencies: CommandDependencies,
@@ -430,42 +312,6 @@ async function selectHost(
   if (selected === undefined) throw new InstallError("cancelled");
   if (!isHost(selected)) throw new InstallError("unsupported_host");
   return selected;
-}
-
-async function legacyRemovalAuthority(
-  args: ParsedArguments,
-  host: HostId,
-  observation: HostObservation,
-  request: TargetConfirmation,
-  dependencies: CommandDependencies,
-): Promise<boolean> {
-  if (args.allowLegacyUserRemoval && host !== "cursor") {
-    throw new InstallError("legacy_removal_authority_invalid");
-  }
-  if (args.allowLegacyUserRemoval) return true;
-  if (observation.legacyUserRemoval === undefined) return false;
-  if (host !== "cursor") throw new InstallError("invalid_host_adapter");
-  if (args.json) throw new InstallError("legacy_removal_authority_required");
-  const confirmed = await (dependencies.confirmLegacyUserRemoval?.({
-    ...request,
-    legacyPath: observation.legacyUserRemoval.path,
-  }) ?? false);
-  if (!confirmed) throw new InstallError("legacy_removal_cancelled");
-  return true;
-}
-
-function legacyDevMigrationAuthority(
-  args: ParsedArguments,
-  observation: HostObservation,
-): boolean {
-  const legacyEnvironment = observation.legacyEnvironment;
-  if (args.allowLegacyDevMigration && legacyEnvironment !== "dev") {
-    throw new InstallError("legacy_dev_migration_authority_invalid");
-  }
-  if (!args.allowLegacyDevMigration && legacyEnvironment === "dev") {
-    throw new InstallError("legacy_dev_migration_authority_required");
-  }
-  return args.allowLegacyDevMigration;
 }
 
 /** Execute exactly one command against exactly one selected adapter. */
@@ -484,24 +330,6 @@ export async function executeCommand(
     const requestedCapabilities = args.command === "install"
       ? await selectInstallCapabilities(args, dependencies)
       : args.capabilities;
-    if (args.allowLegacyDevMigration && (args.command !== "install" && args.command !== "update")) {
-      throw new InstallError("legacy_dev_migration_authority_invalid");
-    }
-    if (args.allowLegacyUserRemoval && (host !== "cursor" || !isMutation(args.command))) {
-      throw new InstallError("legacy_removal_authority_invalid");
-    }
-    if (
-      (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined) &&
-      (args.command !== "install" && args.command !== "update")
-    ) {
-      throw new InstallError("owned_source_cleanup_authority_invalid");
-    }
-    if (
-      args.allowLegacyDevMigration &&
-      (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined)
-    ) {
-      throw new InstallError("owned_source_cleanup_authority_invalid");
-    }
     if (args.json && isMutation(args.command) && !args.yes) {
       throw new InstallError("confirmation_required");
     }
@@ -584,41 +412,22 @@ export async function executeCommand(
         stdout(`${args.command}: ${status.status} ${host} at ${target.root}`);
         for (const finding of status.findings) {
           stdout(`${finding.code}: ${finding.safePath}`);
-          if (finding.cleanupEligible) {
-            stdout(`${finding.cleanupCommand as string}\n${finding.cleanupFingerprint as string}`);
-          }
         }
       }
       return ok ? 0 : 1;
     }
 
-    if (args.command === "install" || args.command === "update") {
-      let sourceScan = await scanUserSources(adapter, "gate", target, packageRoot, observation);
-      if (sourceScan.hasConflict && !isCursorLegacyMigrationSource(host, observation, sourceScan)) {
-        const plan = exactCleanupPlan(sourceScan);
-        if (plan === undefined || adapter.cleanupOwnedSource === undefined) {
-          throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);
-        }
-        const authority = await ownedCleanupAuthority(args, request, plan, dependencies);
-        sourceScan = await adapter.cleanupOwnedSource(plan, authority);
-        if (sourceScan.mode !== "gate" || sourceScan.hasConflict) {
-          throw new InstallError("source_conflict", sourceScan.findings[0]?.safePath);
-        }
-      } else if (args.allowOwnedSourceCleanup || args.cleanupFingerprint !== undefined) {
-        throw new InstallError("cleanup_fingerprint_mismatch");
-      }
+    const mutationSourceScan = await scanUserSources(
+      adapter,
+      "gate",
+      target,
+      packageRoot,
+      observation,
+    );
+    if (mutationSourceScan.mode !== "gate" || mutationSourceScan.hasConflict) {
+      throw new InstallError("source_conflict", mutationSourceScan.findings[0]?.safePath);
     }
 
-    const allowLegacyUserRemoval = await legacyRemovalAuthority(
-      args,
-      host,
-      observation,
-      request,
-      dependencies,
-    );
-    const allowLegacyDevMigration = args.command === "install" || args.command === "update"
-      ? legacyDevMigrationAuthority(args, observation)
-      : false;
     const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
     const targetCapabilities = args.command === "install"
       ? Object.freeze(resolveCapabilitySelection([
@@ -631,8 +440,8 @@ export async function executeCommand(
       packageRoot,
       environment: QA_ENVIRONMENT,
       observation,
-      allowLegacyUserRemoval,
-      allowLegacyDevMigration,
+      allowLegacyUserRemoval: false,
+      allowLegacyDevMigration: false,
       ...(targetCapabilities.length === 0 ? {} : { selectedCapabilities: targetCapabilities }),
     };
     const desired = args.command === "uninstall"
@@ -652,11 +461,7 @@ export async function executeCommand(
     const noChange = desiredStateIsCurrent(desired, exactInstalledTarget);
     const transaction = noChange
       ? Object.freeze({ changedPaths: Object.freeze([] as string[]) })
-      : observation.legacyUserRemoval !== undefined && allowLegacyUserRemoval
-        ? hasLegacyMigration(adapter)
-          ? adapter.migrateLegacy(desired, observation)
-          : (() => { throw new InstallError("invalid_host_adapter"); })()
-        : applyTransaction(desired);
+      : applyTransaction(desired);
     const verb = args.command === "install"
       ? "installed"
       : args.command === "update"

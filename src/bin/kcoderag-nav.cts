@@ -4,7 +4,6 @@ const readline = require("node:readline/promises") as typeof import("node:readli
 
 import {
   executeCommand,
-  type LegacyRemovalConfirmation,
   type TargetConfirmation,
 } from "../cli/commands.cjs";
 import { type HostId } from "../core/contracts.cjs";
@@ -53,13 +52,6 @@ async function confirmTarget(request: TargetConfirmation): Promise<boolean> {
   return /^(?:y|yes)$/i.test(answer.trim());
 }
 
-async function confirmLegacyUserRemoval(request: LegacyRemovalConfirmation): Promise<boolean> {
-  const answer = await question(
-    `Remove the verified legacy Cursor installation at ${request.legacyPath}? [y/N] `,
-  );
-  return /^(?:y|yes)$/i.test(answer.trim());
-}
-
 async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   return executeCommand(argv, {
     cwd: process.cwd(),
@@ -70,7 +62,6 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
     selectHost,
     selectCapabilities,
     confirmTarget,
-    confirmLegacyUserRemoval,
     getAdapter: getHostAdapter,
   });
 }
