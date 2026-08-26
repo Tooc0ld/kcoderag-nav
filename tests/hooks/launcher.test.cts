@@ -23,6 +23,9 @@ const targets = require("../../dist/core/project-target.cjs") as {
 const transaction = require("../../dist/core/transaction.cjs") as {
   applyTransaction(desired: Record<string, unknown>): unknown;
 };
+const stateRuntime = require("../../dist/core/state.cjs") as {
+  createInstallState(input: Record<string, unknown>): Record<string, unknown>;
+};
 const codex = require("../../dist/hosts/codex.cjs") as {
   codexAdapter: Record<string, any>;
 };
@@ -63,15 +66,20 @@ function managedProject(
   const launcherRelativePath = `${hostRoot}/kcoderag-nav/qa/hooks/${launcherName}`;
   const launcher = Buffer.from(`${marker}\n`, "utf8");
   const launcherPath = write(root, launcherRelativePath, launcher);
-  const statePath = write(root, stateRelativePath, `${JSON.stringify({
+  const state = stateRuntime.createInstallState({
     schemaVersion: 1,
     packageVersion: "0.2.0",
     host,
-    environment: "qa",
-    managedFiles: [launcherRelativePath, stateRelativePath],
-    originals: {},
-    digests: { [launcherRelativePath]: sha256(launcher) },
-  })}\n`);
+    capabilities: [{ id: "kcoderag-navigation", files: [launcherRelativePath], sections: [] }],
+    files: [{
+      path: launcherRelativePath,
+      digest: sha256(launcher),
+      original: { kind: "absent" },
+      contributors: ["kcoderag-navigation"],
+    }],
+    sections: [],
+  });
+  const statePath = write(root, stateRelativePath, `${JSON.stringify(state)}\n`);
   return { statePath, launcherPath };
 }
 
@@ -90,40 +98,8 @@ function discoveryOptions(
 }
 
 function adapterPackage(base: string): string {
-  const root = path.join(base, "package");
-  write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.2.0" })}\n`);
-  write(root, "kcoderag-qa/.codex.mcp.json", `${JSON.stringify({
-    mcpServers: {
-      "kcoderag-qa": {
-        url: "https://qa.invalid/mcp",
-        http_headers: { Authorization: "opaque-test-value" },
-      },
-    },
-  })}\n`);
-  write(root, "kcoderag-qa/.mcp.json", `${JSON.stringify({
-    mcpServers: {
-      "kcoderag-qa": {
-        type: "http",
-        url: "https://qa.invalid/mcp",
-        headers: { Authorization: "opaque-test-value" },
-      },
-    },
-  })}\n`);
-  write(root, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md", "# QA lookup\n");
-  for (const asset of [
-    "grep-nudge.cjs",
-    "mcp-call-marker.cjs",
-    "run_hook.cmd",
-    "run_hook.sh",
-    "run_marker.cmd",
-    "run_marker.sh",
-    "update-check.cjs",
-    "update-worker.cjs",
-  ]) {
-    const source = path.resolve("kcoderag-qa", "hooks", asset);
-    write(root, `kcoderag-qa/hooks/${asset}`, fs.readFileSync(source));
-  }
-  return root;
+  void base;
+  return path.resolve(".");
 }
 
 interface InstalledCommand {
@@ -164,7 +140,7 @@ function installHostAt(
   const document = JSON.parse(fs.readFileSync(path.join(root, ...settingsPath.split("/")), "utf8"));
   const entries = document.hooks.PreToolUse as readonly Record<string, any>[];
   const entry = entries.find((candidate) =>
-    JSON.stringify(candidate).includes("Checking code lookup strategy"));
+    JSON.stringify(candidate).includes("Checking project guidance"));
   const command = entry?.hooks?.[0] as InstalledCommand | undefined;
   assert.ok(command);
   return { root, command };
@@ -193,9 +169,21 @@ function replaceLaunchersWithMarker(
   const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
   for (const [relativePath, bytes] of Object.entries(replacements)) {
     write(root, relativePath, bytes);
-    state.digests[relativePath] = sha256(bytes);
   }
-  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const updated = stateRuntime.createInstallState({
+    schemaVersion: state.schemaVersion,
+    packageVersion: state.packageVersion,
+    host: state.host,
+    capabilities: state.capabilities,
+    files: state.files.map((record: Record<string, unknown>) => ({
+      ...record,
+      ...(typeof record.path === "string" && replacements[record.path as keyof typeof replacements] !== undefined
+        ? { digest: sha256(replacements[record.path as keyof typeof replacements] as Buffer) }
+        : {}),
+    })),
+    sections: state.sections,
+  });
+  fs.writeFileSync(statePath, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
 }
 
 function assertMarkerResult(

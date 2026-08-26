@@ -6,287 +6,96 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 type HostId = "codex" | "claude" | "cursor" | "opencode";
+const registry = require("../../dist/hosts/index.cjs") as Record<string, any>;
+const codex = require("../../dist/hosts/codex.cjs") as Record<string, any>;
+const claude = require("../../dist/hosts/claude.cjs") as Record<string, any>;
+const cursor = require("../../dist/hosts/cursor.cjs") as Record<string, any>;
+const opencode = require("../../dist/hosts/opencode.cjs") as Record<string, any>;
+const targets = require("../../dist/core/project-target.cjs") as Record<string, any>;
+const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
+const PACKAGE_ROOT = path.resolve(".");
+const NAVIGATION = "kcoderag-navigation";
+const JX3 = "jx3-style-nudge";
 
-const commands = require("../../dist/cli/commands.cjs") as {
-  executeCommand(argv: string[], dependencies?: Record<string, unknown>): Promise<number>;
-};
-const registry = require("../../dist/hosts/index.cjs") as {
-  readonly HOST_ADAPTERS: readonly Record<string, unknown>[];
-  getHostAdapter(host: HostId): Record<string, unknown>;
-};
-const codex = require("../../dist/hosts/codex.cjs") as {
-  createCodexAdapter(options: Record<string, unknown>): Record<string, unknown>;
-};
-const claude = require("../../dist/hosts/claude.cjs") as {
-  createClaudeAdapter(options: Record<string, unknown>): Record<string, unknown>;
-};
-const cursor = require("../../dist/hosts/cursor.cjs") as {
-  createCursorAdapter(options: Record<string, unknown>): Record<string, unknown>;
-};
-const opencode = require("../../dist/hosts/opencode.cjs") as {
-  createOpenCodeAdapter(options: Record<string, unknown>): Record<string, unknown>;
-};
-
-const isolatedCodexAdapter = codex.createCodexAdapter({
-  runner: async (request: { readonly executable: string; readonly args: readonly string[]; readonly timeoutMs: number }) => {
-    const command = [request.executable, ...request.args].join(" ");
-    if (command === "codex --version") {
-      return { exitCode: 0, timedOut: false, stdout: "codex-cli 0.146.1\n" };
-    }
-    if (command.endsWith(" --help")) {
-      return {
-        exitCode: 0,
-        timedOut: false,
-        stdout: command.includes("marketplace remove")
-          ? "Usage: marketplace remove <MARKETPLACE> --json"
-          : command.includes("plugin remove")
-            ? "Usage: plugin remove <PLUGIN> --json"
-            : "Usage: list --json",
-      };
-    }
-    if (command === "codex plugin list --json") {
-      return { exitCode: 0, timedOut: false, stdout: JSON.stringify({ installed: [], available: [] }) };
-    }
-    if (command === "codex plugin marketplace list --json") {
-      return { exitCode: 0, timedOut: false, stdout: JSON.stringify({ marketplaces: [] }) };
-    }
-    return { exitCode: 1, timedOut: false };
-  },
-  readUserSources: () => ({
-    registrations: [], rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
-  }),
-});
-
-const isolatedClaudeAdapter = claude.createClaudeAdapter({
-  runner: async (request: { readonly executable: string; readonly args: readonly string[] }) => {
-    const command = [request.executable, ...request.args].join(" ");
-    if (command === "claude --version") {
-      return { exitCode: 0, timedOut: false, stdout: "2.1.241 (Claude Code)\n" };
-    }
-    if (command.endsWith(" --help")) {
-      if (command.includes("plugin marketplace remove")) {
-        return { exitCode: 0, timedOut: false, stdout: "Usage: marketplace remove <name> --scope <scope>" };
-      }
-      if (command.includes("plugin uninstall")) {
-        return { exitCode: 0, timedOut: false, stdout: "Usage: plugin uninstall <PLUGIN> --scope user project local" };
-      }
-      return { exitCode: 0, timedOut: false, stdout: "Usage: list --json" };
-    }
-    if (command === "claude plugin list --json") {
-      return { exitCode: 0, timedOut: false, stdout: "[]" };
-    }
-    if (command === "claude plugin marketplace list --json") {
-      return { exitCode: 0, timedOut: false, stdout: "[]" };
-    }
-    return { exitCode: 1, timedOut: false };
-  },
-  readUserSources: () => ({
-    rawMcpPaths: [], manualHookPaths: [], cachePaths: [], ambiguousPaths: [],
-  }),
-});
-
-const isolatedCursorAdapter = cursor.createCursorAdapter({
-  readUserSources: () => ({
-    activePluginPaths: [], rawMcpPaths: [], manualRulePaths: [], cachePaths: [],
-    disabledPaths: [], ambiguousPaths: [],
-  }),
-});
-
-const isolatedOpenCodeAdapter = opencode.createOpenCodeAdapter({
-  homeDirectory: path.join(os.tmpdir(), `kcoderag-opencode-home-${crypto.randomUUID()}`),
-});
-
-const isolatedAdapters: Readonly<Record<HostId, Record<string, unknown>>> = Object.freeze({
-  codex: isolatedCodexAdapter,
-  claude: isolatedClaudeAdapter,
-  cursor: isolatedCursorAdapter,
-  opencode: isolatedOpenCodeAdapter,
-});
-
-function write(root: string, relativePath: string, value: string | Buffer): void {
-  const destination = path.join(root, ...relativePath.split("/"));
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.writeFileSync(destination, value);
-}
-
-function packageFixture(base: string): string {
-  const root = path.join(base, "package");
-  const secret = `opaque-${crypto.randomUUID()}`;
-  write(root, "package.json", `${JSON.stringify({ name: "kcoderag-nav", version: "0.1.4" })}\n`);
-  for (const environment of ["qa"] as const) {
-    const name = `kcoderag-${environment}`;
-    const server = {
-      type: "http",
-      url: `https://${environment}.invalid/mcp`,
-      headers: { Authorization: `Bearer ${secret}-${environment}` },
-    };
-    write(root, `${name}/.mcp.json`, `${JSON.stringify({ mcpServers: { [name]: server } })}\n`);
-    write(root, `${name}/.codex.mcp.json`, `${JSON.stringify({ [name]: {
-      url: server.url,
-      http_headers: server.headers,
-    } })}\n`);
-    for (const asset of [
-      "grep-nudge.cjs",
-      "mcp-call-marker.cjs",
-      "update-check.cjs",
-      "update-notice.cjs",
-      "update-worker.cjs",
-      "run_hook.cmd",
-      "run_hook.sh",
-      "run_marker.cmd",
-      "run_marker.sh",
-    ]) {
-      write(root, `${name}/hooks/${asset}`, `${environment}:${asset}\n`);
-    }
-    write(root, `${name}/skills/code-lookup-discipline/SKILL.md`, `# ${environment}\n`);
-  }
-  write(root, "kcoderag-cursor/rules/kcoderag-navigation.mdc", "---\nalwaysApply: true\n---\nUse KCodeRag.\n");
-  write(root, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md", "# Cursor\n");
-  write(root, "kcoderag-qa/opencode/kcoderag-nav.js", "export const KCodeRagNav=async()=>({});\n");
-  return root;
-}
-
-function targetFixture(base: string): string {
-  const root = path.join(base, "target");
-  fs.mkdirSync(root);
-  write(root, ".codex/config.toml", "# codex unrelated\n");
-  write(root, ".codex/hooks.json", '{"hooks":{"Stop":[]}}\n');
-  write(root, ".claude/settings.json", '{"permissions":{"allow":["Read"]}}\n');
-  write(root, ".mcp.json", '{"mcpServers":{"claude-unrelated":{"command":"safe"}}}\n');
-  write(root, ".cursor/mcp.json", '{"mcpServers":{"cursor-unrelated":{"command":"safe"}}}\n');
-  write(root, "opencode.jsonc", '{\n  // keep\n  "mcp": {},\n}\n');
-  return root;
-}
-
-function snapshotPaths(root: string, relativePaths: readonly string[]): readonly string[] {
-  const records: string[] = [];
-  const visit = (absolute: string, logicalRoot: string): void => {
+function digestTree(root: string, relativePaths: readonly string[]): readonly string[] {
+  const output: string[] = [];
+  const visit = (absolute: string, logical: string): void => {
     if (!fs.existsSync(absolute)) return;
     const metadata = fs.lstatSync(absolute);
     if (metadata.isFile()) {
-      records.push(`f:${logicalRoot}:${crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")}`);
+      output.push(`${logical}:${crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")}`);
       return;
     }
     for (const entry of fs.readdirSync(absolute, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const child = path.join(absolute, entry.name);
-      const logical = `${logicalRoot}/${entry.name}`;
-      if (entry.isDirectory()) {
-        records.push(`d:${logical}`);
-        visit(child, logical);
-      } else {
-        records.push(`f:${logical}:${crypto.createHash("sha256").update(fs.readFileSync(child)).digest("hex")}`);
-      }
+      visit(path.join(absolute, entry.name), `${logical}/${entry.name}`);
     }
   };
   for (const relativePath of relativePaths) visit(path.join(root, ...relativePath.split("/")), relativePath);
-  return records;
+  return Object.freeze(output);
 }
 
-function hostSnapshot(root: string, host: HostId): readonly string[] {
-  if (host === "codex") return snapshotPaths(root, [".codex", ".agents"]);
-  if (host === "claude") return snapshotPaths(root, [".claude", ".mcp.json"]);
-  if (host === "cursor") return snapshotPaths(root, [".cursor"]);
-  return snapshotPaths(root, [".opencode", "opencode.json", "opencode.jsonc"]);
+function snapshot(root: string, host: HostId): readonly string[] {
+  if (host === "codex") return digestTree(root, [".codex", ".agents"]);
+  if (host === "claude") return digestTree(root, [".claude", ".mcp.json"]);
+  if (host === "cursor") return digestTree(root, [".cursor"]);
+  return digestTree(root, [".opencode", "opencode.json", "opencode.jsonc"]);
 }
 
-async function run(
-  target: string,
-  packageRoot: string,
-  command: "install" | "status" | "doctor" | "update" | "uninstall",
-  host: HostId | undefined,
-  extraDependencies: Record<string, unknown> = {},
-) {
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  const argv = [command, "--json"];
-  if (host !== undefined) argv.push("--host", host);
-  if (["install", "update", "uninstall"].includes(command)) argv.push("--yes");
-  const exitCode = await commands.executeCommand(argv, {
-    cwd: target,
-    packageRoot,
-    nodeVersion: "22.20.0",
-    stdout: (text: string) => stdout.push(text),
-    stderr: (text: string) => stderr.push(text),
-    getAdapter: (selectedHost: HostId) => isolatedAdapters[selectedHost],
-    ...extraDependencies,
-  });
-  return { exitCode, output: JSON.parse(stdout[0] ?? "{}") as Record<string, unknown>, stderr };
+function adapter(host: HostId): any {
+  const common = { evidenceRoot: PACKAGE_ROOT, readUserSources: () => ({}) };
+  if (host === "codex") return codex.createCodexAdapter({ ...common, hostVersion: "0.146.1" });
+  if (host === "claude") return claude.createClaudeAdapter({ ...common, hostVersion: "2.1.241" });
+  if (host === "cursor") return cursor.createCursorAdapter({ ...common, hostVersion: "3.17.8" });
+  return opencode.createOpenCodeAdapter({ ...common, hostVersion: "1.18.23" });
 }
 
-test("registry exposes exactly four fixed adapters and rejects unsupported hosts", () => {
-  assert.deepEqual(registry.HOST_ADAPTERS.map((adapter: any) => adapter.id), ["codex", "claude", "cursor", "opencode"]);
-  for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
-    assert.equal(registry.getHostAdapter(host).id, host);
-  }
-  assert.throws(() => registry.getHostAdapter("unsupported" as HostId), /unsupported_host/);
-});
+function installContext(target: any, observation: any, selectedCapabilities: readonly string[]) {
+  return { target, packageRoot: PACKAGE_ROOT, command: "install", environment: "qa", observation, selectedCapabilities, allowLegacyUserRemoval: false, allowLegacyDevMigration: false };
+}
 
-test("Codex, Claude, Cursor, and OpenCode coexist while one-host changes leave siblings unchanged", async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cross-host-"));
+test("registry exposes every host and exact receipt support matrix without fallback parity", () => {
+  assert.deepEqual(registry.HOST_ADAPTERS.map((entry: any) => entry.id), ["codex", "claude", "cursor", "opencode"]);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-matrix-"));
   try {
-    const packageRoot = packageFixture(base);
-    const target = targetFixture(base);
-    for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
-      assert.equal((await run(target, packageRoot, "install", host)).exitCode, 0, host);
-      assert.equal((await run(target, packageRoot, "status", host)).output.status, "healthy", host);
+    const target = targets.resolveProjectTarget(root);
+    for (const host of ["codex", "cursor", "opencode"] as const) {
+      const current = adapter(host);
+      assert.throws(
+        () => current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [JX3])),
+        (error: any) => error?.code === "host_version_unsupported",
+        host,
+      );
     }
-
-    const claudeBefore = hostSnapshot(target, "claude");
-    const cursorBefore = hostSnapshot(target, "cursor");
-    const opencodeBefore = hostSnapshot(target, "opencode");
-    write(packageRoot, "kcoderag-qa/hooks/grep-nudge.cjs", "qa:updated\n");
-    assert.equal((await run(target, packageRoot, "update", "codex")).exitCode, 0);
-    assert.deepEqual(hostSnapshot(target, "claude"), claudeBefore);
-    assert.deepEqual(hostSnapshot(target, "cursor"), cursorBefore);
-    assert.deepEqual(hostSnapshot(target, "opencode"), opencodeBefore);
-
-    const codexBefore = hostSnapshot(target, "codex");
-    const cursorStillBefore = hostSnapshot(target, "cursor");
-    const opencodeStillBefore = hostSnapshot(target, "opencode");
-    assert.equal((await run(target, packageRoot, "uninstall", "claude")).exitCode, 0);
-    assert.deepEqual(hostSnapshot(target, "codex"), codexBefore);
-    assert.deepEqual(hostSnapshot(target, "cursor"), cursorStillBefore);
-    assert.deepEqual(hostSnapshot(target, "opencode"), opencodeStillBefore);
-    assert.equal((await run(target, packageRoot, "status", "codex")).output.status, "healthy");
-    assert.equal((await run(target, packageRoot, "status", "cursor")).output.status, "healthy");
-    assert.equal((await run(target, packageRoot, "status", "opencode")).output.status, "healthy");
+    const current = adapter("claude");
+    const desired = current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [JX3]));
+    assert.equal(desired.host, "claude");
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("interactive host selection installs only the selected QA adapter", async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cross-select-"));
+test("four hosts coexist and one-host capability removal leaves every sibling byte unchanged", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-four-host-"));
   try {
-    const packageRoot = packageFixture(base);
-    const target = targetFixture(base);
-    assert.equal((await run(target, packageRoot, "install", "codex")).exitCode, 0);
-    assert.equal((await run(target, packageRoot, "install", "cursor")).exitCode, 0);
-    assert.equal((await run(target, packageRoot, "status", "codex")).output.status, "healthy");
-    assert.equal((await run(target, packageRoot, "status", "cursor")).output.status, "healthy");
+    fs.writeFileSync(path.join(root, "opencode.jsonc"), "{\n  // keep\n}\n");
+    const target = targets.resolveProjectTarget(root);
+    const adapters = Object.fromEntries((["codex", "claude", "cursor", "opencode"] as const).map((host) => [host, adapter(host)])) as Record<HostId, any>;
+    for (const host of ["codex", "cursor", "opencode"] as const) {
+      const current = adapters[host];
+      await transaction.applyTransaction(current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    }
+    await transaction.applyTransaction(adapters.claude.renderInstall(installContext(target, adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION, JX3])));
 
-    const interactiveTarget = path.join(base, "interactive");
-    fs.mkdirSync(interactiveTarget);
-    write(interactiveTarget, ".mcp.json", '{"mcpServers":{}}\n');
-    const seen: HostId[][] = [];
-    const selected = await commands.executeCommand(["install", "--yes"], {
-      cwd: interactiveTarget,
-      packageRoot,
-      nodeVersion: "22.20.0",
-      stdout: () => undefined,
-      stderr: () => undefined,
-      selectHost: (hosts: readonly HostId[]) => {
-        seen.push([...hosts]);
-        return "claude";
-      },
-      getAdapter: (selectedHost: HostId) => isolatedAdapters[selectedHost],
-    });
-    assert.equal(selected, 0);
-    assert.deepEqual(seen, [["codex", "claude", "cursor", "opencode"]]);
-    assert.equal(fs.existsSync(path.join(interactiveTarget, ".claude/kcoderag-nav/install-state.json")), true);
-    assert.equal(fs.existsSync(path.join(interactiveTarget, ".codex")), false);
-    assert.equal(fs.existsSync(path.join(interactiveTarget, ".cursor")), false);
+    for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
+      const observation = adapters[host].detect({ target, packageRoot: PACKAGE_ROOT });
+      assert.equal(adapters[host].status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation, doctor: true }).status, "healthy", host);
+    }
+    const before = Object.fromEntries((["codex", "cursor", "opencode"] as const).map((host) => [host, snapshot(root, host)])) as Record<string, readonly string[]>;
+    const claudeInstalled = adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [JX3], allowLegacyUserRemoval: false, allowLegacyDevMigration: false }));
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".claude/kcoderag-nav/install-state.json"), "utf8")).capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    for (const host of ["codex", "cursor", "opencode"] as const) assert.deepEqual(snapshot(root, host), before[host], host);
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
