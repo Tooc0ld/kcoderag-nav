@@ -1,98 +1,102 @@
 # KCodeRag Nav for Cursor
 
 This generated tree is the Cursor asset set consumed by the public `kcoderag-nav` project
-installer. It supplies one QA MCP configuration, a graph-first navigation skill, and an always-on
-Cursor Rule. It is not a standalone marketplace or user-directory install source.
+installer. It contains the QA MCP projection, graph-first navigation Rule/Skill, update and
+successful-call hooks, plus the canonical JX3 knowledge files used by supported host projections.
+Asset presence is not host-delivery evidence. This tree is not a marketplace or user-directory
+install source.
 
-## Install QA into one project
+QA is the only public environment for MCP. The current package has two built-in capabilities:
+`kcoderag-navigation` and `jx3-style-nudge`. Cursor `3.17.8` supports navigation, while its exact
+receipt verdict for JX3 is `UNSUPPORTED`; the CLI therefore rejects JX3 selection with
+`host_version_unsupported` and zero writes.
 
-Use Node.js 22 or newer. From the exact target project, run:
+## Install navigation into one project
+
+Use Node.js 22 or newer from the exact target project:
 
 ```powershell
-npx kcoderag-nav@latest install --host cursor
+npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation
 ```
 
-Without `--host`, the CLI can interactively select Cursor. Automation passes `--host cursor --yes`.
-The target is exactly the current directory unless `--target PATH` names another project; the CLI
-does not walk to a Git or SVN root. It displays the normalized target before mutation and rejects
-filesystem roots, the user home, and host user config, plugin, or cache roots.
+Without `--host`/`--capability`, the CLI can interactively select Cursor and navigation.
+Automation adds `--yes`. The CLI treats cwd or `--target PATH` as the exact project, does not walk
+to a Git/SVN root, and rejects filesystem roots, user home, and host user config/plugin/cache roots.
 
-The Cursor adapter owns only declared files and the KCodeRag sections under `.cursor/rules/`,
-`.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`. It preserves unrelated Cursor configuration and never
-modifies Codex or Claude Code installs in the same project.
+The adapter owns only declared contributors under `.cursor/rules/`, `.cursor/skills/`,
+`.cursor/mcp.json`, and `.cursor/hooks.json`. It preserves unrelated Cursor configuration and does
+not modify another host's installation.
 
 ## Five project lifecycle commands
 
 ```powershell
-npx kcoderag-nav@latest install --host cursor
+npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation
 npx kcoderag-nav@latest status --host cursor
 npx kcoderag-nav@latest doctor --host cursor
 npx kcoderag-nav@latest update --host cursor
-npx kcoderag-nav@latest uninstall --host cursor
+npx kcoderag-nav@latest uninstall --host cursor --capability kcoderag-navigation
 ```
 
-- `status` is a fast, read-only project health check for install state, version, drift, update, and
-  active source conflicts.
-- `doctor` is read-only and deep-scans Cursor user-level plugin, raw MCP, manual Rule, cache, and
-  disabled records. It reports preinstall readiness when QA is not installed and has no `--fix`.
-- Install/update run the same complete source gate before writing. Uninstall removes only
-  digest-proven project content and still refuses project drift.
+- `install` targets `installed ∪ selected`; an identical clean selection is a byte- and
+  mtime-stable no-op.
+- `status` is a fast, read-only report for all Cursor capabilities.
+- `doctor` is a read-only deep scan of Cursor state and user sources, works before install, and has
+  no `--fix` mode.
+- `update` targets all installed capabilities unless repeated `--capability ID` flags filter them.
+- `uninstall` requires an interactive selection, explicit capability, or explicit `--all`; it
+  never defaults to removing everything.
 
-QA is the only public environment. Independent Cursor, Codex, and Claude Code QA installs can
-coexist. All mutations stop before writing on drift, unsafe paths, symlinks, special files, or
-ambiguous ownership, and a failed transaction restores only Cursor.
+All mutations preflight the complete target set and commit one transaction. One unsupported
+capability, conflict, drift, symlink, special file, unsafe target, or ambiguous owner makes the
+entire request fail before the first write. There is no partial success.
 
-## Cursor source and legacy boundaries
+## Cursor source, state, and integrity boundaries
 
-An active Cursor plugin, raw MCP registration, or manual Rule is `source_conflict` with `ok: false`.
-Cache and disabled records are informational. Cursor does not assume an equivalent native plugin
-cleanup CLI: without a verified versioned capability, user-level cleanup remains manual-only, and
-the project installer never edits unknown user configuration.
+An active Cursor plugin, raw MCP registration, manual Rule/Hook, retired install, or ambiguous
+source is `source_conflict` with `ok: false`. The same source gate runs before install, update, and
+uninstall. These findings are manual-only: the CLI reports stable metadata and safe paths, but does
+not migrate, adopt, edit, invoke native removal for, or automatically clean user sources.
 
-When an old Cursor user-directory installation is detected, the adapter first verifies its exact
-managed tree and digests. Removing that verified legacy tree requires a separate interactive
-confirmation or this automation authority:
+Only exact current capability-scoped schema v1 is valid. State binds the sorted capability set,
+file/section contributors and digests, restorable originals, and one canonical composite digest.
+Old environment-shaped/Python state has no decoder or migration authority. Removing navigation
+recomposes shared files from any remaining contributors and restores an original only when its last
+contributor is gone.
 
-```powershell
-npx kcoderag-nav@latest install --host cursor --yes --allow-legacy-user-removal
-```
-
-`--yes` confirms only the project target. Drift, extra files, invalid state, or refusal leaves the
-legacy tree and project unchanged.
-
-Dev is not installable. Exact project legacy Dev state can only be migrated to QA or uninstalled
-after complete digest validation and separate authorization:
-
-```powershell
-npx kcoderag-nav@latest update --host cursor --target PATH --yes `
-  --allow-legacy-dev-migration
-```
-
-Legacy migration authority does not authorize raw/manual source cleanup.
+Complete D-15 integrity is checked before any JX3 once claim: current state, composite digest, and
+every managed file digest must match. Missing or edited assets stay silent and fail-open, do not
+consume a reminder, and appear as `capability_drift` in status/doctor.
 
 ## Cursor capability boundary
 
-Cursor receives graph-first routing through its always-on Rule and shared skill, and calls the
-configured QA MCP server directly. It does not use or claim a Codex/Claude Code-style `PreToolUse`
-Hook. Its project `afterMCPExecution` Hook records only a secret-free, fail-open marker after a
-KCodeRag MCP call; it stores no arguments, results, URL, headers, or Bearer. Exact strings, current edits, and an unavailable or stale index remain valid reasons to use
-scoped local search.
+Cursor navigation uses its always-on Rule, shared Skill, QA MCP configuration, `postToolUse` update
+notice, and `afterMCPExecution` successful-call marker. It does not use or claim a Codex/Claude
+Code-style JX3 `PreToolUse` delivery. A Rule, packaged JX3 Skill, toast, or after-event is not
+model-visible native pre-write evidence.
 
-The project `postToolUse` Hook also reads the shared bounded local update cache and returns a
-deduplicated `additional_context` notice when a newer version is already known. A stale cache only
-schedules the detached npm Registry worker; the Hook never waits for network I/O, never blocks a
-tool, and never updates automatically. The notice suggests
-`npx kcoderag-nav@latest update --host cursor` and leaves the decision to the user.
+The CLI reads Cursor `3.17.8` strictly and evaluates its frozen digest-bound `UNSUPPORTED` receipt.
+Selecting JX3 stops before desired-state render/transaction with `host_version_unsupported`; an
+existing navigation tree remains byte-identical and healthy. Exact strings, current edits, and an
+unavailable or stale index remain valid reasons to use scoped local search.
 
-The CLI treats cwd and `--target` as exact project targets. Cursor has no `PreToolUse` ancestor walk to
-emulate; its Rule, skill, MCP, `postToolUse`, and `afterMCPExecution` files move with a complete project copy or rename. After install
-or update, restart Cursor or run **Developer: Reload Window**.
+The `afterMCPExecution` marker and update notice store no MCP arguments, results, URL, headers, or
+Bearer. The foreground update path reads only bounded local cache; a stale cache can detach the npm
+Registry worker but never waits for network I/O, blocks a tool, or updates automatically. A known
+notice suggests `npx kcoderag-nav@latest update --host cursor`.
 
-## Evidence and internal profile boundaries
+Cursor does not use the Codex/Claude ancestor launcher. Its Rule, Skills, MCP, `postToolUse`, and
+`afterMCPExecution` files move with a complete project copy or rename. Restart Cursor or run
+**Developer: Reload Window** after install/update.
 
-Phase 04 proves the project lifecycle, source gate, Cursor Rule/skill/MCP package, and transaction
-contract. It does not claim authenticated real-Cursor MCP tool registration or graph-query success.
+## JX3 marker manual reset and evidence boundary
 
-The internal QA profile is install-ready without separate credential entry. Connection and
-authorization values remain opaque and are never printed by generation, installation, status,
-doctor, tests, logs, or documentation.
+On hosts where JX3 is supported, once claims live in the OS cache directory
+`kcoderag-nav/nudges`. To reset them, first close every related Codex, Claude Code, Cursor, and
+OpenCode session, then delete the whole cache directory with an OS file tool, and finally reopen
+the needed sessions. `status` and `doctor` are read-only; there is no cleanup command. Listing,
+capacity-pruning, or deletion errors are fail-open and never block host work.
+
+Phase 04.1 evidence proves Cursor navigation and exact JX3 zero-write refusal. It does not claim
+authenticated real-Cursor MCP query evidence; that remains Phase 06 work. Connection and
+authorization values stay opaque in generation, install, diagnostics, tests, logs, receipts, and
+documentation.

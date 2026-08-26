@@ -1,168 +1,174 @@
-# {{display_name}} navigation assets
+# {{display_name}} capability assets
 
-This generated tree contains the self-contained {{environment_upper}} assets consumed by the
-public `kcoderag-nav` project installer. It is not a standalone marketplace or checkout install
-source. Users need Node.js 22 or newer and the public npm CLI; they do not need Python, a repository checkout,
-or a runtime TypeScript compiler.
+This generated tree contains self-contained {{environment_upper}} assets consumed by the public
+`kcoderag-nav` project installer. It is not a marketplace or checkout install source. Users need
+Node.js 22 or newer; they do not need Python, a repository checkout, a runtime TypeScript compiler,
+or production npm dependencies.
 
-## Install QA into one project
+The package exposes exactly two built-in capabilities:
 
-QA is the only public environment. From the project that should receive KCodeRag navigation,
-install one selected host:
+- `kcoderag-navigation` provides the QA MCP projection, graph-first guidance, successful-call
+  marker, and offline update notice.
+- `jx3-style-nudge` provides a short structured pre-write advisory and the canonical
+  `$jx3-code-style-correction` Skill where exact host evidence supports native delivery.
+
+QA is the only public environment for MCP. Capabilities are not environment choices. Retired QA/Dev
+state, Python installs, handwritten MCP/Hook, plugins, and other manual sources have no migration,
+adoption, or automatic cleanup path in the current CLI.
+
+## Install capabilities into one project
+
+Interactive use selects one host and then one or more capabilities:
 
 ```powershell
-npx kcoderag-nav@latest install --host codex
-npx kcoderag-nav@latest install --host claude
-npx kcoderag-nav@latest install --host cursor
-npx kcoderag-nav@latest install --host opencode
+npx kcoderag-nav@latest install
 ```
 
-Without `--host`, the CLI interactively offers Codex, Claude Code, Cursor, and OpenCode. Automation passes
-`--host codex|claude|cursor|opencode` and `--yes`. The target is exactly the current directory unless
-`--target PATH` names another project. The CLI does not walk upward to a Git or SVN root. It shows
-the normalized target before mutation and rejects filesystem roots, the user home, and host user
-config, plugin, or cache roots.
+Automation repeats `--capability` and confirms the exact target:
 
-One command manages and scans one host. Independent Codex, Claude Code, Cursor, and OpenCode QA installs can
-coexist in the same project. Their native project locations are:
+```powershell
+npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
+  --capability jx3-style-nudge --yes
+npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
+```
 
-- Codex: `.codex/` and `.agents/skills/`.
-- Claude Code: `.claude/settings.json`, `.claude/skills/`, and the KCodeRag section in root
-  `.mcp.json`.
-- Cursor: `.cursor/rules/`, `.cursor/skills/`, and the KCodeRag section in `.cursor/mcp.json`.
-- OpenCode: one of `opencode.json`/`opencode.jsonc`, `.opencode/plugins/`, and `.opencode/skills/`.
+The target is exactly the current directory unless `--target PATH` names another project. The CLI
+does not walk upward to a Git or SVN root. It rejects filesystem roots, user home, and host user
+config/plugin/cache roots. One invocation manages one host, so independent host capability sets can
+coexist in the same project.
+
+Native project locations are `.codex/` plus `.agents/skills/` for Codex;
+`.claude/settings.json`, `.claude/skills/`, and root `.mcp.json` for Claude Code;
+`.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json` for Cursor; and one
+`opencode.json`/`opencode.jsonc` plus `.opencode/plugins/` and `.opencode/skills/` for OpenCode.
+
+## Exact support matrix
+
+Host support comes only from checked-in digest-bound receipts:
+
+| Frozen host row | Navigation | JX3 nudge | Evidence verdict |
+| --- | --- | --- | --- |
+| Codex `0.146.1` | supported | unsupported | exact `UNSUPPORTED` |
+| Claude Code `2.1.241` | supported | supported | exact `PASS`, native model-visible pre-write |
+| Cursor `3.17.8` | supported | unsupported | exact `UNSUPPORTED` |
+| OpenCode `1.18.23` | supported | unsupported | exact `UNSUPPORTED` |
+
+Unlisted versions do not inherit JX3 support. Selecting JX3 on an unsupported host returns
+`host_version_unsupported` before desired-state rendering or transaction work and writes nothing;
+an existing navigation install stays healthy.
 
 ## Five project lifecycle commands
 
-Use the same public `@latest` entry throughout the lifecycle:
-
 ```powershell
-npx kcoderag-nav@latest install --host codex
-npx kcoderag-nav@latest status --host codex
-npx kcoderag-nav@latest doctor --host codex
-npx kcoderag-nav@latest update --host codex
-npx kcoderag-nav@latest uninstall --host codex
+npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation
+npx kcoderag-nav@latest status --host claude
+npx kcoderag-nav@latest doctor --host claude
+npx kcoderag-nav@latest update --host claude
+npx kcoderag-nav@latest uninstall --host claude --capability kcoderag-navigation
 ```
 
-- `install` creates or idempotently confirms the selected host's project-level QA install.
-- `status` is a fast, read-only project health check. It reports installation, version, managed
-  drift, update availability, and an active-source conflict summary.
-- `doctor` is read-only and deep-scans the selected host's user-level plugin, raw MCP, manual Hook,
-  cache, and disabled records. It also reports preinstall readiness when the project is not yet
-  installed. There is no `doctor --fix`.
-- `update` runs the complete source and ownership gates before changing the selected host's QA
-  files. It never selects or restores Dev.
-- `uninstall` removes only digest-proven project content. External duplicate sources do not block
-  removal, but project drift still does.
+- `install` composes `installed ∪ selected`. Repeating an identical clean selection is a byte- and
+  mtime-stable no-op and never removes an unselected installed capability.
+- `status` is a fast, read-only report for every capability on the selected host.
+- `doctor` is a read-only deep scan of capability state and selected-host user sources. It also
+  works before install and has no `--fix` mode.
+- `update` targets every installed capability by default; repeated `--capability ID` flags filter
+  that installed set.
+- `uninstall` requires an interactive choice, explicit `--capability ID`, or explicit `--all`.
+  It never defaults to removing everything.
 
-`status` and `doctor` need no `--yes`; install, update, and uninstall confirm the exact target.
-Install and update always perform the same deep source gate themselves. Drift, symlinks, special
-files, unsafe targets, or ambiguous ownership stop before the first project write. A transaction
-failure restores only the selected host.
+Every mutation preflights the complete selected set and commits one host transaction. One
+unsupported capability, conflict, or drift makes the entire request fail with zero writes; there
+is no partial success. `status` and `doctor` need no `--yes`, while mutation commands confirm the
+exact target. `--json` emits one stable secret-safe JSON value.
 
-## Source conflicts and controlled cleanup
+## Source conflicts and integrity
 
-User-level sources are classified by effect and ownership:
+An active plugin, raw MCP registration, manual Hook/Rule, retired Python install, or ambiguous
+source produces `source_conflict` with `ok: false`. The same gate runs before install, update, and
+uninstall, before provider access, adapter rendering, or transaction work. The CLI reports stable
+codes, source types, scopes, and safe paths only. Every such source is manual-only: the current CLI
+does not migrate, adopt, edit, invoke native removal for, or automatically clean it.
 
-- An active plugin, raw MCP registration, or manual Hook produces `source_conflict` and `ok: false`
-  and blocks install/update.
-- One exactly owned legacy plugin or marketplace registration may produce a cleanup plan with a
-  fixed native command and a canonical `sha256:` fingerprint.
-- Cache residue and disabled records are informational doctor findings and do not block install.
+Current state accepts only exact capability-scoped schema v1. It binds a sorted capability set,
+per-capability file/section contributors, individual digests, restorable originals, and one
+canonical composite digest. Unknown or missing owners, digest mismatch, symlink, special file,
+unsafe target, or ambiguous ownership stops before the first write. Shared files are recomposed
+from remaining contributors and restore their original bytes only after the final contributor is
+removed.
 
-Automation must replay the exact fingerprint shown by the current doctor or write gate:
-
-```powershell
-npx kcoderag-nav@latest update --host codex --target PATH --yes `
-  --allow-owned-source-cleanup --cleanup-fingerprint sha256:<64-lowercase-hex>
-```
-
-`--yes` confirms only the project target. Cleanup begins only after a versioned capability
-preflight and exact fingerprint match. The CLI then runs the fixed non-shell argv and requires a
-complete post-removal plugin and marketplace rescan proving absence before any project write.
-
-- Codex normally removes one exactly owned plugin with
-  `codex plugin remove PLUGIN@MARKETPLACE --json`. The degraded fallback
-  `codex plugin marketplace remove kcoderag-nav --json` is allowed only for the recognized,
-  exclusive legacy `kcoderag-nav` marketplace registration when version/help schema, path
-  provenance, and both list-failure attributions match.
-- Claude Code normally uses
-  `claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local`. Marketplace removal is
-  allowed only when complete plugin and marketplace inventories prove exclusive KCodeRag ownership
-  at the exact scope, using
-  `claude plugin marketplace remove MARKETPLACE --scope SCOPE`.
-- Cursor has no assumed equivalent plugin CLI. Without a verified versioned native capability,
-  cleanup remains manual-only.
-
-Raw MCP, handwritten Hook, shared marketplace, multiple source, unknown path/name, incomplete
-inventory, failed/timeout command, changed fingerprint, and any ambiguous observation remain
-manual-only. Diagnostics expose stable codes and safe paths, never configuration values.
-
-## Exact legacy Dev migration
-
-Dev is not installable or selectable. An exact legacy QA/Dev state can be read only for a
-digest-verified migration to QA or uninstall. Interactive install/update shows the Dev-to-QA
-change and asks separately. Automation must add the independent authority:
-
-```powershell
-npx kcoderag-nav@latest update --host codex --target PATH --yes `
-  --allow-legacy-dev-migration
-```
-
-This flag does not authorize user-source cleanup. Drift, partial state, extra owned content, or an
-unknown owner stops before mutation.
+JX3 also enforces complete D-15 runtime integrity before claiming its once marker: the nearest
+state, composite digest, and every managed file digest must match. A missing or edited Skill,
+reference, handler, dispatcher, launcher, or registration is silent and fail-open, leaves the
+marker unclaimed, and appears as `capability_drift` in status/doctor. There is no embedded fallback
+rule summary.
 
 ## Navigation and host behavior
 
-- `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and `submit_feedback` come
-  from the selected MCP server.
-- Structural symbol and call-relation searches are nudged toward KCodeRag.
-- Exact-string replacement and verification of current edits stay valid scoped local searches.
-- Codex and Claude Code use an advisory, fail-open `PreToolUse` Hook. Hook failures never block the
-  original Grep, Glob, or shell command.
-- Cursor uses an always-on Rule, shared skill, and MCP configuration. It does not claim an
-  equivalent navigation `PreToolUse` Hook; its native `postToolUse` response can inject a cached
-  update notice through `additional_context`.
-- Successful KCodeRag calls are recorded with secret-free, fail-open local markers: Codex and
-  Claude Code use `PostToolUse`, Cursor uses `afterMCPExecution`, and OpenCode uses
-  `tool.execute.after`. Marker files contain no arguments, results, URL, headers, or Bearer.
-- On its first project-plugin load, OpenCode may prepare its matching `@opencode-ai/plugin`
-  runtime under `.opencode/`. That host-owned cache can make the first start slower and is
-  intentionally preserved by `kcoderag-nav uninstall`.
+- The QA MCP exposes `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and
+  `submit_feedback`.
+- Codex and Claude Code navigation is advisory and fail-open. Only the exact supported Claude row
+  adds JX3 to the native `PreToolUse` dispatcher.
+- Cursor uses an always-on Rule, shared navigation Skill, MCP, `postToolUse` update notice, and
+  `afterMCPExecution` success marker. It does not claim equivalent JX3 `PreToolUse` delivery.
+- OpenCode uses a project plugin and MCP. Its toast and `tool.execute.after` event do not claim
+  model-visible pre-write delivery.
+- Successful calls write bounded secret-free markers: Codex/Claude Code use `PostToolUse`, Cursor
+  uses `afterMCPExecution`, and OpenCode uses `tool.execute.after`.
 
 {{routing_policy}}
 
-Codex and Claude Code Hook bootstrap starts at the session cwd and walks upward to the nearest
-selected-host managed state. Root and deep sessions therefore use the same project; a nested
-managed project wins. A damaged nearest state, incompatible version, or missing launcher is a
-silent fail-open boundary and never falls through to an outer project. State and launcher
-ownership use project-relative paths and digests, so a complete project copy, rename, move, or
-drive change remains usable.
+Codex and Claude Code launchers start at the session cwd and select the nearest host-specific
+managed state. A damaged or incompatible nearest state is a silent fail-open boundary and never
+falls through to an outer project. State uses relative paths and digests, so a complete project
+move, rename, copy, or drive change remains usable. CLI cwd and `--target` are always exact; only
+the runtime launcher walks upward.
 
-The CLI itself never performs this upward search: cwd and `--target` remain exact project targets.
-After install or update, open a new Codex thread or Claude Code session, or run
-**Developer: Reload Window** in Cursor.
+## JX3 once marker and manual D-19 reset
+
+JX3 considers only structured Write/Edit/MultiEdit/apply_patch-style calls with a reliable target,
+a frozen C/C++/Lua extension, and a non-empty `session_id`, `thread_id`, or `conversation_id`. It is
+silent for shell, delete/rename-only, unknown-path, or unstable-identity events. One host session,
+project boundary, and capability can claim at most one notice.
+
+Claims live in the operating-system cache directory `kcoderag-nav/nudges` (normally
+`%LOCALAPPDATA%\kcoderag-nav\nudges` on Windows or
+`${XDG_CACHE_HOME:-$HOME/.cache}/kcoderag-nav/nudges` on Linux). To reset them manually:
+
+1. Close every related Codex, Claude Code, Cursor, and OpenCode session.
+2. Delete the whole `kcoderag-nav/nudges` directory with an operating-system file tool.
+3. Open only the host sessions you need.
+
+Closing sessions first prevents a live process from recreating a claim. `status` and `doctor` are
+read-only and never remove the directory. There is no sixth public cleanup command. Directory,
+capacity-pruning, or deletion failures are fail-open and never block the original host action.
 
 ## Update and evidence boundaries
 
-All four hosts share one offline update checker. The foreground reads only bounded local state and
-may detach an npm Registry refresh; it never waits for network I/O. Codex and Claude Code append a
-notice to their first eligible `PreToolUse` context, Cursor returns `additional_context` from
-`postToolUse`, and OpenCode displays a warning toast from `tool.execute.after`. Each session/project
-cycle is deduplicated, every failure stays silent and fail-open, and no host updates automatically.
-The notice only suggests the exact selected-host command, for example:
+All four hosts share an offline foreground update checker. It reads bounded local state and may
+detach an npm Registry refresh, but never waits for the network or updates automatically. Codex
+and Claude Code add a known notice to eligible context, Cursor returns `additional_context`, and
+OpenCode displays a warning toast. Each session/project cycle is deduplicated and every failure is
+silent. The notice only suggests
+`npx kcoderag-nav@latest update --host codex|claude|cursor|opencode`.
 
-```powershell
-npx kcoderag-nav@latest update --host codex
-```
+Phase 04.1 packed evidence covers the complete supported Claude dual-order lifecycle and exact
+unsupported-host zero-write refusal while navigation remains usable. Authenticated real-host MCP
+query evidence remains Phase 06 work; offline or loopback checks do not claim that result.
 
-Phase 04 proves project lifecycle, source gates, pack contents, and Hook/Rule contracts. It does not
-claim authenticated real-host MCP registration or graph-query success; that evidence belongs to a
-later host-validation phase.
+Connection and authorization values remain opaque. Generation, install, status, doctor, tests,
+receipts, logs, and documentation expose metadata only. Production identity, HTTPS, and rotation
+remain a separate security phase.
 
-## Internal profile boundary
+## Historical Phase 04 record — not current instructions
 
-The internal QA profile is install-ready without separate credential entry. Its connection and
-authorization values remain opaque: generation, installation, status, doctor, tests, logs, and
-documentation must never print them. Production identity, HTTPS, and rotation remain a separate
-security phase.
+For immutable audit traceability only, Phase 04 used
+`--allow-owned-source-cleanup --cleanup-fingerprint sha256:<64-lowercase-hex>` with the reviewed
+commands `codex plugin remove PLUGIN@MARKETPLACE --json`,
+`codex plugin marketplace remove kcoderag-nav --json`,
+`claude plugin uninstall PLUGIN@MARKETPLACE --scope user|project|local`, and
+`claude plugin marketplace remove MARKETPLACE --scope SCOPE`, followed by a complete post-removal
+rescan. Phase 04.1 removed those authorities and the QA/Dev migration decoder. These strings are
+historical evidence, not current cleanup, migration, or uninstall guidance.

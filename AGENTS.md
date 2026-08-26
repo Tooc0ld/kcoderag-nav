@@ -5,19 +5,20 @@
 **KCodeRag Nav**
 
 KCodeRag Nav 是 KCodeRag MCP 查询服务的 Node.js 项目集成，面向 Codex、Claude Code、
-Cursor 与 OpenCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、导航 skill、MCP 配置和宿主资产
+Cursor 与 OpenCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、内置 capability、MCP 配置和宿主资产
 部署到目标项目的原生目录；它不是 marketplace plugin，也不依赖 Python、Git checkout 或
 运行时 TypeScript 编译。标准入口是 `npx kcoderag-nav@latest install`。
 
 未指定宿主时交互选择 Codex、Claude Code、Cursor 或 OpenCode；自动化使用
-`--host codex|claude|cursor|opencode`，一次调用只管理一个宿主。自 `0.2.0` 起 QA 是唯一公开可安装、
-更新和生成的环境；旧 QA/Dev 状态只作为一次性迁移或卸载的精确 legacy 解码输入。跨宿主的
-项目级 QA 安装可以共存。
+`--host codex|claude|cursor|opencode`，一次调用只管理一个宿主。当前内置 capability 固定为
+`kcoderag-navigation` 与 `jx3-style-nudge`；install 将显式选择加入已安装集合，跨宿主的项目级
+安装可以共存。当前状态只接受 capability-scoped schema v1；旧 QA/Dev 状态、迁移、接管和自动清理
+不再是可执行产品能力。
 
 Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
 和共享 skill，OpenCode 使用项目 plugin。四宿主成功调用事件写入 secret-free、fail-open marker。
 install/update/uninstall 只修改 adapter 声明的受管
-项目文件和 section，遇到漂移、危险 target 或用户级活动重复来源时写前硬停止，并按单宿主
+项目文件和 section，遇到漂移、危险 target 或所选宿主的手工/活动重复来源时全部在写前硬停止，并按单宿主
 事务完整回滚。`status` 快速报告项目健康；`doctor` 深扫所选宿主的用户级来源且始终只读。
 
 **Core Value:** 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内获得可靠、低打扰、QA 图优先的导航体验。
@@ -25,12 +26,12 @@ install/update/uninstall 只修改 adapter 声明的受管
 ### Constraints
 
 - **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
-- **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；`0.2.0` 起公共产品 QA-only，根 marketplace catalog 不得恢复
+- **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；只发布两个内置 capability，根 marketplace catalog 不得恢复
 - **宿主边界**: 一次命令只管理 Codex、Claude Code、Cursor 或 OpenCode 中的一个；跨宿主安装可以共存
-- **旧状态**: Dev 不是可安装产品，只能由精确 schema、完整所有权和摘要验证的 legacy 解码器读取，用于显式迁移/卸载
+- **状态边界**: 只接受当前 capability-scoped schema v1、完整 contributor/section 清单和 composite digest；旧状态无迁移、接管或清理入口
 - **项目边界**: 默认只修改目标项目内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
-- **来源门禁**: install/update 深扫所选宿主来源；owned source 清理需独立、冻结 fingerprint 绑定的明确授权，raw/manual/ambiguous 来源只能人工清理
+- **来源门禁**: install/update/uninstall 全部深扫所选宿主来源；raw/manual/ambiguous/旧来源只读报告并硬停止，CLI 不迁移、接管或自动清理
 - **根定位**: Codex/Claude Hook 从 cwd 向上选择最近受管状态；损坏最近边界静默 fail-open 且不得穿透，项目移动后仍使用相对路径工作
 - **诊断**: status/doctor 只读且 secret-safe；`source_conflict` 为 `ok:false`，输出不得包含 URL、Header、Bearer 或配置正文
 - **Hook**: Codex/Claude 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
@@ -38,7 +39,10 @@ install/update/uninstall 只修改 adapter 声明的受管
 - **成功调用记录**: Codex/Claude `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
   `tool.execute.after` 共用 secret-free、有界、fail-open marker
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
-- **发布**: 全部门禁通过后直接发布不可变 `0.2.0`；若 Head 迁移失败仅以 `0.2.1` 修复前进，不回退 tag/latest 或 unpublish
+- **JX3 支持**: 只允许冻结 PASS receipt 对应的 Claude Code `2.1.241`；Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23` 及未证明版本必须以 `host_version_unsupported` 零写拒绝，navigation 仍可用
+- **JX3 完整性**: 写前提示前必须验证当前状态 composite digest 及全部受管文件摘要；缺失、损坏或漂移静默 fail-open，由 status/doctor 报 `capability_drift`
+- **D-19 marker**: 需要重置一次性提示时，先关闭所有相关宿主会话，再人工删除 OS cache 下 `kcoderag-nav/nudges`；status/doctor 不清理，删除失败也不阻断宿主
+- **发布**: 全部门禁通过后只验证 readiness，不在本阶段执行 publish；既有不可变版本只以前进版本修复
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
 - **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
 - **OpenCode**: 只允许项目级安装；JSON/JSONC 双配置硬停止；真机验收基线为 `1.18.23`
@@ -65,7 +69,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 
 ## Frameworks
 
-- Model Context Protocol (MCP) - the external KCodeRag QA service is projected into each selected host's native project configuration; Dev survives only as legacy state input.
+- Model Context Protocol (MCP) - the external KCodeRag QA service is the `kcoderag-navigation` projection in each selected host's native project configuration.
 - Host adapters - Codex, Claude Code, Cursor, and OpenCode render host-specific desired state behind a shared read/render-only interface.
 - Node built-in test runner - compiled `dist-tests/**/*.test.cjs` provides unit, integration, pack, lifecycle, smoke, and release coverage.
 - npm/npx - package acquisition and the five-command project lifecycle; marketplace catalogs are not a distribution surface.
@@ -80,7 +84,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 ## Configuration
 
 - `src/hosts/` declares Codex, Claude Code, Cursor, and OpenCode project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
-- `plugin-src/` is the deterministic template/config source; generated QA/Cursor assets remain self-contained and version-aligned, while no public Dev product is generated.
+- `plugin-src/` is the deterministic template/config source for the two built-in capabilities; generated QA/Cursor assets remain self-contained and version-aligned.
 - Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`; OpenCode targets one root config plus `.opencode/`.
 - MCP configuration files may contain credentials. Never inspect, print, snapshot, or include their values in diagnostics.
 
@@ -143,7 +147,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 
 - `src/core/` is host-neutral; `src/hosts/` owns paths and structured merge rules; `src/cli/` owns orchestration, not writes.
 - `src/generator/` renders sorted bytes from canonical templates; checks are read-only and generators never expose credential inputs.
-- Generated QA/Dev/Cursor trees are products, not independent maintenance sources.
+- Generated QA/Cursor trees are products, not independent maintenance sources.
 
 <!-- GSD:conventions-end -->
 
@@ -176,18 +180,20 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 | Host adapters | Detect and render Codex, Claude Code, Cursor, or OpenCode project-native desired state without writing | `src/hosts/` |
 | Advisory hook | Classifies structural search, emits bounded guidance, and fails open | `src/hooks/grep-nudge.cts` |
 | Update runtime | Reads bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
-| Generator | Produces deterministic self-contained QA/Cursor assets while retaining only exact legacy Dev decoding | `src/generator/index.cts`, `plugin-src/` |
-| Source diagnostics | Classifies selected-host user sources, freezes owned cleanup fingerprints, and keeps status/doctor secret-safe | `src/core/`, `src/hosts/`, `src/cli/commands.cts` |
+| Capability registry | Declares the frozen `kcoderag-navigation` and `jx3-style-nudge` manifests, assets, support policy, and provider contributions | `src/capabilities/` |
+| Generator | Produces deterministic self-contained QA/Cursor assets from canonical capability templates | `src/generator/index.cts`, `plugin-src/` |
+| Source diagnostics | Classifies selected-host manual/active sources as read-only conflicts and keeps status/doctor secret-safe | `src/core/`, `src/hosts/`, `src/cli/commands.cts` |
 | Maintainer gates | Enforce dependencies, generation, pre-commit, pack, docs, retirement, and release contracts | `src/maintainer/` |
 | Smoke harness | Acquires a real temporary package and proves lifecycle/MCP evidence against a loopback stub | `src/smoke/` |
 
 ## Pattern Overview
 
 - The npm CLI is the composition root. One invocation targets one host; host adapters provide data and the shared transaction owns writes.
-- QA is the only public environment. Exact legacy QA/Dev state is readable only for authorized migration/uninstall, and a project may contain independent QA installations for Codex, Claude Code, Cursor, and OpenCode.
+- The product has two built-in capabilities. Install composes `installed ∪ selected`; update targets installed capabilities by default; uninstall requires explicit capability selection or `--all`; a project may contain independent host installations.
 - OpenCode is also project-only; it selects exactly one JSON/JSONC project config and never writes user-global config.
-- Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained and Dev is never regenerated as a public product.
+- Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained.
 - Codex/Claude hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
+- JX3 delivery is receipt-gated, not inferred from host shape: only Claude Code 2.1.241 is supported; the frozen Codex, Cursor, and OpenCode rows remain navigation-only.
 - All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
 
 ## Layers
@@ -204,8 +210,8 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 ### Project Installation
 
 1. The CLI validates Node.js 22+, command flags, the exact project-only target, selected host, and QA-only public policy.
-2. The selected adapter reads project metadata and performs the selected-host source gate, reporting drift, ambiguity, exact legacy state, or user-level source findings without reading credential values or writing.
-3. The adapter renders one complete immutable desired state under declared managed roots.
+2. The selected adapter reads current capability-scoped state and performs the selected-host source gate for every mutation, reporting drift, ambiguity, or manual/active source findings without reading credential values or writing.
+3. Capability support and complete integrity are preflighted, then the adapter renders one complete immutable desired state for `installed ∪ selected` under declared managed roots.
 4. `applyTransaction` verifies expected digests, stages bytes, commits state last, and restores the selected host on failure.
 5. Human output or one JSON result reports stable codes and paths only.
 
@@ -221,9 +227,9 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 
 - **HostAdapter:** Declares host identity/roots and pure detect/render/status methods; it cannot commit files.
 - **DesiredState:** Complete immutable single-host mutation plan with expected digests and state path.
-- **InstallState:** Versioned ownership record for host, environment, managed files/sections, digests, and migration provenance.
+- **InstallState:** Exact schema-v1 ownership graph for host, capabilities, contributor-scoped managed files/sections, individual digests, originals, and one composite digest.
 - **InstallError:** Stable secret-safe refusal with optional normalized path.
-- **Generated product:** Byte-deterministic QA/Cursor asset set derived from root package version and canonical templates, with exact legacy Dev state accepted only by migration/uninstall readers.
+- **Generated product:** Byte-deterministic QA/Cursor asset set derived from root package version and canonical capability templates.
 
 ## Entry Points
 
@@ -236,8 +242,10 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 
 - **Mutation ownership:** Only the shared transaction writes installation files; adapters and status paths remain read/render-only.
 - **Project scope:** Every resolved path must stay inside the explicit target and adapter-declared roots; reject traversal, symlinks, special files, and ambiguous ownership.
-- **Environment boundary:** QA is the sole public environment; legacy Dev requires exact ownership/digest validation and independent explicit migration or uninstall authority, with no implicit conversion.
-- **Source authority:** Install/update hard-stop on selected-host active duplicates. Owned cleanup requires a frozen fingerprint-specific authority; raw/manual/ambiguous sources are diagnostic-only and `status`/`doctor` remain read-only.
+- **State boundary:** Only the current capability-scoped schema is valid. Retired environment-shaped/Python records are invalid inputs with no migration, adoption, cleanup, or implicit conversion authority.
+- **Source authority:** Install/update/uninstall all hard-stop on selected-host manual or active duplicates before rendering. Sources are diagnostic-only and `status`/`doctor` remain read-only.
+- **Capability support:** Navigation is independent across all four hosts. JX3 is eligible only for an exact checked-in PASS receipt digest; an unsupported selection returns `host_version_unsupported` before desired-state creation and makes zero writes.
+- **JX3 integrity:** The advisory handler validates the nearest current state, its composite digest, and every managed file digest before claiming a once marker; any failure is silent and does not consume the reminder.
 - **Hook safety:** All malformed input, runtime failures, missing Node, and update failures exit 0 without blocking or contaminating stdout.
 - **Secret boundary:** MCP connection and authorization values are opaque; never expose them in output, diagnostics, tests, receipts, or documentation.
 - **Distribution boundary:** Root marketplace catalogs stay retired. Compatibility manifests may remain inside generated self-contained assets but are not install sources.
