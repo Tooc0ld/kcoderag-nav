@@ -4,5 +4,5 @@
   },
   "description": "Nudges Claude to prefer KCodeRag MCP over grep for code lookup (QA environment)",
   "name": "kcoderag-qa",
-  "version": "0.2.2"
+  "version": "0.3.0"
 }

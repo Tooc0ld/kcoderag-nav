@@ -72,6 +72,14 @@ const SECRET_KEY_RE = /^(?:authorization|body|command|credential|environment|hea
 const DIGEST_RE = /^[a-f0-9]{64}$/u;
 const MAX_EVIDENCE_NODES = 512;
 const MAX_EVIDENCE_DEPTH = 8;
+const PHASE_READINESS_CHECKS = Object.freeze([
+  "dependency-audit", "build", "full-tests", "generated-qa", "generated-cursor",
+  "docs-check", "local-guide", "retirement-audit", "git-brand-audit", "pack-audit",
+  "tar-brand-audit", "required-smoke",
+] as const);
+const PHASE_LANE_IDS = Object.freeze([
+  "linux-node22", "linux-node24", "windows-node22", "windows-node24",
+] as const);
 
 export class PreReleaseEvidenceError extends Error {
   readonly code: string;
@@ -175,6 +183,85 @@ function validateReadinessChecks(value: unknown): void {
     observed.push(check.name);
   }
   exactStringSet(observed, READINESS_CHECKS, "readiness_incomplete");
+}
+
+/** Validate the closed metadata-only Phase 04.2 readiness result without promoting absent lanes. */
+export function validatePhaseReadinessEvidence(value: unknown): Readonly<JsonMap> {
+  assertSafeEvidence(value);
+  failUnless(exactKeys(value, [
+    "schemaVersion", "result", "candidateSubject", "candidateTree", "packageVersion",
+    "packageProductTreeDigest", "artifactSha256", "memberCount", "dryRunCount", "actualPackCount",
+    "localGuideDigest", "semanticReview", "checks", "platformLanes", "externalActions",
+  ]), "invalid_readiness_schema");
+  failUnless(
+    value.schemaVersion === 1
+      && (value.result === "PASS" || value.result === "BLOCKED")
+      && validSha(value.candidateSubject)
+      && validSha(value.candidateTree)
+      && value.packageVersion === "0.3.0"
+      && typeof value.packageProductTreeDigest === "string"
+      && DIGEST_RE.test(value.packageProductTreeDigest)
+      && typeof value.artifactSha256 === "string"
+      && DIGEST_RE.test(value.artifactSha256)
+      && Number.isSafeInteger(value.memberCount)
+      && value.memberCount > 0
+      && value.dryRunCount === 1
+      && value.actualPackCount === 1
+      && typeof value.localGuideDigest === "string"
+      && DIGEST_RE.test(value.localGuideDigest),
+    "invalid_readiness_schema",
+  );
+  failUnless(exactKeys(value.semanticReview, [
+    "verdict", "reviewedSubject", "reviewedTree", "blobCount",
+  ]), "invalid_readiness_schema");
+  failUnless(
+    value.semanticReview.verdict === "PASS"
+      && validSha(value.semanticReview.reviewedSubject)
+      && validSha(value.semanticReview.reviewedTree)
+      && value.semanticReview.blobCount === 5,
+    "semantic_review_stale",
+  );
+  failUnless(Array.isArray(value.checks) && value.checks.length === PHASE_READINESS_CHECKS.length,
+    "readiness_incomplete");
+  const checkNames: string[] = [];
+  for (const check of value.checks) {
+    failUnless(exactKeys(check, ["name", "conclusion"])
+      && typeof check.name === "string" && check.conclusion === "PASS", "readiness_incomplete");
+    checkNames.push(check.name);
+  }
+  exactStringSet(checkNames, PHASE_READINESS_CHECKS, "readiness_incomplete");
+  if (value.platformLanes === "NOT_RUN") {
+    failUnless(value.result === "BLOCKED", "platform_lanes_incomplete");
+  } else {
+    failUnless(Array.isArray(value.platformLanes) && value.platformLanes.length === PHASE_LANE_IDS.length,
+      "platform_lanes_incomplete");
+    const laneIds: string[] = [];
+    for (const lane of value.platformLanes) {
+      failUnless(exactKeys(lane, [
+        "laneId", "candidateSubject", "artifactSha256", "memberCount", "conclusion",
+      ]), "platform_lanes_incomplete");
+      failUnless(
+        typeof lane.laneId === "string"
+          && lane.candidateSubject === value.candidateSubject
+          && lane.artifactSha256 === value.artifactSha256
+          && lane.memberCount === value.memberCount
+          && lane.conclusion === "PASS",
+        "platform_lanes_incomplete",
+      );
+      laneIds.push(lane.laneId);
+    }
+    exactStringSet(laneIds, PHASE_LANE_IDS, "platform_lanes_incomplete");
+    failUnless(value.result === "PASS", "platform_lanes_incomplete");
+  }
+  failUnless(exactKeys(value.externalActions, ["tag", "publish", "registry_refetch"]),
+    "invalid_readiness_schema");
+  failUnless(
+    value.externalActions.tag === "NOT_RUN_BY_SCOPE"
+      && value.externalActions.publish === "NOT_RUN_BY_SCOPE"
+      && value.externalActions.registry_refetch === "NOT_RUN_BY_SCOPE",
+    "external_action_out_of_scope",
+  );
+  return Object.freeze(value);
 }
 
 export function validatePreReleaseEvidence(value: unknown): PreReleaseEvidenceResult {
@@ -495,6 +582,7 @@ export function runCli(argv: readonly string[] = process.argv.slice(2), io: CliI
 
 exports.PreReleaseEvidenceError = PreReleaseEvidenceError;
 exports.validatePreReleaseEvidence = validatePreReleaseEvidence;
+exports.validatePhaseReadinessEvidence = validatePhaseReadinessEvidence;
 exports.runCli = runCli;
 
 if (require.main === module) process.exitCode = runCli();

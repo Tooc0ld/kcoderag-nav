@@ -360,11 +360,12 @@ test("semantic PASS is revalidated from both Git subjects and rejects stale, reo
     const fixture = readinessFixture();
     try {
       const receipt = JSON.parse(fs.readFileSync(fixture.receiptPath, "utf8")) as Record<string, any>;
+      let candidateSubject = fixture.candidateSubject;
       if (scenario === "stale") {
         writeFixture(fixture.root, CANONICAL_SKILL_PATHS[0], "changed after review\n");
         git(fixture.root, ["add", "--", CANONICAL_SKILL_PATHS[0]]);
         git(fixture.root, ["commit", "--quiet", "-m", "stale"]);
-        (readinessOptions(fixture) as Record<string, unknown>).candidateSubject = git(fixture.root, ["rev-parse", "HEAD"]);
+        candidateSubject = git(fixture.root, ["rev-parse", "HEAD"]);
       } else if (scenario === "reordered") {
         receipt.referencePaths.reverse();
       } else if (scenario === "extra") {
@@ -374,7 +375,7 @@ test("semantic PASS is revalidated from both Git subjects and rejects stale, reo
       }
       if (scenario !== "stale") fs.writeFileSync(fixture.receiptPath, JSON.stringify(receipt));
       assert.throws(
-        () => readiness.runReleaseReadiness(readinessOptions(fixture)),
+        () => readiness.runReleaseReadiness({ ...readinessOptions(fixture), candidateSubject }),
         (error: unknown) => (error as { code?: unknown }).code === "semantic_review_stale",
       );
     } finally {

@@ -509,3 +509,458 @@ export function scanCandidatePackageArtifact(
     return result;
   });
 }
+
+export type ReleaseReadinessConclusion = "PASS" | "BLOCKED";
+
+export interface ReleaseReadinessCheck {
+  readonly name: string;
+  readonly conclusion: "PASS";
+}
+
+export interface PlatformLaneEvidence {
+  readonly laneId: "linux-node22" | "linux-node24" | "windows-node22" | "windows-node24";
+  readonly candidateSubject: string;
+  readonly artifactSha256: string;
+  readonly memberCount: number;
+  readonly conclusion: "PASS";
+}
+
+export interface ReleaseReadinessOptions {
+  readonly root: string;
+  readonly candidateSubject: string;
+  readonly semanticReviewReceipt: string;
+  readonly artifact: CandidatePackageArtifact;
+  readonly checks: readonly ReleaseReadinessCheck[];
+  readonly platformLanes?: readonly PlatformLaneEvidence[];
+}
+
+export interface PackageProductSnapshot {
+  readonly subject: string;
+  readonly tree: string;
+  readonly version: "0.3.0";
+  readonly digest: string;
+  readonly localGuideDigest: string;
+  readonly paths: readonly string[];
+  readonly oids: Readonly<Record<string, string>>;
+}
+
+export interface ReleaseReadinessResult {
+  readonly schemaVersion: 1;
+  readonly result: ReleaseReadinessConclusion;
+  readonly candidateSubject: string;
+  readonly candidateTree: string;
+  readonly packageVersion: "0.3.0";
+  readonly packageProductTreeDigest: string;
+  readonly artifactSha256: string;
+  readonly memberCount: number;
+  readonly dryRunCount: 1;
+  readonly actualPackCount: 1;
+  readonly localGuideDigest: string;
+  readonly semanticReview: {
+    readonly verdict: "PASS";
+    readonly reviewedSubject: string;
+    readonly reviewedTree: string;
+    readonly blobCount: 5;
+  };
+  readonly checks: readonly ReleaseReadinessCheck[];
+  readonly platformLanes: "NOT_RUN" | readonly PlatformLaneEvidence[];
+  readonly externalActions: {
+    readonly tag: "NOT_RUN_BY_SCOPE";
+    readonly publish: "NOT_RUN_BY_SCOPE";
+    readonly registry_refetch: "NOT_RUN_BY_SCOPE";
+  };
+}
+
+const EXACT_CANDIDATE_VERSION = "0.3.0" as const;
+const GIT_OID_RE = /^[0-9a-f]{40}$/u;
+const CANONICAL_SKILL_PATHS = Object.freeze([
+  "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
+] as const);
+const VERSION_MANIFEST_PATHS = Object.freeze([
+  "kcoderag-cursor/.cursor-plugin/plugin.json",
+  "kcoderag-qa/.claude-plugin/plugin.json",
+  "kcoderag-qa/.codex-plugin/plugin.json",
+] as const);
+const LOCAL_GUIDE_PATH = "docs/MCP_QA_EXPERIENCE_GUIDE.md";
+const LOCAL_CHECK_NAMES = Object.freeze([
+  "dependency-audit", "build", "full-tests", "generated-qa", "generated-cursor",
+  "docs-check", "local-guide", "retirement-audit", "git-brand-audit", "pack-audit",
+  "tar-brand-audit", "required-smoke",
+] as const);
+const PLATFORM_LANE_IDS = Object.freeze([
+  "linux-node22", "linux-node24", "windows-node22", "windows-node24",
+] as const);
+const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024;
+const MAX_RECEIPT_BYTES = 64 * 1024;
+
+export class ReleaseReadinessError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super(code);
+    this.name = "ReleaseReadinessError";
+    this.code = code;
+  }
+}
+
+function readinessFailUnless(condition: unknown, code: string): asserts condition {
+  if (!condition) throw new ReleaseReadinessError(code);
+}
+
+function exactKeys(value: unknown, keys: readonly string[]): value is JsonMap {
+  return isRecord(value)
+    && Object.keys(value).sort(compare).join("\0") === [...keys].sort(compare).join("\0");
+}
+
+function validProductPath(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && !value.includes("\\")
+    && !value.includes("\0")
+    && !path.posix.isAbsolute(value)
+    && path.posix.normalize(value) === value
+    && value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function runGit(root: string, args: readonly string[], code: string): Buffer {
+  const result = childProcess.spawnSync("git", [...args], {
+    cwd: root,
+    encoding: "buffer",
+    shell: false,
+    windowsHide: true,
+    timeout: 15_000,
+    maxBuffer: MAX_GIT_OUTPUT_BYTES,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  readinessFailUnless(result.status === 0 && Buffer.isBuffer(result.stdout), code);
+  readinessFailUnless(result.stdout.length <= MAX_GIT_OUTPUT_BYTES, code);
+  return result.stdout;
+}
+
+function gitLine(root: string, args: readonly string[], code: string): string {
+  const value = runGit(root, args, code).toString("ascii").trim();
+  readinessFailUnless(GIT_OID_RE.test(value), code);
+  return value;
+}
+
+function resolveSubject(root: string, subject: string): { readonly subject: string; readonly tree: string } {
+  readinessFailUnless(GIT_OID_RE.test(subject), "invalid_candidate_subject");
+  const resolved = gitLine(root, ["rev-parse", "--verify", `${subject}^{commit}`], "invalid_candidate_subject");
+  readinessFailUnless(resolved === subject, "invalid_candidate_subject");
+  return Object.freeze({
+    subject: resolved,
+    tree: gitLine(root, ["rev-parse", "--verify", `${resolved}^{tree}`], "invalid_candidate_tree"),
+  });
+}
+
+function readGitBlob(root: string, subject: string, relativePath: string, code: string): {
+  readonly oid: string;
+  readonly bytes: Buffer;
+} {
+  readinessFailUnless(validProductPath(relativePath), code);
+  const oid = gitLine(root, ["rev-parse", "--verify", `${subject}:${relativePath}`], code);
+  const type = runGit(root, ["cat-file", "-t", oid], code).toString("ascii").trim();
+  readinessFailUnless(type === "blob", code);
+  const bytes = runGit(root, ["cat-file", "blob", oid], code);
+  return Object.freeze({ oid, bytes });
+}
+
+function parseJsonBlob(bytes: Buffer, code: string): JsonMap {
+  readinessFailUnless(bytes.length > 0 && bytes.length <= 1024 * 1024, code);
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new ReleaseReadinessError(code);
+  }
+  readinessFailUnless(isRecord(value), code);
+  return value;
+}
+
+function readSemanticReceipt(root: string, receiptPath: string): JsonMap {
+  const resolvedRoot = fs.realpathSync(root);
+  const resolvedPath = path.resolve(receiptPath);
+  const relative = path.relative(resolvedRoot, resolvedPath);
+  readinessFailUnless(
+    relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative),
+    "semantic_review_stale",
+  );
+  let stat: import("node:fs").Stats;
+  try {
+    stat = fs.lstatSync(resolvedPath);
+  } catch {
+    throw new ReleaseReadinessError("semantic_review_stale");
+  }
+  readinessFailUnless(stat.isFile() && !stat.isSymbolicLink() && stat.size <= MAX_RECEIPT_BYTES,
+    "semantic_review_stale");
+  return parseJsonBlob(fs.readFileSync(resolvedPath), "semantic_review_stale");
+}
+
+function validateSemanticReview(root: string, candidateSubject: string, receiptPath: string): ReleaseReadinessResult["semanticReview"] {
+  const receipt = readSemanticReceipt(root, receiptPath);
+  readinessFailUnless(exactKeys(receipt, [
+    "schemaVersion", "verdict", "reviewedSubject", "reviewedTree", "entryPath", "referencePaths",
+    "blobDigests", "ruleCounts", "behaviorCaseCount",
+  ]), "semantic_review_stale");
+  readinessFailUnless(
+    receipt.schemaVersion === 1
+      && receipt.verdict === "PASS"
+      && typeof receipt.reviewedSubject === "string"
+      && GIT_OID_RE.test(receipt.reviewedSubject)
+      && typeof receipt.reviewedTree === "string"
+      && GIT_OID_RE.test(receipt.reviewedTree)
+      && receipt.entryPath === CANONICAL_SKILL_PATHS[0]
+      && Array.isArray(receipt.referencePaths)
+      && receipt.referencePaths.length === 4
+      && receipt.referencePaths.every((value, index) => value === CANONICAL_SKILL_PATHS[index + 1])
+      && exactKeys(receipt.ruleCounts, ["R", "S"])
+      && receipt.ruleCounts.R === 19
+      && receipt.ruleCounts.S === 8
+      && receipt.behaviorCaseCount === 15
+      && isRecord(receipt.blobDigests)
+      && Object.keys(receipt.blobDigests).sort(compare).join("\0") === [...CANONICAL_SKILL_PATHS].sort(compare).join("\0"),
+    "semantic_review_stale",
+  );
+  const reviewed = resolveSubject(root, receipt.reviewedSubject);
+  readinessFailUnless(reviewed.tree === receipt.reviewedTree, "semantic_review_stale");
+  for (const relativePath of CANONICAL_SKILL_PATHS) {
+    const reviewedBlob = readGitBlob(root, reviewed.subject, relativePath, "semantic_review_stale");
+    const candidateBlob = readGitBlob(root, candidateSubject, relativePath, "semantic_review_stale");
+    const expectedDigest = receipt.blobDigests[relativePath];
+    readinessFailUnless(
+      typeof expectedDigest === "string"
+        && SHA256_RE.test(expectedDigest)
+        && sha256(reviewedBlob.bytes) === expectedDigest
+        && sha256(candidateBlob.bytes) === expectedDigest
+        && reviewedBlob.bytes.equals(candidateBlob.bytes),
+      "semantic_review_stale",
+    );
+  }
+  return Object.freeze({
+    verdict: "PASS",
+    reviewedSubject: reviewed.subject,
+    reviewedTree: reviewed.tree,
+    blobCount: 5,
+  });
+}
+
+/** Read the exact package allow-list from an immutable Git subject and hash its product blobs. */
+export function readPackageProductSnapshot(rootInput: string, subjectInput: string): PackageProductSnapshot {
+  const root = fs.realpathSync(path.resolve(rootInput));
+  const resolved = resolveSubject(root, subjectInput);
+  const packageBlob = readGitBlob(root, resolved.subject, "package.json", "package_identity_invalid");
+  const packageJson = parseJsonBlob(packageBlob.bytes, "package_identity_invalid");
+  readinessFailUnless(
+    packageJson.name === PACKAGE_NAME
+      && packageJson.version === EXACT_CANDIDATE_VERSION
+      && Array.isArray(packageJson.files)
+      && packageJson.files.length > 0
+      && packageJson.files.every(validProductPath),
+    "package_identity_invalid",
+  );
+  const declared = packageJson.files as string[];
+  readinessFailUnless(new Set(declared).size === declared.length && declared.includes(LOCAL_GUIDE_PATH),
+    "package_inventory_invalid");
+  const paths = Object.freeze(["package.json", ...declared].sort(compare));
+  const oids: Record<string, string> = {};
+  const digest = crypto.createHash("sha256");
+  let localGuideDigest = "";
+  for (const relativePath of paths) {
+    const blob = readGitBlob(root, resolved.subject, relativePath, "package_inventory_invalid");
+    oids[relativePath] = blob.oid;
+    const bodyDigest = sha256(blob.bytes);
+    digest.update(relativePath, "utf8").update("\0").update(blob.oid, "ascii").update("\0")
+      .update(bodyDigest, "ascii").update("\0");
+    if (relativePath === LOCAL_GUIDE_PATH) localGuideDigest = bodyDigest;
+  }
+  readinessFailUnless(SHA256_RE.test(localGuideDigest), "local_guide_invalid");
+  return Object.freeze({
+    subject: resolved.subject,
+    tree: resolved.tree,
+    version: EXACT_CANDIDATE_VERSION,
+    digest: digest.digest("hex"),
+    localGuideDigest,
+    paths,
+    oids: Object.freeze(oids),
+  });
+}
+
+function validateCandidateVersions(root: string, subject: string): void {
+  const packageLock = parseJsonBlob(readGitBlob(root, subject, "package-lock.json", "version_drift").bytes,
+    "version_drift");
+  readinessFailUnless(
+    packageLock.name === PACKAGE_NAME
+      && packageLock.version === EXACT_CANDIDATE_VERSION
+      && isRecord(packageLock.packages)
+      && isRecord(packageLock.packages[""])
+      && packageLock.packages[""].name === PACKAGE_NAME
+      && packageLock.packages[""].version === EXACT_CANDIDATE_VERSION,
+    "version_drift",
+  );
+  for (const relativePath of VERSION_MANIFEST_PATHS) {
+    const manifest = parseJsonBlob(readGitBlob(root, subject, relativePath, "version_drift").bytes, "version_drift");
+    readinessFailUnless(manifest.version === EXACT_CANDIDATE_VERSION, "version_drift");
+  }
+}
+
+function validateChecks(value: readonly ReleaseReadinessCheck[]): readonly ReleaseReadinessCheck[] {
+  readinessFailUnless(Array.isArray(value) && value.length === LOCAL_CHECK_NAMES.length, "readiness_incomplete");
+  const names: string[] = [];
+  for (const check of value) {
+    readinessFailUnless(exactKeys(check, ["name", "conclusion"]) && typeof check.name === "string"
+      && check.conclusion === "PASS", "readiness_incomplete");
+    names.push(check.name);
+  }
+  readinessFailUnless(new Set(names).size === names.length
+    && names.sort(compare).join("\0") === [...LOCAL_CHECK_NAMES].sort(compare).join("\0"), "readiness_incomplete");
+  return Object.freeze(value.map((check) => Object.freeze({ name: check.name, conclusion: "PASS" as const })));
+}
+
+function validatePlatformLanes(
+  value: readonly PlatformLaneEvidence[] | undefined,
+  candidateSubject: string,
+  artifact: CandidatePackageArtifact,
+): "NOT_RUN" | readonly PlatformLaneEvidence[] {
+  if (value === undefined) return "NOT_RUN";
+  readinessFailUnless(Array.isArray(value) && value.length === PLATFORM_LANE_IDS.length,
+    "platform_lanes_incomplete");
+  const lanes: PlatformLaneEvidence[] = [];
+  for (const lane of value) {
+    readinessFailUnless(exactKeys(lane, [
+      "laneId", "candidateSubject", "artifactSha256", "memberCount", "conclusion",
+    ]), "platform_lanes_incomplete");
+    readinessFailUnless(
+      PLATFORM_LANE_IDS.includes(lane.laneId as PlatformLaneEvidence["laneId"])
+        && lane.candidateSubject === candidateSubject
+        && lane.artifactSha256 === artifact.sha256
+        && lane.memberCount === artifact.memberCount
+        && lane.conclusion === "PASS",
+      "platform_lanes_incomplete",
+    );
+    lanes.push(Object.freeze({
+      laneId: lane.laneId as PlatformLaneEvidence["laneId"],
+      candidateSubject: lane.candidateSubject as string,
+      artifactSha256: lane.artifactSha256 as string,
+      memberCount: lane.memberCount as number,
+      conclusion: "PASS",
+    }));
+  }
+  readinessFailUnless(new Set(lanes.map((lane) => lane.laneId)).size === PLATFORM_LANE_IDS.length,
+    "platform_lanes_incomplete");
+  return Object.freeze(lanes.sort((left, right) => compare(left.laneId, right.laneId)));
+}
+
+/** Aggregate immutable local assurance while keeping external release actions explicitly out of scope. */
+export function runReleaseReadiness(options: ReleaseReadinessOptions): ReleaseReadinessResult {
+  readinessFailUnless(isRecord(options), "invalid_readiness_options");
+  readinessFailUnless(typeof options.root === "string" && options.root.length > 0, "invalid_readiness_options");
+  const root = fs.realpathSync(path.resolve(options.root));
+  const candidate = resolveSubject(root, options.candidateSubject);
+  readinessFailUnless(exactKeys(options.artifact, [
+    "name", "version", "sha256", "memberCount", "dryRunCount", "actualPackCount",
+  ]), "artifact_metadata_drift");
+  readinessFailUnless(
+    options.artifact.name === PACKAGE_NAME
+      && options.artifact.version === EXACT_CANDIDATE_VERSION
+      && SHA256_RE.test(options.artifact.sha256)
+      && Number.isSafeInteger(options.artifact.memberCount)
+      && options.artifact.memberCount > 0
+      && options.artifact.dryRunCount === 1
+      && options.artifact.actualPackCount === 1,
+    "artifact_metadata_drift",
+  );
+  const product = readPackageProductSnapshot(root, candidate.subject);
+  validateCandidateVersions(root, candidate.subject);
+  const semanticReview = validateSemanticReview(root, candidate.subject, options.semanticReviewReceipt);
+  const checks = validateChecks(options.checks);
+  const platformLanes = validatePlatformLanes(options.platformLanes, candidate.subject, options.artifact);
+  return Object.freeze({
+    schemaVersion: 1,
+    result: platformLanes === "NOT_RUN" ? "BLOCKED" : "PASS",
+    candidateSubject: candidate.subject,
+    candidateTree: candidate.tree,
+    packageVersion: EXACT_CANDIDATE_VERSION,
+    packageProductTreeDigest: product.digest,
+    artifactSha256: options.artifact.sha256,
+    memberCount: options.artifact.memberCount,
+    dryRunCount: 1,
+    actualPackCount: 1,
+    localGuideDigest: product.localGuideDigest,
+    semanticReview,
+    checks,
+    platformLanes,
+    externalActions: Object.freeze({
+      tag: "NOT_RUN_BY_SCOPE",
+      publish: "NOT_RUN_BY_SCOPE",
+      registry_refetch: "NOT_RUN_BY_SCOPE",
+    }),
+  });
+}
+
+function readCliJson(root: string, inputPath: string): unknown {
+  const resolved = path.resolve(root, inputPath);
+  const relative = path.relative(root, resolved);
+  readinessFailUnless(relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative), "invalid_arguments");
+  let stat: import("node:fs").Stats;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch {
+    throw new ReleaseReadinessError("invalid_arguments");
+  }
+  readinessFailUnless(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 256 * 1024,
+    "invalid_arguments");
+  try {
+    return JSON.parse(fs.readFileSync(resolved, "utf8")) as unknown;
+  } catch {
+    throw new ReleaseReadinessError("invalid_arguments");
+  }
+}
+
+/** Evaluate already-produced local metadata; package creation remains owned by the private lease API. */
+export function main(argv: readonly string[] = process.argv.slice(2)): number {
+  try {
+    const values = new Map<string, string>();
+    for (let index = 0; index < argv.length; index += 2) {
+      const flag = argv[index];
+      const value = argv[index + 1];
+      readinessFailUnless(flag !== undefined && value !== undefined && !values.has(flag), "invalid_arguments");
+      readinessFailUnless([
+        "--candidate", "--semantic-review", "--artifact", "--checks", "--platform-evidence",
+      ].includes(flag), "invalid_arguments");
+      values.set(flag, value);
+    }
+    const candidateSubject = values.get("--candidate");
+    const semanticReviewReceipt = values.get("--semantic-review");
+    const artifactPath = values.get("--artifact");
+    const checksPath = values.get("--checks");
+    readinessFailUnless(candidateSubject !== undefined && semanticReviewReceipt !== undefined
+      && artifactPath !== undefined && checksPath !== undefined, "invalid_arguments");
+    const root = fs.realpathSync(process.cwd());
+    const artifact = readCliJson(root, artifactPath) as CandidatePackageArtifact;
+    const checks = readCliJson(root, checksPath) as readonly ReleaseReadinessCheck[];
+    const platformPath = values.get("--platform-evidence");
+    const result = runReleaseReadiness({
+      root,
+      candidateSubject,
+      semanticReviewReceipt,
+      artifact,
+      checks,
+      ...(platformPath === undefined
+        ? {}
+        : { platformLanes: readCliJson(root, platformPath) as readonly PlatformLaneEvidence[] }),
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.result === "PASS" ? 0 : 2;
+  } catch (error) {
+    const code = error instanceof ReleaseReadinessError ? error.code : "release_readiness_failed";
+    process.stderr.write(`${JSON.stringify({ ok: false, code })}\n`);
+    return 1;
+  }
+}
+
+if (require.main === module) process.exitCode = main();
