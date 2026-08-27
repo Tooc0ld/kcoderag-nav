@@ -15,7 +15,7 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("ZCode projects native workspace MCP and Skill without claiming project Hook support", async () => {
+test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and update runtime", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-"));
   try {
     const configPath = path.join(root, ".zcode", "config.json");
@@ -49,8 +49,41 @@ test("ZCode projects native workspace MCP and Skill without claiming project Hoo
     assert.equal(rendered.mcp.servers["kcoderag-qa"].url.endsWith("/"), false);
     assert.equal(typeof rendered.mcp.servers["kcoderag-qa"].headers.Authorization, "string");
     assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag-nav/SKILL.md")), true);
-    assert.equal(fs.existsSync(path.join(root, ".zcode/kcoderag-nav/hooks")), false);
-    assert.equal("hooks" in rendered, false);
+    assert.equal(rendered.hooks.enabled, true);
+    assert.equal(rendered.hooks.events.PreToolUse.length, 1);
+    assert.equal(rendered.hooks.events.PostToolUse.length, 1);
+    const pre = rendered.hooks.events.PreToolUse[0];
+    assert.equal(pre.matcher, "^(Grep|Glob|Bash)$");
+    assert.deepEqual(pre.hooks, [{
+      type: "process",
+      command: "node",
+      args: ["${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/pre-tool-dispatcher.cjs", "zcode"],
+      timeoutMs: 5_000,
+    }]);
+    const post = rendered.hooks.events.PostToolUse[0];
+    assert.equal(post.matcher, "^(mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$");
+    assert.deepEqual(post.hooks, [{
+      type: "process",
+      command: "node",
+      args: ["${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/mcp-call-marker.cjs", "zcode"],
+      timeoutMs: 5_000,
+    }]);
+    for (const relativePath of [
+      ".zcode/kcoderag-nav/hooks/pre-tool-dispatcher.cjs",
+      ".zcode/kcoderag-nav/hooks/grep-nudge.cjs",
+      ".zcode/kcoderag-nav/hooks/jx3-style-nudge.cjs",
+      ".zcode/kcoderag-nav/hooks/once-marker.cjs",
+      ".zcode/kcoderag-nav/hooks/update-check.cjs",
+      ".zcode/kcoderag-nav/hooks/update-notice.cjs",
+      ".zcode/kcoderag-nav/hooks/update-worker.cjs",
+      ".zcode/kcoderag-nav/hooks/mcp-call-marker.cjs",
+    ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
+    assert.deepEqual(state.sections.map((entry: any) => entry.id), [
+      "navigation:hooks-enabled",
+      "navigation:mcp",
+      "navigation:post-tool",
+      "navigation:pre-tool",
+    ]);
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     assert.equal(adapter.status({
@@ -117,6 +150,83 @@ test("ZCode refuses unmanaged project identity and user-level duplicate sources 
       "ambiguous_source",
     ]);
     assert.equal("cleanupOwnedSource" in adapter, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ZCode preserves existing workspace Hooks without claiming the enabled flag", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-hooks-"));
+  try {
+    const configPath = path.join(root, ".zcode", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const existingPre = { matcher: "Read", hooks: [{ type: "process", command: "node", args: ["keep.js"] }] };
+    const existingSession = { matcher: "startup", hooks: [{ type: "process", command: "node", args: ["session.js"] }] };
+    const original = `${JSON.stringify({
+      hooks: {
+        enabled: true,
+        timeoutMs: 7_000,
+        events: { PreToolUse: [existingPre], SessionStart: [existingSession] },
+      },
+    }, null, 2)}\n`;
+    fs.writeFileSync(configPath, original);
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = zcode.createZCodeAdapter({ hostVersion: "0.0.0", evidenceRoot: PACKAGE_ROOT });
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
+    const rendered = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(rendered.hooks.timeoutMs, 7_000);
+    assert.deepEqual(rendered.hooks.events.SessionStart, [existingSession]);
+    assert.deepEqual(rendered.hooks.events.PreToolUse[0], existingPre);
+    const state = JSON.parse(fs.readFileSync(path.join(root, ".zcode/kcoderag-nav/install-state.json"), "utf8"));
+    assert.equal(state.sections.some((entry: any) => entry.id === "navigation:hooks-enabled"), false);
+
+    const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderUninstall({
+      target,
+      packageRoot: PACKAGE_ROOT,
+      environment: "qa",
+      observation: installed,
+      selectedCapabilities: [NAVIGATION],
+    }));
+    assert.equal(fs.readFileSync(configPath, "utf8"), original);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ZCode refuses an unmanaged Hook that targets the managed runtime", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-hook-conflict-"));
+  try {
+    const configPath = path.join(root, ".zcode", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    const original = `${JSON.stringify({
+      hooks: {
+        enabled: true,
+        events: {
+          PreToolUse: [{
+            matcher: "Grep",
+            hooks: [{
+              type: "process",
+              command: "node",
+              args: ["${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/manual.cjs"],
+            }],
+          }],
+        },
+      },
+    }, null, 2)}\n`;
+    fs.writeFileSync(configPath, original);
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = zcode.createZCodeAdapter({ hostVersion: "0.0.0", evidenceRoot: PACKAGE_ROOT });
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+
+    assert.throws(
+      () => adapter.renderInstall(context(target, observation, [NAVIGATION])),
+      (error: any) => error?.code === "unmanaged_name_conflict",
+    );
+    assert.equal(fs.readFileSync(configPath, "utf8"), original);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/kcoderag-nav")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -7,7 +7,7 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 
 当前包只提供两个内置 capability：
 
-- `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置；具备原生项目事件的四个宿主
+- `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置；五个宿主
   额外提供成功调用 marker 与离线更新提示。
 - `jx3-style-nudge`：C/C++/Lua 结构化写入前的短提示与 `$jx3-code-style-correction` Skill。
 
@@ -112,17 +112,18 @@ JX3 提示还有完整 D-15 运行时门禁：最近状态必须是 current sche
 | Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | navigation 与 receipt-supported JX3 共用 native `PreToolUse` dispatcher |
 | Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | always-on navigation Rule/Skill/MCP；不声明等价 `PreToolUse` |
 | OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；JX3 unsupported |
-| ZCode | `.zcode/config.json`、`.zcode/skills/` | project MCP + Skill；当前项目级 Hook 会被宿主忽略，因此无自动提示、成功 marker 或 JX3 pre-write |
+| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | project MCP + Skill；`hooks.enabled: true` 的 advisory/fail-open `PreToolUse`、`PostToolUse` marker 与更新提示；JX3 unsupported |
 
 Codex/Claude launcher 从宿主会话 cwd 向上选择最近的对应受管状态。损坏或不兼容的最近状态是
 静默 fail-open 边界，不穿透到外层项目。状态和 launcher 使用项目相对路径；完整项目 move、rename、
 复制或换盘后仍指向同一内部资产。CLI 自身的 cwd/`--target` 始终是精确目标，不执行这项向上查找。
 
-Codex、Claude Code、Cursor 与 OpenCode 使用各自原生成功后事件写入 secret-free、有界、fail-open
+五个宿主使用各自原生成功后事件写入 secret-free、有界、fail-open
 的 KCodeRag 调用 marker：
 Codex/Claude Code 为 `PostToolUse`，Cursor 为 `afterMCPExecution`，OpenCode 为
-`tool.execute.after`。marker 不保存 MCP 参数、结果、URL、Header 或 Bearer。ZCode 当前不会执行
-项目级 Hook，所以 adapter 不安装 Hook、marker 或自动更新运行时；该限制与 ZCode 官方
+`tool.execute.after`，ZCode 为项目 `PostToolUse`。marker 不保存 MCP 参数、结果、URL、Header
+或 Bearer。ZCode 的 `PreToolUse` 只添加导航与更新上下文，绝不拒绝 Grep、Glob 或 Bash，也不
+冒充 JX3 pre-write；该行为使用 ZCode 官方
 [MCP](https://zcode.z.ai/cn/docs/mcp-services)、[Skill](https://zcode.z.ai/en/docs/skill) 和
 [Hook](https://zcode.z.ai/en/docs/hooks) 合同一致。
 
@@ -146,11 +147,11 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 
 ## 更新提示、证据与维护者门禁
 
-Codex、Claude Code、Cursor 与 OpenCode 共享一个离线前台更新检查器：前台只读有界 cache，过期时分离启动 npm Registry worker，
+五个宿主共享一个离线前台更新检查器：前台只读有界 cache，过期时分离启动 npm Registry worker，
 不等待网络、不自动更新。Codex/Claude 将已知提示加入首次符合条件的上下文；Cursor 返回
-`additional_context`；OpenCode 显示 warning toast。所有异常 fail-open，提示只建议运行所选宿主的
-显式更新命令，例如 `npx kcoderag-nav@latest update --host codex`。ZCode 没有项目 Hook，因此不会自动检查或提示；
-需要用户显式运行 `npx kcoderag-nav@latest update --host zcode`。
+`additional_context`；OpenCode 显示 warning toast；ZCode 通过项目 `PreToolUse` 注入相同的短提示。
+所有异常 fail-open，提示只建议运行所选宿主的显式更新命令，例如
+`npx kcoderag-nav@latest update --host zcode`。
 
 Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
 保留与 JX3 零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP

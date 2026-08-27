@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 interface MarkerModule {
   readonly MCP_CALL_MARKER_TTL_MS: number;
@@ -30,7 +30,7 @@ function markerFiles(root: string): string[] {
   return fs.existsSync(directory) ? fs.readdirSync(directory).sort() : [];
 }
 
-test("records only successful KCodeRag calls for all four hook-capable host payload shapes", () => {
+test("records only successful KCodeRag calls for all five hook-capable host payload shapes", () => {
   const root = fixture();
   try {
     const cases: readonly [HostId, Record<string, unknown>][] = [
@@ -38,16 +38,17 @@ test("records only successful KCodeRag calls for all four hook-capable host payl
       ["claude", { hook_event_name: "PostToolUse", session_id: "claude-s", tool_name: "mcp__kcoderag-qa__context" }],
       ["cursor", { hook_event_name: "afterMCPExecution", conversation_id: "cursor-s", generation_id: "g", mcp_server_name: "kcoderag", tool_name: "search_code" }],
       ["opencode", { sessionID: "open-s", callID: "c", tool: "kcoderag-qa_get_call_chain" }],
+      ["zcode", { hook_event_name: "PostToolUse", session_id: "zcode-s", tool_name: "krag.search_code/1" }],
     ];
     for (const [host, payload] of cases) {
       const result = marker.recordKCodeRagCall(payload, { host, cacheRoot: root, now: () => 1_000 });
       assert.equal(result.recorded, true, host);
       assert.match(result.key ?? "", /^[0-9a-f]{64}$/u, host);
     }
-    assert.equal(markerFiles(root).length, 4);
+    assert.equal(markerFiles(root).length, 5);
     const records = markerFiles(root).map((name) =>
       JSON.parse(fs.readFileSync(path.join(root, "mcp-calls", name), "utf8")) as Record<string, unknown>);
-    assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "cursor", "opencode"]);
+    assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "cursor", "opencode", "zcode"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -61,6 +62,7 @@ test("unrelated tools, malformed payloads, and write failures are silent and fai
       ["claude", { tool_name: "mcp__other__search", session_id: "s" }],
       ["cursor", { mcp_server_name: "other", conversation_id: "s" }],
       ["opencode", { tool: "other_search", sessionID: "s" }],
+      ["zcode", { hook_event_name: "PostToolUse", tool_name: "Grep", session_id: "s" }],
       ["opencode", null],
     ];
     for (const [host, payload] of cases) {

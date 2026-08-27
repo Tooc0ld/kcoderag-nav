@@ -1,7 +1,7 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 interface UpdateRuntime {
   readInstalledVersion(statePath?: string): string | undefined;
@@ -46,12 +46,13 @@ function runtime(overrides: Partial<UpdateRuntime> = {}): UpdateRuntime {
   };
 }
 
-test("normalizes four hook-capable host payloads into secret-free update identities", () => {
+test("normalizes five hook-capable host payloads into secret-free update identities", () => {
   const cases: readonly [HostId, unknown, string][] = [
     ["codex", { thread_id: "codex-thread", tool_input: { authorization: "Bearer secret" } }, "codex:codex-thread"],
     ["claude", { session_id: "claude-session", tool_input: { url: "https://secret.invalid" } }, "claude:claude-session"],
     ["cursor", { conversation_id: "cursor-conversation", tool_output: "secret output" }, "cursor:cursor-conversation"],
     ["opencode", { sessionID: "opencode-session", input: { token: "secret" } }, "opencode:opencode-session"],
+    ["zcode", { session_id: "zcode-session", tool_input: { token: "secret" } }, "zcode:zcode-session"],
   ];
 
   for (const [host, payload, sessionId] of cases) {

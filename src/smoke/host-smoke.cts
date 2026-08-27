@@ -42,7 +42,7 @@ export interface SmokeEvidence {
 }
 
 export interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp" | "skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -1078,6 +1078,56 @@ function validHookOutput(result: CommandResult): boolean {
   }
 }
 
+function readZCodePreToolHook(projectRoot: string): { readonly command: string; readonly args: readonly string[] } | undefined {
+  try {
+    const configPath = path.join(projectRoot, ".zcode", "config.json");
+    const metadata = fs.lstatSync(configPath);
+    if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
+    const document: unknown = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (!isRecord(document) || !isRecord(document.hooks) || document.hooks.enabled !== true ||
+      !isRecord(document.hooks.events) || !Array.isArray(document.hooks.events.PreToolUse)) {
+      return undefined;
+    }
+    const hooks: { readonly command: string; readonly args: readonly string[] }[] = [];
+    for (const entry of document.hooks.events.PreToolUse) {
+      if (!isRecord(entry) || typeof entry.matcher !== "string" || !Array.isArray(entry.hooks)) continue;
+      for (const hook of entry.hooks) {
+        if (!isRecord(hook) || hook.type !== "process" || typeof hook.command !== "string" ||
+          !Array.isArray(hook.args) || !hook.args.every((argument) => typeof argument === "string")) {
+          continue;
+        }
+        const args = hook.args.map((argument) => argument.replaceAll("${ZCODE_PROJECT_DIR}", projectRoot));
+        if (args.some((argument) => argument.length === 0 || argument.length > 64 * 1024)) continue;
+        hooks.push(Object.freeze({ command: hook.command, args: Object.freeze(args) }));
+      }
+    }
+    return hooks.length === 1 ? hooks[0] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function runZCodeHook(
+  hook: { readonly command: string; readonly args: readonly string[] },
+  projectRoot: string,
+  cwd: string,
+  runtimeRoot: string,
+): CommandResult {
+  const payload = `${JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "rg -n SyntheticSymbol src" },
+    cwd,
+  })}\n`;
+  return runProcess(hook.command, hook.args, {
+    cwd,
+    env: { ...safeEnvironment(runtimeRoot), ZCODE_PROJECT_DIR: projectRoot },
+    input: payload,
+    timeout: 10_000,
+    commandShim: true,
+  });
+}
+
 function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: string): NavigationContract | undefined {
   const deepRoot = path.join(projectRoot, "deep folder", "Unicode-子目录");
   fs.mkdirSync(deepRoot, { recursive: true });
@@ -1139,16 +1189,25 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const skillBytes = fs.readFileSync(path.join(
         projectRoot, ".zcode", "skills", "kcoderag-nav", "SKILL.md",
       ));
+      const dispatcherBytes = fs.readFileSync(path.join(
+        projectRoot, ".zcode", "kcoderag-nav", "hooks", "pre-tool-dispatcher.cjs",
+      ));
       const document: unknown = JSON.parse(configBytes.toString("utf8"));
+      const hook = readZCodePreToolHook(projectRoot);
+      if (hook === undefined) return undefined;
+      const rootResult = runZCodeHook(hook, projectRoot, projectRoot, runtimeRoot);
+      const deepResult = runZCodeHook(hook, projectRoot, deepRoot, runtimeRoot);
+      const root = validHookOutput(rootResult);
+      const deep = validHookOutput(deepResult);
       const valid = isRecord(document) && isRecord(document.mcp) && isRecord(document.mcp.servers) &&
         isRecord(document.mcp.servers["kcoderag-qa"]) &&
         skillBytes.includes(Buffer.from("KCodeRag", "utf8"));
       return Object.freeze({
-        kind: "skill_mcp" as const,
-        root: valid,
-        deep: valid,
-        sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
-        fingerprint: sha256Parts([configBytes, skillBytes]),
+        kind: "pretooluse_hook" as const,
+        root: valid && root,
+        deep: valid && deep,
+        sameProject: valid && root && deep && sha256Parts([rootResult.stdout]) === sha256Parts([deepResult.stdout]),
+        fingerprint: sha256Parts([configBytes, skillBytes, dispatcherBytes, rootResult.stdout, deepResult.stdout]),
       });
     } catch {
       return undefined;

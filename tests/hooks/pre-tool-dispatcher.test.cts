@@ -1,5 +1,9 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
+const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
+const path = require("node:path") as typeof import("node:path");
 
 interface DispatcherModule {
   readonly MAX_ADDITIONAL_CONTEXT_CHARS: number;
@@ -16,6 +20,7 @@ interface DispatcherModule {
 }
 
 const dispatcher = require("../../dist/hooks/pre-tool-dispatcher.cjs") as DispatcherModule;
+const compiledDispatcher = path.resolve("dist/hooks/pre-tool-dispatcher.cjs");
 
 test("dispatcher parses once, isolates contributors, and emits one bounded response", () => {
   let parseCount = 0;
@@ -71,4 +76,37 @@ test("dispatcher main serializes at most one object and every invalid boundary i
   }
 
   assert.equal(dispatcher.main("{}", () => { throw new Error("output failure"); }, [() => "ok"]), 0);
+});
+
+test("direct ZCode process invocation emits strict advisory context and fails open", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-zcode-dispatcher-"));
+  try {
+    const stateDirectory = path.join(root, ".zcode", "kcoderag-nav");
+    fs.mkdirSync(stateDirectory, { recursive: true });
+    fs.writeFileSync(path.join(stateDirectory, "install-state.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      packageVersion: "0.2.2",
+      host: "zcode",
+    })}\n`);
+    const result = childProcess.spawnSync(process.execPath, [compiledDispatcher, "zcode"], {
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: "zcode-session",
+        cwd: root,
+        tool_name: "Grep",
+        tool_input: { pattern: "LoginMgr", path: "src" },
+      }),
+      encoding: "utf8",
+      env: { ...process.env, ZCODE_PROJECT_DIR: root },
+    });
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    const output = JSON.parse(result.stdout) as Record<string, any>;
+    assert.deepEqual(Object.keys(output), ["hookSpecificOutput"]);
+    assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
+    assert.equal(typeof output.hookSpecificOutput.additionalContext, "string");
+    assert.equal("permissionDecision" in output.hookSpecificOutput, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -91,7 +91,7 @@ function completePublicContract(): string {
     "Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.",
     "Codex and Claude find the nearest state; a damaged boundary never falls through; complete project move works.",
     "Cursor uses an always-on Rule and does not use an equivalent PreToolUse Hook.",
-    "ZCode uses .zcode/config.json; project-level Hooks are ignored, so update explicitly with `npx kcoderag-nav@latest update --host zcode`.",
+    "ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`.",
     "Phase 06 owns authenticated real-host MCP query evidence.",
     "",
     "```powershell",
@@ -211,7 +211,7 @@ test("canonical public contract requires capability lifecycle, support, integrit
       ["Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.", "Other hosts vary.", "missing_topic_exact_host_support"],
       ["a damaged boundary never falls through; complete project move works", "a boundary exists", "missing_topic_nearest_state"],
       ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary", "plugin-src/cursor/README.md.tmpl"],
-      ["ZCode uses .zcode/config.json; project-level Hooks are ignored, so update explicitly with `npx kcoderag-nav@latest update --host zcode`.", "ZCode uses project files.", "missing_topic_zcode_boundary"],
+      ["ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`.", "ZCode uses project files.", "missing_topic_zcode_boundary"],
     ];
     for (const [before, after, expectedCode, relativePath = "plugin-src/README.md.tmpl"] of cases) {
       writeCanonicalContract(root, guide);

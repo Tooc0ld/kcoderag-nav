@@ -8,7 +8,7 @@ const path = require("node:path") as typeof import("node:path");
 
 import type { HostId } from "../core/contracts.cjs";
 
-export type MarkerHost = Exclude<HostId, "zcode">;
+export type MarkerHost = HostId;
 
 export const MCP_CALL_MARKER_SCHEMA_VERSION = 1 as const;
 export const MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
@@ -105,6 +105,12 @@ function isKCodeRagTool(payload: Record<string, unknown>, host: MarkerHost): boo
     const tool = boundedString(payload.tool);
     return tool !== undefined && /^kcoderag-qa_/u.test(tool);
   }
+  if (host === "zcode") {
+    const toolName = boundedString(payload.tool_name);
+    return toolName !== undefined &&
+      /^(?:mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$/u.test(toolName) &&
+      (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
+  }
   const toolName = boundedString(payload.tool_name);
   return toolName !== undefined && /^mcp__kcoderag-qa__.+/u.test(toolName) &&
     (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
@@ -187,7 +193,7 @@ function readBoundedStdin(): string | undefined {
 /** Host hook entry point. It always emits nothing and exits successfully. */
 export function main(hostArgument = process.argv[2]): number {
   try {
-    if (!(["codex", "claude", "cursor", "opencode"] as const).includes(hostArgument as MarkerHost)) return 0;
+    if (!(["codex", "claude", "cursor", "opencode", "zcode"] as const).includes(hostArgument as MarkerHost)) return 0;
     const raw = readBoundedStdin();
     if (raw === undefined) return 0;
     let payload: unknown;

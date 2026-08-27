@@ -31,11 +31,12 @@ function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isHost(value) {
-    return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
+    return value === "codex" || value === "claude" || value === "cursor" || value === "opencode" ||
+        value === "zcode";
 }
 function defaultStatePath(host, managedRoot) {
     const hostRoot = host === "codex" ? ".codex" : host === "claude" ? ".claude" :
-        host === "cursor" ? ".cursor" : ".opencode";
+        host === "cursor" ? ".cursor" : host === "opencode" ? ".opencode" : ".zcode";
     return require("node:path").join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 function createDefaultContributors(runtime = {}) {
@@ -137,5 +138,11 @@ function main(rawInput, writeOutput = (text) => { process.stdout.write(text); },
     }
     return 0;
 }
-if (require.main === module)
-    process.exitCode = main();
+if (require.main === module) {
+    const host = isHost(process.argv[2]) ? process.argv[2] : undefined;
+    const managedRoot = typeof process.env.ZCODE_PROJECT_DIR === "string" &&
+        process.env.ZCODE_PROJECT_DIR.length > 0
+        ? process.env.ZCODE_PROJECT_DIR
+        : undefined;
+    process.exitCode = main(undefined, (text) => { process.stdout.write(text); }, undefined, host === undefined || managedRoot === undefined ? {} : { host, managedRoot });
+}

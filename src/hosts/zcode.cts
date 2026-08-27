@@ -1,4 +1,4 @@
-/** ZCode project-only navigation projection; current project Hooks are intentionally unsupported. */
+/** ZCode project-only navigation projection with advisory, fail-open workspace Hooks. */
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
@@ -72,9 +72,13 @@ interface Details {
 const STATE_PATH = ".zcode/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".zcode/config.json";
 const NAV_SKILL_PATH = ".zcode/skills/kcoderag-nav/SKILL.md";
+const HOOK_ROOT = ".zcode/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
 const JX3 = "jx3-style-nudge" as const;
+const PRE_TOOL_MATCHER = "^(Grep|Glob|Bash)$";
+const POST_TOOL_MATCHER = "^(mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$";
+const MANAGED_HOOK_ARGUMENT_PREFIX = "${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/";
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -252,7 +256,43 @@ function assertSupport(
   if (!decision.eligible) throw new InstallError(decision.code);
 }
 
-function mergeConfig(current: Buffer | undefined, packageRoot: string, owned: boolean) {
+function processHook(scriptName: string, args: readonly string[] = []): JsonMap {
+  return Object.freeze({
+    type: "process",
+    command: "node",
+    args: Object.freeze([`${MANAGED_HOOK_ARGUMENT_PREFIX}${scriptName}`, ...args]),
+    timeoutMs: 5_000,
+  });
+}
+
+function preToolEntry(): JsonMap {
+  return Object.freeze({
+    matcher: PRE_TOOL_MATCHER,
+    hooks: Object.freeze([processHook("pre-tool-dispatcher.cjs", ["zcode"])]),
+  });
+}
+
+function postToolEntry(): JsonMap {
+  return Object.freeze({
+    matcher: POST_TOOL_MATCHER,
+    hooks: Object.freeze([processHook("mcp-call-marker.cjs", ["zcode"])]),
+  });
+}
+
+function isManagedHookEntry(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.hooks)) return false;
+  return value.hooks.some((hook) => isRecord(hook) && Array.isArray(hook.args) &&
+    hook.args.some((argument) => typeof argument === "string" &&
+      argument.startsWith(MANAGED_HOOK_ARGUMENT_PREFIX)));
+}
+
+function hookEntries(value: unknown): readonly JsonMap[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || !value.every(isRecord)) throw new InstallError("invalid_json", CONFIG_PATH);
+  return Object.freeze(value);
+}
+
+function mergeConfig(current: Buffer | undefined, packageRoot: string, state: InstallState | undefined) {
   const original = current?.toString("utf8") ?? "{}\n";
   let document: JsonMap;
   try {
@@ -266,19 +306,48 @@ function mergeConfig(current: Buffer | undefined, packageRoot: string, owned: bo
   if (!isRecord(mcp)) throw new InstallError("invalid_json", CONFIG_PATH);
   const servers = mcp.servers === undefined ? {} : mcp.servers;
   if (!isRecord(servers)) throw new InstallError("invalid_json", CONFIG_PATH);
-  if (!owned && servers["kcoderag-qa"] !== undefined) {
+  const hooks = document.hooks === undefined ? {} : document.hooks;
+  if (!isRecord(hooks) || (hooks.enabled !== undefined && typeof hooks.enabled !== "boolean")) {
+    throw new InstallError("invalid_json", CONFIG_PATH);
+  }
+  const events = hooks.events === undefined ? {} : hooks.events;
+  if (!isRecord(events)) throw new InstallError("invalid_json", CONFIG_PATH);
+  const existingPre = hookEntries(events.PreToolUse);
+  const existingPost = hookEntries(events.PostToolUse);
+  const owned = state !== undefined;
+  if (!owned && (servers["kcoderag-qa"] !== undefined ||
+    existingPre.some(isManagedHookEntry) || existingPost.some(isManagedHookEntry))) {
     throw new InstallError("unmanaged_name_conflict", CONFIG_PATH);
   }
   const entry = remoteEntry(packageRoot);
+  const pre = preToolEntry();
+  const post = postToolEntry();
+  const enabledPreviouslyManaged = state?.sections.some((record) =>
+    record.path === CONFIG_PATH && record.id === "navigation:hooks-enabled") ?? false;
+  const enabledAdded = hooks.enabled !== true;
+  const enabledManaged = enabledPreviouslyManaged || enabledAdded;
+  const mergedHooks = Object.freeze({
+    ...hooks,
+    enabled: true,
+    events: Object.freeze({
+      ...events,
+      PreToolUse: Object.freeze([...existingPre.filter((item) => !isManagedHookEntry(item)), pre]),
+      PostToolUse: Object.freeze([...existingPost.filter((item) => !isManagedHookEntry(item)), post]),
+    }),
+  });
   let text: string;
   try {
     text = upsertJsonObjectProperty(original, ["mcp", "servers"], "kcoderag-qa", entry);
+    text = upsertJsonObjectProperty(text, [], "hooks", mergedHooks);
   } catch {
     throw new InstallError("invalid_json", CONFIG_PATH);
   }
   return Object.freeze({
     bytes: Buffer.from(text.endsWith("\n") ? text : `${text}\n`, "utf8"),
     entry,
+    pre,
+    post,
+    enabledManaged,
   });
 }
 
@@ -334,7 +403,7 @@ function contributions(
 ): readonly ProjectedCapabilityContribution[] {
   if (!projected.includes(NAVIGATION)) return Object.freeze([]);
   const currentConfig = readRegular(target, CONFIG_PATH);
-  const config = mergeConfig(currentConfig, packageRoot, state !== undefined);
+  const config = mergeConfig(currentConfig, packageRoot, state);
   return Object.freeze([
     Object.freeze({
       capabilityId: NAVIGATION,
@@ -347,9 +416,22 @@ function contributions(
           sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"),
           false,
         ),
+        projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/grep-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/grep-nudge.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/update-worker.cjs`, sourceAsset(packageRoot, "dist/hooks/update-worker.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false),
       ]),
       sections: Object.freeze([
         section(CONFIG_PATH, "navigation:mcp", config.entry, currentConfig !== undefined),
+        section(CONFIG_PATH, "navigation:pre-tool", config.pre, currentConfig !== undefined),
+        section(CONFIG_PATH, "navigation:post-tool", config.post, currentConfig !== undefined),
+        ...(config.enabledManaged
+          ? [section(CONFIG_PATH, "navigation:hooks-enabled", true, currentConfig !== undefined)]
+          : []),
       ]),
     }),
   ]);

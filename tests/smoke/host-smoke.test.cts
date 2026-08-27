@@ -33,7 +33,7 @@ interface SmokeEvidence {
 }
 
 interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp" | "skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -646,8 +646,6 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
             ? "rule_skill_mcp"
             : host.host === "opencode"
               ? "plugin_skill_mcp"
-              : host.host === "zcode"
-                ? "skill_mcp"
               : "pretooluse_hook",
         );
         assert.equal(host.navigationContract?.root, true);

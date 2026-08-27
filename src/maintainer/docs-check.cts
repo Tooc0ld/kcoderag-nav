@@ -115,7 +115,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
     code: "missing_topic_zcode_boundary",
-    pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*(?:project-level[\s\S]{0,160}hooks?[\s\S]{0,160}(?:ignored|not\s+(?:executed|supported))|项目级[\s\S]{0,100}Hook[\s\S]{0,100}(?:忽略|不执行|不支持)))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))/iu,
+    pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*PreToolUse)(?=[\s\S]*PostToolUse)(?=[\s\S]*(?:hooks?\.enabled|hooks?[\s\S]{0,80}enabled|Hook[\s\S]{0,80}启用))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))/iu,
   },
   {
     code: "missing_topic_exact_host_support",

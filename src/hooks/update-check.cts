@@ -15,9 +15,9 @@ export const CACHE_SCHEMA_VERSION = 1;
 const MAX_CACHE_CHARS = 8 * 1_024;
 const VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const RELEVANT_TOOLS = new Set(["Grep", "Glob", "Bash"]);
-const UPDATE_HOSTS = new Set(["codex", "claude", "cursor", "opencode"]);
+const UPDATE_HOSTS = new Set(["codex", "claude", "cursor", "opencode", "zcode"]);
 
-export type UpdateHost = "codex" | "claude" | "cursor" | "opencode";
+export type UpdateHost = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 export interface UpdateCheckFiles {
   readText(filePath: string): string | undefined;

@@ -8,7 +8,7 @@ or production npm dependencies.
 The package exposes exactly two built-in capabilities:
 
 - `kcoderag-navigation` provides the QA MCP projection and graph-first guidance on five hosts.
-  The four hosts with usable project events also receive a successful-call marker and offline
+  All five hosts receive a successful-call marker and offline
   update notice.
 - `jx3-style-nudge` provides a short structured pre-write advisory and the canonical
   `$jx3-code-style-correction` Skill where exact host evidence supports native delivery.
@@ -120,11 +120,11 @@ rule summary.
   `afterMCPExecution` success marker. It does not claim equivalent JX3 `PreToolUse` delivery.
 - OpenCode uses a project plugin and MCP. Its toast and `tool.execute.after` event do not claim
   model-visible pre-write delivery.
-- ZCode uses project MCP in `.zcode/config.json` plus a workspace Skill. Current ZCode project-level
-  hooks are ignored, so this adapter installs no Hook, success marker, automatic update notice, or
-  JX3 pre-write projection.
+- ZCode uses project MCP and `hooks.events` with `hooks.enabled: true` in `.zcode/config.json` plus a workspace Skill. Its
+  advisory, fail-open `PreToolUse` adds navigation/update context and its `PostToolUse` records
+  success; neither hook claims JX3 pre-write delivery.
 - Successful calls write bounded secret-free markers: Codex/Claude Code use `PostToolUse`, Cursor
-  uses `afterMCPExecution`, and OpenCode uses `tool.execute.after`. ZCode has no project marker.
+  uses `afterMCPExecution`, OpenCode uses `tool.execute.after`, and ZCode uses project `PostToolUse`.
 
 ## QA routing
 
@@ -159,13 +159,12 @@ capacity-pruning, or deletion failures are fail-open and never block the origina
 
 ## Update and evidence boundaries
 
-Codex, Claude Code, Cursor, and OpenCode share an offline foreground update checker. It reads bounded local state and may
+All five hosts share an offline foreground update checker. It reads bounded local state and may
 detach an npm Registry refresh, but never waits for the network or updates automatically. Codex
 and Claude Code add a known notice to eligible context, Cursor returns `additional_context`, and
-OpenCode displays a warning toast. Each session/project cycle is deduplicated and every failure is
-silent. The notice only suggests an explicit update command such as
-`npx kcoderag-nav@latest update --host codex`. ZCode cannot run a project update hook, so users update
-it explicitly with `npx kcoderag-nav@latest update --host zcode`. This follows ZCode's official
+OpenCode displays a warning toast; ZCode adds the same short notice through project `PreToolUse`.
+Each session/project cycle is deduplicated and every failure is silent. The notice only suggests an
+explicit update command such as `npx kcoderag-nav@latest update --host zcode`. This follows ZCode's official
 [MCP](https://zcode.z.ai/en/docs/mcp-services), [Skill](https://zcode.z.ai/en/docs/skill), and
 [Hook](https://zcode.z.ai/en/docs/hooks) contracts.
 

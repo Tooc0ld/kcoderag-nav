@@ -93,6 +93,12 @@ function isKCodeRagTool(payload, host) {
         const tool = boundedString(payload.tool);
         return tool !== undefined && /^kcoderag-qa_/u.test(tool);
     }
+    if (host === "zcode") {
+        const toolName = boundedString(payload.tool_name);
+        return toolName !== undefined &&
+            /^(?:mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$/u.test(toolName) &&
+            (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
+    }
     const toolName = boundedString(payload.tool_name);
     return toolName !== undefined && /^mcp__kcoderag-qa__.+/u.test(toolName) &&
         (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
@@ -174,7 +180,7 @@ function readBoundedStdin() {
 /** Host hook entry point. It always emits nothing and exits successfully. */
 function main(hostArgument = process.argv[2]) {
     try {
-        if (!["codex", "claude", "cursor", "opencode"].includes(hostArgument))
+        if (!["codex", "claude", "cursor", "opencode", "zcode"].includes(hostArgument))
             return 0;
         const raw = readBoundedStdin();
         if (raw === undefined)

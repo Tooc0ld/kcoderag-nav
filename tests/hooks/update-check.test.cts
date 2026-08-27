@@ -33,7 +33,7 @@ interface UpdateCheckModule {
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
   readInstalledVersion(statePath?: string): string | undefined;
-  readInstalledHost(statePath?: string): "codex" | "claude" | "cursor" | "opencode" | undefined;
+  readInstalledHost(statePath?: string): "codex" | "claude" | "cursor" | "opencode" | "zcode" | undefined;
 }
 
 const update = require("../../dist/hooks/update-check.cjs") as UpdateCheckModule;
@@ -470,6 +470,8 @@ test("installed package version is read only from a bounded validated state docu
     assert.equal(update.readInstalledHost(statePath), undefined);
     await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", host: "claude" }), "utf8");
     assert.equal(update.readInstalledHost(statePath), "claude");
+    await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", host: "zcode" }), "utf8");
+    assert.equal(update.readInstalledHost(statePath), "zcode");
     await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4", host: "unknown" }), "utf8");
     assert.equal(update.readInstalledHost(statePath), undefined);
     await fsPromises.writeFile(statePath, JSON.stringify({ packageVersion: "0.1.4-beta.1" }), "utf8");

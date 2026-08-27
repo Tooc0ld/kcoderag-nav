@@ -57,12 +57,13 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isHost(value: unknown): value is HostId {
-  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
+  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode" ||
+    value === "zcode";
 }
 
 function defaultStatePath(host: HostId, managedRoot: string): string {
   const hostRoot = host === "codex" ? ".codex" : host === "claude" ? ".claude" :
-    host === "cursor" ? ".cursor" : ".opencode";
+    host === "cursor" ? ".cursor" : host === "opencode" ? ".opencode" : ".zcode";
   return require("node:path").join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json") as string;
 }
 
@@ -176,4 +177,16 @@ export function main(
   return 0;
 }
 
-if (require.main === module) process.exitCode = main();
+if (require.main === module) {
+  const host = isHost(process.argv[2]) ? process.argv[2] : undefined;
+  const managedRoot = typeof process.env.ZCODE_PROJECT_DIR === "string" &&
+    process.env.ZCODE_PROJECT_DIR.length > 0
+    ? process.env.ZCODE_PROJECT_DIR
+    : undefined;
+  process.exitCode = main(
+    undefined,
+    (text) => { process.stdout.write(text); },
+    undefined,
+    host === undefined || managedRoot === undefined ? {} : { host, managedRoot },
+  );
+}

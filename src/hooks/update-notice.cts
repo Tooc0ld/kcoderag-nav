@@ -12,7 +12,7 @@ interface UpdateRuntime {
 }
 
 const updateCheck = require("./update-check.cjs") as UpdateRuntime;
-const HOSTS = new Set<UpdateHost>(["codex", "claude", "cursor", "opencode"]);
+const HOSTS = new Set<UpdateHost>(["codex", "claude", "cursor", "opencode", "zcode"]);
 const MAX_INPUT_CHARS = 64 * 1_024;
 const MAX_ID_CHARS = 512;
 const MAX_CONTEXT_CHARS = 600;
