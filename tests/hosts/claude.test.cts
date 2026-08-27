@@ -20,8 +20,6 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
     environment: "qa",
     observation,
     selectedCapabilities,
-    allowLegacyUserRemoval: false,
-    allowLegacyDevMigration: false,
   };
 }
 
@@ -32,8 +30,6 @@ function uninstallContext(target: any, observation: any, selectedCapabilities: r
     environment: "qa",
     observation,
     selectedCapabilities,
-    allowLegacyUserRemoval: false,
-    allowLegacyDevMigration: false,
   };
 }
 
@@ -57,6 +53,7 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
   try {
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.241", evidenceRoot: PACKAGE_ROOT });
+    assert.equal("cleanupOwnedSource" in adapter, false);
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [JX3, NAVIGATION])));
 

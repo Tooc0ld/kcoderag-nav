@@ -20,8 +20,6 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
     environment: "qa",
     observation,
     selectedCapabilities,
-    allowLegacyUserRemoval: false,
-    allowLegacyDevMigration: false,
   };
 }
 

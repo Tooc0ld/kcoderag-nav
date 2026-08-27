@@ -263,6 +263,61 @@ test("post retirement rejects every active retired authority, product, workflow,
       code: "legacy_authority_remains",
     },
     {
+      relativePath: "src/core/source-finding-cleanup-eligible.cts",
+      bytes: "export interface SourceFinding { readonly cleanupEligible?: boolean; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/core/source-finding-cleanup-command.cts",
+      bytes: "export interface SourceFinding { readonly cleanupCommand?: string; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/core/source-finding-cleanup-fingerprint.cts",
+      bytes: "export interface SourceFinding { readonly cleanupFingerprint?: string; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/source-scan-result.cts",
+      bytes: "export interface SourceScanResult { readonly cleanupPlans: readonly unknown[]; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/native-cleanup-plan.cts",
+      bytes: "export interface NativeCleanupPlan { readonly safePath: string; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/owned-cleanup-authority.cts",
+      bytes: "export interface OwnedCleanupAuthority { readonly allowOwnedSourceCleanup: boolean; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/legacy-observation-environment.cts",
+      bytes: "export interface HostObservation { readonly legacyEnvironment?: 'dev'; }\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/legacy-observation-user-removal.cts",
+      bytes: "export interface HostObservation { readonly legacyUserRemoval?: { readonly path: string }; }\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/legacy-install-context.cts",
+      bytes: "export interface HostInstallContext { readonly allowLegacyUserRemoval: boolean; }\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/cli/false-dev-authority.cts",
+      bytes: "export const context = { allowLegacyDevMigration: false };\n",
+      code: "legacy_authority_remains",
+    },
+    {
+      relativePath: "src/cli/false-user-authority.cts",
+      bytes: "export const context = { allowLegacyUserRemoval: false };\n",
+      code: "legacy_authority_remains",
+    },
+    {
       relativePath: "package.json",
       bytes: '{"scripts":{"test:migration":"node --test dist-tests/migration/legacy-state.test.cjs"}}\n',
       code: "legacy_authority_remains",
@@ -270,6 +325,16 @@ test("post retirement rejects every active retired authority, product, workflow,
     {
       relativePath: "src/hosts/codex.cts",
       bytes: "export async function cleanupOwnedSource() { return undefined; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/optional-cleanup-callback.cts",
+      bytes: "export interface HostAdapter { cleanupOwnedSource?(plan: unknown): Promise<unknown>; }\n",
+      code: "cleanup_authority_remains",
+    },
+    {
+      relativePath: "src/hosts/cleanup-runner.cts",
+      bytes: "export function runOwnedSourceCleanup() { return undefined; }\n",
       code: "cleanup_authority_remains",
     },
     {
@@ -321,6 +386,18 @@ test("post retirement permits negative contracts and explicitly historical docum
   write(root, "src/core/state.cts", [
     "export const currentState = true;",
     "// Legacy state and owned cleanup authority are rejected.",
+    "export const conflictCode = 'manual_cleanup_required';",
+    "export const retiredFlags = '--allow-legacy-user-removal --allow-legacy-dev-migration';",
+    "",
+  ].join("\n"));
+  write(root, "fixtures/host-delivery/frozen-legacy-labels.json", JSON.stringify({
+    cleanupEligible: true,
+    cleanupCommand: "historical receipt label",
+    allowLegacyDevMigration: false,
+  }));
+  write(root, "tests/current-only-negative.test.cts", [
+    "assert.equal('cleanupOwnedSource' in adapter, false);",
+    "assert.equal('cleanupPlans' in scan, false);",
     "",
   ].join("\n"));
   write(root, "README.md", [
