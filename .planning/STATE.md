@@ -343,6 +343,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260826-dut | Add project-only OpenCode support and four-host successful MCP-call markers | 2026-08-26 | 8e317b6, KCodeRag:5568e4c0 | [260826-dut-add-project-only-opencode-host-support-a](./quick/260826-dut-add-project-only-opencode-host-support-a/) |
 | 260826-uvk | Unify offline update checks and native notices across Codex, Claude Code, Cursor, and OpenCode | 2026-08-26 | 8aadcef, 8402f05, KCodeRag:7b32a794 | [260826-uvk-codex-claude-code-cursor-opencode](./quick/260826-uvk-codex-claude-code-cursor-opencode/) |
 | 260827-fch | Add project-scoped ZCode host support for navigation MCP and Skill | 2026-08-27 | 903506f, KCodeRag:6891fd14 | [260827-fch-add-project-scoped-zcode-host-support-fo](./quick/260827-fch-add-project-scoped-zcode-host-support-fo/) |
+| 260827-nuo | Add advisory ZCode PreToolUse, successful-call marker, and offline update notice | 2026-08-27 | 8d380f6, KCodeRag:97049019 | [260827-nuo-zcode-hook-advisory-pretooluse-marker](./quick/260827-nuo-zcode-hook-advisory-pretooluse-marker/) |
 
 ### Roadmap Evolution
 
