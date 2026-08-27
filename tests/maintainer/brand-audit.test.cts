@@ -1,6 +1,8 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const fs = require("node:fs") as typeof import("node:fs");
+const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 type FamilyId = "F001" | "F002" | "F003";
@@ -33,6 +35,16 @@ interface AuditResult {
   readonly findings: readonly Finding[];
 }
 
+interface GitAuditResult {
+  readonly schemaVersion: 1;
+  readonly scope: "git";
+  readonly subject: string;
+  readonly tree: string;
+  readonly scannedCount: number;
+  readonly findingCount: number;
+  readonly findings: readonly Finding[];
+}
+
 interface PrivateFinding {
   readonly exactPath: string;
   readonly finding: Finding;
@@ -49,6 +61,14 @@ interface AuditModule {
     readonly limits?: Partial<AuditLimits>;
     readonly onPrivateFinding?: (finding: PrivateFinding) => void;
   }): AuditResult;
+  scanGitTree(options: {
+    readonly root: string;
+    readonly subject: string;
+    readonly include?: readonly string[];
+    readonly limits?: Partial<AuditLimits>;
+  }, dependencies?: {
+    readonly runGit?: (root: string, args: readonly string[], input: Buffer | undefined, maxBuffer: number) => Buffer;
+  }): GitAuditResult;
 }
 
 const audit = require("../../dist/maintainer/brand-audit.cjs") as AuditModule;
@@ -104,6 +124,32 @@ function encodeBigEndian(value: string): Buffer {
     little[index + 1] = first;
   }
   return Buffer.concat([Buffer.from([0xfe, 0xff]), little]);
+}
+
+function git(root: string, args: readonly string[]): string {
+  return childProcess.execFileSync("git", [...args], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function createGitFixture(files: Readonly<Record<string, string>>): {
+  readonly root: string;
+  readonly subject: string;
+} {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-brand-git-"));
+  git(root, ["init", "--quiet"]);
+  git(root, ["config", "user.email", "fixture@example.invalid"]);
+  git(root, ["config", "user.name", "Fixture"]);
+  for (const [relativePath, body] of Object.entries(files)) {
+    const absolutePath = path.join(root, ...relativePath.split("/"));
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, body, "utf8");
+  }
+  git(root, ["add", "--", ...Object.keys(files)]);
+  git(root, ["commit", "--quiet", "-m", "fixture"]);
+  return Object.freeze({ root, subject: git(root, ["rev-parse", "HEAD"]) });
 }
 
 test("matcher recognizes only the approved closed families after deterministic folding", () => {
@@ -311,4 +357,126 @@ test("secret canary and callback failures collapse to one stable public error", 
     exactPath,
     onPrivateFinding: 42 as unknown as (finding: PrivateFinding) => void,
   }), "invalid_audit_options");
+});
+
+test("Git scan is commit-exact, uses one batch, and ignores dirty worktree canaries", () => {
+  const fixture = createGitFixture({
+    "src/neutral.cts": "export const value = 'neutral';\n",
+    "docs/readme.md": "neutral\n",
+  });
+  try {
+    const initial = audit.scanGitTree({ root: fixture.root, subject: fixture.subject });
+    assert.deepEqual(Object.keys(initial).sort(), [
+      "findingCount", "findings", "scannedCount", "schemaVersion", "scope", "subject", "tree",
+    ]);
+    assert.equal(initial.scope, "git");
+    assert.equal(initial.subject, fixture.subject);
+    assert.match(initial.tree, /^[0-9a-f]{40}$/u);
+    assert.equal(initial.scannedCount, 2);
+    assert.equal(initial.findingCount, 0);
+
+    const dirtyAlias = firstAlias("F001");
+    fs.writeFileSync(path.join(fixture.root, "src", "neutral.cts"), dirtyAlias, "utf8");
+    fs.writeFileSync(path.join(fixture.root, `untracked-${dirtyAlias}.txt`), dirtyAlias, "utf8");
+    assert.deepEqual(audit.scanGitTree({ root: fixture.root, subject: fixture.subject }), initial);
+
+    const included = audit.scanGitTree({
+      root: fixture.root,
+      subject: fixture.subject,
+      include: ["src"],
+    });
+    assert.equal(included.scannedCount, 1);
+    assert.equal(included.findingCount, 0);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Git scan rejects unsupported entries, malformed records, and oversized blobs", () => {
+  const fixture = createGitFixture({ "src/base.cts": "neutral\n" });
+  try {
+    const blob = git(fixture.root, ["hash-object", "src/base.cts"]);
+    git(fixture.root, ["update-index", "--add", "--cacheinfo", `120000,${blob},link-entry`]);
+    git(fixture.root, ["commit", "--quiet", "-m", "link"]);
+    const linkSubject = git(fixture.root, ["rev-parse", "HEAD"]);
+    expectCode(
+      () => audit.scanGitTree({ root: fixture.root, subject: linkSubject }),
+      "unsupported_git_entry",
+    );
+
+    expectCode(
+      () => audit.scanGitTree({
+        root: fixture.root,
+        subject: fixture.subject,
+        limits: { maxBlobBytes: 4 },
+      }),
+      "git_blob_too_large",
+    );
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+
+  const oid = "1".repeat(40);
+  const tree = "2".repeat(40);
+  const fakeGit = (_root: string, args: readonly string[]): Buffer => {
+    if (args[0] === "rev-parse" && args[2]?.endsWith("^{commit}")) return Buffer.from(`${oid}\n`);
+    if (args[0] === "rev-parse") return Buffer.from(`${tree}\n`);
+    if (args[0] === "ls-tree") return Buffer.from("malformed-record\0", "utf8");
+    throw new Error("unexpected fixture command");
+  };
+  expectCode(
+    () => audit.scanGitTree({ root: repositoryRoot, subject: oid }, { runGit: fakeGit }),
+    "invalid_git_tree_record",
+  );
+});
+
+test("CLI emits one safe JSON document for findings, success, and argument errors", () => {
+  const alias = firstAlias("F002");
+  const secretCanary = points([0x63, 0x6c, 0x69, 0x2d, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74]);
+  const exactPath = `private/${alias}-${secretCanary}.md`;
+  const fixture = createGitFixture({
+    [exactPath]: `prefix ${alias} ${secretCanary} suffix\n`,
+    "src/neutral.cts": "neutral\n",
+  });
+  const cli = path.join(repositoryRoot, "dist", "maintainer", "brand-audit.cjs");
+  try {
+    const finding = childProcess.spawnSync(process.execPath, [cli, "git", "--subject", fixture.subject], {
+      cwd: fixture.root,
+      encoding: "utf8",
+    });
+    assert.equal(finding.status, 1);
+    assert.equal(finding.stderr, "");
+    assert.equal(finding.stdout.trim().split(/\r?\n/u).length, 1);
+    const findingResult = JSON.parse(finding.stdout) as GitAuditResult;
+    assert.deepEqual(Object.keys(findingResult).sort(), [
+      "findingCount", "findings", "scannedCount", "schemaVersion", "scope", "subject", "tree",
+    ]);
+    assert.equal(findingResult.findingCount, 2);
+    assert.equal(finding.stdout.includes(exactPath), false);
+    assert.equal(finding.stdout.includes(alias), false);
+    assert.equal(finding.stdout.includes(secretCanary), false);
+
+    const success = childProcess.spawnSync(process.execPath, [
+      cli, "git", "--subject", fixture.subject, "--include", "src",
+    ], { cwd: fixture.root, encoding: "utf8" });
+    assert.equal(success.status, 0);
+    assert.equal((JSON.parse(success.stdout) as GitAuditResult).findingCount, 0);
+
+    const invalid = childProcess.spawnSync(process.execPath, [cli, "git", "--subject", secretCanary], {
+      cwd: fixture.root,
+      encoding: "utf8",
+    });
+    assert.equal(invalid.status, 2);
+    assert.equal(invalid.stderr, "");
+    assert.equal(invalid.stdout.trim().split(/\r?\n/u).length, 1);
+    assert.deepEqual(JSON.parse(invalid.stdout), {
+      schemaVersion: 1,
+      scope: "git",
+      ok: false,
+      code: "invalid_git_subject",
+    });
+    assert.equal(invalid.stdout.includes(secretCanary), false);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
