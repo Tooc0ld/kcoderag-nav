@@ -1,5 +1,6 @@
 /** Pure closed-family matching and strict text decoding for readiness audits. */
 
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 
 export type BrandFamilyId = "F001" | "F002" | "F003";
@@ -51,6 +52,40 @@ interface ScanBrandTextOptions {
   readonly exactPath: string;
   readonly limits?: Partial<BrandAuditLimits>;
   readonly onPrivateFinding?: (finding: PrivateBrandFinding) => void;
+}
+
+export interface GitTreeScanOptions {
+  readonly root: string;
+  readonly subject: string;
+  readonly include?: readonly string[];
+  readonly limits?: Partial<BrandAuditLimits>;
+}
+
+export interface GitTreeScanResult {
+  readonly schemaVersion: 1;
+  readonly scope: "git";
+  readonly subject: string;
+  readonly tree: string;
+  readonly scannedCount: number;
+  readonly findingCount: number;
+  readonly findings: readonly BrandAuditFinding[];
+}
+
+interface GitTreeEntry {
+  readonly mode: "100644" | "100755";
+  readonly oid: string;
+  readonly path: string;
+}
+
+type GitCommandRunner = (
+  root: string,
+  args: readonly string[],
+  input: Buffer | undefined,
+  maxBuffer: number,
+) => Buffer;
+
+interface GitScanDependencies {
+  readonly runGit?: GitCommandRunner;
 }
 
 interface EncodedBrandFamily {
@@ -134,6 +169,8 @@ const UNSUPPORTED_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u
 const VALID_SCOPES = new Set<BrandAuditScope>(["git_path", "git_content", "tar_path", "tar_content"]);
 const PATH_SCOPES = new Set<BrandAuditScope>(["git_path", "tar_path"]);
 const SEGMENTER = new Intl.Segmenter("und", { granularity: "grapheme" });
+const GIT_OID_RE = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+const MAX_PUBLIC_FINDINGS = 4096;
 
 function failUnless(condition: unknown, code: string): asserts condition {
   if (!condition) throw new BrandAuditError(code);
@@ -249,7 +286,8 @@ export function decodeInspectableText(
 function validateExactPath(input: unknown, limits: BrandAuditLimits): string {
   failUnless(typeof input === "string" && input.length > 0, "invalid_audit_path");
   failUnless(Buffer.byteLength(input, "utf8") <= limits.maxPathBytes, "audit_path_too_large");
-  failUnless(!input.includes("\\") && !input.includes("\0") && !input.startsWith("/") && !/^[a-z]:/iu.test(input),
+  failUnless(!input.includes("\\") && !/[\0\r\n\t]/u.test(input)
+    && !input.startsWith("/") && !/^[a-z]:/iu.test(input),
     "invalid_audit_path");
   const components = input.split("/");
   failUnless(components.every((component) => component.length > 0 && component !== "." && component !== ".."),
@@ -386,3 +424,204 @@ export function scanBrandText(input: unknown, options: ScanBrandTextOptions): Br
     findings,
   });
 }
+
+function runGitCommand(
+  root: string,
+  args: readonly string[],
+  input: Buffer | undefined,
+  maxBuffer: number,
+): Buffer {
+  const result = childProcess.spawnSync("git", [...args], {
+    cwd: root,
+    input,
+    encoding: "buffer",
+    maxBuffer,
+    timeout: 15_000,
+    windowsHide: true,
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (result.error !== undefined || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw new BrandAuditError("git_command_failed");
+  }
+  return result.stdout;
+}
+
+function decodeGitLine(value: Buffer, code: string): string {
+  try {
+    const output = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(value);
+    failUnless(!output.includes("\ufeff") && !/[\0\r\n\t]/u.test(output), code);
+    return output;
+  } catch (error) {
+    if (error instanceof BrandAuditError) throw error;
+    throw new BrandAuditError(code);
+  }
+}
+
+function parseSingleOid(value: Buffer, code: string): string {
+  let end = value.length;
+  if (end > 0 && value[end - 1] === 0x0a) end -= 1;
+  if (end > 0 && value[end - 1] === 0x0d) end -= 1;
+  const text = decodeGitLine(value.subarray(0, end), code);
+  failUnless(GIT_OID_RE.test(text), code);
+  return text;
+}
+
+function parseGitTree(raw: Buffer, limits: BrandAuditLimits): readonly GitTreeEntry[] {
+  failUnless(raw.length <= limits.maxArchiveBytes, "git_tree_too_large");
+  if (raw.length === 0) return Object.freeze([]);
+  failUnless(raw[raw.length - 1] === 0, "invalid_git_tree_record");
+  const records = raw.subarray(0, raw.length - 1).toString("latin1").split("\0");
+  failUnless(records.length <= limits.maxEntries, "too_many_git_entries");
+  const entries: GitTreeEntry[] = [];
+  for (const record of records) {
+    const bytes = Buffer.from(record, "latin1");
+    const tab = bytes.indexOf(0x09);
+    failUnless(tab > 0 && tab < bytes.length - 1, "invalid_git_tree_record");
+    const header = bytes.subarray(0, tab).toString("ascii");
+    const match = /^(100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/u.exec(header);
+    failUnless(match !== null, "invalid_git_tree_record");
+    const mode = match[1]!;
+    const type = match[2]!;
+    failUnless((mode === "100644" || mode === "100755") && type === "blob", "unsupported_git_entry");
+    const relativePath = decodeGitLine(bytes.subarray(tab + 1), "invalid_git_path_encoding");
+    const validatedPath = validateExactPath(relativePath, limits);
+    failUnless(!validatedPath.split("/").includes("node_modules"), "forbidden_git_path");
+    entries.push(Object.freeze({ mode, oid: match[3]!, path: validatedPath }));
+  }
+  return Object.freeze(entries);
+}
+
+function includeEntry(relativePath: string, includes: readonly string[]): boolean {
+  return includes.length === 0 || includes.some((include) =>
+    relativePath === include || relativePath.startsWith(`${include}/`));
+}
+
+function parseGitBlobBatch(
+  raw: Buffer,
+  entries: readonly GitTreeEntry[],
+  limits: BrandAuditLimits,
+): readonly Buffer[] {
+  failUnless(raw.length <= limits.maxArchiveBytes, "git_batch_too_large");
+  const blobs: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const newline = raw.indexOf(0x0a, offset);
+    failUnless(newline > offset && newline - offset <= 256, "invalid_git_batch_record");
+    const header = raw.subarray(offset, newline).toString("ascii");
+    const match = /^([0-9a-f]{40}(?:[0-9a-f]{24})?) blob ([0-9]+)$/u.exec(header);
+    failUnless(match !== null && match[1] === entry.oid, "invalid_git_batch_record");
+    const size = Number(match[2]);
+    failUnless(Number.isSafeInteger(size) && size >= 0, "invalid_git_batch_record");
+    failUnless(size <= limits.maxBlobBytes, "git_blob_too_large");
+    const bodyStart = newline + 1;
+    const bodyEnd = bodyStart + size;
+    failUnless(bodyEnd < raw.length && raw[bodyEnd] === 0x0a, "truncated_git_blob");
+    blobs.push(Buffer.from(raw.subarray(bodyStart, bodyEnd)));
+    offset = bodyEnd + 1;
+  }
+  failUnless(offset === raw.length, "invalid_git_batch_record");
+  return Object.freeze(blobs);
+}
+
+function addFindings(
+  output: BrandAuditFinding[],
+  result: BrandAuditResult,
+): void {
+  output.push(...result.findings);
+  failUnless(output.length <= MAX_PUBLIC_FINDINGS, "too_many_audit_findings");
+}
+
+/** Scan paths and blob bytes from one immutable Git commit without reading the worktree. */
+export function scanGitTree(
+  options: GitTreeScanOptions,
+  dependencies: GitScanDependencies = {},
+): GitTreeScanResult {
+  failUnless(isPlainObject(options), "invalid_git_options");
+  failUnless(typeof options.root === "string" && options.root.length > 0, "invalid_git_root");
+  failUnless(typeof options.subject === "string" && GIT_OID_RE.test(options.subject), "invalid_git_subject");
+  failUnless(options.include === undefined || Array.isArray(options.include), "invalid_git_include");
+  failUnless(isPlainObject(dependencies), "invalid_git_dependencies");
+  failUnless(dependencies.runGit === undefined || typeof dependencies.runGit === "function", "invalid_git_dependencies");
+  const limits = resolveLimits(options.limits);
+  const includes = Object.freeze((options.include ?? []).map((value) => validateExactPath(value, limits)));
+  failUnless(new Set(includes).size === includes.length, "duplicate_git_include");
+  const runGit = dependencies.runGit ?? runGitCommand;
+  const subject = parseSingleOid(
+    runGit(options.root, ["rev-parse", "--verify", `${options.subject}^{commit}`], undefined, 1024),
+    "invalid_git_subject",
+  );
+  failUnless(subject === options.subject, "invalid_git_subject");
+  const tree = parseSingleOid(
+    runGit(options.root, ["rev-parse", "--verify", `${subject}^{tree}`], undefined, 1024),
+    "invalid_git_tree",
+  );
+  const allEntries = parseGitTree(
+    runGit(options.root, ["ls-tree", "-r", "-z", "--full-tree", subject], undefined, limits.maxArchiveBytes),
+    limits,
+  );
+  const entries = Object.freeze(allEntries.filter((entry) => includeEntry(entry.path, includes)));
+  const batchInput = entries.length === 0
+    ? Buffer.alloc(0)
+    : Buffer.from(`${entries.map((entry) => entry.oid).join("\n")}\n`, "ascii");
+  const blobs = entries.length === 0
+    ? Object.freeze([] as Buffer[])
+    : parseGitBlobBatch(
+      runGit(options.root, ["cat-file", "--batch"], batchInput, limits.maxArchiveBytes),
+      entries,
+      limits,
+    );
+  const findings: BrandAuditFinding[] = [];
+  for (const [index, entry] of entries.entries()) {
+    addFindings(findings, scanBrandText(entry.path, { scope: "git_path", exactPath: entry.path, limits }));
+    addFindings(findings, scanBrandText(blobs[index]!, { scope: "git_content", exactPath: entry.path, limits }));
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    scope: "git",
+    subject,
+    tree,
+    scannedCount: entries.length,
+    findingCount: findings.length,
+    findings: Object.freeze(findings),
+  });
+}
+
+function parseGitArguments(argv: readonly string[]): { readonly subject: string; readonly include: readonly string[] } {
+  failUnless(argv[0] === "git", "invalid_cli_arguments");
+  let subject: string | undefined;
+  const include: string[] = [];
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    const value = argv[index + 1];
+    failUnless(value !== undefined, "invalid_cli_arguments");
+    if (argument === "--subject") {
+      failUnless(subject === undefined, "invalid_cli_arguments");
+      subject = value;
+    } else if (argument === "--include") {
+      include.push(value);
+    } else {
+      throw new BrandAuditError("invalid_cli_arguments");
+    }
+    index += 1;
+  }
+  failUnless(subject !== undefined, "invalid_cli_arguments");
+  failUnless(GIT_OID_RE.test(subject), "invalid_git_subject");
+  return Object.freeze({ subject, include: Object.freeze(include) });
+}
+
+/** Execute the mandatory audit CLI and emit exactly one metadata-only JSON document. */
+export function main(argv: readonly string[] = process.argv.slice(2)): number {
+  try {
+    const parsed = parseGitArguments(argv);
+    const result = scanGitTree({ root: process.cwd(), subject: parsed.subject, include: parsed.include });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.findingCount === 0 ? 0 : 1;
+  } catch (error) {
+    const code = error instanceof BrandAuditError ? error.code : "brand_audit_failed";
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, scope: "git", ok: false, code })}\n`);
+    return 2;
+  }
+}
+
+if (require.main === module) process.exitCode = main();

@@ -404,6 +404,14 @@ test("Git scan rejects unsupported entries, malformed records, and oversized blo
       "unsupported_git_entry",
     );
 
+    git(fixture.root, ["update-index", "--force-remove", "link-entry"]);
+    git(fixture.root, ["update-index", "--add", "--cacheinfo", `160000,${fixture.subject},nested-repository`]);
+    git(fixture.root, ["commit", "--quiet", "-m", "nested"]);
+    expectCode(
+      () => audit.scanGitTree({ root: fixture.root, subject: git(fixture.root, ["rev-parse", "HEAD"]) }),
+      "unsupported_git_entry",
+    );
+
     expectCode(
       () => audit.scanGitTree({
         root: fixture.root,
