@@ -7,6 +7,7 @@ const path = require("node:path") as typeof import("node:path");
 
 const evidence = require("../../dist/maintainer/pre-release-evidence.cjs") as {
   readonly validatePreReleaseEvidence: (value: unknown) => Readonly<Record<string, unknown>>;
+  readonly validatePhaseReadinessEvidence: (value: unknown) => Readonly<Record<string, unknown>>;
   readonly runCli: (
     argv: readonly string[],
     io: {
@@ -16,6 +17,35 @@ const evidence = require("../../dist/maintainer/pre-release-evidence.cjs") as {
     },
   ) => number;
 };
+
+test("phase readiness evidence stays closed and cannot promote NOT_RUN platform lanes", () => {
+  const value = {
+    schemaVersion: 1,
+    result: "BLOCKED",
+    candidateSubject: "1".repeat(40),
+    candidateTree: "2".repeat(40),
+    packageVersion: "0.3.0",
+    packageProductTreeDigest: "3".repeat(64),
+    artifactSha256: "4".repeat(64),
+    memberCount: 7,
+    dryRunCount: 1,
+    actualPackCount: 1,
+    localGuideDigest: "5".repeat(64),
+    semanticReview: { verdict: "PASS", reviewedSubject: "6".repeat(40), reviewedTree: "7".repeat(40), blobCount: 5 },
+    checks: ["dependency-audit", "build", "full-tests", "generated-qa", "generated-cursor", "docs-check", "local-guide", "retirement-audit", "git-brand-audit", "pack-audit", "tar-brand-audit", "required-smoke"].map((name) => ({ name, conclusion: "PASS" })),
+    platformLanes: "NOT_RUN",
+    externalActions: { tag: "NOT_RUN_BY_SCOPE", publish: "NOT_RUN_BY_SCOPE", registry_refetch: "NOT_RUN_BY_SCOPE" },
+  };
+  assert.deepEqual(evidence.validatePhaseReadinessEvidence(value), value);
+  assert.throws(
+    () => evidence.validatePhaseReadinessEvidence({ ...value, result: "PASS" }),
+    (error: unknown) => (error as { code?: unknown }).code === "platform_lanes_incomplete",
+  );
+  assert.throws(
+    () => evidence.validatePhaseReadinessEvidence({ ...value, rawOutput: "private" }),
+    (error: unknown) => (error as { code?: unknown }).code === "invalid_readiness_schema",
+  );
+});
 
 const SUBJECT_SHA = "1".repeat(40);
 const SUBJECT_TREE = "2".repeat(40);

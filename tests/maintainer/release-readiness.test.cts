@@ -1,5 +1,6 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -23,6 +24,7 @@ interface CandidatePackageArtifactLease {
 }
 
 interface ReleaseReadinessModule {
+  ReleaseReadinessError: new (code: string) => Error & { readonly code: string };
   CandidatePackageArtifactError: new (code: string) => Error & { readonly code: string };
   createCandidatePackageArtifact(
     options: {
@@ -38,6 +40,7 @@ interface ReleaseReadinessModule {
     consumer: CandidateConsumer,
     callback: (bytes: Buffer, artifact: CandidatePackageArtifact) => T,
   ): T;
+  runReleaseReadiness(options: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>;
 }
 
 const readiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
@@ -216,5 +219,166 @@ test("injected artifact mutation fails closed and prevents the next consumer", (
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const CANONICAL_SKILL_PATHS = Object.freeze([
+  "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
+] as const);
+
+const LOCAL_CHECK_NAMES = Object.freeze([
+  "dependency-audit", "build", "full-tests", "generated-qa", "generated-cursor",
+  "docs-check", "local-guide", "retirement-audit", "git-brand-audit", "pack-audit",
+  "tar-brand-audit", "required-smoke",
+] as const);
+
+function git(root: string, args: readonly string[]): string {
+  return childProcess.execFileSync("git", ["-C", root, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function writeFixture(root: string, relativePath: string, contents: string): void {
+  const destination = path.join(root, ...relativePath.split("/"));
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, contents, "utf8");
+}
+
+function readinessFixture(): {
+  readonly root: string;
+  readonly reviewedSubject: string;
+  readonly candidateSubject: string;
+  readonly receiptPath: string;
+  readonly artifact: CandidatePackageArtifact;
+} {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-core-"));
+  git(root, ["init", "--quiet", "--initial-branch=master"]);
+  git(root, ["config", "user.email", "tests@example.invalid"]);
+  git(root, ["config", "user.name", "KCodeRag Tests"]);
+  for (const [index, relativePath] of CANONICAL_SKILL_PATHS.entries()) {
+    writeFixture(root, relativePath, `canonical-${index}\n`);
+  }
+  writeFixture(root, "docs/MCP_QA_EXPERIENCE_GUIDE.md", "local authority\n");
+  writeFixture(root, "dist/bin/kcoderag-nav.cjs", "#!/usr/bin/env node\n");
+  writeFixture(root, "kcoderag-cursor/.cursor-plugin/plugin.json", '{"name":"kcoderag-nav","version":"0.3.0"}\n');
+  writeFixture(root, "kcoderag-qa/.claude-plugin/plugin.json", '{"name":"kcoderag-qa","version":"0.3.0"}\n');
+  writeFixture(root, "kcoderag-qa/.codex-plugin/plugin.json", '{"name":"kcoderag-qa","version":"0.3.0"}\n');
+  writeFixture(root, "package.json", JSON.stringify({
+    name: "kcoderag-nav",
+    version: "0.3.0",
+    files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md"],
+  }, null, 2) + "\n");
+  writeFixture(root, "package-lock.json", JSON.stringify({
+    name: "kcoderag-nav", version: "0.3.0", lockfileVersion: 3,
+    packages: { "": { name: "kcoderag-nav", version: "0.3.0" } },
+  }, null, 2) + "\n");
+  git(root, ["add", "--", "."]);
+  git(root, ["commit", "--quiet", "-m", "reviewed"]);
+  const reviewedSubject = git(root, ["rev-parse", "HEAD"]);
+  const blobDigests = Object.fromEntries(CANONICAL_SKILL_PATHS.map((relativePath) => [
+    relativePath,
+    crypto.createHash("sha256").update(fs.readFileSync(path.join(root, ...relativePath.split("/")))).digest("hex"),
+  ]));
+  writeFixture(root, "docs/review-note.md", "documentation child\n");
+  git(root, ["add", "--", "docs/review-note.md"]);
+  git(root, ["commit", "--quiet", "-m", "candidate"]);
+  const candidateSubject = git(root, ["rev-parse", "HEAD"]);
+  const receiptPath = path.join(root, "semantic-review.json");
+  fs.writeFileSync(receiptPath, JSON.stringify({
+    schemaVersion: 1,
+    verdict: "PASS",
+    reviewedSubject,
+    reviewedTree: git(root, ["rev-parse", `${reviewedSubject}^{tree}`]),
+    entryPath: CANONICAL_SKILL_PATHS[0],
+    referencePaths: [...CANONICAL_SKILL_PATHS.slice(1)],
+    blobDigests,
+    ruleCounts: { R: 19, S: 8 },
+    behaviorCaseCount: 15,
+  }, null, 2) + "\n");
+  return {
+    root,
+    reviewedSubject,
+    candidateSubject,
+    receiptPath,
+    artifact: Object.freeze({
+      name: "kcoderag-nav",
+      version: "0.3.0",
+      sha256: "a".repeat(64),
+      memberCount: 7,
+      dryRunCount: 1,
+      actualPackCount: 1,
+    }),
+  };
+}
+
+function readinessOptions(fixture: ReturnType<typeof readinessFixture>): Readonly<Record<string, unknown>> {
+  return {
+    root: fixture.root,
+    candidateSubject: fixture.candidateSubject,
+    semanticReviewReceipt: fixture.receiptPath,
+    artifact: fixture.artifact,
+    checks: LOCAL_CHECK_NAMES.map((name) => ({ name, conclusion: "PASS" })),
+  };
+}
+
+test("exact 0.3.0 local readiness remains BLOCKED until four platform lanes exist", () => {
+  const fixture = readinessFixture();
+  try {
+    const before = {
+      head: git(fixture.root, ["rev-parse", "HEAD"]),
+      status: git(fixture.root, ["status", "--porcelain=v1"]),
+      refs: git(fixture.root, ["show-ref", "--head"]),
+    };
+    const result = readiness.runReleaseReadiness(readinessOptions(fixture));
+    assert.equal(result.result, "BLOCKED");
+    assert.equal(result.candidateSubject, fixture.candidateSubject);
+    assert.equal(result.packageVersion, "0.3.0");
+    assert.equal(result.platformLanes, "NOT_RUN");
+    assert.deepEqual(result.externalActions, {
+      tag: "NOT_RUN_BY_SCOPE",
+      publish: "NOT_RUN_BY_SCOPE",
+      registry_refetch: "NOT_RUN_BY_SCOPE",
+    });
+    assert.deepEqual({
+      head: git(fixture.root, ["rev-parse", "HEAD"]),
+      status: git(fixture.root, ["status", "--porcelain=v1"]),
+      refs: git(fixture.root, ["show-ref", "--head"]),
+    }, before);
+    assert.doesNotMatch(JSON.stringify(result), /semantic-review\.json|example\.invalid|Bearer/iu);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("semantic PASS is revalidated from both Git subjects and rejects stale, reordered, extra, or missing blobs", () => {
+  for (const scenario of ["stale", "reordered", "extra", "missing"] as const) {
+    const fixture = readinessFixture();
+    try {
+      const receipt = JSON.parse(fs.readFileSync(fixture.receiptPath, "utf8")) as Record<string, any>;
+      if (scenario === "stale") {
+        writeFixture(fixture.root, CANONICAL_SKILL_PATHS[0], "changed after review\n");
+        git(fixture.root, ["add", "--", CANONICAL_SKILL_PATHS[0]]);
+        git(fixture.root, ["commit", "--quiet", "-m", "stale"]);
+        (readinessOptions(fixture) as Record<string, unknown>).candidateSubject = git(fixture.root, ["rev-parse", "HEAD"]);
+      } else if (scenario === "reordered") {
+        receipt.referencePaths.reverse();
+      } else if (scenario === "extra") {
+        receipt.referencePaths.push("plugin-src/capabilities/code-style-nudge/skill/references/extra.md");
+      } else {
+        receipt.referencePaths.pop();
+      }
+      if (scenario !== "stale") fs.writeFileSync(fixture.receiptPath, JSON.stringify(receipt));
+      assert.throws(
+        () => readiness.runReleaseReadiness(readinessOptions(fixture)),
+        (error: unknown) => (error as { code?: unknown }).code === "semantic_review_stale",
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
   }
 });
