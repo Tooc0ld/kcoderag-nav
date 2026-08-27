@@ -59,8 +59,8 @@ interface SupportedCapabilityLifecycle {
   readonly branch: "supported";
   readonly hostVersion: string;
   readonly receiptDigest: string;
-  readonly navigationThenJx3: boolean;
-  readonly jx3ThenNavigation: boolean;
+  readonly navigationThenStyle: boolean;
+  readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
   readonly failedSecondAddPreserved: boolean;
   readonly update: boolean;
@@ -110,6 +110,7 @@ interface PackageProvenance {
   readonly resolvedPackageName: "kcoderag-nav";
   readonly resolvedVersion: string;
   readonly lifecycleTarballSha256: string;
+  readonly artifactMemberCount?: number;
   readonly publicRegistryArtifact?: {
     readonly registry: "https://registry.npmjs.org/";
     readonly resolvedTarballUrl: string;
@@ -117,6 +118,25 @@ interface PackageProvenance {
     readonly artifactSha256: string;
     readonly artifactSha512: string;
   };
+}
+
+interface CandidatePackageArtifactLease {
+  readonly artifact: {
+    readonly name: "kcoderag-nav";
+    readonly version: string;
+    readonly sha256: string;
+    readonly memberCount: number;
+    readonly dryRunCount: 1;
+    readonly actualPackCount: 1;
+  };
+  dispose(): void;
+}
+
+interface ReleaseReadinessModule {
+  createCandidatePackageArtifact(options: {
+    readonly root: string;
+    readonly consumers: readonly ["host-smoke"];
+  }): CandidatePackageArtifactLease;
 }
 
 interface AcquiredPackage extends PackageProvenance {
@@ -139,7 +159,8 @@ interface SmokeModule {
   }): number;
   runHostSmoke(options: {
     readonly mode: SmokeMode;
-    readonly packageSpec: string;
+    readonly packageSpec?: string;
+    readonly artifactLease?: CandidatePackageArtifactLease;
     readonly expectedVersion?: string;
     readonly temporaryRoot: string;
     readonly hosts?: readonly HostId[];
@@ -156,6 +177,7 @@ interface SmokeModule {
       cwd: string,
       env: NodeJS.ProcessEnv,
     ) => { readonly code: number; readonly stdout: string; readonly stderr: string };
+    readonly observeCandidateBytes?: (bytes: Buffer) => void;
   }): Promise<{
     readonly schemaVersion: 1;
     readonly mode: SmokeMode;
@@ -176,6 +198,7 @@ interface StubModule {
 }
 
 const smoke = require("../../dist/smoke/host-smoke.cjs") as SmokeModule;
+const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
 const stub = require("../../dist/smoke/stub-mcp-server.cjs") as StubModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 
@@ -762,6 +785,67 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+test("readiness artifact drives all five packaged hosts from the same injected SHA and member count", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-hosts-"));
+  const lease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["host-smoke"],
+  });
+  const artifact = { ...lease.artifact };
+  let observed: Buffer | undefined;
+  try {
+    const result = await smoke.runHostSmoke({
+      mode: "required-contract",
+      artifactLease: lease,
+      temporaryRoot: root,
+      hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
+    }, {
+      observeCandidateBytes: (bytes) => { observed = bytes; },
+    });
+    assert.equal(result.status, "PASS", JSON.stringify(result));
+    assert.equal(crypto.createHash("sha256").update(observed ?? Buffer.alloc(0)).digest("hex"), artifact.sha256);
+    assert.deepEqual(result.provenance, {
+      requestedPackageSpec: "readiness-artifact",
+      expectedVersion: artifact.version,
+      resolvedPackageName: "kcoderag-nav",
+      resolvedVersion: artifact.version,
+      lifecycleTarballSha256: artifact.sha256,
+      artifactMemberCount: artifact.memberCount,
+    });
+    assert.equal(result.hosts.length, 5);
+    for (const host of result.hosts) {
+      assert.equal(host.status, "PASS", host.host);
+      assert.equal(host.provenance, result.provenance);
+      assert.equal(host.runtimeContract?.layer, "packaged");
+      if (host.host === "claude") {
+        assert.equal(host.capabilityLifecycle?.branch, "supported");
+        assert.equal(host.capabilityLifecycle?.hostVersion, "2.1.241");
+      } else {
+        assert.deepEqual(host.capabilityLifecycle, {
+          schemaVersion: 1,
+          branch: "unsupported",
+          hostVersion: host.host === "codex"
+            ? "0.146.1"
+            : host.host === "cursor"
+              ? "3.17.8"
+              : host.host === "opencode"
+                ? "1.18.23"
+                : "0.0.0",
+          navigationInstalled: true,
+          refusalCode: "host_version_unsupported",
+          zeroWrite: true,
+          navigationPreserved: true,
+        });
+      }
+    }
+    assert.equal("publicRegistryArtifact" in (result.provenance ?? {}), false);
+    assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust|admission/iu);
+  } finally {
+    lease.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
