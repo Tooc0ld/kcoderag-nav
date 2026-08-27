@@ -72,6 +72,7 @@ const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
 const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
+const SCRUB_BASELINE_PATH = "dist/maintainer/scrub-baseline.cjs";
 const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
 const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
@@ -323,6 +324,28 @@ test("publishes host support runtime and keeps repository-only evidence outputs 
       expectCode(() => packAudit.validatePack(current), "non_publishable_compiled_output");
     }
   }
+});
+
+test("keeps the scrub baseline maintainer outside every publish inventory boundary", () => {
+  const declared = packageJson();
+  declared.files.push(SCRUB_BASELINE_PATH);
+  expectCode(
+    () => packAudit.expandPackageFiles(repositoryRoot, declared),
+    "non_publishable_compiled_output",
+  );
+
+  const expected = baseline();
+  expectCode(
+    () => packAudit.validatePack({
+      ...expected,
+      expectedPaths: [...expected.expectedPaths, SCRUB_BASELINE_PATH],
+    }),
+    "non_publishable_compiled_output",
+  );
+
+  const archived = baseline();
+  archived.archiveEntries.set(SCRUB_BASELINE_PATH, Buffer.from("repository-only\n"));
+  expectCode(() => packAudit.validatePack(archived), "non_publishable_compiled_output");
 });
 
 test("rejects retired Dev package entries and archive members without broad content matching", () => {
