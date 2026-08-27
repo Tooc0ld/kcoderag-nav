@@ -99,9 +99,11 @@ const FORBIDDEN_PREFIXES = Object.freeze([
 export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/fixtures/host-delivery.cjs",
   "dist/maintainer/head-acceptance.cjs",
+  "dist/maintainer/github-artifact-upload.cjs",
   "dist/maintainer/pre-release-evidence.cjs",
   "dist/maintainer/readiness-seal.cjs",
   "dist/maintainer/release-readiness.cjs",
+  "dist/maintainer/readiness-workflow.cjs",
   "dist/maintainer/retirement-audit.cjs",
 ]);
 

@@ -127,6 +127,15 @@ function jobNames(source: string): readonly string[] {
   return [...jobs.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1] as string);
 }
 
+function jobBody(source: string, jobName: string): string {
+  const start = source.indexOf(`  ${jobName}:`);
+  assert.notEqual(start, -1);
+  const jobHeader = /^  [a-z][a-z0-9-]*:\s*$/gmu;
+  jobHeader.lastIndex = start + `  ${jobName}:`.length;
+  const next = jobHeader.exec(source);
+  return source.slice(start, next?.index ?? source.length);
+}
+
 test("readiness workflow has one exact branch-push authority and minimal read-only permissions", () => {
   const source = workflow();
   assert.match(source, /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- readiness\/04\.2-candidate\s*$/mu);
@@ -170,11 +179,8 @@ test("workflow keeps one exact four-lane Windows/Linux Node 22/24 fan-out", () =
     ["windows-node24", "windows-latest", "24"],
   ] as const;
   for (const [laneId, runner, nodeMajor] of expected) {
-    const start = source.indexOf(`  ${laneId}:`);
-    assert.notEqual(start, -1);
-    const next = source.indexOf("\n  ", start + 3);
-    const body = source.slice(start, next === -1 ? source.length : next);
-    assert.match(body, new RegExp(`runs-on:\\s*${runner.replace("-", "\\-")}`, "u"));
+    const body = jobBody(source, laneId);
+    assert.match(body, new RegExp(`runs-on:\\s*${runner}`, "u"));
     assert.match(body, new RegExp(`node-version:\\s*[\"']${nodeMajor}[\"']`, "u"));
     assert.match(body, new RegExp(`--lane ${laneId}`, "u"));
     assert.match(body, /needs:\s*package/u);

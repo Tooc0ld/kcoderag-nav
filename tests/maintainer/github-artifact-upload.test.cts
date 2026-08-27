@@ -164,8 +164,7 @@ test("uploads the private lease buffer once through create raw-put finalize and 
     if (url.endsWith("/CreateArtifact")) {
       events.push("create");
       bodies.push(requestBody(init));
-      assert.equal(init?.headers instanceof Headers ? init.headers.get("authorization") : undefined, null);
-      assert.match(JSON.stringify(init?.headers), /Bearer /u);
+      assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer /u);
       return jsonResponse({
         ok: true,
         signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=private",
@@ -174,7 +173,8 @@ test("uploads the private lease buffer once through create raw-put finalize and 
     if (method === "PUT") {
       events.push("upload");
       bodies.push(init?.body);
-      assert.equal(init?.body, fixture.bytes);
+      assert.ok(Buffer.isBuffer(init?.body));
+      assert.ok((init?.body as Buffer).equals(fixture.bytes));
       assert.match(JSON.stringify(init?.headers), /BlockBlob/u);
       return new Response(null, { status: 201 });
     }

@@ -1,0 +1,224 @@
+name: Exact candidate readiness
+
+on:
+  push:
+    branches:
+      - readiness/04.2-candidate
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+
+jobs:
+  package:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/readiness/04.2-candidate' &&
+      github.sha == github.workflow_sha
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ steps.upload.outputs.artifact-name }}
+      artifact-sha256: ${{ steps.upload.outputs.artifact-sha256 }}
+      member-count: ${{ steps.upload.outputs.member-count }}
+      candidate-subject: ${{ steps.upload.outputs.candidate-subject }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Create audit smoke and upload one candidate tgz
+        id: upload
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: npm run readiness:workflow-upload
+
+  linux-node22:
+    needs: package
+    runs-on: ubuntu-latest
+    outputs:
+      receipt: ${{ steps.lane.outputs.receipt }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Download the package job artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact-id }}
+          path: ${{ runner.temp }}/candidate-artifact
+      - name: Verify packaged contracts in linux-node22
+        id: lane
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: >-
+          npm run readiness:workflow-lane -- --lane linux-node22
+          --artifact-root "${{ runner.temp }}/candidate-artifact"
+          --artifact-name "${{ needs.package.outputs.artifact-name }}"
+          --artifact-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
+          --member-count "${{ needs.package.outputs.member-count }}"
+
+  linux-node24:
+    needs: package
+    runs-on: ubuntu-latest
+    outputs:
+      receipt: ${{ steps.lane.outputs.receipt }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Download the package job artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact-id }}
+          path: ${{ runner.temp }}/candidate-artifact
+      - name: Verify packaged contracts in linux-node24
+        id: lane
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: >-
+          npm run readiness:workflow-lane -- --lane linux-node24
+          --artifact-root "${{ runner.temp }}/candidate-artifact"
+          --artifact-name "${{ needs.package.outputs.artifact-name }}"
+          --artifact-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
+          --member-count "${{ needs.package.outputs.member-count }}"
+
+  windows-node22:
+    needs: package
+    runs-on: windows-latest
+    outputs:
+      receipt: ${{ steps.lane.outputs.receipt }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Download the package job artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact-id }}
+          path: ${{ runner.temp }}/candidate-artifact
+      - name: Verify packaged contracts in windows-node22
+        id: lane
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: >-
+          npm run readiness:workflow-lane -- --lane windows-node22
+          --artifact-root "${{ runner.temp }}/candidate-artifact"
+          --artifact-name "${{ needs.package.outputs.artifact-name }}"
+          --artifact-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
+          --member-count "${{ needs.package.outputs.member-count }}"
+
+  windows-node24:
+    needs: package
+    runs-on: windows-latest
+    outputs:
+      receipt: ${{ steps.lane.outputs.receipt }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Download the package job artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact-id }}
+          path: ${{ runner.temp }}/candidate-artifact
+      - name: Verify packaged contracts in windows-node24
+        id: lane
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: >-
+          npm run readiness:workflow-lane -- --lane windows-node24
+          --artifact-root "${{ runner.temp }}/candidate-artifact"
+          --artifact-name "${{ needs.package.outputs.artifact-name }}"
+          --artifact-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
+          --member-count "${{ needs.package.outputs.member-count }}"
+
+  verify-lanes:
+    needs:
+      - package
+      - linux-node22
+      - linux-node24
+      - windows-node22
+      - windows-node24
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked maintainer dependencies
+        run: npm ci --ignore-scripts
+      - name: Build maintainer runtime
+        run: npm run build
+      - name: Verify the closed four-lane receipt set
+        env:
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+          CANDIDATE_ARTIFACT_SHA256: ${{ needs.package.outputs.artifact-sha256 }}
+          CANDIDATE_MEMBER_COUNT: ${{ needs.package.outputs.member-count }}
+          LANE_LINUX_NODE22: ${{ needs.linux-node22.outputs.receipt }}
+          LANE_LINUX_NODE24: ${{ needs.linux-node24.outputs.receipt }}
+          LANE_WINDOWS_NODE22: ${{ needs.windows-node22.outputs.receipt }}
+          LANE_WINDOWS_NODE24: ${{ needs.windows-node24.outputs.receipt }}
+        run: npm run readiness:workflow-verify
