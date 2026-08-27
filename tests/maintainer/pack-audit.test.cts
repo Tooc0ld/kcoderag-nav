@@ -15,6 +15,17 @@ interface PackAuditModule {
     readonly expectedPaths: readonly string[];
     readonly archiveEntries: ReadonlyMap<string, Buffer>;
   }): { readonly version: string; readonly entryCount: number };
+  auditPackArtifact(
+    lease: CandidatePackageArtifactLease,
+    options: { readonly root: string },
+  ): {
+    readonly version: string;
+    readonly entryCount: number;
+    readonly artifactSha256: string;
+    readonly memberCount: number;
+    readonly statusPreserved: boolean;
+    readonly treePreserved: boolean;
+  };
   auditPack(options: { readonly root: string }, dependencies?: {
     readonly scanTarball?: (options: { readonly bytes: Buffer; readonly expectedSha256: string }) => {
       readonly schemaVersion: 1;
@@ -33,7 +44,25 @@ interface PackAuditModule {
   };
 }
 
+interface CandidatePackageArtifactLease {
+  readonly artifact: {
+    readonly sha256: string;
+    readonly memberCount: number;
+    readonly dryRunCount: 1;
+    readonly actualPackCount: 1;
+  };
+  dispose(): void;
+}
+
+interface ReleaseReadinessModule {
+  createCandidatePackageArtifact(options: {
+    readonly root: string;
+    readonly consumers: readonly ["pack-audit"];
+  }): CandidatePackageArtifactLease;
+}
+
 const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
+const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
@@ -159,6 +188,33 @@ test("requires exact archive equality and all self-contained host assets", () =>
     () => packAudit.validatePack({ ...missingLock, expectedPaths: withoutLock }),
     "missing_self_contained_asset",
   );
+});
+
+test("injected artifact is audited without a second pack and preserves its SHA and member count", () => {
+  const lease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["pack-audit"],
+  });
+  const before = { ...lease.artifact };
+  const result = packAudit.auditPackArtifact(lease, { root: repositoryRoot });
+  assert.deepEqual(
+    {
+      artifactSha256: result.artifactSha256,
+      memberCount: result.memberCount,
+      dryRunCount: before.dryRunCount,
+      actualPackCount: before.actualPackCount,
+    },
+    {
+      artifactSha256: before.sha256,
+      memberCount: before.memberCount,
+      dryRunCount: 1,
+      actualPackCount: 1,
+    },
+  );
+  assert.equal(result.version, packageJson().version);
+  assert.equal(result.entryCount, before.memberCount);
+  assert.equal(result.statusPreserved, true);
+  assert.equal(result.treePreserved, true);
 });
 
 test("requires the capability registry, dispatcher runtime, and canonical code style Skill tree", () => {
