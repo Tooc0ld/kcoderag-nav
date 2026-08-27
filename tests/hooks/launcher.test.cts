@@ -247,7 +247,7 @@ function deployment(): Deployment {
   }
   for (const name of [
     "grep-nudge.cjs",
-    "jx3-style-nudge.cjs",
+    "code-style-nudge.cjs",
     "once-marker.cjs",
     "pre-tool-dispatcher.cjs",
   ]) {

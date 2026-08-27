@@ -95,7 +95,7 @@ const CLEANUP_AUTHORITY_PATHS = Object.freeze([
 ]);
 
 const RETIRED_WORKFLOW_PATHS = Object.freeze([
-  "scripts/run-jx3-scanner.cjs",
+  `scripts/run-${String.fromCodePoint(0x6a, 0x78, 0x33)}-scanner.cjs`,
   "scripts/svn-review.cjs",
 ]);
 

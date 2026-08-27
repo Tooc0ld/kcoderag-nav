@@ -39,7 +39,7 @@ interface HostVersionSupportModule {
     repositoryRoot?: string,
   ): {
     readonly navigation: true;
-    readonly jx3StyleNudge: boolean;
+    readonly codeStyleNudge: boolean;
     readonly code?: "host_version_unsupported";
     readonly receiptDigest?: string;
   };
@@ -193,13 +193,13 @@ test("Claude support is exact-version and frozen-receipt-digest bound", () => {
 
   assert.deepEqual(support.evaluateHostVersionSupport("claude", "2.1.241", repositoryRoot), {
     navigation: true,
-    jx3StyleNudge: true,
+    codeStyleNudge: true,
     receiptDigest: digest,
   });
   for (const version of ["2.1.240", "2.1.242", "invalid"]) {
     assert.deepEqual(support.evaluateHostVersionSupport("claude", version, repositoryRoot), {
       navigation: true,
-      jx3StyleNudge: false,
+      codeStyleNudge: false,
       code: "host_version_unsupported",
     });
   }
@@ -213,12 +213,12 @@ test("published support table is self-contained and never needs repository recei
     const isolated = require(isolatedModule) as HostVersionSupportModule;
     assert.deepEqual(isolated.evaluateHostVersionSupport("claude", "2.1.241", path.join(isolatedRoot, "absent")), {
       navigation: true,
-      jx3StyleNudge: true,
+      codeStyleNudge: true,
       receiptDigest: support.HOST_VERSION_SUPPORT_ROWS[0]?.receiptDigest,
     });
     assert.deepEqual(isolated.evaluateHostVersionSupport("opencode", "1.18.23", path.join(isolatedRoot, "absent")), {
       navigation: true,
-      jx3StyleNudge: false,
+      codeStyleNudge: false,
       code: "host_version_unsupported",
     });
   } finally {
@@ -266,7 +266,7 @@ test("every real host probe emits one closed receipt without inferring unsupport
   }
 });
 
-test("JX3 support rows are exact and exist only for frozen PASS receipts", () => {
+test("code-style support rows are exact and exist only for frozen PASS receipts", () => {
   assert.deepEqual(
     support.HOST_VERSION_SUPPORT_ROWS.map(({ host, version }) => ({ host, version })),
     [{ host: "claude", version: "2.1.241" }],
@@ -275,7 +275,7 @@ test("JX3 support rows are exact and exist only for frozen PASS receipts", () =>
   for (const expected of expectedReceipts) {
     const result = support.evaluateHostVersionSupport(expected.host, expected.version, repositoryRoot);
     assert.equal(result.navigation, true);
-    assert.equal(result.jx3StyleNudge, expected.verdict === "PASS");
+    assert.equal(result.codeStyleNudge, expected.verdict === "PASS");
     if (expected.verdict !== "PASS") {
       assert.equal(result.code, "host_version_unsupported");
       assert.equal(result.receiptDigest, undefined);

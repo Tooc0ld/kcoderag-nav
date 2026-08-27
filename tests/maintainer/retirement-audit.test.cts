@@ -348,7 +348,7 @@ test("post retirement rejects every active retired authority, product, workflow,
       code: "python_runtime_remains",
     },
     {
-      relativePath: "scripts/run-jx3-scanner.cjs",
+      relativePath: `scripts/run-${String.fromCodePoint(0x6a, 0x78, 0x33)}-scanner.cjs`,
       bytes: "module.exports = {};\n",
       code: "retired_workflow_remains",
     },

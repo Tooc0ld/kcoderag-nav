@@ -271,7 +271,7 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-test("two projected capabilities compose canonically into one immutable desired state and one transaction", () => {
+test("navigation and code-style contributions compose into one immutable desired state and transaction", () => {
   const value = fixture();
   try {
     const input = initialInput(value);
