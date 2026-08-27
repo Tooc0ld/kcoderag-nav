@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "verdict": "PASS",
+  "reviewedSubject": "bd2de9eda53ff5a0989e7ef8c2d731610fa4a09f",
+  "reviewedTree": "5c560e6f4e39e4a74e39f4680e1114e655879f2c",
+  "entryPath": "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "referencePaths": [
+    "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+    "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
+    "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+    "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md"
+  ],
+  "blobDigests": {
+    "plugin-src/capabilities/code-style-nudge/skill/SKILL.md": "fb1e8753786a5b43f29d8b914182ae0d4afc2cb31c99e465038a5e4097c0d832",
+    "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md": "3be82b351dfe68a87e5f28ffceea7670dae7c130dfc5e5027760aee9d487fc09",
+    "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md": "b41d519d5d39f7485e6070d5cf5578f86ff77c2b1e0fd018c084f0967c7cb0ec",
+    "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md": "31c80b8462528f8fb2ccb7c155d2042284e3e38e0880a13ae14d860932f6e971",
+    "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md": "760bdb231de3423f83a251e57df997457d3504cd732704440ebb0727ad5b3027"
+  },
+  "ruleCounts": {
+    "R": 19,
+    "S": 8
+  },
+  "behaviorCaseCount": 15
+}
