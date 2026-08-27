@@ -422,6 +422,7 @@ test("Git scan is commit-exact, uses one batch, and ignores dirty worktree canar
     assert.match(initial.tree, /^[0-9a-f]{40}$/u);
     assert.equal(initial.scannedCount, 2);
     assert.equal(initial.findingCount, 0);
+    assert.deepEqual(audit.scanGitTree({ root: fixture.root, subject: "HEAD" }), initial);
 
     const dirtyAlias = firstAlias("F001");
     fs.writeFileSync(path.join(fixture.root, "src", "neutral.cts"), dirtyAlias, "utf8");
@@ -513,7 +514,7 @@ test("CLI emits one safe JSON document for findings, success, and argument error
     assert.equal(finding.stdout.includes(secretCanary), false);
 
     const success = childProcess.spawnSync(process.execPath, [
-      cli, "git", "--subject", fixture.subject, "--include", "src",
+      cli, "git", "--subject", "HEAD", "--include", "src",
     ], { cwd: fixture.root, encoding: "utf8" });
     assert.equal(success.status, 0);
     assert.equal((JSON.parse(success.stdout) as GitAuditResult).findingCount, 0);

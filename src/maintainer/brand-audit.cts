@@ -485,6 +485,10 @@ function parseSingleOid(value: Buffer, code: string): string {
   return text;
 }
 
+function validGitSubject(value: unknown): value is string {
+  return typeof value === "string" && (value === "HEAD" || GIT_OID_RE.test(value));
+}
+
 function parseGitTree(raw: Buffer, limits: BrandAuditLimits): readonly GitTreeEntry[] {
   failUnless(raw.length <= limits.maxArchiveBytes, "git_tree_too_large");
   if (raw.length === 0) return Object.freeze([]);
@@ -557,7 +561,7 @@ export function scanGitTree(
 ): GitTreeScanResult {
   failUnless(isPlainObject(options), "invalid_git_options");
   failUnless(typeof options.root === "string" && options.root.length > 0, "invalid_git_root");
-  failUnless(typeof options.subject === "string" && GIT_OID_RE.test(options.subject), "invalid_git_subject");
+  failUnless(validGitSubject(options.subject), "invalid_git_subject");
   failUnless(options.include === undefined || Array.isArray(options.include), "invalid_git_include");
   failUnless(isPlainObject(dependencies), "invalid_git_dependencies");
   failUnless(dependencies.runGit === undefined || typeof dependencies.runGit === "function", "invalid_git_dependencies");
@@ -569,7 +573,7 @@ export function scanGitTree(
     runGit(options.root, ["rev-parse", "--verify", `${options.subject}^{commit}`], undefined, 1024),
     "invalid_git_subject",
   );
-  failUnless(subject === options.subject, "invalid_git_subject");
+  if (GIT_OID_RE.test(options.subject)) failUnless(subject === options.subject, "invalid_git_subject");
   const tree = parseSingleOid(
     runGit(options.root, ["rev-parse", "--verify", `${subject}^{tree}`], undefined, 1024),
     "invalid_git_tree",
@@ -674,7 +678,7 @@ function parseGitArguments(argv: readonly string[]): { readonly subject: string;
     index += 1;
   }
   failUnless(subject !== undefined, "invalid_cli_arguments");
-  failUnless(GIT_OID_RE.test(subject), "invalid_git_subject");
+  failUnless(validGitSubject(subject), "invalid_git_subject");
   return Object.freeze({ subject, include: Object.freeze(include) });
 }
 
