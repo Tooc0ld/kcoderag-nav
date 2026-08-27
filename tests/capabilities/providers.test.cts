@@ -126,6 +126,13 @@ test("code-style support delegates to the exact checked-in PASS receipt", () => 
     navigation.evaluateSupport({ host: "opencode", hostVersion: "0.0.0" }),
     { eligible: true, deliveryMode: "host_native" },
   );
+  for (const host of ["codex", "claude", "cursor", "opencode", "zcode"] as const) {
+    assert.deepEqual(
+      navigation.evaluateSupport({ host, hostVersion: "0.0.0" }),
+      { eligible: true, deliveryMode: "host_native" },
+      host,
+    );
+  }
 
   const supported = codeStyle.evaluateSupport({
     host: "claude",

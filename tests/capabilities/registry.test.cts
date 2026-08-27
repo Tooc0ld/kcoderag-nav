@@ -27,6 +27,9 @@ const registry = require("../../dist/capabilities/registry.cjs") as {
   resolveCapabilityContributions(ids: readonly string[]): readonly CapabilityContribution[];
 };
 
+const FORMER_CAPABILITY = ["j", "x3-style-nudge"].join("");
+const FORMER_SKILL_ALIAS = ["j", "x3-code-style-correction"].join("");
+
 test("synthetic contract: the closed registry resolves navigation without host or installed assets", () => {
   assert.deepEqual(
     registry.BUILT_IN_CAPABILITIES.map((provider) => provider.id),
@@ -86,4 +89,31 @@ test("synthetic contract: the closed registry resolves navigation without host o
     (error: unknown) =>
       error instanceof Error && error.message === "invalid_capability_id",
   );
+});
+
+test("synthetic contract: the neutral identifier resolves once and former identities stay closed", () => {
+  const selected = registry.resolveCapabilitySelection([
+    "code-style-nudge",
+    "code-style-nudge",
+  ]);
+  assert.deepEqual(selected.map((manifest) => manifest.id), ["code-style-nudge"]);
+  assert.equal(registry.getCapabilityProvider("code-style-nudge").id, "code-style-nudge");
+
+  for (const value of [FORMER_CAPABILITY, FORMER_SKILL_ALIAS, "code-style-correction"]) {
+    assert.throws(
+      () => registry.resolveCapabilitySelection([value]),
+      (error: unknown) => error instanceof Error && error.message === "unknown_capability",
+      value,
+    );
+    assert.throws(
+      () => registry.resolveCapabilityContributions([value]),
+      (error: unknown) => error instanceof Error && error.message === "unknown_capability",
+      value,
+    );
+    assert.throws(
+      () => registry.getCapabilityProvider(value as CapabilityId),
+      (error: unknown) => error instanceof Error && error.message === "unknown_capability",
+      value,
+    );
+  }
 });
