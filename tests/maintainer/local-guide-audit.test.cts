@@ -114,9 +114,20 @@ test("rejects a symlink guide before reading when the platform permits link fixt
     writeGuide(outside);
     try {
       fs.symlinkSync(path.join(outside, ...GUIDE.split("/")), destination, "file");
-    } catch (error) {
-      context.skip(`symlink unavailable: ${(error as NodeJS.ErrnoException).code ?? "unknown"}`);
-      return;
+    } catch (fileLinkError) {
+      fs.rmSync(path.dirname(destination), { recursive: true, force: true });
+      try {
+        fs.symlinkSync(
+          path.join(outside, "docs"),
+          path.join(root, "docs"),
+          process.platform === "win32" ? "junction" : "dir",
+        );
+      } catch (directoryLinkError) {
+        const fileCode = (fileLinkError as NodeJS.ErrnoException).code ?? "unknown";
+        const directoryCode = (directoryLinkError as NodeJS.ErrnoException).code ?? "unknown";
+        context.skip(`symlink unavailable: ${fileCode}/${directoryCode}`);
+        return;
+      }
     }
     assert.throws(
       () => audit.auditLocalGuide({ root }),
