@@ -5,6 +5,10 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
+interface TarArchiveModule {
+  readTarArchive(bytes: Buffer): readonly unknown[];
+}
+
 type JsonMap = Record<string, any>;
 
 interface PackAuditModule {
@@ -63,6 +67,7 @@ interface ReleaseReadinessModule {
 
 const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
 const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
+const tarArchive = require("../../dist/maintainer/tar-archive.cjs") as TarArchiveModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
@@ -131,13 +136,14 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
     scanTarball: (options) => {
       scanCount += 1;
       const digest = crypto.createHash("sha256").update(options.bytes).digest("hex");
+      const memberCount = tarArchive.readTarArchive(options.bytes).length;
       assert.equal(options.expectedSha256, digest);
       return Object.freeze({
         schemaVersion: 1,
         scope: "tar",
         artifactSha256: digest,
-        memberCount: 0,
-        scannedCount: 0,
+        memberCount,
+        scannedCount: memberCount,
         findingCount: 0,
         findings: Object.freeze([]),
       });
@@ -447,9 +453,15 @@ test("rejects package or manifest version drift and unresolved template content"
 
 test("pack implementation is local-only and disables lifecycle scripts", () => {
   const source = fs.readFileSync(path.join(repositoryRoot, "src", "maintainer", "pack-audit.cts"), "utf8");
-  assert.match(source, /npm[\s\S]*pack/iu);
-  assert.match(source, /--ignore-scripts/u);
-  assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/iu);
+  const ownerSource = fs.readFileSync(
+    path.join(repositoryRoot, "src", "maintainer", "release-readiness.cts"),
+    "utf8",
+  );
+  assert.match(source, /createCandidatePackageArtifact/u);
+  assert.doesNotMatch(source, /\[\s*"pack"/u);
+  assert.match(ownerSource, /\[\s*"pack",[\s\S]*?"--dry-run"/u);
+  assert.match(ownerSource, /--ignore-scripts/u);
+  assert.doesNotMatch(`${source}\n${ownerSource}`, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/iu);
 });
 
 test("pack audit delegates all gzip and tar parsing to the shared non-extracting parser", () => {

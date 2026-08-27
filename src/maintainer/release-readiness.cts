@@ -35,6 +35,11 @@ interface CandidatePackageArtifactDependencies {
   readonly runNpm?: (root: string, args: readonly string[]) => Buffer;
 }
 
+interface CandidateTarScanDependencies {
+  readonly scanTarball?: typeof brandAudit.scanTarball;
+  readonly observeCandidateBytes?: (bytes: Buffer) => void;
+}
+
 interface PackManifest {
   readonly name: string;
   readonly version: string;
@@ -475,4 +480,32 @@ export function withCandidatePackageBytes<T>(
 ): T {
   failUnless(lease instanceof CandidatePackageArtifactLease, "artifact_lease_invalid");
   return lease.consume(consumer, callback);
+}
+
+/** Scan paths and bodies from the leased snapshot and bind the result to its public metadata. */
+export function scanCandidatePackageArtifact(
+  lease: CandidatePackageArtifactLease,
+  dependencies: CandidateTarScanDependencies = {},
+): ReturnType<typeof brandAudit.scanTarball> {
+  return withCandidatePackageBytes(lease, "tar-scan", (bytes, artifact) => {
+    dependencies.observeCandidateBytes?.(bytes);
+    let result: ReturnType<typeof brandAudit.scanTarball>;
+    try {
+      result = (dependencies.scanTarball ?? brandAudit.scanTarball)({
+        bytes,
+        expectedSha256: artifact.sha256,
+      });
+    } catch (error) {
+      if (error instanceof brandAudit.BrandAuditError) {
+        throw new CandidatePackageArtifactError(error.code);
+      }
+      throw error;
+    }
+    failUnless(
+      result.artifactSha256 === artifact.sha256 && result.memberCount === artifact.memberCount,
+      "artifact_metadata_drift",
+    );
+    failUnless(result.findingCount === 0, "brand_family_detected");
+    return result;
+  });
 }

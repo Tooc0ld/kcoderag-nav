@@ -4,7 +4,6 @@
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
-const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const brandAudit = require("./brand-audit.cjs") as typeof import("./brand-audit.cjs");
 const releaseReadiness = require("./release-readiness.cjs") as typeof import("./release-readiness.cjs");
@@ -140,6 +139,10 @@ function normalizeRelative(relativePath: string): string {
 
 interface PackAuditDependencies {
   readonly scanTarball?: typeof brandAudit.scanTarball;
+}
+
+interface PackArtifactDependencies {
+  readonly observeCandidateBytes?: (bytes: Buffer) => void;
 }
 
 function assertNotRetiredProductPath(relativePath: string): void {
@@ -431,6 +434,7 @@ function repositorySnapshot(root: string): { readonly status: Buffer; readonly t
 export function auditPackArtifact(
   lease: CandidatePackageArtifactLease,
   options: { readonly root: string },
+  dependencies: PackArtifactDependencies = {},
 ): PackAuditArtifactResult {
   const root = path.resolve(options.root);
   const before = repositorySnapshot(root);
@@ -440,6 +444,7 @@ export function auditPackArtifact(
     const packageJson = parseJson(fs.readFileSync(path.join(root, "package.json")), "package_manifest_invalid");
     const expectedPaths = expandPackageFiles(root, packageJson);
     completed = releaseReadiness.withCandidatePackageBytes(lease, "pack-audit", (bytes, artifact) => {
+      dependencies.observeCandidateBytes?.(bytes);
       const archiveEntries = archiveFileEntries(bytes);
       const validated = validatePack({ packageJson, expectedPaths, archiveEntries });
       if (validated.version !== artifact.version || archiveEntries.size !== artifact.memberCount) {
@@ -471,29 +476,6 @@ export function auditPackArtifact(
   return Object.freeze({ ...completed, statusPreserved, treePreserved });
 }
 
-function npmPackFileList(stdout: Buffer): { readonly filename: string; readonly paths: readonly string[] } {
-  let value: unknown;
-  try {
-    value = JSON.parse(stdout.toString("utf8"));
-  } catch {
-    throw new PackAuditError("pack_manifest_invalid");
-  }
-  if (!Array.isArray(value) || value.length !== 1 || typeof value[0] !== "object" || value[0] === null) {
-    throw new PackAuditError("pack_manifest_invalid");
-  }
-  const record = value[0] as JsonMap;
-  if (typeof record.filename !== "string" || !Array.isArray(record.files)) {
-    throw new PackAuditError("pack_manifest_invalid");
-  }
-  const paths = record.files.map((entry: unknown) => {
-    if (typeof entry !== "object" || entry === null || typeof (entry as JsonMap).path !== "string") {
-      throw new PackAuditError("pack_manifest_invalid");
-    }
-    return normalizeRelative((entry as JsonMap).path);
-  }).sort(compare);
-  return Object.freeze({ filename: path.basename(record.filename), paths: Object.freeze(paths) });
-}
-
 /** Build and inspect a real local tarball without publishing or changing the repository. */
 export function auditPack(
   options: { readonly root: string },
@@ -501,56 +483,36 @@ export function auditPack(
 ): PackAuditResult {
   const root = path.resolve(options.root);
   const before = repositorySnapshot(root);
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-pack-audit-"));
   let completed: { readonly version: string; readonly entryCount: number } | undefined;
   let failure: unknown;
+  let lease: CandidatePackageArtifactLease | undefined;
   try {
-    const packageJson = parseJson(fs.readFileSync(path.join(root, "package.json")), "package_manifest_invalid");
-    const expectedPaths = expandPackageFiles(root, packageJson);
     runNpm(root, ["run", "deps:audit"]);
-    const packed = npmPackFileList(runNpm(root, [
-      "pack",
+    lease = releaseReadiness.createCandidatePackageArtifact({
       root,
-      "--ignore-scripts",
-      "--json",
-      "--pack-destination",
-      temporary,
-    ], true));
-    const tarball = path.join(temporary, packed.filename);
-    const tarballBytes = fs.readFileSync(tarball);
-    const artifactSha256 = crypto.createHash("sha256").update(tarballBytes).digest("hex");
-    let brandResult: ReturnType<typeof brandAudit.scanTarball>;
-    try {
-      brandResult = (dependencies.scanTarball ?? brandAudit.scanTarball)({
-        bytes: tarballBytes,
-        expectedSha256: artifactSha256,
-      });
-    } catch (error) {
-      if (error instanceof brandAudit.BrandAuditError) throw new PackAuditError(error.code);
-      throw error;
-    }
-    if (brandResult.findingCount !== 0) throw new PackAuditError("brand_family_detected");
-    const archiveEntries = archiveFileEntries(tarballBytes);
-    const archivePaths = [...archiveEntries.keys()].sort(compare);
-    assertNoNonPublishedCompiledOutputs(packed.paths);
-    if (
-      packed.paths.length !== archivePaths.length
-      || packed.paths.some((relativePath, index) => relativePath !== archivePaths[index])
-    ) {
-      throw new PackAuditError("pack_manifest_drift");
-    }
-    completed = validatePack({ packageJson, expectedPaths, archiveEntries });
+      consumers: ["pack-audit", "tar-scan"],
+    });
+    const packed = auditPackArtifact(lease, { root });
+    releaseReadiness.scanCandidatePackageArtifact(lease, {
+      ...(dependencies.scanTarball === undefined ? {} : { scanTarball: dependencies.scanTarball }),
+    });
+    completed = Object.freeze({ version: packed.version, entryCount: packed.entryCount });
   } catch (error) {
     failure = error;
   } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+    try { lease?.dispose(); } catch (error) { if (failure === undefined) failure = error; }
   }
   const after = repositorySnapshot(root);
   const statusPreserved = before.status.equals(after.status);
   const treePreserved = before.tree === after.tree;
   if (!statusPreserved) throw new PackAuditError("repository_status_mutated");
   if (!treePreserved) throw new PackAuditError("repository_tree_mutated");
-  if (failure !== undefined) throw failure;
+  if (failure !== undefined) {
+    if (failure instanceof releaseReadiness.CandidatePackageArtifactError) {
+      throw new PackAuditError(failure.code);
+    }
+    throw failure;
+  }
   if (completed === undefined) throw new PackAuditError("pack_audit_failed");
   return Object.freeze({ ...completed, statusPreserved, treePreserved });
 }

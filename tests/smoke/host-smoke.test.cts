@@ -135,8 +135,28 @@ interface CandidatePackageArtifactLease {
 interface ReleaseReadinessModule {
   createCandidatePackageArtifact(options: {
     readonly root: string;
-    readonly consumers: readonly ["host-smoke"];
+    readonly consumers: readonly ("pack-audit" | "tar-scan" | "host-smoke")[];
   }): CandidatePackageArtifactLease;
+  scanCandidatePackageArtifact(lease: CandidatePackageArtifactLease, dependencies?: {
+    readonly observeCandidateBytes?: (bytes: Buffer) => void;
+    readonly scanTarball?: (options: { readonly bytes: Buffer; readonly expectedSha256: string }) => {
+      readonly schemaVersion: 1;
+      readonly scope: "tar";
+      readonly artifactSha256: string;
+      readonly memberCount: number;
+      readonly scannedCount: number;
+      readonly findingCount: number;
+      readonly findings: readonly unknown[];
+    };
+  }): { readonly artifactSha256: string; readonly memberCount: number };
+}
+
+interface PackAuditModule {
+  auditPackArtifact(
+    lease: CandidatePackageArtifactLease,
+    options: { readonly root: string },
+    dependencies?: { readonly observeCandidateBytes?: (bytes: Buffer) => void },
+  ): { readonly artifactSha256: string; readonly memberCount: number };
 }
 
 interface AcquiredPackage extends PackageProvenance {
@@ -199,6 +219,7 @@ interface StubModule {
 
 const smoke = require("../../dist/smoke/host-smoke.cjs") as SmokeModule;
 const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
+const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
 const stub = require("../../dist/smoke/stub-mcp-server.cjs") as StubModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 
@@ -217,19 +238,6 @@ function runNpm(args: readonly string[], cwd: string): string {
 function packFilename(stdout: string, destination: string): string {
   const payload = JSON.parse(stdout) as readonly [{ readonly filename: string }];
   return path.resolve(destination, payload[0].filename);
-}
-
-function packRepositoryFixture(root: string): { readonly tarball: string; readonly version: string } {
-  const destination = path.join(root, "repository-fixture");
-  fs.mkdirSync(destination, { recursive: true });
-  const tarball = packFilename(
-    runNpm(["pack", repositoryRoot, "--json", "--ignore-scripts", "--pack-destination", destination], root),
-    destination,
-  );
-  const version = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
-    readonly version: string;
-  }).version;
-  return { tarball, version };
 }
 
 function packTinyFixture(
@@ -477,7 +485,7 @@ test("package acquisition failure occurs before any host project is created", as
   try {
     const result = await smoke.runHostSmoke(
       {
-        mode: "required-contract",
+        mode: "optional-live",
         packageSpec: "kcoderag-nav@0.0.0",
         temporaryRoot: root,
         hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
@@ -489,7 +497,7 @@ test("package acquisition failure occurs before any host project is created", as
       },
     );
     assert.equal(result.status, "NOT_RUN");
-    assert.equal(smoke.smokeExitCode(result), 1);
+    assert.equal(smoke.smokeExitCode(result), 0);
     assert.deepEqual(fs.readdirSync(root), []);
     assert.doesNotMatch(JSON.stringify(result), /private detail|Bearer|Authorization/iu);
   } finally {
@@ -507,7 +515,7 @@ test("public acquisition strips inherited npm controls and rejects redirected or
       try {
         const result = await smoke.runHostSmoke(
           {
-            mode: "required-contract",
+            mode: "optional-live",
             packageSpec: "kcoderag-nav@1.2.3",
             temporaryRoot: root,
           },
@@ -572,7 +580,7 @@ test("public registry artifact drift during npm install fails before any host pr
     const fixture = packTinyFixture(root, "kcoderag-nav", "1.2.3");
     const result = await smoke.runHostSmoke(
       {
-        mode: "required-contract",
+        mode: "optional-live",
         packageSpec: "kcoderag-nav@1.2.3",
         expectedVersion: "1.2.3",
         temporaryRoot: root,
@@ -601,187 +609,30 @@ test("public registry artifact drift during npm install fails before any host pr
   }
 });
 
-test("exact and latest preserve acquired-manifest and synthetic-tarball provenance across all hosts", async () => {
-  for (const selector of ["exact", "latest"] as const) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-provenance-happy-"));
+test("required readiness rejects exact and latest candidates before public acquisition", async () => {
+  for (const packageSpec of ["kcoderag-nav@1.2.3", "kcoderag-nav@latest"] as const) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-local-only-"));
+    let npmCalls = 0;
     try {
-      const fixture = packRepositoryFixture(root);
-      const requestedPackageSpec = selector === "exact" ? `kcoderag-nav@${fixture.version}` : "kcoderag-nav@latest";
-      const sourceBytes = fs.readFileSync(fixture.tarball);
-      const artifactSha512 = crypto.createHash("sha512").update(sourceBytes).digest("hex");
-      const lifecycleCommands = new Set<string>();
       const result = await smoke.runHostSmoke(
         {
           mode: "required-contract",
-          packageSpec: requestedPackageSpec,
-          ...(selector === "latest" ? { expectedVersion: fixture.version } : {}),
+          packageSpec,
+          expectedVersion: "1.2.3",
           temporaryRoot: root,
-          hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
         },
         {
-          runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
-            if (args[0] !== "exec") return;
-            const executable = args.indexOf("kcoderag-nav");
-            const command = executable < 0 ? undefined : args[executable + 1];
-            if (command !== undefined) lifecycleCommands.add(command);
-            if (command === "install") {
-              const capabilities = args.flatMap((argument, index) =>
-                argument === "--capability" && args[index + 1] !== undefined ? [args[index + 1]] : []);
-              assert.equal(capabilities.length > 0, true);
-              assert.equal(capabilities.every((capability) =>
-                capability === "kcoderag-navigation" || capability === "jx3-style-nudge"), true);
-            }
-            if (command === "uninstall") {
-              const hasAll = args.includes("--all");
-              const selectedJx3 = args.some((argument, index) =>
-                argument === "--capability" && args[index + 1] === "jx3-style-nudge");
-              assert.equal(hasAll !== selectedJx3, true);
-            }
-            assert.equal(args.includes("--env"), false);
-            assert.equal(args.includes("--environment"), false);
-            assert.equal(args.some((argument) => argument === "dev"), false);
-          }),
+          runNpm: () => {
+            npmCalls += 1;
+            throw new Error("required readiness must not acquire a registry candidate");
+          },
         },
       );
-      assert.equal(result.status, "PASS", JSON.stringify(result));
-      assert.deepEqual(result.provenance, {
-        requestedPackageSpec,
-        expectedVersion: fixture.version,
-        resolvedPackageName: "kcoderag-nav",
-        resolvedVersion: fixture.version,
-        lifecycleTarballSha256: result.provenance?.lifecycleTarballSha256,
-        publicRegistryArtifact: {
-          registry: "https://registry.npmjs.org/",
-          resolvedTarballUrl: `https://registry.npmjs.org/kcoderag-nav/-/kcoderag-nav-${fixture.version}.tgz`,
-          distIntegrity: `sha512-${Buffer.from(artifactSha512, "hex").toString("base64")}`,
-          artifactSha256: crypto.createHash("sha256").update(sourceBytes).digest("hex"),
-          artifactSha512,
-        },
-      });
-      assert.match(result.provenance?.lifecycleTarballSha256 ?? "", /^[a-f0-9]{64}$/u);
-      assert.equal(Object.isFrozen(result.provenance), true);
-      const installedManifest = JSON.parse(fs.readFileSync(
-        path.join(root, "acquired", "node_modules", "kcoderag-nav", "package.json"),
-        "utf8",
-      )) as { readonly name: string; readonly version: string };
-      assert.deepEqual(
-        { name: installedManifest.name, version: installedManifest.version },
-        { name: "kcoderag-nav", version: fixture.version },
-      );
-      for (const host of result.hosts) {
-        assert.equal(host.status, "PASS");
-        assert.equal(host.provenance, result.provenance);
-        assert.deepEqual(host.evidence, smoke.completeEvidence());
-        assert.deepEqual(Object.keys(host.navigationContract ?? {}).sort(), [
-          "deep",
-          "fingerprint",
-          "kind",
-          "root",
-          "sameProject",
-        ]);
-        assert.equal(
-          host.navigationContract?.kind,
-          host.host === "cursor"
-            ? "rule_skill_mcp"
-            : host.host === "opencode"
-              ? "plugin_skill_mcp"
-              : "pretooluse_hook",
-        );
-        assert.equal(host.navigationContract?.root, true);
-        assert.equal(host.navigationContract?.deep, true);
-        assert.equal(host.navigationContract?.sameProject, true);
-        assert.match(host.navigationContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
-        assert.deepEqual(Object.keys(host.runtimeContract ?? {}).sort(), [
-          "failOpen",
-          "fingerprint",
-          "hookEvent",
-          "installedAssets",
-          "kind",
-          "layer",
-          "schemaVersion",
-          "successMarker",
-          "updateNotice",
-          "updateRefresh",
-        ]);
-        assert.equal(host.runtimeContract?.layer, "packaged");
-        assert.equal(
-          host.runtimeContract?.kind,
-          host.host === "opencode"
-            ? "project_plugin"
-            : host.host === "cursor"
-              ? "cursor_events"
-              : "advisory_hooks",
-        );
-        assert.deepEqual(
-          {
-            installedAssets: host.runtimeContract?.installedAssets,
-            hookEvent: host.runtimeContract?.hookEvent,
-            successMarker: host.runtimeContract?.successMarker,
-            updateNotice: host.runtimeContract?.updateNotice,
-            updateRefresh: host.runtimeContract?.updateRefresh,
-            failOpen: host.runtimeContract?.failOpen,
-          },
-          {
-            installedAssets: true,
-            hookEvent: true,
-            successMarker: true,
-            updateNotice: true,
-            updateRefresh: true,
-            failOpen: true,
-          },
-        );
-        assert.match(host.runtimeContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
-        if (host.host === "claude") {
-          assert.deepEqual(host.capabilityLifecycle, {
-            schemaVersion: 1,
-            branch: "supported",
-            hostVersion: "2.1.241",
-            receiptDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
-            navigationThenJx3: true,
-            jx3ThenNavigation: true,
-            duplicateNoop: true,
-            failedSecondAddPreserved: true,
-            update: true,
-            conflictUninstallBlocked: true,
-            partialUninstall: true,
-            finalUninstall: true,
-            nativeFirstWrite: true,
-            singleTransaction: true,
-            unrelatedTreePreserved: true,
-            rollbackRestored: true,
-            concurrentLoserBlocked: true,
-            assetDriftFailOpen: true,
-            patchEnvelope: true,
-            missingStableIdSilent: true,
-            markerSaturationSilent: true,
-            sessionEndReceiptBound: true,
-          });
-        } else {
-          assert.deepEqual(host.capabilityLifecycle, {
-            schemaVersion: 1,
-            branch: "unsupported",
-            hostVersion: host.host === "codex"
-              ? "0.146.1"
-              : host.host === "cursor"
-                ? "3.17.8"
-                : host.host === "opencode"
-                  ? "1.18.23"
-                  : "0.0.0",
-            navigationInstalled: true,
-            refusalCode: "host_version_unsupported",
-            zeroWrite: true,
-            navigationPreserved: true,
-          });
-        }
-      }
-      const runtimeFingerprints = result.hosts.map((host) => host.runtimeContract?.fingerprint ?? "");
-      assert.equal(new Set(runtimeFingerprints).size, result.hosts.length);
-      assert.deepEqual([...lifecycleCommands].sort(), ["doctor", "install", "status", "uninstall", "update"]);
-      const serialized = JSON.stringify(result);
-      assert.doesNotMatch(
-        serialized,
-        /repository-fixture|node_modules|synthetic-pack|Authorization|Bearer|kcoderag-dev|"(?:config|command|absolutePath|stdout|stderr|body|headers?|token)"\s*:/iu,
-      );
+      assert.equal(result.status, "NOT_RUN");
+      assert.equal(smoke.smokeExitCode(result), 1);
+      assert.equal(result.provenance, undefined);
+      assert.equal(npmCalls, 0);
+      assert.deepEqual(fs.readdirSync(root), []);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -792,21 +643,41 @@ test("readiness artifact drives all five packaged hosts from the same injected S
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-hosts-"));
   const lease = releaseReadiness.createCandidatePackageArtifact({
     root: repositoryRoot,
-    consumers: ["host-smoke"],
+    consumers: ["pack-audit", "tar-scan", "host-smoke"],
   });
   const artifact = { ...lease.artifact };
-  let observed: Buffer | undefined;
+  const observed: Buffer[] = [];
   try {
+    const packed = packAudit.auditPackArtifact(lease, { root: repositoryRoot }, {
+      observeCandidateBytes: (bytes) => { observed.push(bytes); },
+    });
+    const scanned = releaseReadiness.scanCandidatePackageArtifact(lease, {
+      observeCandidateBytes: (bytes) => { observed.push(bytes); },
+      scanTarball: ({ expectedSha256 }) => Object.freeze({
+        schemaVersion: 1,
+        scope: "tar",
+        artifactSha256: expectedSha256,
+        memberCount: artifact.memberCount,
+        scannedCount: artifact.memberCount,
+        findingCount: 0,
+        findings: Object.freeze([]),
+      }),
+    });
+    assert.equal(packed.artifactSha256, artifact.sha256);
+    assert.equal(scanned.artifactSha256, artifact.sha256);
     const result = await smoke.runHostSmoke({
       mode: "required-contract",
       artifactLease: lease,
       temporaryRoot: root,
       hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
     }, {
-      observeCandidateBytes: (bytes) => { observed = bytes; },
+      observeCandidateBytes: (bytes) => { observed.push(bytes); },
     });
     assert.equal(result.status, "PASS", JSON.stringify(result));
-    assert.equal(crypto.createHash("sha256").update(observed ?? Buffer.alloc(0)).digest("hex"), artifact.sha256);
+    assert.equal(observed.length, 3);
+    assert.equal(observed[0], observed[1]);
+    assert.equal(observed[1], observed[2]);
+    assert.equal(crypto.createHash("sha256").update(observed[0] ?? Buffer.alloc(0)).digest("hex"), artifact.sha256);
     assert.deepEqual(result.provenance, {
       requestedPackageSpec: "readiness-artifact",
       expectedVersion: artifact.version,
@@ -872,7 +743,7 @@ test("public specifier validation fails before acquisition or host project write
     let acquisitions = 0;
     try {
       const result = await smoke.runHostSmoke(
-        { mode: "required-contract", packageSpec, expectedVersion: "1.2.3", temporaryRoot: root },
+        { mode: "optional-live", packageSpec, expectedVersion: "1.2.3", temporaryRoot: root },
         {
           acquirePackage: async () => {
             acquisitions += 1;
@@ -881,7 +752,7 @@ test("public specifier validation fails before acquisition or host project write
         },
       );
       assert.equal(result.status, "NOT_RUN", packageSpec);
-      assert.equal(smoke.smokeExitCode(result), 1);
+      assert.equal(smoke.smokeExitCode(result), 0);
       assert.equal(acquisitions, 0, packageSpec);
       assert.deepEqual(fs.readdirSync(root), [], packageSpec);
     } finally {
@@ -904,7 +775,7 @@ test("public expected-version rules reject exact disagreement and latest omissio
     try {
       const result = await smoke.runHostSmoke(
         {
-          mode: "required-contract",
+          mode: "optional-live",
           packageSpec: input.packageSpec,
           ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
           temporaryRoot: root,
@@ -938,7 +809,7 @@ test("real installed manifests reject exact mismatches, latest races, and wrong 
       });
       const result = await smoke.runHostSmoke(
         {
-          mode: "required-contract",
+          mode: "optional-live",
           packageSpec: fixture.packageSpec,
           expectedVersion: "1.2.3",
           temporaryRoot: root,
@@ -955,21 +826,24 @@ test("real installed manifests reject exact mismatches, latest races, and wrong 
   }
 });
 
-test("every host fails when a per-command content-addressed tarball is replaced after execution", async () => {
+test("every host fails when the leased content-addressed tarball is replaced after execution", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-invocation-drift-"));
+  const lease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["host-smoke"],
+  });
   let replaced = false;
   try {
-    const fixture = packRepositoryFixture(root);
     const result = await smoke.runHostSmoke(
       {
         mode: "required-contract",
-        packageSpec: `kcoderag-nav@${fixture.version}`,
-        expectedVersion: fixture.version,
+        artifactLease: lease,
         temporaryRoot: root,
         hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
       },
       {
-        runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
+        runNpm: (args, cwd, env) => {
+          const result = runNpmResult(args, cwd, env);
           if (!replaced && args[0] === "exec") {
             const packageArgument = args.find((arg) => arg.startsWith("--package="));
             assert.equal(typeof packageArgument, "string");
@@ -980,7 +854,8 @@ test("every host fails when a per-command content-addressed tarball is replaced 
             fs.writeFileSync(invocationTarball, bytes);
             replaced = true;
           }
-        }),
+          return result;
+        },
       },
     );
     assert.equal(replaced, true);
@@ -990,6 +865,7 @@ test("every host fails when a per-command content-addressed tarball is replaced 
     assert.equal(smoke.smokeExitCode(result), 1);
     assert.doesNotMatch(JSON.stringify(result), /verified-artifacts|node_modules|invocation-drift/iu);
   } finally {
+    lease.dispose();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

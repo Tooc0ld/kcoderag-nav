@@ -6,8 +6,13 @@ const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const { pathToFileURL } = require("node:url") as typeof import("node:url");
+const releaseReadiness = require("../maintainer/release-readiness.cjs") as typeof import("../maintainer/release-readiness.cjs");
 
 import type { HostId } from "../core/contracts.cjs";
+import type {
+  CandidatePackageArtifact,
+  CandidatePackageArtifactLease,
+} from "../maintainer/release-readiness.cjs";
 import { parseJsoncObject } from "../core/json-splice.cjs";
 import { HOST_VERSION_SUPPORT_ROWS } from "../hosts/host-version-support.cjs";
 import {
@@ -69,8 +74,8 @@ export interface SupportedCapabilityLifecycle {
   readonly branch: "supported";
   readonly hostVersion: string;
   readonly receiptDigest: string;
-  readonly navigationThenJx3: boolean;
-  readonly jx3ThenNavigation: boolean;
+  readonly navigationThenStyle: boolean;
+  readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
   readonly failedSecondAddPreserved: boolean;
   readonly update: boolean;
@@ -120,6 +125,7 @@ export interface PackageProvenance {
   readonly resolvedPackageName: "kcoderag-nav";
   readonly resolvedVersion: string;
   readonly lifecycleTarballSha256: string;
+  readonly artifactMemberCount?: number;
   readonly publicRegistryArtifact?: PublicRegistryArtifact;
 }
 
@@ -142,6 +148,7 @@ export interface SmokeRunResult {
 export interface RunHostSmokeOptions {
   readonly mode: SmokeMode;
   readonly packageSpec?: string;
+  readonly artifactLease?: CandidatePackageArtifactLease;
   readonly expectedVersion?: string;
   readonly temporaryRoot?: string;
   readonly repositoryRoot?: string;
@@ -183,6 +190,7 @@ interface RunHostSmokeDependencies {
     expectedVersion?: string,
   ) => Promise<AcquiredPackage>;
   readonly runNpm?: NpmRunner;
+  readonly observeCandidateBytes?: (bytes: Buffer) => void;
 }
 
 interface CommandResult {
@@ -199,13 +207,13 @@ interface McpConnection {
 }
 
 interface PackageCliOptions {
-  readonly capabilities?: readonly ("kcoderag-navigation" | "jx3-style-nudge")[];
+  readonly capabilities?: readonly ("kcoderag-navigation" | "code-style-nudge")[];
   readonly all?: boolean;
 }
 
 const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 const RECEIPT_HOST_VERSIONS: Readonly<Record<HostId, string>> = Object.freeze({
   codex: "0.146.1",
   claude: "2.1.241",
@@ -396,7 +404,7 @@ function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
     return value.navigationInstalled && value.refusalCode === "host_version_unsupported" &&
       value.zeroWrite && value.navigationPreserved;
   }
-  return value.navigationThenJx3 && value.jx3ThenNavigation && value.duplicateNoop &&
+  return value.navigationThenStyle && value.styleThenNavigation && value.duplicateNoop &&
     value.failedSecondAddPreserved && value.update && value.conflictUninstallBlocked &&
     value.partialUninstall && value.finalUninstall && value.nativeFirstWrite && value.singleTransaction &&
     value.unrelatedTreePreserved && value.rollbackRestored && value.concurrentLoserBlocked &&
@@ -750,6 +758,75 @@ async function acquirePackage(
     lifecyclePackageSpec,
     runtimePackageRoot: packageRoot,
     ...(publicRegistryArtifact === undefined ? {} : { publicRegistryArtifact }),
+  });
+}
+
+async function acquireCandidatePackage(
+  bytes: Buffer,
+  artifact: CandidatePackageArtifact,
+  temporaryRoot: string,
+  runNpm: NpmRunner,
+): Promise<ValidatedAcquisition> {
+  const acquisitionRuntime = path.join(temporaryRoot, "candidate-runtime");
+  const acquisitionRoot = path.join(acquisitionRuntime, "work");
+  const sourceRoot = path.join(acquisitionRuntime, "artifact");
+  const installRoot = path.join(temporaryRoot, "acquired");
+  fs.mkdirSync(acquisitionRoot, { recursive: true });
+  fs.mkdirSync(sourceRoot, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(installRoot, { recursive: true });
+  const sourcePath = path.join(sourceRoot, `${artifact.sha256}.tgz`);
+  fs.writeFileSync(sourcePath, bytes, { flag: "wx", mode: 0o600 });
+  const sourceRealPath = fs.realpathSync(sourcePath);
+  const sourceMetadata = fs.lstatSync(sourcePath);
+  if (!sourceMetadata.isFile() || sourceMetadata.isSymbolicLink()) {
+    throw new Error("invalid_package_provenance");
+  }
+  const verifiedArtifact: VerifiedTarballArtifact = {
+    originalPath: sourcePath,
+    originalRealPath: sourceRealPath,
+    bytes,
+    sha256: artifact.sha256,
+    compromised: false,
+  };
+  assertVerifiedArtifact(verifiedArtifact);
+  const env = safeEnvironment(acquisitionRuntime);
+  const installed = withVerifiedInvocationTarball(
+    verifiedArtifact,
+    acquisitionRuntime,
+    "candidate-install",
+    (packageSpec) => runNpm([
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--package-lock=false",
+      "--prefix",
+      installRoot,
+      packageSpec,
+    ], acquisitionRoot, env),
+  );
+  if (installed.code !== 0) throw new Error("package_acquisition_failed");
+  const packageRoot = path.join(installRoot, "node_modules", PACKAGE_NAME);
+  try {
+    const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
+    if (!isRecord(manifest) || manifest.name !== artifact.name || manifest.version !== artifact.version) {
+      throw new Error("invalid_package");
+    }
+  } catch {
+    throw new Error("package_acquisition_failed");
+  }
+  const provenance: PackageProvenance = Object.freeze({
+    requestedPackageSpec: "readiness-artifact",
+    expectedVersion: artifact.version,
+    resolvedPackageName: PACKAGE_NAME,
+    resolvedVersion: artifact.version,
+    lifecycleTarballSha256: artifact.sha256,
+    artifactMemberCount: artifact.memberCount,
+  });
+  return Object.freeze({
+    lifecycleArtifact: verifiedArtifact,
+    runtimePackageRoot: packageRoot,
+    provenance,
   });
 }
 
@@ -1895,12 +1972,12 @@ function isConflictFailure(result: PackageCliResult): boolean {
     result.payload.code === "source_conflict" && result.payload.error?.code === "source_conflict";
 }
 
-function jx3SkillPath(host: HostId): string {
-  if (host === "codex") return ".agents/skills/jx3-code-style-correction/SKILL.md";
-  if (host === "claude") return ".claude/skills/jx3-code-style-correction/SKILL.md";
-  if (host === "cursor") return ".cursor/skills/jx3-code-style-correction/SKILL.md";
-  if (host === "opencode") return ".opencode/skills/jx3-code-style-correction/SKILL.md";
-  return ".zcode/skills/jx3-code-style-correction/SKILL.md";
+function codeStyleSkillPath(host: HostId): string {
+  if (host === "codex") return ".agents/skills/code-style-correction/SKILL.md";
+  if (host === "claude") return ".claude/skills/code-style-correction/SKILL.md";
+  if (host === "cursor") return ".cursor/skills/code-style-correction/SKILL.md";
+  if (host === "opencode") return ".opencode/skills/code-style-correction/SKILL.md";
+  return ".zcode/skills/code-style-correction/SKILL.md";
 }
 
 function isCliError(result: PackageCliResult, code: string): boolean {
@@ -1996,10 +2073,10 @@ function installedRuntimeEvidence(
   });
   if (packageRoot === undefined) return failed;
   try {
-    const jx3 = require(path.join(packageRoot, "dist/hooks/jx3-style-nudge.cjs")) as {
-      readonly JX3_NUDGE: string;
+    const codeStyle = require(path.join(packageRoot, "dist/hooks/code-style-nudge.cjs")) as {
+      readonly CODE_STYLE_NUDGE: string;
       structuredMutationPaths(payload: unknown): readonly string[];
-      jx3StyleContribution(payload: unknown, options: Record<string, unknown>): string | undefined;
+      codeStyleContribution(payload: unknown, options: Record<string, unknown>): string | undefined;
     };
     const marker = require(path.join(packageRoot, "dist/hooks/once-marker.cjs")) as {
       readonly MAX_NUDGE_MARKERS: number;
@@ -2019,10 +2096,10 @@ function installedRuntimeEvidence(
       tool_input: { file_path: path.join(projectRoot, "src", "player.cpp") },
       session_id: "packed-native-first-write",
     };
-    const first = jx3.jx3StyleContribution(writePayload, contributionOptions);
-    const repeated = jx3.jx3StyleContribution(writePayload, contributionOptions);
-    const nativeFirstWrite = first === jx3.JX3_NUDGE && repeated === undefined;
-    const missingStableIdSilent = jx3.jx3StyleContribution({
+    const first = codeStyle.codeStyleContribution(writePayload, contributionOptions);
+    const repeated = codeStyle.codeStyleContribution(writePayload, contributionOptions);
+    const nativeFirstWrite = first === codeStyle.CODE_STYLE_NUDGE && repeated === undefined;
+    const missingStableIdSilent = codeStyle.codeStyleContribution({
       tool_name: "Write",
       tool_input: { file_path: path.join(projectRoot, "src", "missing-id.lua") },
     }, contributionOptions) === undefined;
@@ -2038,18 +2115,18 @@ function installedRuntimeEvidence(
       "*** Delete File: src/deleted.cpp",
       "*** End Patch",
     ].join("\n");
-    const patchEnvelope = JSON.stringify(jx3.structuredMutationPaths({
+    const patchEnvelope = JSON.stringify(codeStyle.structuredMutationPaths({
       tool_name: "apply_patch",
       tool_input: { command: patch },
     })) === JSON.stringify(["src/new.cpp", "src/current.lua"]);
 
-    const skillPath = path.join(projectRoot, ...jx3SkillPath(host).split("/"));
+    const skillPath = path.join(projectRoot, ...codeStyleSkillPath(host).split("/"));
     const skillBytes = fs.readFileSync(skillPath);
     const beforeDriftMarkers = fs.existsSync(path.join(cacheRoot, "nudges"))
       ? fs.readdirSync(path.join(cacheRoot, "nudges")).length
       : 0;
     fs.appendFileSync(skillPath, "drift\n", "utf8");
-    const driftResult = jx3.jx3StyleContribution({
+    const driftResult = codeStyle.codeStyleContribution({
       ...writePayload,
       session_id: "packed-asset-drift",
     }, contributionOptions);
@@ -2065,7 +2142,7 @@ function installedRuntimeEvidence(
     const saturated = marker.claimNudgeOnce({ session_id: "saturated" }, {
       host,
       managedRoot: projectRoot,
-      capability: JX3,
+      capability: CODE_STYLE,
       cacheRoot,
       files: {
         ensureDirectory: () => undefined,
@@ -2085,7 +2162,7 @@ function installedRuntimeEvidence(
       cleanup.cleanupSessionClaim({ hook_event_name: "SessionEnd", session_id: "packed-native-first-write" }, {
         host,
         managedRoot: projectRoot,
-        capability: JX3,
+        capability: CODE_STYLE,
         cacheRoot,
         remove: () => { cleanupAttempted = true; return true; },
       }) === false && cleanupAttempted === false;
@@ -2097,9 +2174,9 @@ function installedRuntimeEvidence(
     fs.writeFileSync(unrelatedPath, "preserve me\n", "utf8");
     const unrelatedBefore = fileFingerprint(unrelatedPath);
     const combined = runPackageCli(
-      artifact, combinedRoot, combinedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION, JX3] },
+      artifact, combinedRoot, combinedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION, CODE_STYLE] },
     );
-    const singleTransaction = combined?.changed === true && exactCapabilities(host, combinedRoot, [NAVIGATION, JX3]);
+    const singleTransaction = combined?.changed === true && exactCapabilities(host, combinedRoot, [NAVIGATION, CODE_STYLE]);
     const unrelatedTreePreserved = fileFingerprint(unrelatedPath) === unrelatedBefore;
 
     const busyRoot = path.join(projectsRoot, `${host}-busy`);
@@ -2146,6 +2223,7 @@ async function runRequiredHost(
   receiptPath: string,
   provenance: PackageProvenance,
   runNpm: NpmRunner,
+  readinessArtifact: boolean,
 ): Promise<HostSmokeResult> {
   const projectRoot = path.join(projectsRoot, host);
   const runtimeRoot = path.join(projectsRoot, `${host}-runtime`);
@@ -2169,22 +2247,22 @@ async function runRequiredHost(
     const navigationInstall = runPackageCli(
       artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION] },
     );
-    let supportedNavigationThenJx3 = false;
-    let supportedJx3ThenNavigation = false;
+    let supportedNavigationThenStyle = false;
+    let supportedStyleThenNavigation = false;
     let supportedDuplicateNoop = false;
     let supportedFailedSecondAdd = false;
     let unsupportedRefusal = false;
     let unsupportedZeroWrite = false;
     let unsupportedNavigationPreserved = false;
     if (receipt !== undefined) {
-      const addJx3 = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3] },
+      const addStyle = runPackageCli(
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
       );
-      supportedNavigationThenJx3 = navigationInstall !== undefined && addJx3 !== undefined &&
-        exactCapabilities(host, projectRoot, [NAVIGATION, JX3]);
+      supportedNavigationThenStyle = navigationInstall !== undefined && addStyle !== undefined &&
+        exactCapabilities(host, projectRoot, [NAVIGATION, CODE_STYLE]);
       const beforeDuplicate = treeFingerprint(projectRoot);
       const duplicate = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3, NAVIGATION] },
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE, NAVIGATION] },
       );
       supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
         duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
@@ -2195,14 +2273,14 @@ async function runRequiredHost(
       const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
       const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
       fs.mkdirSync(reverseRoot, { recursive: true });
-      const reverseJx3 = runPackageCli(
-        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [JX3] },
+      const reverseStyle = runPackageCli(
+        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
       );
       const reverseNavigation = runPackageCli(
         artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
       );
-      supportedJx3ThenNavigation = reverseJx3 !== undefined && reverseNavigation !== undefined &&
-        exactCapabilities(host, reverseRoot, [NAVIGATION, JX3]);
+      supportedStyleThenNavigation = reverseStyle !== undefined && reverseNavigation !== undefined &&
+        exactCapabilities(host, reverseRoot, [NAVIGATION, CODE_STYLE]);
 
       const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
       const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
@@ -2210,22 +2288,22 @@ async function runRequiredHost(
       const failedNavigation = runPackageCli(
         artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
       );
-      const conflictPath = path.join(failedRoot, ...jx3SkillPath(host).split("/"));
+      const conflictPath = path.join(failedRoot, ...codeStyleSkillPath(host).split("/"));
       fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
       fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
       const beforeFailedAdd = treeFingerprint(failedRoot);
       const failedAdd = runPackageCliResult(
-        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [JX3] },
+        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
       );
       supportedFailedSecondAdd = failedNavigation !== undefined &&
         isCliError(failedAdd, "unmanaged_name_conflict") &&
         treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
-      evidence.install = supportedNavigationThenJx3;
+      evidence.install = supportedNavigationThenStyle;
     } else {
       evidence.install = navigationInstall !== undefined && exactCapabilities(host, projectRoot, [NAVIGATION]);
       const beforeRefusal = treeFingerprint(projectRoot);
       const refused = runPackageCliResult(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [JX3] },
+        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
       );
       unsupportedRefusal = isCliError(refused, "host_version_unsupported");
       unsupportedZeroWrite = unsupportedRefusal && treeFingerprint(projectRoot) === beforeRefusal;
@@ -2246,13 +2324,20 @@ async function runRequiredHost(
     unsupportedNavigationPreserved = receipt === undefined && unsupportedRefusal &&
       status?.status === "healthy" && exactCapabilities(host, projectRoot, [NAVIGATION]);
     const connection = readConnection(host, projectRoot);
-    evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
+    const packagedConnection = connection?.serverName === expectedServerName(host)
+      && typeof connection.url === "string"
+      && /^(?:http|https):\/\//u.test(connection.url);
+    evidence.toolRegistration = readinessArtifact ? packagedConnection : packagedConnection && connection.url === stubUrl;
     navigationContract = navigationEvidence(host, projectRoot, runtimeRoot);
     evidence.navigation = navigationContract !== undefined && navigationContract.root && navigationContract.deep &&
       navigationContract.sameProject && /^[a-f0-9]{64}$/u.test(navigationContract.fingerprint);
     runtimeContract = await hostRuntimeEvidence(host, projectRoot, runtimeRoot);
     evidence.hostRuntime = completeRuntimeContract(runtimeContract);
-    if (connection?.url === stubUrl) Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
+    if (readinessArtifact && packagedConnection) {
+      Object.assign(evidence, await driveMcp(host, stubUrl, receiptPath));
+    } else if (connection?.url === stubUrl) {
+      Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
+    }
     const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
     evidence.update = update !== undefined;
     evidence.qaOnly = [preinstallStatus.payload, preinstallDoctor.payload, navigationInstall, status, doctor, update]
@@ -2282,7 +2367,7 @@ async function runRequiredHost(
     let partialUninstall = false;
     if (receipt !== undefined) {
       const partial = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [JX3], all: false },
+        artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [CODE_STYLE], all: false },
       );
       const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
       partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
@@ -2308,8 +2393,8 @@ async function runRequiredHost(
           branch: "supported" as const,
           hostVersion,
           receiptDigest: receipt.receiptDigest,
-          navigationThenJx3: supportedNavigationThenJx3,
-          jx3ThenNavigation: supportedJx3ThenNavigation,
+          navigationThenStyle: supportedNavigationThenStyle,
+          styleThenNavigation: supportedStyleThenNavigation,
           duplicateNoop: supportedDuplicateNoop,
           failedSecondAddPreserved: supportedFailedSecondAdd,
           update: evidence.update,
@@ -2556,6 +2641,61 @@ function artifactFailureResults(
   }));
 }
 
+async function executeAcquiredSmoke(
+  mode: SmokeMode,
+  hosts: readonly HostId[],
+  acquiredPackage: ValidatedAcquisition,
+  temporaryRoot: string,
+  server: { readonly url: string },
+  receiptPath: string,
+  runNpm: NpmRunner,
+  readinessArtifact: boolean,
+): Promise<SmokeRunResult> {
+  try {
+    assertVerifiedArtifact(acquiredPackage.lifecycleArtifact);
+  } catch {
+    return aggregate(
+      mode,
+      artifactFailureResults(mode, hosts, acquiredPackage.provenance),
+      acquiredPackage.provenance,
+    );
+  }
+  const projectsRoot = path.join(temporaryRoot, "projects");
+  fs.mkdirSync(projectsRoot, { recursive: true });
+  const results: HostSmokeResult[] = [];
+  for (const host of hosts) {
+    results.push(mode === "required-contract"
+      ? await runRequiredHost(
+          host,
+          acquiredPackage.lifecycleArtifact,
+          acquiredPackage.runtimePackageRoot,
+          projectsRoot,
+          server.url,
+          receiptPath,
+          acquiredPackage.provenance,
+          runNpm,
+          readinessArtifact,
+        )
+      : await runOptionalHost(
+          host,
+          acquiredPackage.lifecycleArtifact,
+          projectsRoot,
+          server.url,
+          receiptPath,
+          acquiredPackage.provenance,
+          runNpm,
+        ));
+  }
+  try { assertVerifiedArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
+  return acquiredPackage.lifecycleArtifact.compromised
+    ? aggregate(
+        mode,
+        artifactFailureResults(mode, hosts, acquiredPackage.provenance),
+        acquiredPackage.provenance,
+      )
+    : aggregate(mode, results, acquiredPackage.provenance);
+}
+
 export async function runHostSmoke(
   options: RunHostSmokeOptions,
   dependencies: RunHostSmokeDependencies = {},
@@ -2566,21 +2706,66 @@ export async function runHostSmoke(
   if (hosts.length === 0 || hosts.some((host) => !HOSTS.includes(host))) {
     throw new Error("unsupported_host");
   }
-  let request: NormalizedPackageRequest;
-  try {
-    request = normalizePackageRequest(options.packageSpec ?? "", options.expectedVersion, repositoryRoot);
-  } catch {
+  const lease = options.artifactLease;
+  if (options.mode === "required-contract" && lease === undefined) {
     return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
       host,
       mode: options.mode,
       unavailableReason: "package_unavailable",
     })));
   }
+  if (
+    lease !== undefined
+    && (options.mode !== "required-contract" || options.packageSpec !== undefined || options.expectedVersion !== undefined)
+  ) {
+    return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
+      host,
+      mode: options.mode,
+      unavailableReason: "package_unavailable",
+    })));
+  }
+  let request: NormalizedPackageRequest | undefined;
+  if (lease === undefined) {
+    try {
+      request = normalizePackageRequest(options.packageSpec ?? "", options.expectedVersion, repositoryRoot);
+    } catch {
+      return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
+        host,
+        mode: options.mode,
+        unavailableReason: "package_unavailable",
+      })));
+    }
+  }
   const receiptPath = path.join(temporaryRoot, "receipts.jsonl");
   const server = await startStubMcpServer(receiptPath);
-  let acquiredPackage: ValidatedAcquisition;
   const runNpm = dependencies.runNpm ?? runNpmProcess;
   try {
+    if (lease !== undefined) {
+      try {
+        return await releaseReadiness.withCandidatePackageBytes(lease, "host-smoke", async (bytes, artifact) => {
+          dependencies.observeCandidateBytes?.(bytes);
+          const acquiredPackage = await acquireCandidatePackage(bytes, artifact, temporaryRoot, runNpm);
+          return executeAcquiredSmoke(
+            options.mode,
+            hosts,
+            acquiredPackage,
+            temporaryRoot,
+            server,
+            receiptPath,
+            runNpm,
+            true,
+          );
+        });
+      } catch {
+        return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
+          host,
+          mode: options.mode,
+          unavailableReason: "package_unavailable",
+        })));
+      }
+    }
+    if (request === undefined) throw new Error("invalid_package_request");
+    let acquiredPackage: ValidatedAcquisition;
     try {
       const acquired = dependencies.acquirePackage === undefined
         ? await acquirePackage(
@@ -2606,48 +2791,16 @@ export async function runHostSmoke(
         unavailableReason: "package_unavailable",
       })));
     }
-    try {
-      assertVerifiedArtifact(acquiredPackage.lifecycleArtifact);
-    } catch {
-      return aggregate(
-        options.mode,
-        artifactFailureResults(options.mode, hosts, acquiredPackage.provenance),
-        acquiredPackage.provenance,
-      );
-    }
-    const projectsRoot = path.join(temporaryRoot, "projects");
-    fs.mkdirSync(projectsRoot, { recursive: true });
-    const results: HostSmokeResult[] = [];
-    for (const host of hosts) {
-      results.push(options.mode === "required-contract"
-        ? await runRequiredHost(
-            host,
-            acquiredPackage.lifecycleArtifact,
-            acquiredPackage.runtimePackageRoot,
-            projectsRoot,
-            server.url,
-            receiptPath,
-            acquiredPackage.provenance,
-            runNpm,
-          )
-        : await runOptionalHost(
-            host,
-            acquiredPackage.lifecycleArtifact,
-            projectsRoot,
-            server.url,
-            receiptPath,
-            acquiredPackage.provenance,
-            runNpm,
-          ));
-    }
-    try { assertVerifiedArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
-    return acquiredPackage.lifecycleArtifact.compromised
-      ? aggregate(
-          options.mode,
-          artifactFailureResults(options.mode, hosts, acquiredPackage.provenance),
-          acquiredPackage.provenance,
-        )
-      : aggregate(options.mode, results, acquiredPackage.provenance);
+    return executeAcquiredSmoke(
+      options.mode,
+      hosts,
+      acquiredPackage,
+      temporaryRoot,
+      server,
+      receiptPath,
+      runNpm,
+      false,
+    );
   } finally {
     await server.close();
   }
