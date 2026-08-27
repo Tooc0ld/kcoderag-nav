@@ -39,7 +39,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **成功调用记录**: Codex/Claude/ZCode `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
   `tool.execute.after` 共用 secret-free、有界、fail-open marker
-- **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
+- **体验指南所有权**: 本仓库从 Phase 04.2 起独占维护 `docs/MCP_QA_EXPERIENCE_GUIDE.md`；兄弟 KCodeRag 仓库中的旧指南只允许作为一次性只读迁入来源，后续不得修改、同步或纳入 readiness 摘要
 - **JX3 支持**: 只允许冻结 PASS receipt 对应的 Claude Code `2.1.241`；Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23`、ZCode 及未证明版本必须以 `host_version_unsupported` 零写拒绝，navigation 仍可用
 - **JX3 完整性**: 写前提示前必须验证当前状态 composite digest 及全部受管文件摘要；缺失、损坏或漂移静默 fail-open，由 status/doctor 报 `capability_drift`
 - **D-19 marker**: 需要重置一次性提示时，先关闭所有相关宿主会话，再人工删除 OS cache 下 `kcoderag-nav/nudges`；status/doctor 不清理，删除失败也不阻断宿主
@@ -256,7 +256,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - **Distribution boundary:** Root marketplace catalogs stay retired. Compatibility manifests may remain inside generated self-contained assets but are not install sources.
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
 - **Release boundary:** Phase 04.2 advances the checked candidate to `0.3.0` and verifies five-host readiness against one exact tgz without tag or publish; any later immutable publication is separately authorized and fixes forward without unpublish or dist-tag rollback.
-- **Documentation boundary:** The sibling KCodeRag repository exclusively owns `MCP_QA_EXPERIENCE_GUIDE.md`; this repository keeps no copy.
+- **Documentation boundary:** This repository exclusively owns `docs/MCP_QA_EXPERIENCE_GUIDE.md` from Phase 04.2 onward. The sibling KCodeRag guide is a one-time read-only import source only and is never updated or bound into readiness evidence.
 - **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries plus OpenCode/ZCode true-host evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
 
 ## Anti-Patterns

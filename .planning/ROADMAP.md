@@ -360,7 +360,7 @@ Plans:
   2. 当前 Git HEAD 的全部跟踪文件通过大小写、Unicode 和常见分隔变体的品牌词零命中门禁；历史 Git 提交不重写，旧 tag、release 和 npm 版本不修改或撤回。
   3. `npm pack --dry-run` 的文件名与最终内容（包括编译 CJS、模板和生成资产）通过同一零命中门禁；门禁自身不以原始品牌词制造自命中。
   4. R01–R19、S01–S08、E01–E15 规则内容、首次相关写入提示、fail-open、能力组合、事务回滚和宿主版本证据保持行为等价。
-  5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、五宿主 required packaged smoke、公开文档及权威体验指南同步通过后才具备发布条件；本阶段不创建 tag、不 publish、不执行 registry refetch、unpublish 或历史清理。
+  5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、五宿主 required packaged smoke、公开文档及本仓库 `docs/MCP_QA_EXPERIENCE_GUIDE.md` 通过后才具备发布条件；兄弟仓库指南不再更新或绑定，本阶段不创建 tag、不 publish、不执行 registry refetch、unpublish 或历史清理。
 
 **Plans:** 0 plans
 

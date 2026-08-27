@@ -126,7 +126,7 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
   使用 `tool.execute.after`；全部 secret-free、有界且 fail-open
 - **诊断**: `status`/`doctor` 只读且 JSON 单文档；只输出稳定码、scope、source type 和安全路径，不读取或显示凭据值
 - **发布**: `0.2.0` 仅在实现、测试、审查、四通道 CI、pack/public artifact 全通过后自动发布；发布后不可变，真实缺陷只以前进版本修复，本阶段接受版本为 `0.2.2`
-- **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本
+- **体验指南所有权**: Phase 04.2 起由本仓库独占维护 `docs/MCP_QA_EXPERIENCE_GUIDE.md`；兄弟 KCodeRag 仓库中的旧指南只作为一次性只读迁入来源，后续不再修改、同步或绑定其摘要
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换留给 Phase 08
 - **OpenCode**: 仅项目级安装；同时存在 `opencode.json`/`opencode.jsonc` 时硬停止；真机基线为 `1.18.23`
 - **ZCode**: 仅项目级安装；管理 `.zcode/config.json` 中 `mcp.servers`/`hooks.events`、`.zcode/skills/`
