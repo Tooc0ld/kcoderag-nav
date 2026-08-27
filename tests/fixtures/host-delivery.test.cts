@@ -226,6 +226,17 @@ test("published support table is self-contained and never needs repository recei
   }
 });
 
+test("native capture installs navigation explicitly through the current capability CLI", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "src", "fixtures", "host-delivery.cts"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /"install",\s*"--host",\s*host,\s*"--capability",\s*"kcoderag-navigation",\s*"--target"/u,
+  );
+});
+
 test("every real host probe emits one closed receipt without inferring unsupported PASS claims", () => {
   for (const expected of expectedReceipts) {
     const fixturePath = path.join(

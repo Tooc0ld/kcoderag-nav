@@ -477,6 +477,8 @@ function installPackedCli(
     "install",
     "--host",
     host,
+    "--capability",
+    "kcoderag-navigation",
     "--target",
     projectPath,
     "--yes",
