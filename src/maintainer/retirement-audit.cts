@@ -123,8 +123,8 @@ const ACTIVE_DOCUMENTS = Object.freeze([
 
 const HISTORICAL_HEADING_RE = /(?:history|historical|legacy|migration|retired|旧\s*dev|受控清理|controlled cleanup)/iu;
 const RETIRED_INSTRUCTION_RE = /--allow-legacy-(?:dev-migration|user-removal)|--environment(?:=|\s+)dev\b/iu;
-const LEGACY_AUTHORITY_RE = /\b(?:export\s+(?:async\s+)?function\s+parseLegacyInstallState|allowLegacyDevMigration\s*=)/u;
-const CLEANUP_AUTHORITY_RE = /\b(?:export\s+(?:async\s+)?function\s+(?:createNativeCleanupPlan|cleanupOwnedSource)|async\s+cleanupOwnedSource\s*\()/u;
+const LEGACY_AUTHORITY_RE = /\b(?:parseLegacyInstallState|legacyEnvironment|legacyUserRemoval|allowLegacyDevMigration|allowLegacyUserRemoval)\b/u;
+const CLEANUP_AUTHORITY_RE = /\b(?:cleanupEligible|cleanupCommand|cleanupFingerprint|cleanupPlans|NativeCleanupPlan|OwnedCleanupAuthority|createNativeCleanupPlan|runOwnedSourceCleanup|cleanupOwnedSource|allowOwnedSourceCleanup)\b/u;
 
 const RECEIPT_KEYS = Object.freeze([
   "schema_version", "repo_head", "tracked_production_inventory",
