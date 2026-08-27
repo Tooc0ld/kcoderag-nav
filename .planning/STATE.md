@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 05
-current_phase_name: 低误报 Hook 与诚实路由
+current_phase: 04.2
+current_phase_name: 公开版本去品牌化
 status: planning
-stopped_at: Phase 04.1 complete, ready to plan Phase 05
-last_updated: "2026-08-27T03:29:32.227Z"
+stopped_at: Phase 04.2 inserted, ready to discuss and plan
+last_updated: "2026-08-27T03:34:51.034Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 04.1 complete, transitioned to Phase 05
-state_head: 903506f0ca3587f95d2011b737a17805a8850f81
+last_activity_desc: Phase 04.2 inserted after Phase 04.1
+state_head: 6029456d4c78812c593ca4f3161acf3e4f25c4d5
 progress:
-  total_phases: 10
+  total_phases: 11
   completed_phases: 6
   total_plans: 66
   completed_plans: 66
-  percent: 60
+  percent: 55
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 04.1 — JX3 multi-capability platform
+**Current focus:** Phase 04.2 — public debranding for the next release
 
 ## Current Position
 
-Phase: 05 — 低误报 Hook 与诚实路由
+Phase: 04.2 — 公开版本去品牌化
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-27 — Phase 04.1 complete, transitioned to Phase 05
+Status: Ready to discuss and plan
+Last activity: 2026-08-27 — Phase 04.2 inserted after Phase 04.1
 
-Progress: [██████░░░░] 60%
+Progress: [█████░░░░░] 55%
 
 ## Performance Metrics
 
@@ -347,6 +347,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 - Phase 04.1 inserted after Phase 4: 多能力安装平台与 JX3 规范提示 (URGENT)
 - Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and JX3 nudge
+- Phase 04.2 inserted after Phase 04.1: 公开版本去品牌化 (URGENT)
 
 ## Deferred Items
 

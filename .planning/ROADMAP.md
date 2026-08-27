@@ -20,6 +20,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: 受管项目安装与环境生命周期** - 在不污染用户环境的前提下交付互斥的 QA/Dev 项目级安装、冲突保护与显式切换。 (completed 2026-08-23)
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
 - [x] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。 (completed 2026-08-26)
+- [x] **Phase 04.1: 多能力安装平台与 JX3 规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
+- [ ] **Phase 04.2: 公开版本去品牌化** - 从 `0.3.0` 起以中性名称发布代码规范能力，并以源码与 npm 制品零命中门禁防止品牌词回归。
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
 - [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor 与 OpenCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
@@ -346,12 +348,32 @@ Plans:
 
 - [x] 04.1-13-PLAN.md
 
+### Phase 04.2: 公开版本去品牌化 (INSERTED)
+
+**Goal:** As a 公共 kcoderag-nav 维护者, I want to 从 0.3.0 起使用不含游戏或公司品牌词的中性代码规范能力, so that 公共源码和 npm 制品保留相同行为与规则而不暴露品牌身份.
+**Mode:** mvp
+**Requirements**: BRAND-01, BRAND-02, BRAND-03, BRAND-04
+**Depends on:** Phase 04.1
+**Success Criteria** (what must be TRUE):
+
+  1. 内置能力、Skill、Hook、源码文件、生成目录和用户提示统一使用 `code-style-nudge` 与 `$code-style-correction` 等中性名称，不保留旧 capability ID、Skill 名或兼容别名。
+  2. 当前 Git HEAD 的全部跟踪文件通过大小写、Unicode 和常见分隔变体的品牌词零命中门禁；历史 Git 提交不重写，旧 tag、release 和 npm 版本不修改或撤回。
+  3. `npm pack --dry-run` 的文件名与最终内容（包括编译 CJS、模板和生成资产）通过同一零命中门禁；门禁自身不以原始品牌词制造自命中。
+  4. R01–R19、S01–S08、E01–E15 规则内容、首次相关写入提示、fail-open、能力组合、事务回滚和宿主版本证据保持行为等价。
+  5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、四宿主 required smoke、公开文档及权威体验指南同步通过后才具备发布条件；本阶段不执行 unpublish 或历史清理。
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run $gsd-plan-phase 04.2 to break down)
+
 ### Phase 5: 低误报 Hook 与诚实路由
 
 **Goal:** hook 只在宽范围结构查找时提醒；精确文本、本地复核、常见 Lua 全局处理器和不可用索引都有低打扰且真实的路由。
 **Mode:** mvp
 **Requirements**: HOOK-06, HOOK-07, HOOK-08, ROUT-05
-**Depends on:** Phase 4
+**Depends on:** Phase 04.2
 **Success Criteria** (what must be TRUE):
 
   1. `-F/--fixed-strings` 配合多个明确文件、单文件及生成/日志文本核对保持静默；宽范围唯一 C++ 符号和限定 Lua 方法仍获得图优先建议。

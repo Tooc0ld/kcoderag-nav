@@ -108,6 +108,13 @@
 - [x] **JX3-01**: `jx3-style-nudge` 以纯 CJS/JS Hook 配合受管 Markdown `$jx3-code-style-correction` Skill 工作，只在每个稳定宿主会话首次相关 C/C++/头文件/Lua 内容写入前注入一次短提示；无稳定会话 ID、资产漂移或任何运行异常均静默 fail-open，且不运行 Python、SVN、网络、逐次 PostToolUse scanner 或宣称静态扫描通过
 - [x] **TEST-10**: 自动化覆盖 capability 组合与独立生命周期、共享配置/Hook 合成、版本门禁、扩展名和结构化写入过滤、一次性并发 marker、资产漂移、legacy 来源硬停止、事务回滚、secret-safe 输出、Node.js 22/24 及 Windows/Linux；真实宿主 fixture 明确记录每个支持版本的 delivery evidence
 
+### 公开版本去品牌化
+
+- [ ] **BRAND-01**: 从 `0.3.0` 起，当前 Git HEAD 的源码、测试、生成资产、Skill、README、AGENTS、receipt 和规划文档只使用 `code-style-nudge`、`$code-style-correction` 等中性名称，并通过游戏、公司及其常见大小写、Unicode、分隔变体的零命中门禁
+- [ ] **BRAND-02**: npm dry-run 与最终 pack 的文件名和内容（含编译 CJS、模板、生成资产）通过同一零命中门禁；门禁词表以不产生原始品牌词自命中的方式维护，发布流程不得绕过
+- [ ] **BRAND-03**: 去品牌化只改变名称与公开表述；R01–R19、S01–S08、E01–E15、首次相关写入提示、fail-open、能力组合、原子事务、回滚和真实宿主支持证据保持行为等价，且不保留旧 capability/Skill 兼容别名
+- [ ] **BRAND-04**: 版本按 pre-1.0 破坏性重命名前进到 `0.3.0`；旧 Git 历史、tag、release 和已发布 npm 版本明确不在清理范围，不重写、不撤回、不 unpublish
+
 ### Hook 精度与能力诚实性
 
 - [ ] **HOOK-06**: fixed-string、多明确文件、单文件、日志和生成文本等本地核对保持静默
@@ -201,6 +208,10 @@
 | LEG-01 | Phase 04.1 | Complete |
 | JX3-01 | Phase 04.1 | Complete |
 | TEST-10 | Phase 04.1 | Complete |
+| BRAND-01 | Phase 04.2 | Pending |
+| BRAND-02 | Phase 04.2 | Pending |
+| BRAND-03 | Phase 04.2 | Pending |
+| BRAND-04 | Phase 04.2 | Pending |
 | HOOK-06 | Phase 5 | Pending |
 | HOOK-07 | Phase 5 | Pending |
 | HOOK-08 | Phase 5 | Pending |
@@ -218,11 +229,11 @@
 
 **Coverage:**
 
-- v1 + v1.1 requirements: 52 total
+- v1 + v1.1 requirements: 56 total
 - v2 requirements scheduled: 5 total
-- Mapped to phases: 57
+- Mapped to phases: 61
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-20*
-*Last updated: 2026-08-26 for Phase 04.1 multi-capability platform requirements*
+*Last updated: 2026-08-27 for Phase 04.2 public debranding requirements*
