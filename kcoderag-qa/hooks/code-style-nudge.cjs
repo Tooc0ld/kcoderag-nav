@@ -192,18 +192,35 @@ function evaluateCodeStyleIntegrity(options) {
         const requiredPaths = [skillPath, ...referencePaths, handlerPath, dispatcherPath];
         const managedRecords = new Map();
         for (const record of state.files) {
-            if (isRecord(record) && typeof record.path === "string")
-                managedRecords.set(record.path, record);
-        }
-        for (const relativePath of requiredPaths) {
-            const record = managedRecords.get(relativePath);
-            if (record === undefined ||
+            const contributors = isRecord(record) ? record.contributors : undefined;
+            if (!isRecord(record) ||
+                !safeRelativePath(record.path) ||
                 typeof record.digest !== "string" ||
                 !DIGEST_RE.test(record.digest) ||
-                !Array.isArray(record.contributors) ||
-                !record.contributors.includes("code-style-nudge")) {
+                !Array.isArray(contributors) ||
+                contributors.length === 0 ||
+                !contributors.every((contributor) => typeof contributor === "string") ||
+                managedRecords.has(record.path)) {
+                return drift(expectedStateRelativePath);
+            }
+            managedRecords.set(record.path, Object.freeze({
+                digest: record.digest,
+                contributors: Object.freeze([...contributors]),
+            }));
+        }
+        if (new Set(capabilityPaths).size !== capabilityPaths.length)
+            return drift(expectedStateRelativePath);
+        for (const relativePath of capabilityPaths) {
+            const record = managedRecords.get(relativePath);
+            if (record === undefined || !record.contributors.includes("code-style-nudge")) {
                 return drift(relativePath);
             }
+        }
+        for (const relativePath of requiredPaths) {
+            if (!managedRecords.has(relativePath))
+                return drift(relativePath);
+        }
+        for (const [relativePath, record] of managedRecords) {
             const filePath = containedRegularFile(root, relativePath);
             if (filePath === undefined)
                 return drift(relativePath);
@@ -321,31 +338,41 @@ function nativePatchMutationPaths(command) {
     return Object.freeze(mutations);
 }
 function structuredMutationPaths(payload) {
-    if (!isRecord(payload) || typeof payload.tool_name !== "string" || !isRecord(payload.tool_input)) {
+    try {
+        if (!isRecord(payload) || typeof payload.tool_name !== "string" || !isRecord(payload.tool_input)) {
+            return Object.freeze([]);
+        }
+        if (STRUCTURED_WRITE_TOOLS.has(payload.tool_name)) {
+            const path = payload.tool_input.file_path;
+            return typeof path === "string" && boundedTargetPath(path) !== undefined
+                ? Object.freeze([path])
+                : Object.freeze([]);
+        }
+        if (payload.tool_name === "apply_patch") {
+            return nativePatchMutationPaths(payload.tool_input.command);
+        }
         return Object.freeze([]);
     }
-    if (STRUCTURED_WRITE_TOOLS.has(payload.tool_name)) {
-        const path = payload.tool_input.file_path;
-        return typeof path === "string" && boundedTargetPath(path) !== undefined
-            ? Object.freeze([path])
-            : Object.freeze([]);
+    catch {
+        return Object.freeze([]);
     }
-    if (payload.tool_name === "apply_patch") {
-        return nativePatchMutationPaths(payload.tool_input.command);
-    }
-    return Object.freeze([]);
 }
 function codeStyleContribution(payload, options) {
-    if (options === undefined || !structuredMutationPaths(payload).some(isCodeStyleSourcePath)) {
+    try {
+        if (options === undefined || !structuredMutationPaths(payload).some(isCodeStyleSourcePath)) {
+            return undefined;
+        }
+        if (!evaluateCodeStyleIntegrity(options).ok)
+            return undefined;
+        const claim = (0, once_marker_cjs_1.claimNudgeOnce)(payload, {
+            host: options.host,
+            managedRoot: options.managedRoot,
+            capability: "code-style-nudge",
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+        });
+        return claim.claimed ? exports.CODE_STYLE_NUDGE : undefined;
+    }
+    catch {
         return undefined;
     }
-    if (!evaluateCodeStyleIntegrity(options).ok)
-        return undefined;
-    const claim = (0, once_marker_cjs_1.claimNudgeOnce)(payload, {
-        host: options.host,
-        managedRoot: options.managedRoot,
-        capability: "code-style-nudge",
-        ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
-    });
-    return claim.claimed ? exports.CODE_STYLE_NUDGE : undefined;
 }

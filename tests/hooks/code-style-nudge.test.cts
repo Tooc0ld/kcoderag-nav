@@ -43,6 +43,7 @@ const integrityAssets = [
   [".claude/skills/code-style-correction/references/change-hygiene-self-review.md", "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md"],
   [".claude/kcoderag-nav/hooks/code-style-nudge.cjs", "dist/hooks/code-style-nudge.cjs"],
   [".claude/kcoderag-nav/hooks/pre-tool-dispatcher.cjs", "dist/hooks/pre-tool-dispatcher.cjs"],
+  [".claude/kcoderag-nav/hooks/once-marker.cjs", "dist/hooks/once-marker.cjs"],
 ] as const;
 
 interface IntegrityFixture {
@@ -96,6 +97,13 @@ function integrityOptions(fixture: IntegrityFixture) {
     managedRoot: fixture.root,
     statePath: fixture.statePath,
   };
+}
+
+function markerInventory(cacheRoot: string): readonly string[] {
+  const nudgeRoot = path.join(cacheRoot, "nudges");
+  return fs.existsSync(nudgeRoot)
+    ? fs.readdirSync(nudgeRoot).sort()
+    : [];
 }
 
 test("code-style source extensions are exact, case-insensitive, and directory-neutral", () => {
@@ -159,6 +167,100 @@ test("native apply_patch uses bounded envelope headers and coalesces relevant mu
   }
 });
 
+test("malformed hostile payload access fails open without consuming the marker", () => {
+  const fixture = integrityFixture();
+  const runtime = { ...integrityOptions(fixture), cacheRoot: fixture.cacheRoot };
+  const hostilePayload = new Proxy<Record<string, unknown>>({}, {
+    get(): never {
+      throw new Error("untrusted payload access");
+    },
+  });
+  try {
+    assert.doesNotThrow(() => codeStyle.structuredMutationPaths(hostilePayload));
+    assert.deepEqual(codeStyle.structuredMutationPaths(hostilePayload), []);
+    assert.doesNotThrow(() => codeStyle.codeStyleContribution(hostilePayload, runtime));
+    assert.equal(codeStyle.codeStyleContribution(hostilePayload, runtime), undefined);
+    assert.deepEqual(markerInventory(fixture.cacheRoot), []);
+
+    assert.equal(codeStyle.codeStyleContribution({
+      tool_name: "Write",
+      tool_input: { file_path: "src/player.cpp" },
+      session_id: "hostile-then-valid",
+    }, runtime), codeStyle.CODE_STYLE_NUDGE);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("oversized paths, patches, and state fail open before the first valid event", () => {
+  const fixture = integrityFixture();
+  const runtime = { ...integrityOptions(fixture), cacheRoot: fixture.cacheRoot };
+  const originalState = fs.readFileSync(fixture.statePath);
+  try {
+    const oversizedPath = `src/${"x".repeat(4_096)}.cpp`;
+    assert.deepEqual(codeStyle.structuredMutationPaths({
+      tool_name: "Write",
+      tool_input: { file_path: oversizedPath },
+    }), []);
+    assert.deepEqual(codeStyle.structuredMutationPaths({
+      tool_name: "apply_patch",
+      tool_input: {
+        command: `*** Begin Patch\n*** Add File: src/player.cpp\n+${"x".repeat(131_073)}\n*** End Patch`,
+      },
+    }), []);
+
+    fs.writeFileSync(fixture.statePath, Buffer.alloc(1_048_577, 0x78));
+    assert.equal(codeStyle.codeStyleContribution({
+      tool_name: "Write",
+      tool_input: { file_path: "src/player.cpp" },
+      session_id: "oversized-then-valid",
+    }, runtime), undefined);
+    assert.deepEqual(markerInventory(fixture.cacheRoot), []);
+
+    fs.writeFileSync(fixture.statePath, originalState);
+    assert.equal(codeStyle.codeStyleContribution({
+      tool_name: "Write",
+      tool_input: { file_path: "src/player.cpp" },
+      session_id: "oversized-then-valid",
+    }, runtime), codeStyle.CODE_STYLE_NUDGE);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("malformed and composite-drifted states fail open without consuming the first valid event", () => {
+  for (const mutateState of [
+    (): Buffer => Buffer.from("{not-json", "utf8"),
+    (stateBytes: Buffer): Buffer => {
+      const state = JSON.parse(stateBytes.toString("utf8")) as Record<string, unknown>;
+      state.packageVersion = "tampered";
+      return Buffer.from(`${JSON.stringify(state)}\n`, "utf8");
+    },
+  ]) {
+    const fixture = integrityFixture();
+    const runtime = { ...integrityOptions(fixture), cacheRoot: fixture.cacheRoot };
+    const originalState = fs.readFileSync(fixture.statePath);
+    try {
+      fs.writeFileSync(fixture.statePath, mutateState(originalState));
+      assert.equal(codeStyle.codeStyleContribution({
+        tool_name: "Write",
+        tool_input: { file_path: "src/player.cpp" },
+        session_id: "state-drift-then-valid",
+      }, runtime), undefined);
+      assert.deepEqual(markerInventory(fixture.cacheRoot), []);
+
+      fs.writeFileSync(fixture.statePath, originalState);
+      assert.equal(codeStyle.codeStyleContribution({
+        tool_name: "Write",
+        tool_input: { file_path: "src/player.cpp" },
+        session_id: "state-drift-then-valid",
+      }, runtime), codeStyle.CODE_STYLE_NUDGE);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("code-style contribution requires a stable identity and emits once per host/root/session", () => {
   const fixture = integrityFixture();
   const runtime = { ...integrityOptions(fixture), cacheRoot: fixture.cacheRoot };
@@ -208,6 +310,7 @@ test("every missing or edited managed asset is silent before marker creation", (
       try {
         const target = fixture.installedPaths[assetIndex];
         assert.ok(target);
+        const originalBytes = fs.readFileSync(target);
         if (mutation === "missing") fs.rmSync(target);
         else fs.appendFileSync(target, "\nmanaged drift\n", "utf8");
 
@@ -223,6 +326,17 @@ test("every missing or edited managed asset is silent before marker creation", (
           cacheRoot: fixture.cacheRoot,
         }), undefined);
         assert.equal(fs.existsSync(path.join(fixture.cacheRoot, "nudges")), false);
+
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, originalBytes);
+        assert.equal(codeStyle.codeStyleContribution({
+          tool_name: "Write",
+          tool_input: { file_path: "src/player.cpp" },
+          session_id: `${mutation}-${assetIndex}`,
+        }, {
+          ...integrityOptions(fixture),
+          cacheRoot: fixture.cacheRoot,
+        }), codeStyle.CODE_STYLE_NUDGE);
       } finally {
         fs.rmSync(fixture.root, { recursive: true, force: true });
       }

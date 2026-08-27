@@ -144,7 +144,7 @@ test("requires current capability, hook, and manual-conflict scripts without mig
   );
   assert.equal(
     accepted.packageJson.scripts["test:capability-hooks"],
-    "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/jx3-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
+    "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/code-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
   );
   assert.equal(
     accepted.packageJson.scripts["test:manual-conflict"],

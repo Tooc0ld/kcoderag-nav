@@ -96,7 +96,7 @@
     "test:host:zcode": "node --test dist-tests/hosts/zcode.test.cjs",
     "test:cross-host": "node --test dist-tests/hosts/cross-host.test.cjs",
     "test:capabilities": "node --test dist-tests/capabilities/*.test.cjs",
-    "test:capability-hooks": "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/jx3-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
+    "test:capability-hooks": "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/code-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",
     "test:manual-conflict": "node --test dist-tests/migration/manual-source-conflict.test.cjs",
     "test:update-check": "node --test dist-tests/hooks/update-check.test.cjs",
     "test:update-notice": "node --test dist-tests/hooks/update-notice.test.cjs dist-tests/hooks/opencode-update-notice.test.cjs",
