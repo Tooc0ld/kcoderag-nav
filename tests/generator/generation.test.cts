@@ -717,6 +717,36 @@ test("CLI writes and checks one requested product without touching repository pa
   }
 });
 
+test("CLI product scope materializes QA atomically and is a byte-stable no-op on repeat", () => {
+  const fixture = createFixture();
+  try {
+    const argumentsForQa = ["--package", "all", "--group", "all", "--product", "qa"] as const;
+    const first = runGeneratorCli(fixture, argumentsForQa);
+    assert.equal(first.status, 0, first.stderr);
+    const firstResult = JSON.parse(first.stdout) as GenerationResult;
+    assert.equal(firstResult.writtenPaths.length > 0, true);
+    assert.equal(firstResult.writtenPaths.every((relativePath) => relativePath.startsWith("kcoderag-qa/")), true);
+    assert.equal(fs.existsSync(path.join(fixture.outputRoot, "kcoderag-cursor")), false);
+
+    const beforeRepeat = snapshot(fixture.outputRoot);
+    const repeated = runGeneratorCli(fixture, argumentsForQa);
+    assert.equal(repeated.status, 0, repeated.stderr);
+    const repeatedResult = JSON.parse(repeated.stdout) as GenerationResult;
+    assert.deepEqual(repeatedResult.changedPaths, []);
+    assert.deepEqual(repeatedResult.writtenPaths, []);
+    assert.deepEqual(snapshot(fixture.outputRoot), beforeRepeat);
+
+    const checked = runGeneratorCli(fixture, [...argumentsForQa, "--check"]);
+    assert.equal(checked.status, 0, checked.stderr);
+    const checkedResult = JSON.parse(checked.stdout) as GenerationResult;
+    assert.deepEqual(checkedResult.changedPaths, []);
+    assert.deepEqual(checkedResult.writtenPaths, []);
+    assert.deepEqual(snapshot(fixture.outputRoot), beforeRepeat);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
 test("CLI rejects unknown, empty, and incompatible selections without writes", () => {
   const fixture = createFixture();
   try {
@@ -734,6 +764,9 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
     assert.deepEqual(snapshot(fixture.outputRoot), before);
 
     const invalidArguments = [
+      ["--package", "all", "--group", "all", "--product", "unknown"],
+      ["--package", "all", "--group", "all", "--product"],
+      ["--package", "all", "--group", "all", "--product", "qa", "--product", "cursor"],
       ["--package", "unknown", "--group", "docs"],
       ["--package", "qa", "--group", "unknown"],
       ["--package", "qa", "--group", ""],
