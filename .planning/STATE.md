@@ -4,10 +4,10 @@ current_phase: 04.2
 current_phase_name: 公开版本去品牌化
 status: planning
 stopped_at: Phase 04.2 context gathered
-last_updated: "2026-08-27T08:35:03.215Z"
+last_updated: "2026-08-27T18:28:06.979+08:00"
 last_activity: 2026-08-27
-last_activity_desc: "Completed quick task 260827-fch: Add project-scoped ZCode host support for navigation MCP and Skill"
-state_head: ffc8431b54afbd520a1f5e79ffac984820d6a435
+last_activity_desc: "Completed quick task 260827-onf: Unified packaged host runtime acceptance"
+state_head: b462fb6f6f37791029f13fa36c60bb92a463d22c
 progress:
   total_phases: 11
   completed_phases: 6
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 Phase: 04.2 — 公开版本去品牌化
 Plan: Not started
 Status: Ready to discuss and plan
-Last activity: 2026-08-27 - Completed quick task 260827-fch: Add project-scoped ZCode host support for navigation MCP and Skill
+Last activity: 2026-08-27 - Completed quick task 260827-onf: Unified packaged host runtime acceptance
 
 Progress: [█████░░░░░] 55%
 
@@ -320,8 +320,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
+| # | Description | Date | Commit | Directory | Status |
+|---|-------------|------|--------|-----------|--------|
 | 260820-nhw | QA/Dev 规范源、生成式独立产物、项目级安装生命周期、QA 优先路由、hook 去重与 E2E | 2026-08-20 | fd40d70 | [260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e](./quick/260820-nhw-kcoderag-nav-qa-dev-qa-dev-qa-hook-e2e/) |
 | 260820-p1v | 将 QA/Dev 项目级插件迁移到 kcoderag-nav，并让 KCodeRag 仅保留 QA/Dev MCP 配置 | 2026-08-20 | local-only | [260820-p1v-qa-dev-kcoderag-nav-kcoderag-qa-dev-mcp](./quick/260820-p1v-qa-dev-kcoderag-nav-kcoderag-qa-dev-mcp/) |
 | 260820-t66 | Fix installer ownership and cross-host versioning | 2026-08-20 | 0b478fc | [260820-t66-fix-installer-ownership-and-cross-host-v](./quick/260820-t66-fix-installer-ownership-and-cross-host-v/) |
@@ -344,6 +344,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260826-uvk | Unify offline update checks and native notices across Codex, Claude Code, Cursor, and OpenCode | 2026-08-26 | 8aadcef, 8402f05, KCodeRag:7b32a794 | [260826-uvk-codex-claude-code-cursor-opencode](./quick/260826-uvk-codex-claude-code-cursor-opencode/) |
 | 260827-fch | Add project-scoped ZCode host support for navigation MCP and Skill | 2026-08-27 | 903506f, KCodeRag:6891fd14 | [260827-fch-add-project-scoped-zcode-host-support-fo](./quick/260827-fch-add-project-scoped-zcode-host-support-fo/) |
 | 260827-nuo | Add advisory ZCode PreToolUse, successful-call marker, and offline update notice | 2026-08-27 | 8d380f6, KCodeRag:97049019 | [260827-nuo-zcode-hook-advisory-pretooluse-marker](./quick/260827-nuo-zcode-hook-advisory-pretooluse-marker/) |
+| 260827-onf | Unified packaged host runtime acceptance for install, Hook events, markers, and update awareness | 2026-08-27 | b462fb6, KCodeRag:c96726b7 | [260827-onf-codex-claude-code-opencode-zcode-hook](./quick/260827-onf-codex-claude-code-opencode-zcode-hook/) | Verified |
 
 ### Roadmap Evolution
 
