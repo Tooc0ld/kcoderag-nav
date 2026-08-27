@@ -5,7 +5,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 
-type Policy = "user-docs" | "project-instructions" | "planning" | "sibling-guide";
+type Policy = "user-docs" | "project-instructions" | "planning";
 
 interface Diagnostic {
   readonly code: string;
@@ -17,12 +17,12 @@ interface DocsCheckModule {
   checkDocs(
     paths: readonly string[],
     policy: Policy,
-    options?: { readonly repoRoot?: string; readonly siblingGuidePath?: string },
+    options?: { readonly repoRoot?: string },
   ): { readonly checkedFiles: number; readonly diagnostics: readonly Diagnostic[] };
-  checkCanonicalPublicDocs(options?: {
-    readonly repoRoot?: string;
-    readonly siblingGuidePath?: string;
-  }): { readonly checkedFiles: number; readonly diagnostics: readonly Diagnostic[] };
+  checkCanonicalPublicDocs(options?: { readonly repoRoot?: string }): {
+    readonly checkedFiles: number;
+    readonly diagnostics: readonly Diagnostic[];
+  };
 }
 
 const docsCheck = require("../../dist/maintainer/docs-check.cjs") as DocsCheckModule;
@@ -74,13 +74,14 @@ const CANONICAL_REPO_DOCS = Object.freeze([
   "plugin-src/cursor/README.md.tmpl",
   "kcoderag-qa/README.md",
   "kcoderag-cursor/README.md",
+  "docs/MCP_QA_EXPERIENCE_GUIDE.md",
 ] as const);
 
 function completePublicContract(): string {
   return [
     "# Install capabilities into one project",
     "QA is the only public environment for MCP. The current directory is the exact project target.",
-    "The built-ins are kcoderag-navigation and jx3-style-nudge.",
+    "The built-ins are kcoderag-navigation and code-style-nudge.",
     "Install composes installed ∪ selected. Uninstall needs an explicit capability or --all and never defaults to everything.",
     "status is a fast read-only project check; doctor is a read-only deep source scan.",
     "An active source is source_conflict with ok: false. The same source gate covers all mutations before writes.",
@@ -107,9 +108,8 @@ function completePublicContract(): string {
   ].join("\n");
 }
 
-function writeCanonicalContract(root: string, guidePath: string): void {
+function writeCanonicalContract(root: string): void {
   for (const relativePath of CANONICAL_REPO_DOCS) write(root, relativePath, completePublicContract());
-  fs.writeFileSync(guidePath, completePublicContract(), "utf8");
 }
 
 test("accepts valid scoped user documentation and local Markdown links", () => {
@@ -141,7 +141,7 @@ test("accepts valid scoped user documentation and local Markdown links", () => {
   }
 });
 
-test("reports links, obsolete commands, host flags, Cursor hook claims, guide copies, and secrets safely", () => {
+test("reports links, obsolete commands, host flags, Cursor hook claims, and secrets safely", () => {
   const root = temporaryDirectory("kcoderag-docs-invalid-");
   const sentinel = "Bearer secret-value-that-must-never-echo";
   try {
@@ -173,7 +173,6 @@ test("reports links, obsolete commands, host flags, Cursor hook claims, guide co
       "forbidden_python_command",
       "invalid_host_flag",
       "invalid_npx_command",
-      "local_guide_copy",
       "secret_like_value",
     ]);
     assert.equal(JSON.stringify(result).includes(sentinel), false);
@@ -193,18 +192,16 @@ test("reports links, obsolete commands, host flags, Cursor hook claims, guide co
 
 test("canonical public contract requires capability lifecycle, support, integrity, D-19, Hook, and evidence topics", () => {
   const root = temporaryDirectory("kcoderag-docs-contract-");
-  const sibling = temporaryDirectory("kcoderag-docs-contract-sibling-");
-  const guide = path.join(sibling, "MCP_QA_EXPERIENCE_GUIDE.md");
   try {
-    writeCanonicalContract(root, guide);
-    assert.deepEqual(docsCheck.checkCanonicalPublicDocs({ repoRoot: root, siblingGuidePath: guide }), {
+    writeCanonicalContract(root);
+    assert.deepEqual(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }), {
       checkedFiles: 6,
       diagnostics: [],
     });
 
     const cases: readonly [string, string, string, string?][] = [
       ["status is a fast read-only project check; doctor is a read-only deep source scan.", "status and doctor are commands.", "missing_topic_status_doctor"],
-      ["The built-ins are kcoderag-navigation and jx3-style-nudge.", "The built-ins are navigation only.", "missing_topic_capabilities"],
+      ["The built-ins are kcoderag-navigation and code-style-nudge.", "The built-ins are navigation only.", "missing_topic_capabilities"],
       ["Install composes installed ∪ selected.", "Install replaces selection.", "missing_topic_additive_lifecycle"],
       ["The same source gate covers all mutations before writes.", "Sources are listed.", "missing_topic_all_mutation_gate"],
       ["The CLI does not migrate, adopt, or automatically clean manual sources.", "Sources are listed.", "missing_topic_no_source_authority"],
@@ -218,18 +215,17 @@ test("canonical public contract requires capability lifecycle, support, integrit
       ["runtimeContract.layer: `packaged` does not prove native host admission.", "Runtime is tested.", "missing_topic_packaged_native_boundary"],
     ];
     for (const [before, after, expectedCode, relativePath = "plugin-src/README.md.tmpl"] of cases) {
-      writeCanonicalContract(root, guide);
+      writeCanonicalContract(root);
       const target = path.join(root, ...relativePath.split("/"));
       fs.writeFileSync(target, fs.readFileSync(target, "utf8").replace(before, after), "utf8");
-      assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root, siblingGuidePath: guide })).includes(expectedCode));
+      assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root })).includes(expectedCode));
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(sibling, { recursive: true, force: true });
   }
 });
 
-test("active docs reject retired authorities, scanner claims, unsupported JX3 parity, and obsolete install surfaces", () => {
+test("active docs reject retired authorities, scanner claims, unsupported code-style parity, and obsolete install surfaces", () => {
   const root = temporaryDirectory("kcoderag-docs-active-policy-");
   try {
     const fixtures: readonly [string, string][] = [
@@ -243,8 +239,8 @@ test("active docs reject retired authorities, scanner claims, unsupported JX3 pa
       ["npx kcoderag-nav@latest update --host codex --yes --allow-owned-source-cleanup --cleanup-fingerprint sha256:abc", "retired_authority_claim"],
       ["npx kcoderag-nav@latest update --host codex --yes --allow-legacy-dev-migration", "retired_authority_claim"],
       ["codex plugin remove PLUGIN@MARKETPLACE --json", "retired_cleanup_command"],
-      ["Run the JX3 scanner and report scanner passed.", "scanner_claim"],
-      ["Cursor supports native pre-write JX3.", "unsupported_jx3_claim"],
+      ["Run the code-style scanner and report scanner passed.", "scanner_claim"],
+      ["Cursor supports native pre-write code-style guidance.", "unsupported_code_style_claim"],
     ];
     for (const [instruction, expectedCode] of fixtures) {
       write(root, "README.md", `# Install\n\n${instruction}\n`);
@@ -265,11 +261,8 @@ test("active docs reject retired authorities, scanner claims, unsupported JX3 pa
 test("zero-argument CLI checks the canonical repository and sibling guide together", () => {
   const parent = temporaryDirectory("kcoderag-docs-zero-argument-");
   const repo = path.join(parent, "kcoderag-nav");
-  const sibling = path.join(parent, "KCodeRag");
-  const guide = path.join(sibling, "MCP_QA_EXPERIENCE_GUIDE.md");
   try {
-    fs.mkdirSync(sibling, { recursive: true });
-    writeCanonicalContract(repo, guide);
+    writeCanonicalContract(repo);
     const compiledEntry = path.join(repo, "dist", "maintainer", "docs-check.cjs");
     write(repo, "dist/maintainer/docs-check.cjs", fs.readFileSync(path.resolve("dist/maintainer/docs-check.cjs"), "utf8"));
     const completed = childProcess.spawnSync(process.execPath, [compiledEntry], {
@@ -395,24 +388,15 @@ test("compiled CLI rejects unknown arguments, empty scope, and absolute reposito
   }
 });
 
-test("sibling policy accepts only the one authoritative guide path", () => {
-  const root = temporaryDirectory("kcoderag-sibling-guide-");
-  const authoritative = path.join(root, "MCP_QA_EXPERIENCE_GUIDE.md");
-  const other = path.join(root, "README.md");
+test("canonical docs require the repository-owned guide", () => {
+  const root = temporaryDirectory("kcoderag-local-guide-required-");
   try {
-    fs.writeFileSync(authoritative, "# Install\n\nRequires Node.js 22+.\n", "utf8");
-    fs.writeFileSync(other, "# Other\n", "utf8");
-    assert.deepEqual(
-      docsCheck.checkDocs([authoritative], "sibling-guide", { siblingGuidePath: authoritative }),
-      { checkedFiles: 1, diagnostics: [] },
+    writeCanonicalContract(root);
+    fs.rmSync(path.join(root, "docs", "MCP_QA_EXPERIENCE_GUIDE.md"));
+    assert.throws(
+      () => docsCheck.checkCanonicalPublicDocs({ repoRoot: root }),
+      (error: unknown) => errorCode(error) === "path_not_found",
     );
-
-    for (const paths of [[other], [authoritative, other]]) {
-      assert.throws(
-        () => docsCheck.checkDocs(paths, "sibling-guide", { siblingGuidePath: authoritative }),
-        (error: unknown) => errorCode(error) === "invalid_sibling_scope",
-      );
-    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
