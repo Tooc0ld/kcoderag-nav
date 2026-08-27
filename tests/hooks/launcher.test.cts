@@ -132,8 +132,6 @@ function installHostAt(
     command: "install",
     environment: "qa",
     observation,
-    allowLegacyUserRemoval: false,
-    allowLegacyDevMigration: false,
   });
   transaction.applyTransaction(desired);
   const settingsPath = host === "codex" ? ".codex/hooks.json" : ".claude/settings.json";

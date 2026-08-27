@@ -12,7 +12,7 @@ const NAVIGATION = "kcoderag-navigation";
 const JX3 = "jx3-style-nudge";
 
 function context(target: any, observation: any, selectedCapabilities: readonly string[], command = "install") {
-  return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities, allowLegacyUserRemoval: false, allowLegacyDevMigration: false };
+  return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
 test("OpenCode rejects after-event JX3 and projects navigation plugin update awareness", async () => {
@@ -46,7 +46,7 @@ test("OpenCode rejects after-event JX3 and projects navigation plugin update awa
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION], allowLegacyUserRemoval: false, allowLegacyDevMigration: false }));
+    await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION] }));
     assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
     assert.equal(fs.existsSync(path.join(root, ".opencode/plugins/kcoderag-nav.js")), false);
   } finally {

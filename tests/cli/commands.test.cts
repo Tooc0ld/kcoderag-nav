@@ -22,13 +22,10 @@ const coreState = require("../../dist/core/state.cjs") as {
   createDesiredState(input: Record<string, unknown>): unknown;
 };
 const userSources = require("../../dist/hosts/user-sources.cjs") as {
-  createNativeHostCapability(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
-  createNativeCleanupPlan(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
   createSourceFinding(input: Record<string, unknown>): Readonly<Record<string, unknown>>;
   createSourceScanResult(
     mode: string,
     findings: readonly Readonly<Record<string, unknown>>[],
-    plans?: readonly Readonly<Record<string, unknown>>[],
   ): Readonly<Record<string, unknown>>;
 };
 
@@ -188,7 +185,6 @@ function projectSnapshot(target: string): readonly Readonly<Record<string, strin
 function makeAdapter(
   host: HostId,
   calls: string[],
-  options: { legacy?: boolean; legacyDev?: boolean } = {},
 ): Record<string, unknown> {
   return {
     id: host,
@@ -198,15 +194,11 @@ function makeAdapter(
       return {
         host,
         target: context.target,
-        ...(options.legacy
-          ? { legacyUserRemoval: { path: path.join(os.tmpdir(), "legacy-kcoderag-nav") } }
-          : {}),
-        ...(options.legacyDev ? { legacyEnvironment: "dev" } : {}),
       };
     },
     renderInstall(context: Record<string, any>) {
       calls.push(
-        `${host}:renderInstall:${String(context.allowLegacyUserRemoval)}:${String(context.allowLegacyDevMigration)}`,
+        `${host}:renderInstall:${String(context.command)}:${(context.selectedCapabilities as readonly string[] | undefined)?.join(",") ?? ""}`,
       );
       const payloadPath = path.join(context.target.root, `.fixture-${host}/payload.txt`);
       const statePath = path.join(context.target.root, `.fixture-${host}/install-state.json`);
@@ -277,7 +269,6 @@ function io(target: string, adapters: Readonly<Record<string, Record<string, unk
       stdout: (text: string) => stdout.push(text),
       stderr: (text: string) => stderr.push(text),
       confirmTarget: () => true,
-      confirmLegacyUserRemoval: () => false,
       selectHost: () => "codex",
       getAdapter: (host: HostId) => {
         const adapter = adapters[host];
@@ -304,7 +295,7 @@ test("one explicit host selects one pure adapter and commits through shared desi
     );
 
     assert.equal(exitCode, 0);
-    assert.deepEqual(calls, ["codex:detect", "codex:renderInstall:false:false"]);
+    assert.deepEqual(calls, ["codex:detect", `codex:renderInstall:install:${NAVIGATION}`]);
     assert.equal(
       fs.readFileSync(path.join(item.target, ".fixture-codex/payload.txt"), "utf8"),
       "codex:install\n",
@@ -398,7 +389,7 @@ test("install and observation commands dispatch through the lifecycle seam witho
       assert.equal(captured.stderr.length, 0);
       assert.equal(JSON.parse(captured.stdout[0] ?? "").command, command);
       assert.equal(calls[0], "codex:detect");
-      assert.equal(calls[1], "codex:renderInstall:false:false");
+      assert.equal(calls[1], `codex:renderInstall:install:${NAVIGATION}`);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -530,7 +521,7 @@ test("selected-host global targets fail before adapter detection while other-hos
       ),
       0,
     );
-    assert.deepEqual(legalCalls, ["codex:detect", "codex:renderInstall:false:false"]);
+    assert.deepEqual(legalCalls, ["codex:detect", `codex:renderInstall:install:${NAVIGATION}`]);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -729,7 +720,6 @@ test("doctor reports deep preinstall readiness while ordinary not-installed rema
         sourceType: "cache_residue",
         scope: "user",
         safePath: ".codex/plugins/cache/kcoderag-nav",
-        cleanupEligible: false,
       });
       return userSources.createSourceScanResult(String(context.mode), [residue]);
     };
@@ -800,7 +790,7 @@ test("source diagnosis invokes only the selected host and never lets another hos
       assert.deepEqual(calls, [
         `${selected}:detect`,
         `${selected}:scan:gate`,
-        `${selected}:renderInstall:false:false`,
+        `${selected}:renderInstall:install:${NAVIGATION}`,
       ]);
       for (const sibling of ["codex", "claude", "cursor"].filter((host) => host !== selected)) {
         assert.equal(fs.existsSync(path.join(item.target, `.fixture-${sibling}`)), false);

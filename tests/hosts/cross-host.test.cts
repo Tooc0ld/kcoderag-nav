@@ -50,7 +50,7 @@ function adapter(host: HostId): any {
 }
 
 function installContext(target: any, observation: any, selectedCapabilities: readonly string[]) {
-  return { target, packageRoot: PACKAGE_ROOT, command: "install", environment: "qa", observation, selectedCapabilities, allowLegacyUserRemoval: false, allowLegacyDevMigration: false };
+  return { target, packageRoot: PACKAGE_ROOT, command: "install", environment: "qa", observation, selectedCapabilities };
 }
 
 test("registry exposes every host and exact receipt support matrix without fallback parity", () => {
@@ -92,7 +92,7 @@ test("four hosts coexist and one-host capability removal leaves every sibling by
     }
     const before = Object.fromEntries((["codex", "cursor", "opencode"] as const).map((host) => [host, snapshot(root, host)])) as Record<string, readonly string[]>;
     const claudeInstalled = adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [JX3], allowLegacyUserRemoval: false, allowLegacyDevMigration: false }));
+    await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [JX3] }));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".claude/kcoderag-nav/install-state.json"), "utf8")).capabilities.map((entry: any) => entry.id), [NAVIGATION]);
     for (const host of ["codex", "cursor", "opencode"] as const) assert.deepEqual(snapshot(root, host), before[host], host);
   } finally {
