@@ -4,7 +4,7 @@ Use this reference before changing a C++/Lua bridge call, argument push sequence
 guard, direct stack index, or table traversal. Treat the Lua state, declared counts,
 format characters, receiver variables, and accessed indices as one contract.
 
-## JX3-R08 — Result count and receiver alignment
+## R08 — Result count and receiver alignment
 
 **Write:** Make `CallFunction` result count, `GetValuesFromStack` count, format characters,
 and receiving variables agree exactly. Receive every declared result with the correct
@@ -16,7 +16,7 @@ its actual wrapper contract inspected. Do not infer types from variable names al
 **Review:** Count declared results and receivers, map every `d`, `s`, or `b` to its target,
 and confirm failure behavior leaves the stack in the expected state.
 
-## JX3-R09 — Argument guard placement and size
+## R09 — Argument guard placement and size
 
 **Write:** Construct `KLuaArgGuard` for the same Lua state before the first push and size
 it to cover the highest `argN` written by the call setup.
@@ -27,7 +27,7 @@ constant. Do not reuse a guard belonging to another state or count unrelated sta
 **Review:** Walk pushes in execution order, locate the maximum direct argument index, and
 confirm guard destruction occurs after the call consumes all protected values.
 
-## JX3-R10 — Stack guard versus direct access
+## R10 — Stack guard versus direct access
 
 **Write:** Evaluate the complete supported top-count guard and ensure its allowed maximum
 covers every positive direct access on that same state. Equality alternatives and bounded
@@ -40,7 +40,7 @@ boundary merely from one visible index.
 **Review:** Pair each direct access with the dominating guard path, including alternative
 counts, and report any helper-owned access whose requirement remains unknown.
 
-## JX3-R18 — Table check before traversal
+## R18 — Table check before traversal
 
 **Write:** Before `Lua_Next`, prove the value at the same index on the same Lua state is a
 table using the locally accepted `Lua_IsTable`, `tolua_istable`, or

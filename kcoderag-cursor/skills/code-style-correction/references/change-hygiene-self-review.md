@@ -4,7 +4,7 @@ Use this reference before risky formatting or encoding edits and once at task co
 Review the actual changed region only. Preserve the semantic indentation and byte
 baseline required by the change; do not turn a bounded correction into broad cleanup.
 
-## JX3-S01 — Unrelated whitespace drift
+## S01 — Unrelated whitespace drift
 
 **Write:** Keep semantic indentation introduced by a real branch or control-flow change,
 but preserve pre-existing spacing and alignment elsewhere in the changed region. Restore
@@ -16,7 +16,7 @@ move a declaration back across a `goto` boundary merely to recreate an old visua
 **Review:** Compare the necessary change budget with the final hunk and remove only
 proven formatter collateral. Leave untouched regions outside the task alone.
 
-## JX3-S07 — Boolean literal spelling
+## S07 — Boolean literal spelling
 
 **Write:** Prefer lowercase `true` and `false` when a changed executable token is a native
 C++ or Lua boolean literal and the surrounding type contract accepts that spelling.
@@ -28,7 +28,7 @@ protocol/schema constant, or identifier. Comments, strings, and names such as
 **Review:** Classify the token from syntax and declaration context before changing it;
 do not perform file-wide textual replacement.
 
-## JX3-S08 — Encoding, BOM, and line endings
+## S08 — Encoding, BOM, and line endings
 
 **Write:** Preserve the file's existing encoding, BOM, and line ending baseline through
 an encoding-safe edit path. Limit byte changes to the intended hunk and retain unrelated

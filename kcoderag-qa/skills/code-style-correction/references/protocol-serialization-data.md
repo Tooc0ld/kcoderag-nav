@@ -5,7 +5,7 @@ conversion, GS-client wire layout, serialization visitors, table-loader contract
 business-state fields, packet buffers, or packing. Separate domain authority from wire
 representation, and require external evidence for external data compatibility.
 
-## JX3-R03 — Protocol handler outputs
+## R03 — Protocol handler outputs
 
 **Write:** Initialize every output-owned member of a resolved protocol `Do` result before
 return or writeback. Follow the handler declaration and same-family analog to distinguish
@@ -18,7 +18,7 @@ owns it.
 **Review:** Enumerate output-owned members and trace each assignment. Report unclear
 ownership rather than zeroing the whole object mechanically.
 
-## JX3-R04 — Broadcast payload lifetime
+## R04 — Broadcast payload lifetime
 
 **Write:** Bind `KBroadcastFunc.m_pvData` to stable storage whose lifetime covers the
 complete `Broadcast` call, following the owning manager's established payload-buffer
@@ -31,7 +31,7 @@ the storage shape.
 **Review:** Trace construction, assignment, broadcast, and final use; reject pointers to
 temporary expressions, short-lived strings, or storage invalidated before consumption.
 
-## JX3-R12 — Contiguous version conversion
+## R12 — Contiguous version conversion
 
 **Write:** Add each required `VnToVn+1` conversion and its dispatch case without a gap,
 continuing through `CURRENT_BASEINFO_VERSION` for converters that own the full current
@@ -44,7 +44,7 @@ the current chain begins at zero.
 **Review:** Draw the supported version edges and confirm every accepted input reaches the
 current representation exactly once with no missing or duplicate transition.
 
-## JX3-R13 — GS-client protocol version
+## R13 — GS-client protocol version
 
 **Write:** When a GS-client wire enum or structure layout changes, resolve field/ID
 ordering and raise the applicable world version in the same change. Keep compatibility
@@ -57,7 +57,7 @@ window without explicit project evidence.
 **Review:** Compare old/new layouts and version dispatch, verify the world version rises,
 and surface any mixed-version deployment question.
 
-## JX3-R16 — Serialization visitor completeness
+## R16 — Serialization visitor completeness
 
 **Write:** Add every persisted member covered by `SER_SUPPORT_DECL` to the matching
 `SER_VISIT_VAR` or `SER_VISIT_VARS` contract in the same change and order expected by the
@@ -70,7 +70,7 @@ serializing it by reflex.
 **Review:** Compare the declared structure and visitor member by member, then check
 load/save compatibility and defaults for newly persisted state.
 
-## JX3-R19 — Table-loader compatibility evidence
+## R19 — Table-loader compatibility evidence
 
 **Write:** Before changing a table-backed member and `KRL_LOAD_BIN_TEXT_TABLE*` format
 together, obtain evidence for the external data column, zero/default behavior, backward
@@ -83,7 +83,7 @@ missing fact is external.
 **Review:** State which evidence is available and which business/deployment questions
 remain. Never turn a source-shape review into a compatibility success claim.
 
-## JX3-S03 — Named wire and business states
+## S03 — Named wire and business states
 
 **Write:** At a proven wire or business-state assignment/comparison, use the existing
 owning named state constant at both conversion ends instead of raw `0` or `1`.
@@ -96,7 +96,7 @@ first identify the owning domain declaration.
 wire width and business meaning. This rule explicitly covers the previously under-tested
 raw-state case.
 
-## JX3-S04 — Stable transport scratch buffers
+## S04 — Stable transport scratch buffers
 
 **Write:** For immediately serialized transport packets, follow the nearest same-owner
 scratch buffer and construction sequence, including size validation, cast pattern, and
@@ -109,7 +109,7 @@ buffer; name that reason.
 **Review:** Compare the packet builder to the same-direction operation family and verify
 the selected storage remains valid until transport consumption completes.
 
-## JX3-S05 — Heap packet storage restraint
+## S05 — Heap packet storage restraint
 
 **Write:** Match the nearest same-owner transport implementation before allocating packet
 storage. Prefer its stable scratch buffer when the packet is immediate and fits the
@@ -123,7 +123,7 @@ contract and cleanup are explicit.
 lifetime, then compare the complexity against the local transport convention. This rule
 explicitly covers the previously under-tested heap-packet case.
 
-## JX3-S06 — Packing boundaries
+## S06 — Packing boundaries
 
 **Write:** Inspect the active surrounding pack state before adding or moving directives.
 Keep push/pop or the project-native pack/reset pair balanced and scope it to the exact
