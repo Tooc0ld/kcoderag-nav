@@ -26,7 +26,7 @@ jobs:
       candidate-subject: ${{ steps.upload.outputs.candidate-subject }}
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -52,7 +52,7 @@ jobs:
       receipt: ${{ steps.lane.outputs.receipt }}
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -88,7 +88,7 @@ jobs:
       receipt: ${{ steps.lane.outputs.receipt }}
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -124,7 +124,7 @@ jobs:
       receipt: ${{ steps.lane.outputs.receipt }}
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -160,7 +160,7 @@ jobs:
       receipt: ${{ steps.lane.outputs.receipt }}
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the exact candidate
-        uses: actions/checkout@11d5960a0aa7a88858f9b4d6bcce4cd25090779a
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
