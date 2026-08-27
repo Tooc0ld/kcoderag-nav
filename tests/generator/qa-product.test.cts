@@ -16,15 +16,22 @@ interface GeneratorModule {
 
 const repositoryRoot = path.resolve(__dirname, "../..");
 const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
+const CODE_STYLE_SKILL_MEMBERS = Object.freeze([
+  "SKILL.md",
+  "references/change-hygiene-self-review.md",
+  "references/cpp-lifetime-control-flow.md",
+  "references/lua-contracts.md",
+  "references/protocol-serialization-data.md",
+]);
 const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
   ".codex.mcp.json",
   ".mcp.json",
   "agents/kcode-explorer.md",
+  "hooks/code-style-nudge.cjs",
   "hooks/grep-nudge.cjs",
   "hooks/hooks.json",
-  "hooks/jx3-style-nudge.cjs",
   "hooks/mcp-call-marker.cjs",
   "hooks/once-marker.cjs",
   "hooks/pre-tool-dispatcher.cjs",
@@ -38,11 +45,11 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "hooks/update-worker.cjs",
   "opencode/kcoderag-nav.js",
   "skills/code-lookup-discipline/SKILL.md",
-  "skills/jx3-code-style-correction/SKILL.md",
-  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/jx3-code-style-correction/references/lua-contracts.md",
-  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+  "skills/code-style-correction/SKILL.md",
+  "skills/code-style-correction/references/change-hygiene-self-review.md",
+  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+  "skills/code-style-correction/references/lua-contracts.md",
+  "skills/code-style-correction/references/protocol-serialization-data.md",
 ]);
 
 function compare(left: string, right: string): number {
@@ -68,7 +75,9 @@ function sha256(file: string): string {
 
 test("QA non-document product is a closed deterministic twenty-six-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
-  assert.deepEqual(filesBelow(qaRoot).filter((member) => member !== "README.md"), EXPECTED_NON_DOCUMENT);
+  const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
+  assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
+  assert.equal(actualNonDocument.length, 26);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));
@@ -92,6 +101,65 @@ test("QA non-document product is a closed deterministic twenty-six-file inventor
   }
 });
 
+test("QA style handler and five Markdown assets are byte-identical to canonical sources", () => {
+  const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
+  assert.equal(
+    sha256(path.join(qaRoot, "hooks", "code-style-nudge.cjs")),
+    sha256(path.join(repositoryRoot, "dist", "hooks", "code-style-nudge.cjs")),
+  );
+  for (const member of CODE_STYLE_SKILL_MEMBERS) {
+    assert.equal(
+      sha256(path.join(qaRoot, "skills", "code-style-correction", ...member.split("/"))),
+      sha256(path.join(
+        repositoryRoot,
+        "plugin-src",
+        "capabilities",
+        "code-style-nudge",
+        "skill",
+        ...member.split("/"),
+      )),
+      member,
+    );
+  }
+});
+
+test("QA Hook manifest retains one bounded advisory lane and one success-marker lane", () => {
+  const registration = JSON.parse(
+    fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", "hooks", "hooks.json"), "utf8"),
+  ) as {
+    hooks?: {
+      PreToolUse?: readonly {
+        hooks?: readonly {
+          additionalContextLimit?: unknown;
+          command?: unknown;
+          commandWindows?: unknown;
+        }[];
+        matcher?: unknown;
+      }[];
+      PostToolUse?: readonly {
+        hooks?: readonly {
+          command?: unknown;
+          commandWindows?: unknown;
+        }[];
+        matcher?: unknown;
+      }[];
+    };
+  };
+  assert.deepEqual(Object.keys(registration), ["hooks"]);
+  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse"]);
+  assert.equal(registration.hooks?.PreToolUse?.length, 1);
+  assert.equal(registration.hooks?.PostToolUse?.length, 1);
+  const advisory = registration.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  const marker = registration.hooks?.PostToolUse?.[0]?.hooks?.[0];
+  assert.equal(advisory?.additionalContextLimit, 600);
+  assert.equal(typeof advisory?.command, "string");
+  assert.equal(typeof advisory?.commandWindows, "string");
+  assert.equal(typeof marker?.command, "string");
+  assert.equal(typeof marker?.commandWindows, "string");
+  assert.equal(registration.hooks?.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$");
+  assert.equal(registration.hooks?.PostToolUse?.[0]?.matcher, "^mcp__kcoderag-qa__.*$");
+});
+
 test("QA guidance and registration expose only the current QA product", () => {
   const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
     version: string;
@@ -112,8 +180,10 @@ test("QA guidance and registration expose only the current QA product", () => {
     "agents/kcode-explorer.md",
     "hooks/hooks.json",
     "skills/code-lookup-discipline/SKILL.md",
+    "skills/code-style-correction/SKILL.md",
   ].map((member) => fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", ...member.split("/")), "utf8")).join("\n");
   assert.match(activeText, /QA/u);
   assert.match(activeText, /run_hook/u);
+  assert.match(activeText, /code-style-correction/u);
   assert.doesNotMatch(activeText, /kcoderag-dev|--environment\s+dev|mcp__plugin_kcoderag-dev/iu);
 });
