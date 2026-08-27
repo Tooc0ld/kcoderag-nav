@@ -9,13 +9,13 @@ const projectTarget = require("../../dist/core/project-target.cjs") as Record<st
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function context(target: any, observation: any, selectedCapabilities: readonly string[], command = "install") {
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("Cursor rejects instruction-only JX3 and keeps native navigation update projection", async () => {
+test("Cursor rejects instruction-only code-style nudge and keeps native navigation update projection", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-cursor-"));
   try {
     fs.mkdirSync(path.join(root, ".cursor"), { recursive: true });
@@ -24,7 +24,7 @@ test("Cursor rejects instruction-only JX3 and keeps native navigation update pro
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = cursor.createCursorAdapter({ hostVersion: "3.17.8", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    assert.throws(() => adapter.renderInstall(context(target, observation, [NAVIGATION, JX3])), (error: any) => error?.code === "host_version_unsupported");
+    assert.throws(() => adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])), (error: any) => error?.code === "host_version_unsupported");
     assert.equal(fs.existsSync(path.join(root, ".cursor/rules/kcoderag-navigation.mdc")), false);
 
     await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
@@ -48,7 +48,7 @@ test("Cursor rejects instruction-only JX3 and keeps native navigation update pro
       ".cursor/kcoderag-nav/hooks/update-notice.cjs",
       ".cursor/kcoderag-nav/hooks/update-worker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
-    assert.equal(fs.existsSync(path.join(root, ".cursor/skills/jx3-code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".cursor/skills/code-style-correction/SKILL.md")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

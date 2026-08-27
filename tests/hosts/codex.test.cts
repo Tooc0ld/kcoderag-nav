@@ -6,11 +6,12 @@ const path = require("node:path") as typeof import("node:path");
 
 const codex = require("../../dist/hosts/codex.cjs") as Record<string, any>;
 const projectTarget = require("../../dist/core/project-target.cjs") as Record<string, any>;
+const projectRoot = require("../../dist/core/project-root.cjs") as Record<string, any>;
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function context(target: any, observation: any, selectedCapabilities: readonly string[], command = "install") {
   return {
@@ -23,7 +24,16 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
   };
 }
 
-test("Codex rejects unsupported JX3 before desired state while navigation remains complete", async () => {
+test("Codex bootstrap accepts only the closed neutral capability inventory", () => {
+  const command = projectRoot.renderProjectHookCommands("codex").command as string;
+  const encoded = command.split(" ")[3];
+  assert.equal(typeof encoded, "string");
+  const source = Buffer.from(encoded ?? "", "base64").toString("utf8");
+  assert.match(source, /A=\['kcoderag-navigation','code-style-nudge'\]/u);
+  assert.equal(source.includes(["j", "x3-style-nudge"].join("")), false);
+});
+
+test("Codex rejects unsupported code-style nudge before desired state while navigation remains complete", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-codex-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
@@ -31,7 +41,7 @@ test("Codex rejects unsupported JX3 before desired state while navigation remain
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
 
     assert.throws(
-      () => adapter.renderInstall(context(target, observation, [NAVIGATION, JX3])),
+      () => adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])),
       (error: any) => error?.code === "host_version_unsupported",
     );
     assert.deepEqual(fs.readdirSync(root), []);
@@ -49,7 +59,7 @@ test("Codex rejects unsupported JX3 before desired state while navigation remain
     assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag-nav/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".codex/kcoderag-nav/qa/hooks/update-notice.cjs")), true);
     assert.equal(fs.existsSync(path.join(root, ".codex/kcoderag-nav/qa/hooks/pre-tool-dispatcher.cjs")), true);
-    assert.equal(fs.existsSync(path.join(root, ".agents/skills/jx3-code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".agents/skills/code-style-correction/SKILL.md")), false);
     const hooks = JSON.parse(fs.readFileSync(path.join(root, ".codex/hooks.json"), "utf8"));
     assert.match(JSON.stringify(hooks), /PreToolUse/u);
     assert.match(JSON.stringify(hooks), /PostToolUse/u);

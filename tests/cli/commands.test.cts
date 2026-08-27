@@ -38,7 +38,7 @@ function fixture(): { root: string; target: string } {
 
 const PUBLIC_CLI = path.resolve("dist/bin/kcoderag-nav.cjs");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function runPublicCli(
   target: string,
@@ -837,15 +837,15 @@ test("repeatable capability selection is canonical and interactive selection fol
     });
     const order: string[] = [];
     assert.equal(await commands.executeCommand(
-      ["install", "--yes", "--capability", JX3, "--capability", NAVIGATION, "--capability", JX3],
+      ["install", "--yes", "--capability", CODE_STYLE, "--capability", NAVIGATION, "--capability", CODE_STYLE],
       {
         ...captured.dependencies,
         selectHost: () => { order.push("host"); return "claude"; },
-        selectCapabilities: () => { order.push("capabilities"); return [JX3, NAVIGATION]; },
+        selectCapabilities: () => { order.push("capabilities"); return [CODE_STYLE, NAVIGATION]; },
       },
     ), 0);
     assert.deepEqual(order, ["host"]);
-    assert.equal(calls.join("\n").includes(`selected:${NAVIGATION},${JX3}`), true);
+    assert.equal(calls.join("\n").includes(`selected:${NAVIGATION},${CODE_STYLE}`), true);
 
     const interactive = fixture();
     try {
@@ -867,11 +867,11 @@ test("repeatable capability selection is canonical and interactive selection fol
         selectHost: () => { interactiveOrder.push("host"); return "claude"; },
         selectCapabilities: (ids: readonly string[]) => {
           interactiveOrder.push(`capabilities:${ids.join(",")}`);
-          return [JX3, NAVIGATION];
+          return [CODE_STYLE, NAVIGATION];
         },
       }), 0);
-      assert.deepEqual(interactiveOrder, ["host", `capabilities:${NAVIGATION},${JX3}`]);
-      assert.equal(interactiveCalls.join("\n").includes(`selected:${NAVIGATION},${JX3}`), true);
+      assert.deepEqual(interactiveOrder, ["host", `capabilities:${NAVIGATION},${CODE_STYLE}`]);
+      assert.equal(interactiveCalls.join("\n").includes(`selected:${NAVIGATION},${CODE_STYLE}`), true);
     } finally {
       fs.rmSync(interactive.root, { recursive: true, force: true });
     }
@@ -881,7 +881,7 @@ test("repeatable capability selection is canonical and interactive selection fol
 });
 
 test("compiled public CLI installs Claude capabilities additively in both orders", () => {
-  for (const order of [[NAVIGATION, JX3], [JX3, NAVIGATION]] as const) {
+  for (const order of [[NAVIGATION, CODE_STYLE], [CODE_STYLE, NAVIGATION]] as const) {
     const item = fixture();
     const homeDirectory = path.join(item.root, "home");
     fs.mkdirSync(homeDirectory);
@@ -893,9 +893,9 @@ test("compiled public CLI installs Claude capabilities additively in both orders
         assert.equal(result.status, 0, result.stderr || result.stdout);
         assert.equal(parseOnlyJson(result.stdout).ok, true);
       }
-      assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, JX3]);
+      assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, CODE_STYLE]);
       assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md")), true);
-      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/jx3-code-style-correction/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/code-style-correction/SKILL.md")), true);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -955,13 +955,13 @@ test("drifted and invalid status or doctor results fail in JSON and human modes"
   }
 });
 
-test("installed Claude launcher keeps JX3 operational without the navigation runtime", () => {
-  for (const lifecycle of ["jx3-only", "navigation-removed"] as const) {
+test("installed Claude launcher keeps code-style nudge operational without the navigation runtime", () => {
+  for (const lifecycle of ["style-only", "navigation-removed"] as const) {
     const item = fixture();
     const homeDirectory = path.join(item.root, "home");
     fs.mkdirSync(homeDirectory);
     try {
-      const initialCapabilities = lifecycle === "jx3-only" ? [JX3] : [NAVIGATION, JX3];
+      const initialCapabilities = lifecycle === "style-only" ? [CODE_STYLE] : [NAVIGATION, CODE_STYLE];
       const installed = runPublicCli(item.target, homeDirectory, [
         "install",
         "--host",
@@ -976,7 +976,7 @@ test("installed Claude launcher keeps JX3 operational without the navigation run
         assert.equal(removed.status, 0, removed.stderr || removed.stdout);
       }
 
-      assert.deepEqual(installedCapabilities(item.target, "claude"), [JX3]);
+      assert.deepEqual(installedCapabilities(item.target, "claude"), [CODE_STYLE]);
       assert.equal(
         fs.existsSync(path.join(item.target, ".claude/kcoderag-nav/qa/hooks/grep-nudge.cjs")),
         false,
@@ -990,7 +990,7 @@ test("installed Claude launcher keeps JX3 operational without the navigation run
       assert.equal(launched.stderr, "");
       const output = parseOnlyJson(launched.stdout);
       assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
-      assert.match(output.hookSpecificOutput.additionalContext, /\$jx3-code-style-correction/u);
+      assert.match(output.hookSpecificOutput.additionalContext, /\$code-style-correction/u);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -1003,12 +1003,12 @@ test("duplicate additive install is byte and mtime stable without a transaction 
   fs.mkdirSync(homeDirectory);
   try {
     const first = runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE,
     ]);
     assert.equal(first.status, 0, first.stderr || first.stdout);
     const before = projectSnapshot(item.target);
     const repeated = runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "claude", "--capability", JX3, "--capability", NAVIGATION,
+      "install", "--host", "claude", "--capability", CODE_STYLE, "--capability", NAVIGATION,
     ]);
     assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
     const output = parseOnlyJson(repeated.stdout);
@@ -1031,7 +1031,7 @@ test("unsupported second capability add is zero-write and preserves the healthy 
     assert.equal(first.status, 0, first.stderr || first.stdout);
     const before = projectSnapshot(item.target);
     const refused = runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "codex", "--capability", JX3,
+      "install", "--host", "codex", "--capability", CODE_STYLE,
     ]);
     assert.equal(refused.status, 1, refused.stderr || refused.stdout);
     assert.equal(parseOnlyJson(refused.stdout).error.code, "host_version_unsupported");
@@ -1048,14 +1048,14 @@ test("update defaults to installed capabilities and filters cannot install an ab
   fs.mkdirSync(homeDirectory);
   try {
     const installed = runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE,
     ]);
     assert.equal(installed.status, 0, installed.stderr || installed.stdout);
     const beforeUpdate = projectSnapshot(item.target);
     const updated = runPublicCli(item.target, homeDirectory, ["update", "--host", "claude"]);
     assert.equal(updated.status, 0, updated.stderr || updated.stdout);
     const updateOutput = parseOnlyJson(updated.stdout);
-    assert.deepEqual(updateOutput.capabilities, [NAVIGATION, JX3]);
+    assert.deepEqual(updateOutput.capabilities, [NAVIGATION, CODE_STYLE]);
     assert.equal(updateOutput.changed, false);
     assert.deepEqual(projectSnapshot(item.target), beforeUpdate);
 
@@ -1068,7 +1068,7 @@ test("update defaults to installed capabilities and filters cannot install an ab
       ]).status, 0);
       const before = projectSnapshot(separate.target);
       const refused = runPublicCli(separate.target, separateHome, [
-        "update", "--host", "claude", "--capability", JX3,
+        "update", "--host", "claude", "--capability", CODE_STYLE,
       ]);
       assert.equal(refused.status, 1, refused.stderr || refused.stdout);
       assert.equal(parseOnlyJson(refused.stdout).error.code, "capability_not_installed");
@@ -1088,29 +1088,29 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
   const packageRoot = copyPackageFixture(item.root);
   const statePath = path.join(item.target, ".claude/kcoderag-nav/install-state.json");
   const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md");
-  const jx3Source = path.join(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  const codeStyleSource = path.join(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   const hooksSource = path.join(packageRoot, "kcoderag-qa/hooks/hooks.json");
   const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md");
-  const jx3Installed = path.join(item.target, ".claude/skills/jx3-code-style-correction/SKILL.md");
+  const codeStyleInstalled = path.join(item.target, ".claude/skills/code-style-correction/SKILL.md");
   try {
     const installed = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
-      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3, "--yes", "--json",
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE, "--yes", "--json",
     ]);
     assert.equal(installed.exitCode, 0, installed.stderr.join("\n") || installed.stdout.join("\n"));
 
     const beforeState = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
     const beforeNavigation = fs.readFileSync(navigationInstalled);
-    const beforeJx3 = fs.readFileSync(jx3Installed);
+    const beforeCodeStyle = fs.readFileSync(codeStyleInstalled);
     const stableTimestamp = new Date("2020-01-02T03:04:05.000Z");
-    fs.utimesSync(jx3Installed, stableTimestamp, stableTimestamp);
-    const beforeJx3Mtime = fs.statSync(jx3Installed).mtimeMs;
-    const beforeExclusiveJx3Files = beforeState.files.filter((record: Record<string, any>) =>
-      record.contributors.length === 1 && record.contributors[0] === JX3);
-    const beforeJx3Sections = beforeState.sections.filter((record: Record<string, any>) =>
-      record.contributors.includes(JX3));
+    fs.utimesSync(codeStyleInstalled, stableTimestamp, stableTimestamp);
+    const beforeCodeStyleMtime = fs.statSync(codeStyleInstalled).mtimeMs;
+    const beforeExclusiveCodeStyleFiles = beforeState.files.filter((record: Record<string, any>) =>
+      record.contributors.length === 1 && record.contributors[0] === CODE_STYLE);
+    const beforeCodeStyleSections = beforeState.sections.filter((record: Record<string, any>) =>
+      record.contributors.includes(CODE_STYLE));
 
     fs.appendFileSync(navigationSource, "\n<!-- filtered navigation update -->\n");
-    fs.appendFileSync(jx3Source, "\n<!-- must remain unselected -->\n");
+    fs.appendFileSync(codeStyleSource, "\n<!-- must remain unselected -->\n");
     const hooksTemplate = JSON.parse(fs.readFileSync(hooksSource, "utf8")) as Record<string, any>;
     hooksTemplate.hooks.PreToolUse[0].description = "filtered shared update";
     fs.writeFileSync(hooksSource, `${JSON.stringify(hooksTemplate, null, 2)}\n`);
@@ -1124,36 +1124,36 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
     ]);
     assert.equal(updated.exitCode, 0, updated.stderr.join("\n") || updated.stdout.join("\n"));
     const output = JSON.parse(updated.stdout[0] ?? "") as Record<string, any>;
-    assert.deepEqual(output.capabilities, [NAVIGATION, JX3]);
+    assert.deepEqual(output.capabilities, [NAVIGATION, CODE_STYLE]);
     assert.deepEqual(output.selectedCapabilities, [NAVIGATION]);
     assert.equal(output.changed, true);
     assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-nav/SKILL.md"), true);
-    assert.equal(output.changedPaths.includes(".claude/skills/jx3-code-style-correction/SKILL.md"), false);
+    assert.equal(output.changedPaths.includes(".claude/skills/code-style-correction/SKILL.md"), false);
 
     assert.equal(fs.readFileSync(navigationInstalled).equals(beforeNavigation), false);
     assert.equal(fs.readFileSync(navigationInstalled).equals(fs.readFileSync(navigationSource)), true);
-    assert.equal(fs.readFileSync(jx3Installed).equals(beforeJx3), true);
-    assert.equal(fs.readFileSync(jx3Installed).equals(fs.readFileSync(jx3Source)), false);
-    assert.equal(fs.statSync(jx3Installed).mtimeMs, beforeJx3Mtime);
+    assert.equal(fs.readFileSync(codeStyleInstalled).equals(beforeCodeStyle), true);
+    assert.equal(fs.readFileSync(codeStyleInstalled).equals(fs.readFileSync(codeStyleSource)), false);
+    assert.equal(fs.statSync(codeStyleInstalled).mtimeMs, beforeCodeStyleMtime);
 
     const afterState = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
     assert.equal(afterState.packageVersion, "0.2.1-filtered-test");
     assert.notEqual(afterState.compositeDigest, beforeState.compositeDigest);
     assert.deepEqual(
-      afterState.capabilities.find((capability: Record<string, any>) => capability.id === JX3),
-      beforeState.capabilities.find((capability: Record<string, any>) => capability.id === JX3),
+      afterState.capabilities.find((capability: Record<string, any>) => capability.id === CODE_STYLE),
+      beforeState.capabilities.find((capability: Record<string, any>) => capability.id === CODE_STYLE),
     );
     assert.deepEqual(
       afterState.files.filter((record: Record<string, any>) =>
-        record.contributors.length === 1 && record.contributors[0] === JX3),
-      beforeExclusiveJx3Files,
+        record.contributors.length === 1 && record.contributors[0] === CODE_STYLE),
+      beforeExclusiveCodeStyleFiles,
     );
-    const beforeJx3Pre = beforeJx3Sections.find((record: Record<string, any>) => record.id === "jx3:pre-tool");
-    const afterJx3Pre = afterState.sections.find((record: Record<string, any>) => record.id === "jx3:pre-tool");
+    const beforeCodeStylePre = beforeCodeStyleSections.find((record: Record<string, any>) => record.id === "code-style:pre-tool");
+    const afterCodeStylePre = afterState.sections.find((record: Record<string, any>) => record.id === "code-style:pre-tool");
     const afterNavigationPre = afterState.sections.find((record: Record<string, any>) => record.id === "navigation:pre-tool");
-    assert.notEqual(afterJx3Pre?.digest, beforeJx3Pre?.digest);
-    assert.equal(afterJx3Pre?.digest, afterNavigationPre?.digest);
-    assert.deepEqual(afterJx3Pre?.contributors, [JX3]);
+    assert.notEqual(afterCodeStylePre?.digest, beforeCodeStylePre?.digest);
+    assert.equal(afterCodeStylePre?.digest, afterNavigationPre?.digest);
+    assert.deepEqual(afterCodeStylePre?.contributors, [CODE_STYLE]);
     for (const capability of afterState.capabilities as readonly Record<string, any>[]) {
       for (const relativePath of capability.files as readonly string[]) {
         assert.equal(afterState.files.some((record: Record<string, any>) =>
@@ -1186,7 +1186,7 @@ test("status and doctor report every built-in capability without writing", () =>
       const output = parseOnlyJson(result.stdout);
       assert.deepEqual(output.capabilities, [
         { id: NAVIGATION, installed: true, status: "healthy" },
-        { id: JX3, installed: false, status: "not_installed" },
+        { id: CODE_STYLE, installed: false, status: "not_installed" },
       ]);
       assert.deepEqual(projectSnapshot(item.target), before);
     }
@@ -1202,15 +1202,15 @@ test("status reports conservative per-capability drift and doctor reports stale 
   fs.mkdirSync(homeDirectory);
   try {
     assert.equal(runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE,
     ]).status, 0);
     const state = JSON.parse(fs.readFileSync(
       path.join(item.target, ".claude/kcoderag-nav/install-state.json"),
       "utf8",
     )) as { files: readonly { path: string; contributors: readonly string[] }[] };
-    const jx3File = state.files.find((record) => record.contributors.includes(JX3));
-    assert.notEqual(jx3File, undefined);
-    fs.appendFileSync(path.join(item.target, ...(jx3File?.path.split("/") ?? [])), "drift\n");
+    const codeStyleFile = state.files.find((record) => record.contributors.includes(CODE_STYLE));
+    assert.notEqual(codeStyleFile, undefined);
+    fs.appendFileSync(path.join(item.target, ...(codeStyleFile?.path.split("/") ?? [])), "drift\n");
 
     const drifted = runPublicCli(item.target, homeDirectory, ["status", "--host", "claude"]);
     assert.equal(drifted.status, 1, drifted.stderr || drifted.stdout);
@@ -1220,7 +1220,7 @@ test("status reports conservative per-capability drift and doctor reports stale 
     assert.equal(driftOutput.issues[0].code, "capability_drift");
     assert.deepEqual(driftOutput.capabilities, [
       { id: NAVIGATION, installed: null, status: "capability_drift" },
-      { id: JX3, installed: null, status: "capability_drift" },
+      { id: CODE_STYLE, installed: null, status: "capability_drift" },
     ]);
 
     const child = childProcess.spawnSync(process.execPath, [
@@ -1264,15 +1264,15 @@ test("uninstall is explicit, recomposes a subset, and --all removes the final ca
   fs.mkdirSync(homeDirectory);
   try {
     assert.equal(runPublicCli(item.target, homeDirectory, [
-      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", JX3,
+      "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE,
     ]).status, 0);
     const missing = runPublicCli(item.target, homeDirectory, ["uninstall", "--host", "claude"]);
     assert.equal(missing.status, 2, missing.stderr || missing.stdout);
     assert.equal(parseOnlyJson(missing.stdout).error.code, "capability_selection_required");
-    assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, JX3]);
+    assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, CODE_STYLE]);
 
     const partial = runPublicCli(item.target, homeDirectory, [
-      "uninstall", "--host", "claude", "--capability", JX3,
+      "uninstall", "--host", "claude", "--capability", CODE_STYLE,
     ]);
     assert.equal(partial.status, 0, partial.stderr || partial.stdout);
     assert.deepEqual(parseOnlyJson(partial.stdout).capabilities, [NAVIGATION]);
