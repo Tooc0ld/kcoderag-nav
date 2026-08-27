@@ -274,6 +274,7 @@ test("private remediation receives the validated path without making it serializ
   assert.equal(privateFindings.length, 1);
   assert.equal(privateFindings[0]!.exactPath, exactPath);
   assert.strictEqual(privateFindings[0]!.finding, result.findings[0]);
+  assert.equal(JSON.stringify(privateFindings[0]).includes(exactPath), false);
   assert.equal(JSON.stringify(result).includes(exactPath), false);
   assert.deepEqual(Object.keys(result).sort(), ["findingCount", "findings", "ok"]);
 });

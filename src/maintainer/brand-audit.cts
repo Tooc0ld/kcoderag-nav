@@ -274,7 +274,7 @@ function findMatches(input: string): readonly MatchLocation[] {
     }
   }
   return Object.freeze([...matches.values()].sort((left, right) =>
-    left.offset - right.offset || left.familyId.localeCompare(right.familyId, "en")));
+    left.offset - right.offset || (left.familyId < right.familyId ? -1 : left.familyId > right.familyId ? 1 : 0)));
 }
 
 function lineColumnAt(input: string, offset: number): { readonly line: number; readonly column: number } {
@@ -341,9 +341,33 @@ function scanContent(
   }));
 }
 
+function deliverPrivateFindings(
+  exactPath: string,
+  findings: readonly BrandAuditFinding[],
+  callback: ((finding: PrivateBrandFinding) => void) | undefined,
+): void {
+  if (callback === undefined) return;
+  try {
+    for (const finding of findings) {
+      const payload = { finding } as { finding: BrandAuditFinding; exactPath?: string };
+      Object.defineProperty(payload, "exactPath", {
+        value: exactPath,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+      callback(Object.freeze(payload) as PrivateBrandFinding);
+    }
+  } catch {
+    throw new BrandAuditError("private_remediation_failed");
+  }
+}
+
 export function scanBrandText(input: unknown, options: ScanBrandTextOptions): BrandAuditResult {
   failUnless(isPlainObject(options), "invalid_audit_options");
   failUnless(typeof options.scope === "string" && VALID_SCOPES.has(options.scope), "invalid_audit_scope");
+  failUnless(options.onPrivateFinding === undefined || typeof options.onPrivateFinding === "function",
+    "invalid_audit_options");
   const limits = resolveLimits(options.limits);
   const exactPath = validateExactPath(options.exactPath, limits);
   const token = pathToken(exactPath);
@@ -355,6 +379,7 @@ export function scanBrandText(input: unknown, options: ScanBrandTextOptions): Br
   } else {
     findings = scanContent(options.scope, input, limits, token);
   }
+  deliverPrivateFindings(exactPath, findings, options.onPrivateFinding);
   return Object.freeze({
     ok: findings.length === 0,
     findingCount: findings.length,
