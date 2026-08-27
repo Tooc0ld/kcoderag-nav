@@ -1057,6 +1057,7 @@ export function generatePackage(options: GeneratorOptions): GenerationResult {
 
 interface ParsedArguments {
   readonly package: string;
+  readonly product: ProductSelection;
   readonly group: string;
   readonly sourceRoot?: string;
   readonly outputRoot?: string;
@@ -1088,8 +1089,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       index += 1;
       continue;
     }
-    if (!(["--package", "--group", "--source-root", "--output-root"] as const).includes(
-      argument as "--package" | "--group" | "--source-root" | "--output-root",
+    if (!(["--package", "--product", "--group", "--source-root", "--output-root"] as const).includes(
+      argument as "--package" | "--product" | "--group" | "--source-root" | "--output-root",
     )) {
       throw new GenerationError("unknown_option");
     }
@@ -1100,13 +1101,21 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     index += 1;
   }
   const selectedPackage = values.get("--package");
+  const selectedProduct = values.get("--product") ?? "all";
   const group = values.get("--group");
   if (selectedPackage === undefined) throw new GenerationError("missing_package");
+  if (selectedProduct !== "all" && !isProduct(selectedProduct)) {
+    throw new GenerationError("unknown_product");
+  }
+  if (selectedProduct !== "all" && selectedPackage !== "all" && selectedPackage !== selectedProduct) {
+    throw new GenerationError("product_scope_conflict");
+  }
   if (group === undefined) throw new GenerationError("missing_group");
   const sourceRoot = values.get("--source-root");
   const outputRoot = values.get("--output-root");
   return {
     package: selectedPackage,
+    product: selectedProduct,
     group,
     ...(sourceRoot === undefined ? {} : { sourceRoot }),
     ...(outputRoot === undefined ? {} : { outputRoot }),
@@ -1126,7 +1135,7 @@ export function runCli(argv: readonly string[] = process.argv.slice(2), io: Gene
   try {
     const parsed = parseArguments(argv);
     const options: GeneratorOptions = {
-      package: parsed.package as ProductSelection,
+      package: (parsed.product === "all" ? parsed.package : parsed.product) as ProductSelection,
       group: parsed.group as AssetGroup,
       ...(parsed.sourceRoot === undefined ? {} : { sourceRoot: parsed.sourceRoot }),
       ...(parsed.outputRoot === undefined ? {} : { outputRoot: parsed.outputRoot }),

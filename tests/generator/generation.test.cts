@@ -767,6 +767,7 @@ test("CLI rejects unknown, empty, and incompatible selections without writes", (
       ["--package", "all", "--group", "all", "--product", "unknown"],
       ["--package", "all", "--group", "all", "--product"],
       ["--package", "all", "--group", "all", "--product", "qa", "--product", "cursor"],
+      ["--package", "cursor", "--group", "all", "--product", "qa"],
       ["--package", "unknown", "--group", "docs"],
       ["--package", "qa", "--group", "unknown"],
       ["--package", "qa", "--group", ""],

@@ -65,18 +65,27 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     ".mcp.json",
     "README.md",
     "agents/kcode-explorer.md",
+    "hooks/code-style-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/hooks.json",
     "hooks/mcp-call-marker.cjs",
+    "hooks/once-marker.cjs",
+    "hooks/pre-tool-dispatcher.cjs",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
     "hooks/run_marker.cmd",
     "hooks/run_marker.sh",
+    "hooks/session-cleanup.cjs",
     "hooks/update-check.cjs",
     "hooks/update-notice.cjs",
     "hooks/update-worker.cjs",
     "opencode/kcoderag-nav.js",
     "skills/code-lookup-discipline/SKILL.md",
+    "skills/code-style-correction/SKILL.md",
+    "skills/code-style-correction/references/change-hygiene-self-review.md",
+    "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+    "skills/code-style-correction/references/lua-contracts.md",
+    "skills/code-style-correction/references/protocol-serialization-data.md",
   ]),
   cursor: Object.freeze([
     ".cursor-plugin/plugin.json",
@@ -84,6 +93,11 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "mcp.json",
     "rules/kcoderag-navigation.mdc",
     "skills/code-lookup-discipline/SKILL.md",
+    "skills/code-style-correction/SKILL.md",
+    "skills/code-style-correction/references/change-hygiene-self-review.md",
+    "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+    "skills/code-style-correction/references/lua-contracts.md",
+    "skills/code-style-correction/references/protocol-serialization-data.md",
   ]),
 });
 
@@ -203,6 +217,8 @@ test("compiled repository gate proves all generated products canonical without r
   const packageDocument = readJson(repositoryRoot, "package.json");
   const version = packageDocument.version;
   assert.equal(typeof version === "string" && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(version), true);
+  assert.deepEqual(expectedProductInventory.qa, generator.ASSET_GROUP_PATHS.qa.all);
+  assert.deepEqual(expectedProductInventory.cursor, generator.ASSET_GROUP_PATHS.cursor.all);
 
   const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-repository-projection-"));
   const before = evidenceForSelectedAssets();
