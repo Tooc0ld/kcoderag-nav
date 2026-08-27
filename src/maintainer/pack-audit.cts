@@ -105,6 +105,7 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/maintainer/release-readiness.cjs",
   "dist/maintainer/readiness-workflow.cjs",
   "dist/maintainer/retirement-audit.cjs",
+  "dist/maintainer/scrub-baseline.cjs",
 ]);
 
 const NON_PUBLISHED_COMPILED_OUTPUT_SET = new Set<string>(NON_PUBLISHED_COMPILED_OUTPUTS);
