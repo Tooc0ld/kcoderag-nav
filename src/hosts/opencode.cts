@@ -11,6 +11,7 @@ import type { CapabilityId } from "../capabilities/contracts.cjs";
 import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
 import { parseJsoncObject, upsertJsonObjectProperty } from "../core/json-splice.cjs";
+import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
@@ -37,6 +38,7 @@ const JX3_SKILL_ROOT = ".opencode/skills/jx3-code-style-correction";
 const HOOK_ROOT = ".opencode/kcoderag-nav/hooks";
 const CONFIG_CANDIDATES = Object.freeze(["opencode.json", "opencode.jsonc"] as const);
 type ConfigPath = (typeof CONFIG_CANDIDATES)[number];
+const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const MANAGED_ROOTS = Object.freeze([".opencode", ...CONFIG_CANDIDATES] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
 const JX3 = "jx3-style-nudge" as const;
@@ -55,7 +57,7 @@ function sourceAsset(packageRoot: string, relativePath: string): Buffer {
   catch { throw new InstallError("missing_package_asset", relativePath); }
 }
 function packageVersion(packageRoot: string): string { const value = parseJson(sourceAsset(packageRoot, "package.json"), "invalid_package", "package.json"); if (value.name !== "kcoderag-nav" || typeof value.version !== "string" || value.version.length === 0) throw new InstallError("invalid_package", "package.json"); return value.version; }
-function remoteEntry(packageRoot: string): JsonMap { const safePath = "kcoderag-qa/.mcp.json"; const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath); const raw = isRecord(source.mcpServers) ? source.mcpServers["kcoderag-qa"] : undefined; if (!isRecord(raw) || typeof raw.url !== "string") throw new InstallError("invalid_mcp_source", safePath); const headers = isRecord(raw.headers) ? raw.headers : isRecord(raw.http_headers) ? raw.http_headers : undefined; if (headers === undefined || !Object.values(headers).every((value) => typeof value === "string")) throw new InstallError("invalid_mcp_source", safePath); return { type: "remote", url: raw.url, enabled: true, headers }; }
+function remoteEntry(packageRoot: string): JsonMap { const safePath = "kcoderag-qa/.mcp.json"; const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath); const raw = isRecord(source.mcpServers) ? source.mcpServers["kcoderag-qa"] : undefined; if (!isRecord(raw) || typeof raw.url !== "string") throw new InstallError("invalid_mcp_source", safePath); const headers = isRecord(raw.headers) ? raw.headers : isRecord(raw.http_headers) ? raw.http_headers : undefined; if (headers === undefined || !Object.values(headers).every((value) => typeof value === "string")) throw new InstallError("invalid_mcp_source", safePath); return { type: "remote", url: normalizeRemoteMcpUrl(raw.url, safePath), enabled: true, headers }; }
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord { return bytes === undefined ? Object.freeze({ kind: "absent" as const }) : Object.freeze({ kind: "base64" as const, data: bytes.toString("base64") }); }
 function stateBytes(observation: HostObservation): Buffer | undefined { const bytes = (observation.details as Details | undefined)?.stateBytes; return bytes === undefined ? undefined : Buffer.from(bytes); }
 function configFromState(state: InstallState): ConfigPath | undefined { const matches = CONFIG_CANDIDATES.filter((candidate) => state.files.some((record) => record.path === candidate)); return matches.length === 1 ? matches[0] : undefined; }
@@ -84,29 +86,34 @@ function selectedUninstall(context: HostUninstallContext): readonly CapabilityId
 function defaultVersion(): string | undefined { try { const result = childProcess.spawnSync("opencode", ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 8_192, windowsHide: true }); if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined; return /^(\d+\.\d+\.\d+)\r?\n?$/u.exec(result.stdout)?.[1]; } catch { return undefined; } }
 function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: OpenCodeAdapterOptions): void { if (!selected.includes(JX3)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(JX3).evaluateSupport({ host: "opencode", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
 
-function mergeConfig(current: Buffer | undefined, configPath: ConfigPath, packageRoot: string, selected: readonly CapabilityId[], owned: boolean) {
+function mergeConfig(current: Buffer | undefined, configPath: ConfigPath, packageRoot: string, selected: readonly CapabilityId[], state: InstallState | undefined) {
   const original = current?.toString("utf8") ?? "{}\n";
   let document: JsonMap;
   try { document = parseJsoncObject(original); } catch { throw new InstallError("invalid_json", configPath); }
   const mcp = document.mcp === undefined ? {} : document.mcp; if (!isRecord(mcp)) throw new InstallError("invalid_json", configPath);
   const plugins = document.plugin === undefined ? [] : document.plugin; if (!Array.isArray(plugins) || !plugins.every((entry) => typeof entry === "string")) throw new InstallError("invalid_json", configPath);
+  if (document.$schema !== undefined && typeof document.$schema !== "string") throw new InstallError("invalid_json", configPath);
+  const owned = state !== undefined;
+  const schemaPreviouslyManaged = state?.sections.some((record) => record.path === configPath && record.id === "navigation:schema") ?? false;
+  const schemaAdded = selected.includes(NAVIGATION) && document.$schema === undefined;
+  const schemaManaged = schemaPreviouslyManaged || schemaAdded;
   const pluginId = `./${PLUGIN_PATH}`; const hadMcp = mcp["kcoderag-qa"] !== undefined; const hadPlugin = plugins.includes(pluginId);
   if (!owned && (hadMcp || hadPlugin)) throw new InstallError("unmanaged_name_conflict", configPath);
   const unrelatedPlugins = plugins.filter((entry) => entry !== pluginId);
   let text = original; let entry: JsonMap | undefined;
-  if (selected.includes(NAVIGATION)) { entry = remoteEntry(packageRoot); text = upsertJsonObjectProperty(text, ["mcp"], "kcoderag-qa", entry); text = upsertJsonObjectProperty(text, [], "plugin", [...unrelatedPlugins, pluginId]); }
+  if (selected.includes(NAVIGATION)) { entry = remoteEntry(packageRoot); if (schemaAdded) text = upsertJsonObjectProperty(text, [], "$schema", OPENCODE_SCHEMA_URL); text = upsertJsonObjectProperty(text, ["mcp"], "kcoderag-qa", entry); text = upsertJsonObjectProperty(text, [], "plugin", [...unrelatedPlugins, pluginId]); }
   else { text = upsertJsonObjectProperty(text, [], "plugin", unrelatedPlugins); }
-  return Object.freeze({ bytes: Buffer.from(text.endsWith("\n") ? text : `${text}\n`, "utf8"), entry, pluginId });
+  return Object.freeze({ bytes: Buffer.from(text.endsWith("\n") ? text : `${text}\n`, "utf8"), entry, pluginId, schemaManaged });
 }
 function previousFile(state: InstallState | undefined, relativePath: string) { return state?.files.find((record) => record.path === relativePath); }
 function projectedFile(target: ProjectTarget, state: InstallState | undefined, relativePath: string, content: Buffer, shared: boolean, allowExisting = false): ProjectedCapabilityFile { const previous = previousFile(state, relativePath); if (previous !== undefined) return Object.freeze({ relativePath, expectedDigest: previous.digest, content, shared }); const current = readRegular(target, relativePath); if (current !== undefined && !allowExisting) throw new InstallError("unmanaged_name_conflict", relativePath); return Object.freeze({ relativePath, expectedDigest: current === undefined ? null : sha256(current), content, original: encodeOriginal(current), shared }); }
 function section(relativePath: string, id: string, value: unknown, fileExisted: boolean): ProjectedCapabilitySection { return Object.freeze({ relativePath, id, digest: sha256(JSON.stringify(value)), fileExisted, shared: true }); }
 const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-serialization-data.md", "lua-contracts.md", "change-hygiene-self-review.md"] as const);
 function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], projected: readonly CapabilityId[], state: InstallState | undefined, configPath: ConfigPath): readonly ProjectedCapabilityContribution[] {
-  const result: ProjectedCapabilityContribution[] = []; const currentConfig = readRegular(target, configPath); const config = mergeConfig(currentConfig, configPath, packageRoot, selected, state !== undefined);
+  const result: ProjectedCapabilityContribution[] = []; const currentConfig = readRegular(target, configPath); const config = mergeConfig(currentConfig, configPath, packageRoot, selected, state);
   if (projected.includes(NAVIGATION)) result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
     projectedFile(target, state, configPath, config.bytes, true, true), projectedFile(target, state, PLUGIN_PATH, sourceAsset(packageRoot, "kcoderag-qa/opencode/kcoderag-nav.js"), false), projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-worker.cjs`, sourceAsset(packageRoot, "dist/hooks/update-worker.cjs"), false),
-  ]), sections: Object.freeze([section(configPath, "navigation:mcp", config.entry, currentConfig !== undefined), section(configPath, "navigation:post-tool", config.pluginId, currentConfig !== undefined)]) }));
+  ]), sections: Object.freeze([section(configPath, "navigation:mcp", config.entry, currentConfig !== undefined), section(configPath, "navigation:post-tool", config.pluginId, currentConfig !== undefined), ...(config.schemaManaged ? [section(configPath, "navigation:schema", OPENCODE_SCHEMA_URL, currentConfig !== undefined)] : [])]) }));
   if (projected.includes(JX3)) result.push(Object.freeze({ capabilityId: JX3, files: Object.freeze([
     projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
   ]), sections: Object.freeze([]) }));

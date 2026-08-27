@@ -41,6 +41,10 @@ test("Codex rejects unsupported JX3 before desired state while navigation remain
     const state = JSON.parse(fs.readFileSync(path.join(root, ".codex/kcoderag-nav/install-state.json"), "utf8"));
     assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
     assert.equal(fs.existsSync(path.join(root, ".codex/config.toml")), true);
+    const config = fs.readFileSync(path.join(root, ".codex/config.toml"), "utf8");
+    const remoteUrl = config.match(/^url\s*=\s*"([^"]+)"$/mu)?.[1];
+    assert.equal(typeof remoteUrl, "string");
+    assert.equal(remoteUrl?.endsWith("/"), false);
     assert.equal(fs.existsSync(path.join(root, ".codex/hooks.json")), true);
     assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag-nav/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".codex/kcoderag-nav/qa/hooks/update-notice.cjs")), true);

@@ -33,6 +33,8 @@ test("Cursor rejects instruction-only JX3 and keeps native navigation update pro
     const mcp = JSON.parse(fs.readFileSync(path.join(root, ".cursor/mcp.json"), "utf8"));
     assert.deepEqual(mcp.unrelated, { keep: true });
     assert.equal(typeof mcp.mcpServers.kcoderag, "object");
+    assert.equal(typeof mcp.mcpServers.kcoderag.url, "string");
+    assert.equal(mcp.mcpServers.kcoderag.url.endsWith("/"), false);
     assert.equal(mcp.mcpServers["kcoderag-qa"], undefined);
     const hooks = JSON.parse(fs.readFileSync(path.join(root, ".cursor/hooks.json"), "utf8"));
     assert.deepEqual(hooks.hooks.beforeSubmitPrompt, [{ command: "keep" }]);

@@ -79,6 +79,9 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
     const settings = JSON.parse(fs.readFileSync(path.join(root, ".claude/settings.json"), "utf8"));
     assert.match(JSON.stringify(settings), /PreToolUse/u);
     assert.match(JSON.stringify(settings), /PostToolUse/u);
+    const mcp = JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf8"));
+    assert.equal(typeof mcp.mcpServers["kcoderag-qa"].url, "string");
+    assert.equal(mcp.mcpServers["kcoderag-qa"].url.endsWith("/"), false);
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     await transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, installed, [JX3])));

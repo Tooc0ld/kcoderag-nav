@@ -16,6 +16,7 @@
     "dist/cli/commands.cjs",
     "dist/core/contracts.cjs",
     "dist/core/json-splice.cjs",
+    "dist/core/mcp-endpoint.cjs",
     "dist/core/mutation-lock.cjs",
     "dist/core/project-target.cjs",
     "dist/core/project-root.cjs",

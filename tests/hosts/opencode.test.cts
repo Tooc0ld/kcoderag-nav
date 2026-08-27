@@ -29,11 +29,16 @@ test("OpenCode rejects after-event JX3 and projects navigation plugin update awa
     await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
     const state = JSON.parse(fs.readFileSync(path.join(root, ".opencode/kcoderag-nav/install-state.json"), "utf8"));
     assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.equal(state.sections.some((entry: any) => entry.id === "navigation:schema"), true);
     const rendered = fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8");
-    assert.match(rendered, /keep comment/u);
+    assert.equal(/keep comment/u.test(rendered), true);
     assert.equal(rendered.includes('"theme": "dark"'), true);
-    assert.match(rendered, /kcoderag-qa/u);
-    assert.match(rendered, /\.opencode\/plugins\/kcoderag-nav\.js/u);
+    assert.equal(/"\$schema"\s*:\s*"https:\/\/opencode\.ai\/config\.json"/u.test(rendered), true);
+    assert.equal(/kcoderag-qa/u.test(rendered), true);
+    const remoteUrl = rendered.match(/"url"\s*:\s*"([^"]+)"/u)?.[1];
+    assert.equal(typeof remoteUrl, "string");
+    assert.equal(remoteUrl?.endsWith("/"), false);
+    assert.equal(/\.opencode\/plugins\/kcoderag-nav\.js/u.test(rendered), true);
     const plugin = fs.readFileSync(path.join(root, ".opencode/plugins/kcoderag-nav.js"), "utf8");
     assert.match(plugin, /readHostUpdateNotice/u);
     assert.match(plugin, /scheduleHostUpdateRefresh/u);
@@ -49,6 +54,29 @@ test("OpenCode rejects after-event JX3 and projects navigation plugin update awa
     await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION] }));
     assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
     assert.equal(fs.existsSync(path.join(root, ".opencode/plugins/kcoderag-nav.js")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode preserves an existing schema without claiming its ownership", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-opencode-schema-"));
+  try {
+    const original = "{\n  \"$schema\": \"https://example.test/custom-schema.json\",\n  \"theme\": \"dark\"\n}\n";
+    fs.writeFileSync(path.join(root, "opencode.json"), original);
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = opencode.createOpenCodeAdapter({ hostVersion: "1.18.23", evidenceRoot: PACKAGE_ROOT });
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
+    const state = JSON.parse(fs.readFileSync(path.join(root, ".opencode/kcoderag-nav/install-state.json"), "utf8"));
+    assert.equal(state.sections.some((entry: any) => entry.id === "navigation:schema"), false);
+    const rendered = fs.readFileSync(path.join(root, "opencode.json"), "utf8");
+    assert.equal(rendered.includes("https://example.test/custom-schema.json"), true);
+
+    const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION] }));
+    assert.equal(fs.readFileSync(path.join(root, "opencode.json"), "utf8"), original);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -4,7 +4,6 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
-const { URL } = require("node:url") as typeof import("node:url");
 
 import {
   composeCapabilitySet,
@@ -22,6 +21,7 @@ import {
   type StatusIssue,
 } from "../core/contracts.cjs";
 import { upsertJsonObjectProperty } from "../core/json-splice.cjs";
+import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import type {
@@ -138,25 +138,6 @@ function packageVersion(packageRoot: string): string {
   return value.version;
 }
 
-function zcodeRemoteUrl(value: string, safePath: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new InstallError("invalid_mcp_source", safePath);
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new InstallError("invalid_mcp_source", safePath);
-  }
-  if (!parsed.pathname.endsWith("/mcp/")) return value;
-
-  // ZCode 3.9.2 treats the final slash as a distinct endpoint and does not follow it.
-  const suffixIndex = [value.indexOf("?"), value.indexOf("#")]
-    .filter((index) => index >= 0)
-    .reduce((current, index) => Math.min(current, index), value.length);
-  return `${value.slice(0, suffixIndex - 1)}${value.slice(suffixIndex)}`;
-}
-
 function remoteEntry(packageRoot: string): JsonMap {
   const safePath = "kcoderag-qa/.mcp.json";
   const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath);
@@ -173,7 +154,7 @@ function remoteEntry(packageRoot: string): JsonMap {
     throw new InstallError("invalid_mcp_source", safePath);
   }
   // Native ZCode treats a missing `enable` field as enabled and writes only `enable: false` on disable.
-  return Object.freeze({ type: "http", url: zcodeRemoteUrl(raw.url, safePath), headers });
+  return Object.freeze({ type: "http", url: normalizeRemoteMcpUrl(raw.url, safePath), headers });
 }
 
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord {

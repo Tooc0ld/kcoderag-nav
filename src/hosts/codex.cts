@@ -10,6 +10,7 @@ import { composeCapabilitySet, type ProjectedCapabilityContribution, type Projec
 import type { CapabilityId } from "../capabilities/contracts.cjs";
 import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
+import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
@@ -100,7 +101,7 @@ function qaMcpEntry(packageRoot: string): JsonMap {
   const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath);
   const entry = source["kcoderag-qa"];
   if (!isRecord(entry) || typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", safePath);
-  return entry;
+  return Object.freeze({ ...entry, url: normalizeRemoteMcpUrl(entry.url, safePath) });
 }
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord { return bytes === undefined ? Object.freeze({ kind: "absent" as const }) : Object.freeze({ kind: "base64" as const, data: bytes.toString("base64") }); }
 function stateBytes(observation: HostObservation): Buffer | undefined { const bytes = (observation.details as Details | undefined)?.stateBytes; return bytes === undefined ? undefined : Buffer.from(bytes); }

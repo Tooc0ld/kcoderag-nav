@@ -10,6 +10,7 @@ import { composeCapabilitySet, type ProjectedCapabilityContribution, type Projec
 import type { CapabilityId } from "../capabilities/contracts.cjs";
 import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
+import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
@@ -62,7 +63,7 @@ function sourceAsset(packageRoot: string, relativePath: string): Buffer {
   catch { throw new InstallError("missing_package_asset", relativePath); }
 }
 function packageVersion(packageRoot: string): string { const value = parseJson(sourceAsset(packageRoot, "package.json"), "invalid_package", "package.json"); if (value.name !== "kcoderag-nav" || typeof value.version !== "string" || value.version.length === 0) throw new InstallError("invalid_package", "package.json"); return value.version; }
-function qaEntry(packageRoot: string): JsonMap { const safePath = "kcoderag-qa/.mcp.json"; const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath); const entry = isRecord(source.mcpServers) ? source.mcpServers["kcoderag-qa"] : undefined; if (!isRecord(entry)) throw new InstallError("invalid_mcp_source", safePath); return entry; }
+function qaEntry(packageRoot: string): JsonMap { const safePath = "kcoderag-qa/.mcp.json"; const source = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath); const entry = isRecord(source.mcpServers) ? source.mcpServers["kcoderag-qa"] : undefined; if (!isRecord(entry) || typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", safePath); return Object.freeze({ ...entry, url: normalizeRemoteMcpUrl(entry.url, safePath) }); }
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord { return bytes === undefined ? Object.freeze({ kind: "absent" as const }) : Object.freeze({ kind: "base64" as const, data: bytes.toString("base64") }); }
 function stateBytes(observation: HostObservation): Buffer | undefined { const bytes = (observation.details as Details | undefined)?.stateBytes; return bytes === undefined ? undefined : Buffer.from(bytes); }
 function verifyState(target: ProjectTarget, state: InstallState): void {

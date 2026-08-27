@@ -10,6 +10,7 @@ import { composeCapabilitySet, type ProjectedCapabilityContribution, type Projec
 import type { CapabilityId } from "../capabilities/contracts.cjs";
 import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
+import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
 import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
@@ -132,8 +133,8 @@ function qaMcpEntry(packageRoot: string): JsonMap {
   const safePath = "kcoderag-qa/.mcp.json";
   const document = parseJson(sourceAsset(packageRoot, safePath), "invalid_mcp_source", safePath);
   const entry = isRecord(document.mcpServers) ? document.mcpServers["kcoderag-qa"] : undefined;
-  if (!isRecord(entry)) throw new InstallError("invalid_mcp_source", safePath);
-  return entry;
+  if (!isRecord(entry) || typeof entry.url !== "string") throw new InstallError("invalid_mcp_source", safePath);
+  return Object.freeze({ ...entry, url: normalizeRemoteMcpUrl(entry.url, safePath) });
 }
 
 function encodeOriginal(bytes: Buffer | undefined): OriginalRecord {
