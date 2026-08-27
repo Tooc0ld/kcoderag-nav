@@ -11,7 +11,21 @@ interface GeneratorModule {
     readonly group: "all";
     readonly sourceRoot: string;
     readonly outputRoot: string;
-  }): { readonly ok: boolean };
+  }): {
+    readonly ok: boolean;
+    readonly changedPaths: readonly string[];
+    readonly writtenPaths: readonly string[];
+  };
+  checkGenerated(options: {
+    readonly package: "cursor";
+    readonly group: "all";
+    readonly sourceRoot: string;
+    readonly outputRoot: string;
+  }): {
+    readonly ok: boolean;
+    readonly changedPaths: readonly string[];
+    readonly writtenPaths: readonly string[];
+  };
 }
 
 interface CursorManifest {
@@ -39,17 +53,30 @@ interface CursorEvidence {
 
 const repositoryRoot = path.resolve(__dirname, "../..");
 const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
+const cursor = require("../../dist/hosts/cursor.cjs") as Record<string, any>;
+const projectTarget = require("../../dist/core/project-target.cjs") as Record<string, any>;
+const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
+const NAVIGATION = "kcoderag-navigation";
+const CODE_STYLE = "code-style-nudge";
+const STYLE_SKILL_ROOT = "skills/code-style-correction";
 const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".cursor-plugin/plugin.json",
   "mcp.json",
   "rules/kcoderag-navigation.mdc",
   "skills/code-lookup-discipline/SKILL.md",
-  "skills/jx3-code-style-correction/SKILL.md",
-  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/jx3-code-style-correction/references/lua-contracts.md",
-  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+  `${STYLE_SKILL_ROOT}/SKILL.md`,
+  `${STYLE_SKILL_ROOT}/references/change-hygiene-self-review.md`,
+  `${STYLE_SKILL_ROOT}/references/cpp-lifetime-control-flow.md`,
+  `${STYLE_SKILL_ROOT}/references/lua-contracts.md`,
+  `${STYLE_SKILL_ROOT}/references/protocol-serialization-data.md`,
 ]);
+const CANONICAL_STYLE_MEMBERS = Object.freeze([
+  ["SKILL.md", "SKILL.md"],
+  ["references/change-hygiene-self-review.md", "references/change-hygiene-self-review.md"],
+  ["references/cpp-lifetime-control-flow.md", "references/cpp-lifetime-control-flow.md"],
+  ["references/lua-contracts.md", "references/lua-contracts.md"],
+  ["references/protocol-serialization-data.md", "references/protocol-serialization-data.md"],
+] as const);
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -78,6 +105,19 @@ function fail(code: string): never {
 
 function productPath(root: string, member: string): string {
   return path.join(root, ...member.split("/"));
+}
+
+function formerStyleRoot(): string {
+  return `skills/${String.fromCharCode(106, 120, 51)}-code-style-correction`;
+}
+
+function snapshotTree(root: string): readonly string[] {
+  if (!fs.existsSync(root)) return Object.freeze([]);
+  return Object.freeze(filesBelow(root).map((member) => {
+    const absolute = productPath(root, member);
+    const metadata = fs.statSync(absolute);
+    return `${member}:${metadata.size}:${metadata.mtimeMs}:${sha256(absolute)}`;
+  }));
 }
 
 function safeReference(root: string, reference: string, expected: "file" | "directory"): boolean {
@@ -182,6 +222,7 @@ test("Cursor non-document product is a closed deterministic nine-file inventory"
   }).version;
   const repositoryEvidence = inspectCursorProduct(cursorRoot, packageVersion);
   assertEvidenceSafe(repositoryEvidence);
+  assert.equal(fs.existsSync(productPath(cursorRoot, formerStyleRoot())), false);
 
   const fixture = generateCursorFixture();
   try {
@@ -190,6 +231,77 @@ test("Cursor non-document product is a closed deterministic nine-file inventory"
     assert.deepEqual(fixtureEvidence, repositoryEvidence);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Cursor five-file style Skill is byte-equal to the canonical Markdown family", () => {
+  const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
+  const canonicalRoot = path.join(repositoryRoot, "plugin-src/capabilities/code-style-nudge/skill");
+  for (const [generated, canonical] of CANONICAL_STYLE_MEMBERS) {
+    assert.deepEqual(
+      fs.readFileSync(productPath(cursorRoot, `${STYLE_SKILL_ROOT}/${generated}`)),
+      fs.readFileSync(productPath(canonicalRoot, canonical)),
+      generated,
+    );
+  }
+});
+
+test("Cursor scoped materialization is a deterministic no-op after the canonical projection", () => {
+  const fixture = generateCursorFixture();
+  try {
+    const result = generator.checkGenerated({
+      package: "cursor",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot: fixture.root,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.changedPaths, []);
+    assert.deepEqual(result.writtenPaths, []);
+    assert.equal(fs.existsSync(productPath(fixture.productRoot, formerStyleRoot())), false);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Cursor style asset presence does not grant support or reach a transaction", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-style-boundary-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = cursor.createCursorAdapter({ hostVersion: "3.17.8", evidenceRoot: repositoryRoot });
+    await transaction.applyTransaction(adapter.renderInstall({
+      target,
+      packageRoot: repositoryRoot,
+      command: "install",
+      environment: "qa",
+      observation: adapter.detect({ target, packageRoot: repositoryRoot }),
+      selectedCapabilities: [NAVIGATION],
+    }));
+    const before = snapshotTree(path.join(root, ".cursor"));
+    let renderAttempts = 0;
+    let transactionCalls = 0;
+    const renderAndApply = async (): Promise<void> => {
+      renderAttempts += 1;
+      const desired = adapter.renderInstall({
+        target,
+        packageRoot: repositoryRoot,
+        command: "install",
+        environment: "qa",
+        observation: adapter.detect({ target, packageRoot: repositoryRoot }),
+        selectedCapabilities: [CODE_STYLE],
+      });
+      transactionCalls += 1;
+      await transaction.applyTransaction(desired);
+    };
+
+    await assert.rejects(renderAndApply(), (error: any) => error?.code === "host_version_unsupported");
+    assert.equal(renderAttempts, 1);
+    assert.equal(transactionCalls, 0);
+    assert.deepEqual(snapshotTree(path.join(root, ".cursor")), before);
+    const installed = adapter.detect({ target, packageRoot: repositoryRoot }).currentState;
+    assert.deepEqual(installed?.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
