@@ -9,13 +9,13 @@ const projectTarget = require("../../dist/core/project-target.cjs") as Record<st
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function context(target: any, observation: any, selectedCapabilities: readonly string[], command = "install") {
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("OpenCode rejects after-event JX3 and projects navigation plugin update awareness", async () => {
+test("OpenCode rejects after-event code-style nudge and projects navigation plugin update awareness", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-opencode-"));
   try {
     const original = "{\n  // keep comment\n  \"theme\": \"dark\",\n}\n";
@@ -23,7 +23,7 @@ test("OpenCode rejects after-event JX3 and projects navigation plugin update awa
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = opencode.createOpenCodeAdapter({ hostVersion: "1.18.23", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    assert.throws(() => adapter.renderInstall(context(target, observation, [JX3])), (error: any) => error?.code === "host_version_unsupported");
+    assert.throws(() => adapter.renderInstall(context(target, observation, [CODE_STYLE])), (error: any) => error?.code === "host_version_unsupported");
     assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
 
     await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
@@ -54,6 +54,7 @@ test("OpenCode rejects after-event JX3 and projects navigation plugin update awa
     await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION] }));
     assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
     assert.equal(fs.existsSync(path.join(root, ".opencode/plugins/kcoderag-nav.js")), false);
+    assert.equal(fs.existsSync(path.join(root, ".opencode/skills/code-style-correction/SKILL.md")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

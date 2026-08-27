@@ -9,7 +9,7 @@ const projectTarget = require("../../dist/core/project-target.cjs") as Record<st
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function context(target: any, observation: any, selectedCapabilities: readonly string[], command = "install") {
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
@@ -30,7 +30,7 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
 
     assert.throws(
-      () => adapter.renderInstall(context(target, observation, [JX3])),
+      () => adapter.renderInstall(context(target, observation, [CODE_STYLE])),
       (error: any) => error?.code === "host_version_unsupported",
     );
     assert.equal(fs.readFileSync(configPath, "utf8"), original);
@@ -71,13 +71,27 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
     for (const relativePath of [
       ".zcode/kcoderag-nav/hooks/pre-tool-dispatcher.cjs",
       ".zcode/kcoderag-nav/hooks/grep-nudge.cjs",
-      ".zcode/kcoderag-nav/hooks/jx3-style-nudge.cjs",
+      ".zcode/kcoderag-nav/hooks/code-style-nudge.cjs",
       ".zcode/kcoderag-nav/hooks/once-marker.cjs",
       ".zcode/kcoderag-nav/hooks/update-check.cjs",
       ".zcode/kcoderag-nav/hooks/update-notice.cjs",
       ".zcode/kcoderag-nav/hooks/update-worker.cjs",
       ".zcode/kcoderag-nav/hooks/mcp-call-marker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/code-style-correction/SKILL.md")), false);
+    assert.deepEqual({
+      host: "zcode",
+      layer: "packaged",
+      hostVersion: "pending_phase_06",
+      zeroWrite: true,
+      navigationPreserved: true,
+    }, {
+      host: state.host,
+      layer: "packaged",
+      hostVersion: "pending_phase_06",
+      zeroWrite: true,
+      navigationPreserved: state.capabilities.some((entry: any) => entry.id === NAVIGATION),
+    });
     assert.deepEqual(state.sections.map((entry: any) => entry.id), [
       "navigation:hooks-enabled",
       "navigation:mcp",

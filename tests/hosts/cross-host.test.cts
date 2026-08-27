@@ -16,7 +16,7 @@ const targets = require("../../dist/core/project-target.cjs") as Record<string, 
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
+const CODE_STYLE = "code-style-nudge";
 
 function digestTree(root: string, relativePaths: readonly string[]): readonly string[] {
   const output: string[] = [];
@@ -24,7 +24,7 @@ function digestTree(root: string, relativePaths: readonly string[]): readonly st
     if (!fs.existsSync(absolute)) return;
     const metadata = fs.lstatSync(absolute);
     if (metadata.isFile()) {
-      output.push(`${logical}:${crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")}`);
+      output.push(`${logical}:${crypto.createHash("sha256").update(fs.readFileSync(absolute)).digest("hex")}:${metadata.mtimeMs}`);
       return;
     }
     for (const entry of fs.readdirSync(absolute, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -56,21 +56,52 @@ function installContext(target: any, observation: any, selectedCapabilities: rea
   return { target, packageRoot: PACKAGE_ROOT, command: "install", environment: "qa", observation, selectedCapabilities };
 }
 
-test("registry exposes every host and exact receipt support matrix without fallback parity", () => {
+test("registry exposes every host and exact receipt support matrix without fallback parity", async () => {
   assert.deepEqual(registry.HOST_ADAPTERS.map((entry: any) => entry.id), ["codex", "claude", "cursor", "opencode", "zcode"]);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-matrix-"));
   try {
     const target = targets.resolveProjectTarget(root);
+    const evidence: Array<{
+      readonly host: HostId;
+      readonly layer: "packaged";
+      readonly zeroWrite: boolean;
+      readonly navigationPreserved: boolean;
+    }> = [];
     for (const host of ["codex", "cursor", "opencode", "zcode"] as const) {
       const current = adapter(host);
+      await transaction.applyTransaction(current.renderInstall(installContext(
+        target,
+        current.detect({ target, packageRoot: PACKAGE_ROOT }),
+        [NAVIGATION],
+      )));
+      const before = snapshot(root, host);
       assert.throws(
-        () => current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [JX3])),
+        () => current.renderInstall(installContext(
+          target,
+          current.detect({ target, packageRoot: PACKAGE_ROOT }),
+          [CODE_STYLE],
+        )),
         (error: any) => error?.code === "host_version_unsupported",
         host,
       );
+      const observation = current.detect({ target, packageRoot: PACKAGE_ROOT });
+      evidence.push(Object.freeze({
+        host,
+        layer: "packaged",
+        zeroWrite: JSON.stringify(snapshot(root, host)) === JSON.stringify(before),
+        navigationPreserved: observation.currentState?.capabilities.some(
+          (entry: any) => entry.id === NAVIGATION,
+        ) === true,
+      }));
     }
+    assert.deepEqual(evidence, [
+      { host: "codex", layer: "packaged", zeroWrite: true, navigationPreserved: true },
+      { host: "cursor", layer: "packaged", zeroWrite: true, navigationPreserved: true },
+      { host: "opencode", layer: "packaged", zeroWrite: true, navigationPreserved: true },
+      { host: "zcode", layer: "packaged", zeroWrite: true, navigationPreserved: true },
+    ]);
     const current = adapter("claude");
-    const desired = current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [JX3]));
+    const desired = current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [CODE_STYLE]));
     assert.equal(desired.host, "claude");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -87,7 +118,7 @@ test("five hosts coexist and one-host capability removal leaves every sibling by
       const current = adapters[host];
       await transaction.applyTransaction(current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
     }
-    await transaction.applyTransaction(adapters.claude.renderInstall(installContext(target, adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION, JX3])));
+    await transaction.applyTransaction(adapters.claude.renderInstall(installContext(target, adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION, CODE_STYLE])));
 
     for (const host of ["codex", "claude", "cursor", "opencode", "zcode"] as const) {
       const observation = adapters[host].detect({ target, packageRoot: PACKAGE_ROOT });
@@ -95,7 +126,7 @@ test("five hosts coexist and one-host capability removal leaves every sibling by
     }
     const before = Object.fromEntries((["codex", "cursor", "opencode", "zcode"] as const).map((host) => [host, snapshot(root, host)])) as Record<string, readonly string[]>;
     const claudeInstalled = adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [JX3] }));
+    await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [CODE_STYLE] }));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".claude/kcoderag-nav/install-state.json"), "utf8")).capabilities.map((entry: any) => entry.id), [NAVIGATION]);
     for (const host of ["codex", "cursor", "opencode", "zcode"] as const) assert.deepEqual(snapshot(root, host), before[host], host);
   } finally {
