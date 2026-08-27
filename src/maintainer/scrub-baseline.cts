@@ -517,7 +517,7 @@ function inspectRepository(
   });
 }
 
-function validateTemporaryRoot(input: string | undefined): string {
+function validateTemporaryRoot(input: string | undefined, repositoryRoot: string): string {
   const root = path.resolve(input ?? os.tmpdir());
   let metadata: import("node:fs").Stats;
   try {
@@ -527,6 +527,19 @@ function validateTemporaryRoot(input: string | undefined): string {
   }
   failUnless(!metadata.isSymbolicLink(), "scrub_symlink_path");
   failUnless(metadata.isDirectory(), "scrub_private_root_unavailable");
+  let realTemporary: string;
+  let realRepository: string;
+  try {
+    realTemporary = fs.realpathSync(root);
+    realRepository = fs.realpathSync(repositoryRoot);
+  } catch {
+    throw new ScrubBaselineError("scrub_private_root_unavailable");
+  }
+  const relation = path.relative(realRepository, realTemporary);
+  failUnless(
+    relation.length > 0 && (relation.startsWith("..") || path.isAbsolute(relation)),
+    "scrub_private_root_unsafe",
+  );
   return root;
 }
 
@@ -579,13 +592,14 @@ function writePrivateDiffs(
   if (hasBinaryPatch(staged) || hasBinaryPatch(unstaged)) {
     throw new ScrubBaselineError("scrub_binary_diff_unsupported");
   }
-  let directory: string;
+  let directory: string | undefined;
   try {
     directory = fs.mkdtempSync(path.join(temporaryRoot, "kcoderag-scrub-baseline-"));
     fs.chmodSync(directory, 0o700);
     fs.writeFileSync(path.join(directory, "staged.diff"), staged, { flag: "wx", mode: 0o600 });
     fs.writeFileSync(path.join(directory, "unstaged.diff"), unstaged, { flag: "wx", mode: 0o600 });
   } catch {
+    if (directory !== undefined) removePrivateDirectory(directory);
     throw new ScrubBaselineError("scrub_private_write_failed");
   }
   registerPrivateDirectory(directory);
@@ -632,7 +646,7 @@ export function captureScrubBaseline(
   failUnless(explicitPaths.length <= currentLimits.maxPaths, "scrub_too_many_paths");
   const explicitSet = new Set(explicitPaths);
   const snapshot = inspectRepository(root, explicitSet, currentLimits);
-  const temporaryRoot = validateTemporaryRoot(options.temporaryRoot);
+  const temporaryRoot = validateTemporaryRoot(options.temporaryRoot, root);
   const privateDirectory = writePrivateDiffs(root, temporaryRoot, currentLimits);
   try {
     dependencies.onPrivateDirectory?.(privateDirectory);
@@ -692,14 +706,6 @@ export function assertScrubBaselinePreserved(
   failUnless(stored !== undefined, "scrub_unknown_baseline");
   failUnless(!baseline.requiresCheckpoint, "scrub_checkpoint_required");
   const current = inspectRepository(stored.root, stored.explicitSet, stored.limits);
-  failUnless(
-    current.unrelatedStatusDigest === stored.snapshot.unrelatedStatusDigest,
-    "scrub_unrelated_status_changed",
-  );
-  failUnless(
-    current.unrelatedIndexDigest === stored.snapshot.unrelatedIndexDigest,
-    "scrub_unrelated_index_changed",
-  );
   const requireCommitted = options.requireCommitted ?? true;
   let committedPathCount = 0;
   if (requireCommitted) {
@@ -717,16 +723,26 @@ export function assertScrubBaselinePreserved(
     for (const expected of stored.explicitPaths) {
       failUnless(changed.has(expected), "scrub_explicit_path_not_committed");
     }
-    failUnless(
-      !current.paths.some((entry) => stored.explicitSet.has(entry.exact.relativePath)),
-      "scrub_explicit_path_dirty",
-    );
     committedPathCount = changed.size;
   } else {
     failUnless(current.head === stored.snapshot.head, "scrub_head_changed_before_commit");
   }
-  removePrivateDirectory(stored.privateDirectory);
-  privateBaselines.delete(baseline);
+  failUnless(
+    current.unrelatedStatusDigest === stored.snapshot.unrelatedStatusDigest,
+    "scrub_unrelated_status_changed",
+  );
+  failUnless(
+    current.unrelatedIndexDigest === stored.snapshot.unrelatedIndexDigest,
+    "scrub_unrelated_index_changed",
+  );
+  if (requireCommitted) {
+    failUnless(
+      !current.paths.some((entry) => stored.explicitSet.has(entry.exact.relativePath)),
+      "scrub_explicit_path_dirty",
+    );
+    removePrivateDirectory(stored.privateDirectory);
+    privateBaselines.delete(baseline);
+  }
   return Object.freeze({
     schemaVersion: 1 as const,
     code: "scrub_baseline_preserved" as const,
@@ -735,4 +751,3 @@ export function assertScrubBaselinePreserved(
     baselineDigest: baseline.baselineDigest,
   });
 }
-

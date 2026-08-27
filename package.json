@@ -109,6 +109,7 @@
     "generate": "node dist/generator/index.cjs --package all --group all",
     "generate:check": "node dist/generator/index.cjs --package all --group all --check",
     "test:precommit": "node --test dist-tests/maintainer/pre-commit.test.cjs",
+    "test:scrub-baseline": "node --test dist-tests/maintainer/scrub-baseline.test.cjs",
     "test:brand-audit": "node --test dist-tests/maintainer/brand-audit.test.cjs",
     "audit:brand": "node dist/maintainer/brand-audit.cjs",
     "test:tar-archive": "node --test dist-tests/maintainer/tar-archive.test.cjs",

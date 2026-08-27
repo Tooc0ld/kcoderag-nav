@@ -307,7 +307,7 @@ test("post-edit and post-commit verification preserves exact unrelated status an
     });
     assert.equal(fs.existsSync(privateDirectory), true);
 
-    git(root, ["commit", "--quiet", "-m", "explicit scrub"]);
+    git(root, ["commit", "--quiet", "--only", "-m", "explicit scrub", "--", "target.txt"]);
     const verified = scrub.assertScrubBaselinePreserved(baseline);
     assert.equal(verified.ok, true);
     assert.equal(verified.committedPathCount, 1);
@@ -437,4 +437,46 @@ test("verification rejects a checkpoint baseline and any detached serialized cop
   } finally {
     remove(root);
   }
+});
+
+test("private capture rejects repository-local storage and cleans callback failures", () => {
+  const root = createRepository({ "target.txt": "base\n" });
+  let privateDirectory = "";
+  try {
+    expectCode(
+      () => scrub.captureScrubBaseline({
+        root,
+        explicitPaths: ["target.txt"],
+        temporaryRoot: root,
+      }),
+      "scrub_private_root_unsafe",
+    );
+    expectCode(
+      () => scrub.captureScrubBaseline({ root, explicitPaths: ["target.txt"] }, {
+        onPrivateDirectory(directory) {
+          privateDirectory = directory;
+          throw new Error("private callback canary");
+        },
+      }),
+      "scrub_private_callback_failed",
+    );
+    assert.notEqual(privateDirectory, "");
+    assert.equal(fs.existsSync(privateDirectory), false);
+  } finally {
+    remove(root);
+  }
+});
+
+test("package script runs only the focused scrub tests and is absent from ordinary live gates", () => {
+  const repositoryRoot = path.resolve(__dirname, "../..");
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    readonly scripts: Readonly<Record<string, string>>;
+  };
+  assert.equal(
+    packageJson.scripts["test:scrub-baseline"],
+    "node --test dist-tests/maintainer/scrub-baseline.test.cjs",
+  );
+  assert.doesNotMatch(packageJson.scripts["ci:local"] ?? "", /scrub-baseline/u);
+  const preCommit = fs.readFileSync(path.join(repositoryRoot, "src/maintainer/pre-commit.cts"), "utf8");
+  assert.doesNotMatch(preCommit, /test:scrub-baseline/u);
 });
