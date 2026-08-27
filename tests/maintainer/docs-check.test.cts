@@ -258,7 +258,7 @@ test("active docs reject retired authorities, scanner claims, unsupported code-s
   }
 });
 
-test("zero-argument CLI checks the canonical repository and sibling guide together", () => {
+test("zero-argument CLI checks the canonical repository documents and local guide together", () => {
   const parent = temporaryDirectory("kcoderag-docs-zero-argument-");
   const repo = path.join(parent, "kcoderag-nav");
   try {

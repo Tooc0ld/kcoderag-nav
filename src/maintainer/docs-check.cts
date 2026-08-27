@@ -1,7 +1,7 @@
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
-type DocsPolicy = "user-docs" | "project-instructions" | "planning" | "sibling-guide";
+type DocsPolicy = "user-docs" | "project-instructions" | "planning";
 
 interface Diagnostic {
   readonly code: string;
@@ -11,7 +11,6 @@ interface Diagnostic {
 
 interface CheckOptions {
   readonly repoRoot?: string;
-  readonly siblingGuidePath?: string;
 }
 
 interface CheckResult {
@@ -23,7 +22,6 @@ const POLICIES = new Set<DocsPolicy>([
   "user-docs",
   "project-instructions",
   "planning",
-  "sibling-guide",
 ]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".mdc", ".markdown", ".tmpl"]);
 const ACTIVE_HEADING = /(?:install|setup|quick\s*start|usage|update|uninstall|cleanup|migration|source|capabilit|state|support|integrity|marker|接入|安装|使用|更新|卸载|清理|迁移|来源|能力|状态|支持|完整性|缓存|提示)/i;
@@ -33,19 +31,19 @@ const SECRET_PATTERNS = [
   /\b(?:api[_-]?key|access[_-]?token|secret)\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,}/i,
 ];
 const PACKAGE_ROOT = path.resolve(__dirname, "../..");
-const AUTHORITATIVE_GUIDE = path.resolve(PACKAGE_ROOT, "../KCodeRag/MCP_QA_EXPERIENCE_GUIDE.md");
 const CANONICAL_REPO_DOCS = Object.freeze([
   "README.md",
   "plugin-src/README.md.tmpl",
   "plugin-src/cursor/README.md.tmpl",
   "kcoderag-qa/README.md",
   "kcoderag-cursor/README.md",
+  "docs/MCP_QA_EXPERIENCE_GUIDE.md",
 ] as const);
 const OVERVIEW_DOCS = new Set([
   "README.md",
   "plugin-src/README.md.tmpl",
   "kcoderag-qa/README.md",
-  "MCP_QA_EXPERIENCE_GUIDE.md",
+  "docs/MCP_QA_EXPERIENCE_GUIDE.md",
 ]);
 const CURSOR_DOCS = new Set([
   "plugin-src/cursor/README.md.tmpl",
@@ -68,7 +66,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_capabilities",
-    pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*jx3-style-nudge)/u,
+    pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*code-style-nudge)/u,
   },
   {
     code: "missing_topic_lifecycle",
@@ -162,15 +160,6 @@ function sanitizePath(value: string): string {
   return normalized || ".";
 }
 
-function samePath(left: string, right: string): boolean {
-  const normalize = (value: string): string => path.resolve(value).replace(/\\/g, "/");
-  const normalizedLeft = normalize(left);
-  const normalizedRight = normalize(right);
-  return process.platform === "win32"
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
-}
-
 function assertNoSymlink(absolutePath: string, boundary: string): void {
   const relative = path.relative(boundary, absolutePath);
   const parts = relative === "" ? [] : relative.split(path.sep);
@@ -223,19 +212,6 @@ function collectRepoFiles(rawPaths: readonly string[], repoRoot: string): readon
     visit(absolutePath);
   }
   return [...files].sort((left, right) => left.localeCompare(right));
-}
-
-function collectSiblingGuide(rawPaths: readonly string[], expectedPath: string): readonly string[] {
-  if (rawPaths.length === 0) throw new DocsCheckError("empty_scope");
-  if (rawPaths.length !== 1) throw new DocsCheckError("invalid_sibling_scope");
-  const candidate = path.resolve(rawPaths[0] ?? "");
-  if (!samePath(candidate, expectedPath)) throw new DocsCheckError("invalid_sibling_scope", candidate);
-  if (!fs.existsSync(candidate) || !fs.lstatSync(candidate).isFile()) {
-    throw new DocsCheckError("path_not_found", path.basename(candidate));
-  }
-  const parsed = path.parse(candidate);
-  assertNoSymlink(candidate, parsed.root);
-  return [candidate];
 }
 
 function stripHtmlComments(lines: readonly string[]): readonly { text: string; hidden: boolean }[] {
@@ -304,10 +280,6 @@ function inspectFile(
   let activeSection = false;
   let historySection = false;
 
-  if (policy !== "sibling-guide" && path.basename(absolutePath) === "MCP_QA_EXPERIENCE_GUIDE.md") {
-    addDiagnostic(diagnostics, "local_guide_copy", displayPath, 1);
-  }
-
   for (let index = 0; index < lines.length; index += 1) {
     const lineNumber = index + 1;
     const line = lines[index]?.text ?? "";
@@ -366,12 +338,12 @@ function inspectFile(
     if (/\b(?:codex|claude)\s+plugin\s+(?:remove|uninstall|marketplace\s+remove)\b/iu.test(line)) {
       addDiagnostic(diagnostics, "retired_cleanup_command", displayPath, lineNumber);
     }
-    if (/\b(?:python\s+[^\n]*(?:scanner|scan)|jx3[^\n]*(?:scanner|scan)|scanner[^\n]*(?:passed|通过)|静态扫描通过)\b/iu.test(line)) {
+    if (/\b(?:python\s+[^\n]*(?:scanner|scan)|code-style[^\n]*(?:scanner|scan)|scanner[^\n]*(?:passed|通过)|静态扫描通过)\b/iu.test(line)) {
       addDiagnostic(diagnostics, "scanner_claim", displayPath, lineNumber);
     }
-    if (/\b(?:Codex|Cursor|OpenCode|ZCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}\bJX3\b/iu.test(line) &&
+    if (/\b(?:Codex|Cursor|OpenCode|ZCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}(?:code-style|代码规范)/iu.test(line) &&
         !/(?:UNSUPPORTED|unsupported|does\s+not|not\s+supported|不支持|拒绝|不能|零写)/iu.test(line)) {
-      addDiagnostic(diagnostics, "unsupported_jx3_claim", displayPath, lineNumber);
+      addDiagnostic(diagnostics, "unsupported_code_style_claim", displayPath, lineNumber);
     }
     if (/\bcodex\s+plugin\s+marketplace\s+remove\b/iu.test(line) &&
         !/\bcodex\s+plugin\s+marketplace\s+remove\s+kcoderag-nav\s+--json\b/iu.test(line)) {
@@ -428,29 +400,15 @@ function requiredTopicDiagnostics(
 
 function checkCanonicalPublicDocs(options: CheckOptions = {}): CheckResult {
   const repoRoot = fs.realpathSync(path.resolve(options.repoRoot ?? PACKAGE_ROOT));
-  const siblingGuidePath = path.resolve(options.siblingGuidePath ?? AUTHORITATIVE_GUIDE);
-  const localGuide = path.join(repoRoot, "MCP_QA_EXPERIENCE_GUIDE.md");
-  if (fs.existsSync(localGuide)) {
-    return {
-      checkedFiles: 0,
-      diagnostics: Object.freeze([{ code: "local_guide_copy", path: "MCP_QA_EXPERIENCE_GUIDE.md", line: 1 }]),
-    };
-  }
   const repoFiles = collectRepoFiles(CANONICAL_REPO_DOCS, repoRoot);
-  const siblingFiles = collectSiblingGuide([siblingGuidePath], siblingGuidePath);
   const diagnostics: Diagnostic[] = [];
   for (const absolutePath of repoFiles) {
     const displayPath = path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
     diagnostics.push(...inspectFile(absolutePath, displayPath, "user-docs"));
     diagnostics.push(...requiredTopicDiagnostics(absolutePath, displayPath));
   }
-  for (const absolutePath of siblingFiles) {
-    const displayPath = path.basename(absolutePath);
-    diagnostics.push(...inspectFile(absolutePath, displayPath, "sibling-guide"));
-    diagnostics.push(...requiredTopicDiagnostics(absolutePath, displayPath));
-  }
   return {
-    checkedFiles: repoFiles.length + siblingFiles.length,
+    checkedFiles: repoFiles.length,
     diagnostics: Object.freeze(diagnostics.sort((left, right) =>
       left.path.localeCompare(right.path) || left.line - right.line || left.code.localeCompare(right.code))),
   };
@@ -463,14 +421,9 @@ function checkDocs(
 ): CheckResult {
   if (!POLICIES.has(policy)) throw new DocsCheckError("unknown_policy");
   const repoRoot = path.resolve(options.repoRoot ?? PACKAGE_ROOT);
-  const siblingGuidePath = path.resolve(options.siblingGuidePath ?? AUTHORITATIVE_GUIDE);
-  const files = policy === "sibling-guide"
-    ? collectSiblingGuide(rawPaths, siblingGuidePath)
-    : collectRepoFiles(rawPaths, repoRoot);
+  const files = collectRepoFiles(rawPaths, repoRoot);
   const diagnostics = files.flatMap((absolutePath) => {
-    const displayPath = policy === "sibling-guide"
-      ? path.basename(absolutePath)
-      : path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
+    const displayPath = path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
     return inspectFile(absolutePath, displayPath, policy);
   }).sort((left, right) =>
     left.path.localeCompare(right.path) || left.line - right.line || left.code.localeCompare(right.code),

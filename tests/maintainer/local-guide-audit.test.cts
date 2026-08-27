@@ -105,7 +105,7 @@ test("fails safely for absent, empty, oversized, and incomplete local guides", (
   }
 });
 
-test("rejects symlink, special, and ambiguous guide identities before reading", (context) => {
+test("rejects a symlink guide before reading when the platform permits link fixtures", (context) => {
   const root = temporaryRoot();
   const outside = temporaryRoot();
   try {
@@ -122,7 +122,17 @@ test("rejects symlink, special, and ambiguous guide identities before reading", 
       () => audit.auditLocalGuide({ root }),
       (error: unknown) => errorCode(error) === "symlink_not_allowed",
     );
-    fs.rmSync(destination);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("rejects special and ambiguous guide identities before reading", () => {
+  const root = temporaryRoot();
+  try {
+    const destination = path.join(root, ...GUIDE.split("/"));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.mkdirSync(destination);
     assert.throws(
       () => audit.auditLocalGuide({ root }),
@@ -137,7 +147,6 @@ test("rejects symlink, special, and ambiguous guide identities before reading", 
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 
