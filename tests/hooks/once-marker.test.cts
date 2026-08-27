@@ -7,6 +7,13 @@ const path = require("node:path") as typeof import("node:path");
 
 type HostId = "codex" | "claude" | "cursor" | "opencode";
 
+interface OnceMarkerFiles {
+  ensureDirectory(directoryPath: string): void;
+  createExclusive(filePath: string): boolean;
+  listFiles(directoryPath: string): readonly string[];
+  remove(filePath: string): void;
+}
+
 interface OnceMarkerModule {
   readonly MAX_NUDGE_MARKERS: number;
   stableSessionIdentity(payload: unknown): {
@@ -23,6 +30,7 @@ interface OnceMarkerModule {
     readonly managedRoot: string;
     readonly capability: "code-style-nudge";
     readonly cacheRoot: string;
+    readonly files?: OnceMarkerFiles;
   }): { readonly claimed: boolean; readonly key?: string };
 }
 
@@ -129,6 +137,41 @@ test("concurrent processes have exactly one exclusive-create winner", async () =
     assert.equal(results.filter((result) => result === "1").length, 1);
     assert.equal(results.filter((result) => result === "0").length, 23);
     assert.equal(claimFiles(root).length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed capacity-lock release rolls back a newly created claim", () => {
+  const root = fixture();
+  const created = new Set<string>();
+  const removed: string[] = [];
+  const files: OnceMarkerFiles = {
+    ensureDirectory(): void {},
+    createExclusive(filePath: string): boolean {
+      if (created.has(filePath)) return false;
+      created.add(filePath);
+      return true;
+    },
+    listFiles(): readonly string[] {
+      return [...created].map((filePath) => path.basename(filePath));
+    },
+    remove(filePath: string): void {
+      removed.push(path.basename(filePath));
+      if (path.basename(filePath) === ".capacity.lock") {
+        throw new Error("simulated lock release failure");
+      }
+      created.delete(filePath);
+    },
+  };
+  try {
+    const result = marker.claimNudgeOnce(
+      { session_id: "rollback-session" },
+      { ...options(root), files },
+    );
+    assert.equal(result.claimed, false);
+    assert.equal([...created].some((filePath) => filePath.endsWith(".claim")), false);
+    assert.equal(removed.some((name) => name.endsWith(".claim")), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

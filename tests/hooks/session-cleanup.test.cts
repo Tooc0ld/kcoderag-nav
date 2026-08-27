@@ -25,6 +25,7 @@ interface SessionCleanupModule {
     readonly capability: "code-style-nudge";
     readonly cacheRoot: string;
     readonly receiptProvesSessionEnd?: (host: HostId, field: StableField) => boolean;
+    readonly remove?: (filePath: string) => boolean;
   }): boolean;
   main(rawInput?: string): number;
 }
@@ -50,8 +51,13 @@ test("checked-in delivery receipts do not infer unproved SessionEnd cleanup", ()
   try {
     const lane = options(root, "claude", path.join(root, "project"));
     const claim = marker.claimNudgeOnce({ session_id: "live" }, lane);
+    let removeCalls = 0;
     assert.equal(claim.claimed, true);
-    assert.equal(cleanup.cleanupSessionClaim({ hook_event_name: "SessionEnd", session_id: "live" }, lane), false);
+    assert.equal(cleanup.cleanupSessionClaim(
+      { hook_event_name: "SessionEnd", session_id: "live" },
+      { ...lane, remove: () => { removeCalls += 1; return true; } },
+    ), false);
+    assert.equal(removeCalls, 0);
     assert.equal(fs.existsSync(path.join(root, "nudges", `${claim.key}.claim`)), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

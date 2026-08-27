@@ -184,6 +184,7 @@ export function claimNudgeOnce(
     if (!files.createExclusive(lockPath)) return suppressed(key);
     let claimed = false;
     let lockReleased = false;
+    let markerPath: string | undefined;
     try {
       const names = files.listFiles(directoryPath);
       const markerName = `${key}.claim`;
@@ -191,13 +192,18 @@ export function claimNudgeOnce(
       if (names.filter((name) => MARKER_NAME_RE.test(name)).length >= MAX_NUDGE_MARKERS) {
         return suppressed(key);
       }
-      claimed = files.createExclusive(path.join(directoryPath, markerName));
+      markerPath = path.join(directoryPath, markerName);
+      claimed = files.createExclusive(markerPath);
     } finally {
       try {
         files.remove(lockPath);
         lockReleased = true;
       } catch {
         lockReleased = false;
+        if (claimed && markerPath !== undefined) {
+          try { files.remove(markerPath); } catch { /* fail open */ }
+          claimed = false;
+        }
       }
     }
     return claimed && lockReleased
