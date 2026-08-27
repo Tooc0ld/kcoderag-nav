@@ -3,7 +3,7 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
-const skillRoot = path.resolve("plugin-src/capabilities/jx3-style-nudge/skill");
+const skillRoot = path.resolve("plugin-src/capabilities/code-style-nudge/skill");
 
 function readAsset(relativePath: string): string {
   return fs.readFileSync(path.join(skillRoot, relativePath), "utf8");

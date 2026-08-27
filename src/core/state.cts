@@ -28,7 +28,7 @@ const validatedDesiredStates = new WeakSet<object>();
 const validatedInstallStates = new WeakSet<object>();
 const CAPABILITY_ORDER = Object.freeze([
   "kcoderag-navigation",
-  "jx3-style-nudge",
+  "code-style-nudge",
 ] as const satisfies readonly CapabilityId[]);
 
 type DesiredStateInput = {
@@ -158,7 +158,7 @@ function codeUnitCompare(left: string, right: string): number {
 }
 
 function isCapabilityId(value: unknown): value is CapabilityId {
-  return value === "kcoderag-navigation" || value === "jx3-style-nudge";
+  return value === "kcoderag-navigation" || value === "code-style-nudge";
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

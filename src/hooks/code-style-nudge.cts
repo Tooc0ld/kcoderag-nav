@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Bounded structured-write classifier for the nav-managed JX3 Skill reminder. */
+/** Bounded structured-write classifier for the nav-managed code-style Skill reminder. */
 
 import type { HostId } from "../core/contracts.cjs";
 import { claimNudgeOnce } from "./once-marker.cjs";
@@ -8,11 +8,11 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
-export const JX3_NUDGE =
-  "JX3 source change: before writing, load and follow $jx3-code-style-correction and its compact checklist. " +
+export const CODE_STYLE_NUDGE =
+  "Code-style source change: before writing, load and follow $code-style-correction and its compact checklist. " +
   "Explicit user and project instructions take precedence. Before finishing, review only the regions changed in this task.";
 
-export const JX3_SOURCE_EXTENSIONS = Object.freeze([
+export const CODE_STYLE_SOURCE_EXTENSIONS = Object.freeze([
   ".c",
   ".cc",
   ".cpp",
@@ -27,26 +27,26 @@ export const JX3_SOURCE_EXTENSIONS = Object.freeze([
 ] as const);
 
 const STRUCTURED_WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
-const JX3_EXTENSION_SET = new Set<string>(JX3_SOURCE_EXTENSIONS);
+const CODE_STYLE_EXTENSION_SET = new Set<string>(CODE_STYLE_SOURCE_EXTENSIONS);
 const MAX_PATCH_CHARS = 131_072;
 const MAX_PATCH_LINES = 8_192;
 const MAX_PATCH_FILES = 64;
 const MAX_TARGET_PATH_CHARS = 4_096;
 
-export interface Jx3ContributionOptions {
+export interface CodeStyleContributionOptions {
   readonly host: HostId;
   readonly managedRoot: string;
   readonly cacheRoot?: string;
   readonly statePath?: string;
 }
 
-export interface Jx3IntegrityOptions {
+export interface CodeStyleIntegrityOptions {
   readonly host: HostId;
   readonly managedRoot: string;
   readonly statePath?: string;
 }
 
-export interface Jx3IntegrityResult {
+export interface CodeStyleIntegrityResult {
   readonly ok: boolean;
   readonly finding?: {
     readonly code: "capability_drift";
@@ -116,7 +116,7 @@ function containedRegularFile(root: string, relativePath: string): string | unde
   }
 }
 
-function drift(relativePath = "."): Jx3IntegrityResult {
+function drift(relativePath = "."): CodeStyleIntegrityResult {
   return Object.freeze({
     ok: false,
     finding: Object.freeze({ code: "capability_drift" as const, path: relativePath }),
@@ -173,7 +173,7 @@ function unexpectedSkillPath(root: string, skillPath: string): string | undefine
   }
 }
 
-export function evaluateJx3Integrity(options: Jx3IntegrityOptions): Jx3IntegrityResult {
+export function evaluateCodeStyleIntegrity(options: CodeStyleIntegrityOptions): CodeStyleIntegrityResult {
   try {
     if (!path.isAbsolute(options.managedRoot)) return drift();
     const root = path.resolve(options.managedRoot);
@@ -204,15 +204,15 @@ export function evaluateJx3Integrity(options: Jx3IntegrityOptions): Jx3Integrity
       return drift(expectedStateRelativePath);
     }
     const capabilities = state.capabilities.filter(isRecord);
-    const jx3Capabilities = capabilities.filter((capability) => capability.id === "jx3-style-nudge");
-    if (jx3Capabilities.length !== 1) return drift(expectedStateRelativePath);
-    const capability = jx3Capabilities[0];
+    const codeStyleCapabilities = capabilities.filter((capability) => capability.id === "code-style-nudge");
+    if (codeStyleCapabilities.length !== 1) return drift(expectedStateRelativePath);
+    const capability = codeStyleCapabilities[0];
     if (capability === undefined || !Array.isArray(capability.files) || !capability.files.every(safeRelativePath)) {
       return drift(expectedStateRelativePath);
     }
     const capabilityPaths = capability.files as string[];
     const skillPath = singlePathEnding(capabilityPaths, "/SKILL.md");
-    const handlerPath = singlePathEnding(capabilityPaths, "/jx3-style-nudge.cjs");
+    const handlerPath = singlePathEnding(capabilityPaths, "/code-style-nudge.cjs");
     const dispatcherPath = singlePathEnding(capabilityPaths, "/pre-tool-dispatcher.cjs");
     const referencePaths = REQUIRED_REFERENCE_NAMES.map((name) =>
       singlePathEnding(capabilityPaths, `/references/${name}`));
@@ -236,7 +236,7 @@ export function evaluateJx3Integrity(options: Jx3IntegrityOptions): Jx3Integrity
         typeof record.digest !== "string" ||
         !DIGEST_RE.test(record.digest) ||
         !Array.isArray(record.contributors) ||
-        !record.contributors.includes("jx3-style-nudge")
+        !record.contributors.includes("code-style-nudge")
       ) {
         return drift(relativePath);
       }
@@ -269,7 +269,7 @@ function boundedTargetPath(value: string): string | undefined {
   return value;
 }
 
-export function isJx3SourcePath(value: unknown): boolean {
+export function isCodeStyleSourcePath(value: unknown): boolean {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_TARGET_PATH_CHARS) {
     return false;
   }
@@ -280,7 +280,7 @@ export function isJx3SourcePath(value: unknown): boolean {
   }
   const dotIndex = finalSegment.lastIndexOf(".");
   if (dotIndex <= 0) return false;
-  return JX3_EXTENSION_SET.has(finalSegment.slice(dotIndex).toLowerCase());
+  return CODE_STYLE_EXTENSION_SET.has(finalSegment.slice(dotIndex).toLowerCase());
 }
 
 function parseHeaderPath(line: string, prefix: string): string | undefined {
@@ -368,19 +368,19 @@ export function structuredMutationPaths(payload: unknown): readonly string[] {
   return Object.freeze([]);
 }
 
-export function jx3StyleContribution(
+export function codeStyleContribution(
   payload: unknown,
-  options?: Jx3ContributionOptions,
+  options?: CodeStyleContributionOptions,
 ): string | undefined {
-  if (options === undefined || !structuredMutationPaths(payload).some(isJx3SourcePath)) {
+  if (options === undefined || !structuredMutationPaths(payload).some(isCodeStyleSourcePath)) {
     return undefined;
   }
-  if (!evaluateJx3Integrity(options).ok) return undefined;
+  if (!evaluateCodeStyleIntegrity(options).ok) return undefined;
   const claim = claimNudgeOnce(payload, {
     host: options.host,
     managedRoot: options.managedRoot,
-    capability: "jx3-style-nudge",
+    capability: "code-style-nudge",
     ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
   });
-  return claim.claimed ? JX3_NUDGE : undefined;
+  return claim.claimed ? CODE_STYLE_NUDGE : undefined;
 }

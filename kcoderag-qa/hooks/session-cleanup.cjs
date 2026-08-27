@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 "use strict";
-/** Receipt-gated exact-lane cleanup for JX3 once claims; unsupported events retain markers. */
+/** Receipt-gated exact-lane cleanup for code-style once claims; unsupported events retain markers. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sessionEndCleanupProven = sessionEndCleanupProven;
 exports.cleanupSessionClaim = cleanupSessionClaim;

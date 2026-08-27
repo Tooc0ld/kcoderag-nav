@@ -13,7 +13,7 @@ import { InstallError, type InstallState, type OriginalRecord, type ProjectTarge
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
-import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
+import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
@@ -58,11 +58,11 @@ const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
 const SETTINGS_PATH = ".claude/settings.json";
 const MCP_PATH = ".mcp.json";
 const NAV_SKILL_PATH = ".claude/skills/kcoderag-nav/SKILL.md";
-const JX3_SKILL_ROOT = ".claude/skills/jx3-code-style-correction";
+const CODE_STYLE_SKILL_ROOT = ".claude/skills/code-style-correction";
 const HOOK_ROOT = ".claude/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".claude", MCP_PATH] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -153,11 +153,11 @@ function verifyStateFiles(target: ProjectTarget, state: InstallState): void {
   for (const record of state.files) {
     const current = readRegular(target, record.path);
     if (current === undefined || sha256(current) !== record.digest) {
-      throw new InstallError(record.contributors.includes(JX3) ? "capability_drift" : "managed_content_changed", record.path);
+      throw new InstallError(record.contributors.includes(CODE_STYLE) ? "capability_drift" : "managed_content_changed", record.path);
     }
   }
-  if (state.capabilities.some((capability) => capability.id === JX3)) {
-    const integrity = evaluateJx3Integrity({ host: "claude", managedRoot: target.root });
+  if (state.capabilities.some((capability) => capability.id === CODE_STYLE)) {
+    const integrity = evaluateCodeStyleIntegrity({ host: "claude", managedRoot: target.root });
     if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? ".");
   }
 }
@@ -241,11 +241,11 @@ function assertSupport(
   context: HostInstallContext | HostUninstallContext,
   options: ClaudeAdapterOptions,
 ): void {
-  if (!selected.includes(JX3)) return;
+  if (!selected.includes(CODE_STYLE)) return;
   const extras = context as (HostInstallContext | HostUninstallContext) & ProjectionContextExtras;
   const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultClaudeVersion();
   if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
-  const decision = getCapabilityProvider(JX3).evaluateSupport({
+  const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({
     host: "claude",
     hostVersion,
     evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot,
@@ -350,12 +350,12 @@ const NAV_RUNTIME = Object.freeze([
   ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
   // The canonical launcher imports the composed dispatcher even in navigation-only installs.
   ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"],
-  ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"],
+  ["dist/hooks/code-style-nudge.cjs", "code-style-nudge.cjs"],
   ["dist/hooks/once-marker.cjs", "once-marker.cjs"],
   ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"],
   ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
-const JX3_REFERENCES = Object.freeze([
+const CODE_STYLE_REFERENCES = Object.freeze([
   "cpp-lifetime-control-flow.md",
   "protocol-serialization-data.md",
   "lua-contracts.md",
@@ -391,21 +391,21 @@ function projectContributions(
       ]),
     }));
   }
-  if (projected.includes(JX3)) {
+  if (projected.includes(CODE_STYLE)) {
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
-      projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false),
-      ...JX3_REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)),
-      projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), true),
+      projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false),
+      ...CODE_STYLE_REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
+      projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), true),
       projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true),
       projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true),
       projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true),
       projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
     ];
     contributions.push(Object.freeze({
-      capabilityId: JX3,
+      capabilityId: CODE_STYLE,
       files: Object.freeze(files),
-      sections: Object.freeze([section(SETTINGS_PATH, "jx3:pre-tool", settings.pre, settingsCurrent !== undefined, true)]),
+      sections: Object.freeze([section(SETTINGS_PATH, "code-style:pre-tool", settings.pre, settingsCurrent !== undefined, true)]),
     }));
   }
   return Object.freeze(contributions);

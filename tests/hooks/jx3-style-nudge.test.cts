@@ -5,18 +5,18 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-interface Jx3NudgeModule {
-  readonly JX3_NUDGE: string;
-  readonly JX3_SOURCE_EXTENSIONS: readonly string[];
-  isJx3SourcePath(value: unknown): boolean;
+interface CodeStyleNudgeModule {
+  readonly CODE_STYLE_NUDGE: string;
+  readonly CODE_STYLE_SOURCE_EXTENSIONS: readonly string[];
+  isCodeStyleSourcePath(value: unknown): boolean;
   structuredMutationPaths(payload: unknown): readonly string[];
-  jx3StyleContribution(payload: unknown, options?: {
+  codeStyleContribution(payload: unknown, options?: {
     readonly host: "claude";
     readonly managedRoot: string;
     readonly cacheRoot: string;
     readonly statePath?: string;
   }): string | undefined;
-  evaluateJx3Integrity(options: {
+  evaluateCodeStyleIntegrity(options: {
     readonly host: "claude";
     readonly managedRoot: string;
     readonly statePath?: string;
@@ -26,7 +26,7 @@ interface Jx3NudgeModule {
   };
 }
 
-const jx3 = require("../../dist/hooks/jx3-style-nudge.cjs") as Jx3NudgeModule;
+const codeStyle = require("../../dist/hooks/code-style-nudge.cjs") as CodeStyleNudgeModule;
 const installState = require("../../dist/core/state.cjs") as {
   createInstallState(input: Record<string, unknown>): Record<string, unknown>;
 };
@@ -36,12 +36,12 @@ const allowedExtensions = [
 ] as const;
 
 const integrityAssets = [
-  [".claude/skills/jx3-code-style-correction/SKILL.md", "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"],
-  [".claude/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md", "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md"],
-  [".claude/skills/jx3-code-style-correction/references/protocol-serialization-data.md", "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md"],
-  [".claude/skills/jx3-code-style-correction/references/lua-contracts.md", "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md"],
-  [".claude/skills/jx3-code-style-correction/references/change-hygiene-self-review.md", "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md"],
-  [".claude/kcoderag-nav/hooks/jx3-style-nudge.cjs", "dist/hooks/jx3-style-nudge.cjs"],
+  [".claude/skills/code-style-correction/SKILL.md", "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"],
+  [".claude/skills/code-style-correction/references/cpp-lifetime-control-flow.md", "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md"],
+  [".claude/skills/code-style-correction/references/protocol-serialization-data.md", "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md"],
+  [".claude/skills/code-style-correction/references/lua-contracts.md", "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md"],
+  [".claude/skills/code-style-correction/references/change-hygiene-self-review.md", "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md"],
+  [".claude/kcoderag-nav/hooks/code-style-nudge.cjs", "dist/hooks/code-style-nudge.cjs"],
   [".claude/kcoderag-nav/hooks/pre-tool-dispatcher.cjs", "dist/hooks/pre-tool-dispatcher.cjs"],
 ] as const;
 
@@ -57,7 +57,7 @@ function digest(bytes: Buffer): string {
 }
 
 function integrityFixture(): IntegrityFixture {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-jx3-integrity-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-code-style-integrity-"));
   const installedPaths: string[] = [];
   const files = integrityAssets.map(([relativePath, sourcePath]) => {
     const bytes = fs.readFileSync(path.resolve(sourcePath));
@@ -69,7 +69,7 @@ function integrityFixture(): IntegrityFixture {
       path: relativePath,
       digest: digest(bytes),
       original: { kind: "absent" as const },
-      contributors: ["jx3-style-nudge" as const],
+      contributors: ["code-style-nudge" as const],
     };
   });
   const state = installState.createInstallState({
@@ -77,7 +77,7 @@ function integrityFixture(): IntegrityFixture {
     packageVersion: "0.2.2",
     host: "claude",
     capabilities: [{
-      id: "jx3-style-nudge",
+      id: "code-style-nudge",
       files: files.map((file) => file.path),
       sections: [],
     }],
@@ -98,24 +98,24 @@ function integrityOptions(fixture: IntegrityFixture) {
   };
 }
 
-test("JX3 source extensions are exact, case-insensitive, and directory-neutral", () => {
-  assert.deepEqual(jx3.JX3_SOURCE_EXTENSIONS, allowedExtensions);
+test("code-style source extensions are exact, case-insensitive, and directory-neutral", () => {
+  assert.deepEqual(codeStyle.CODE_STYLE_SOURCE_EXTENSIONS, allowedExtensions);
   for (const extension of allowedExtensions) {
-    assert.equal(jx3.isJx3SourcePath(`src/vendor/generated/player${extension}`), true, extension);
-    assert.equal(jx3.isJx3SourcePath(`ANY/DIRECTORY/PLAYER${extension.toUpperCase()}`), true, extension);
+    assert.equal(codeStyle.isCodeStyleSourcePath(`src/vendor/generated/player${extension}`), true, extension);
+    assert.equal(codeStyle.isCodeStyleSourcePath(`ANY/DIRECTORY/PLAYER${extension.toUpperCase()}`), true, extension);
   }
   for (const path of [
     "player.cpp.txt", "player.inc", "player.proto", "player.luac", "player", ".cpp", "player.ts", "",
   ]) {
-    assert.equal(jx3.isJx3SourcePath(path), false, path);
+    assert.equal(codeStyle.isCodeStyleSourcePath(path), false, path);
   }
 });
 
 test("only fixed structured content-write tools expose their exact file_path", () => {
   for (const toolName of ["Write", "Edit", "MultiEdit"]) {
     const payload = { tool_name: toolName, tool_input: { file_path: "src/player.CPP" } };
-    assert.deepEqual(jx3.structuredMutationPaths(payload), ["src/player.CPP"]);
-    assert.equal(jx3.structuredMutationPaths(payload).some(jx3.isJx3SourcePath), true);
+    assert.deepEqual(codeStyle.structuredMutationPaths(payload), ["src/player.CPP"]);
+    assert.equal(codeStyle.structuredMutationPaths(payload).some(codeStyle.isCodeStyleSourcePath), true);
   }
 
   for (const payload of [
@@ -127,7 +127,7 @@ test("only fixed structured content-write tools expose their exact file_path", (
     { tool_name: "write", tool_input: { file_path: "player.cpp" } },
     { tool_name: "Unknown", tool_input: { file_path: "player.cpp" } },
   ]) {
-    assert.deepEqual(jx3.structuredMutationPaths(payload), []);
+    assert.deepEqual(codeStyle.structuredMutationPaths(payload), []);
   }
 });
 
@@ -145,7 +145,7 @@ test("native apply_patch uses bounded envelope headers and coalesces relevant mu
 
   for (const [command, paths] of patchCases) {
     const payload = { tool_name: "apply_patch", tool_input: { command } };
-    assert.deepEqual(jx3.structuredMutationPaths(payload), paths, command);
+    assert.deepEqual(codeStyle.structuredMutationPaths(payload), paths, command);
   }
 
   for (const command of [
@@ -155,47 +155,47 @@ test("native apply_patch uses bounded envelope headers and coalesces relevant mu
     "*** Begin Patch\n*** Add File: src/new.cpp\n+body\n*** End Patch\ntrailing",
     "*** Begin Patch\n*** Add File: src/new.cpp\n+" + "x".repeat(131_073) + "\n*** End Patch",
   ]) {
-    assert.deepEqual(jx3.structuredMutationPaths({ tool_name: "apply_patch", tool_input: { command } }), []);
+    assert.deepEqual(codeStyle.structuredMutationPaths({ tool_name: "apply_patch", tool_input: { command } }), []);
   }
 });
 
-test("JX3 contribution requires a stable identity and emits once per host/root/session", () => {
+test("code-style contribution requires a stable identity and emits once per host/root/session", () => {
   const fixture = integrityFixture();
   const runtime = { ...integrityOptions(fixture), cacheRoot: fixture.cacheRoot };
   const event = { tool_name: "Write", tool_input: { file_path: "src/player.cpp" }, session_id: "stable" };
   try {
-    assert.equal(jx3.jx3StyleContribution({ ...event, session_id: undefined }, runtime), undefined);
-    assert.equal(jx3.jx3StyleContribution({ ...event, session_id: 123 }, runtime), undefined);
-    assert.equal(jx3.jx3StyleContribution(event), undefined);
-    assert.equal(jx3.jx3StyleContribution(event, runtime), jx3.JX3_NUDGE);
-    assert.equal(jx3.jx3StyleContribution(event, runtime), undefined);
+    assert.equal(codeStyle.codeStyleContribution({ ...event, session_id: undefined }, runtime), undefined);
+    assert.equal(codeStyle.codeStyleContribution({ ...event, session_id: 123 }, runtime), undefined);
+    assert.equal(codeStyle.codeStyleContribution(event), undefined);
+    assert.equal(codeStyle.codeStyleContribution(event, runtime), codeStyle.CODE_STYLE_NUDGE);
+    assert.equal(codeStyle.codeStyleContribution(event, runtime), undefined);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("the reminder is constant, short, precedence-aware, and makes no scan claim", () => {
-  assert.match(jx3.JX3_NUDGE, /\$jx3-code-style-correction/u);
-  assert.match(jx3.JX3_NUDGE, /user and project instructions take precedence/iu);
-  assert.match(jx3.JX3_NUDGE, /regions changed in this task/iu);
-  assert.ok(jx3.JX3_NUDGE.split(/\s+/u).length <= 50);
-  assert.doesNotMatch(jx3.JX3_NUDGE, /scan(?:ner|ned)?|SVN|Python|https?:|[A-Za-z]:[\\/]/iu);
+  assert.match(codeStyle.CODE_STYLE_NUDGE, /\$code-style-correction/u);
+  assert.match(codeStyle.CODE_STYLE_NUDGE, /user and project instructions take precedence/iu);
+  assert.match(codeStyle.CODE_STYLE_NUDGE, /regions changed in this task/iu);
+  assert.ok(codeStyle.CODE_STYLE_NUDGE.split(/\s+/u).length <= 50);
+  assert.doesNotMatch(codeStyle.CODE_STYLE_NUDGE, /scan(?:ner|ned)?|SVN|Python|https?:|[A-Za-z]:[\\/]/iu);
 });
 
-test("complete managed JX3 tree passes every digest before claiming once", () => {
+test("complete managed code-style tree passes every digest before claiming once", () => {
   const fixture = integrityFixture();
   try {
-    assert.deepEqual(jx3.evaluateJx3Integrity(integrityOptions(fixture)), { ok: true });
+    assert.deepEqual(codeStyle.evaluateCodeStyleIntegrity(integrityOptions(fixture)), { ok: true });
     const event = {
       hook_event_name: "PreToolUse",
       tool_name: "Write",
       tool_input: { file_path: "src/player.cpp" },
       session_id: "integrity-session",
     };
-    assert.equal(jx3.jx3StyleContribution(event, {
+    assert.equal(codeStyle.codeStyleContribution(event, {
       ...integrityOptions(fixture),
       cacheRoot: fixture.cacheRoot,
-    }), jx3.JX3_NUDGE);
+    }), codeStyle.CODE_STYLE_NUDGE);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -211,10 +211,10 @@ test("every missing or edited managed asset is silent before marker creation", (
         if (mutation === "missing") fs.rmSync(target);
         else fs.appendFileSync(target, "\nmanaged drift\n", "utf8");
 
-        const result = jx3.evaluateJx3Integrity(integrityOptions(fixture));
+        const result = codeStyle.evaluateCodeStyleIntegrity(integrityOptions(fixture));
         assert.equal(result.ok, false, `${mutation}: ${relativePath}`);
         assert.deepEqual(result.finding, { code: "capability_drift", path: relativePath });
-        assert.equal(jx3.jx3StyleContribution({
+        assert.equal(codeStyle.codeStyleContribution({
           tool_name: "Write",
           tool_input: { file_path: "src/player.cpp" },
           session_id: `${mutation}-${assetIndex}`,
@@ -232,18 +232,18 @@ test("every missing or edited managed asset is silent before marker creation", (
 
 test("an extra Skill override source is drift and cannot consume the once claim", () => {
   for (const relativeOverride of [
-    ".claude/skills/jx3-code-style-correction/OVERRIDE.md",
-    ".claude/skills/jx3-code-style-correction/references/extra.md",
+    ".claude/skills/code-style-correction/OVERRIDE.md",
+    ".claude/skills/code-style-correction/references/extra.md",
   ]) {
     const fixture = integrityFixture();
     try {
       const overridePath = path.join(fixture.root, ...relativeOverride.split("/"));
       fs.mkdirSync(path.dirname(overridePath), { recursive: true });
       fs.writeFileSync(overridePath, "override\n", "utf8");
-      const result = jx3.evaluateJx3Integrity(integrityOptions(fixture));
+      const result = codeStyle.evaluateCodeStyleIntegrity(integrityOptions(fixture));
       assert.equal(result.ok, false, relativeOverride);
       assert.deepEqual(result.finding, { code: "capability_drift", path: relativeOverride });
-      assert.equal(jx3.jx3StyleContribution({
+      assert.equal(codeStyle.codeStyleContribution({
         tool_name: "Write",
         tool_input: { file_path: "src/player.cpp" },
         session_id: "override-session",

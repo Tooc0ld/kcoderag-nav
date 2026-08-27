@@ -2,7 +2,7 @@
 
 import type { HostId } from "../core/contracts.cjs";
 
-export type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+export type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 
 export type CapabilityFileKind =
   | "mcp-config"
@@ -96,4 +96,3 @@ export function copyCapabilityContribution(
     sections: Object.freeze(contribution.sections.map(copySectionRequirement)),
   });
 }
-

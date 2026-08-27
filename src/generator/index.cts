@@ -9,7 +9,7 @@ import { renderProjectHookCommands } from "../core/project-root.cjs";
 
 export type Product = "qa" | "cursor";
 export type ProductSelection = Product | "all";
-export type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+export type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 export type CanonicalAssetGroup =
   | "runtime"
   | "registration"
@@ -103,7 +103,7 @@ export class GenerationError extends Error {
 const PRODUCTS = Object.freeze(["qa", "cursor"] as const);
 const BUILT_IN_CAPABILITY_IDS = Object.freeze([
   "kcoderag-navigation",
-  "jx3-style-nudge",
+  "code-style-nudge",
 ] as const);
 const PRODUCT_DIRECTORIES: Readonly<Record<Product, string>> = Object.freeze({
   qa: "kcoderag-qa",
@@ -153,12 +153,12 @@ const CURSOR_METADATA_GUIDANCE = Object.freeze([
 const CURSOR_DOCS = Object.freeze(["README.md"]);
 const CURSOR_VERSION = Object.freeze([".cursor-plugin/plugin.json"]);
 const EMPTY_GROUP = Object.freeze([] as string[]);
-const JX3_SKILL_PATHS = Object.freeze([
-  "skills/jx3-code-style-correction/SKILL.md",
-  "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-  "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/jx3-code-style-correction/references/lua-contracts.md",
-  "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+const CODE_STYLE_SKILL_PATHS = Object.freeze([
+  "skills/code-style-correction/SKILL.md",
+  "skills/code-style-correction/references/change-hygiene-self-review.md",
+  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+  "skills/code-style-correction/references/lua-contracts.md",
+  "skills/code-style-correction/references/protocol-serialization-data.md",
 ]);
 
 interface CanonicalGroupsInput {
@@ -204,23 +204,23 @@ const NAVIGATION_CURSOR_GROUPS = canonicalGroups({
   guidance: CURSOR_METADATA_GUIDANCE,
   docs: CURSOR_DOCS,
 });
-const JX3_QA_GROUPS = canonicalGroups({
+const CODE_STYLE_QA_GROUPS = canonicalGroups({
   runtime: [
-    "hooks/jx3-style-nudge.cjs",
+    "hooks/code-style-nudge.cjs",
     "hooks/once-marker.cjs",
     "hooks/pre-tool-dispatcher.cjs",
     "hooks/session-cleanup.cjs",
   ],
   registration: ["hooks/hooks.json", "hooks/run_hook.cmd", "hooks/run_hook.sh"],
-  guidance: JX3_SKILL_PATHS,
+  guidance: CODE_STYLE_SKILL_PATHS,
 });
-const JX3_CURSOR_GROUPS = canonicalGroups({ guidance: JX3_SKILL_PATHS });
+const CODE_STYLE_CURSOR_GROUPS = canonicalGroups({ guidance: CODE_STYLE_SKILL_PATHS });
 
 export const CAPABILITY_PROJECTION_PATHS: Readonly<
   Record<CapabilityId, Readonly<Record<Product, Readonly<Record<CanonicalAssetGroup, readonly string[]>>>>>
 > = Object.freeze({
   "kcoderag-navigation": Object.freeze({ qa: NAVIGATION_QA_GROUPS, cursor: NAVIGATION_CURSOR_GROUPS }),
-  "jx3-style-nudge": Object.freeze({ qa: JX3_QA_GROUPS, cursor: JX3_CURSOR_GROUPS }),
+  "code-style-nudge": Object.freeze({ qa: CODE_STYLE_QA_GROUPS, cursor: CODE_STYLE_CURSOR_GROUPS }),
 });
 
 function selectedCapabilityIds(values: readonly string[] | undefined): readonly CapabilityId[] {
@@ -629,7 +629,7 @@ function renderQaAsset(
   capabilities: readonly CapabilityId[],
 ): Buffer {
   if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
-  if (relativePath === "hooks/jx3-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/jx3-style-nudge.cjs");
+  if (relativePath === "hooks/code-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/code-style-nudge.cjs");
   if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
   if (relativePath === "hooks/once-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/once-marker.cjs");
   if (relativePath === "hooks/pre-tool-dispatcher.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs");
@@ -693,12 +693,12 @@ function renderQaAsset(
       replacements,
     );
   }
-  if (relativePath === "skills/jx3-code-style-correction/SKILL.md") {
-    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  if (relativePath === "skills/code-style-correction/SKILL.md") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/jx3-code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/jx3-code-style-correction/".length);
-    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/jx3-style-nudge/skill/${reference}`);
+  if (relativePath.startsWith("skills/code-style-correction/references/")) {
+    const reference = relativePath.slice("skills/code-style-correction/".length);
+    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
     return renderTemplate(
@@ -733,12 +733,12 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
       },
     );
   }
-  if (relativePath === "skills/jx3-code-style-correction/SKILL.md") {
-    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md");
+  if (relativePath === "skills/code-style-correction/SKILL.md") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/jx3-code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/jx3-code-style-correction/".length);
-    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/jx3-style-nudge/skill/${reference}`);
+  if (relativePath.startsWith("skills/code-style-correction/references/")) {
+    const reference = relativePath.slice("skills/code-style-correction/".length);
+    return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
     return renderTemplate(

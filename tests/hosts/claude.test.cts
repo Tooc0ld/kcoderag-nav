@@ -12,7 +12,6 @@ const transaction = require("../../dist/core/transaction.cjs") as Record<string,
 
 const PACKAGE_ROOT = path.resolve(".");
 const NAVIGATION = "kcoderag-navigation";
-const JX3 = "jx3-style-nudge";
 const CODE_STYLE = "code-style-nudge";
 const RECEIPT_PATH = path.join(PACKAGE_ROOT, "fixtures", "host-delivery", "claude-2.1.241.json");
 const RECEIPT_DIGEST = "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119";
@@ -211,21 +210,21 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
     const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.241", evidenceRoot: PACKAGE_ROOT });
     assert.equal("cleanupOwnedSource" in adapter, false);
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [JX3, NAVIGATION])));
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [CODE_STYLE, NAVIGATION])));
 
     const statePath = path.join(root, ".claude/kcoderag-nav/install-state.json");
     let state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, JX3]);
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
     for (const relativePath of [
       ".mcp.json",
       ".claude/settings.json",
       ".claude/skills/kcoderag-nav/SKILL.md",
-      ".claude/skills/jx3-code-style-correction/SKILL.md",
-      ".claude/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      ".claude/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
-      ".claude/skills/jx3-code-style-correction/references/lua-contracts.md",
-      ".claude/skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      ".claude/kcoderag-nav/qa/hooks/jx3-style-nudge.cjs",
+      ".claude/skills/code-style-correction/SKILL.md",
+      ".claude/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      ".claude/skills/code-style-correction/references/protocol-serialization-data.md",
+      ".claude/skills/code-style-correction/references/lua-contracts.md",
+      ".claude/skills/code-style-correction/references/change-hygiene-self-review.md",
+      ".claude/kcoderag-nav/qa/hooks/code-style-nudge.cjs",
       ".claude/kcoderag-nav/qa/hooks/pre-tool-dispatcher.cjs",
       ".claude/kcoderag-nav/qa/hooks/once-marker.cjs",
       ".claude/kcoderag-nav/qa/hooks/update-notice.cjs",
@@ -240,10 +239,10 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
     assert.equal(mcp.mcpServers["kcoderag-qa"].url.endsWith("/"), false);
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, installed, [JX3])));
+    await transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, installed, [CODE_STYLE])));
     state = JSON.parse(fs.readFileSync(statePath, "utf8"));
     assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
-    assert.equal(fs.existsSync(path.join(root, ".claude/skills/jx3-code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".claude/skills/code-style-correction/SKILL.md")), false);
     assert.equal(fs.existsSync(path.join(root, ".claude/skills/kcoderag-nav/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".claude/kcoderag-nav/qa/hooks/update-notice.cjs")), true);
     assert.equal(fs.existsSync(path.join(root, ".mcp.json")), true);
@@ -252,7 +251,7 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
   }
 });
 
-test("Claude support is exact and managed JX3 drift is capability_drift", async () => {
+test("Claude support is exact and managed code-style drift is capability_drift", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-drift-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
@@ -261,7 +260,7 @@ test("Claude support is exact and managed JX3 drift is capability_drift", async 
       () => unsupported.renderInstall(context(
         target,
         unsupported.detect({ target, packageRoot: PACKAGE_ROOT }),
-        [JX3],
+        [CODE_STYLE],
       )),
       (error: any) => error?.code === "host_version_unsupported",
     );
@@ -269,8 +268,8 @@ test("Claude support is exact and managed JX3 drift is capability_drift", async 
 
     const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.241", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [JX3])));
-    const reference = ".claude/skills/jx3-code-style-correction/references/lua-contracts.md";
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [CODE_STYLE])));
+    const reference = ".claude/skills/code-style-correction/references/lua-contracts.md";
     fs.appendFileSync(path.join(root, ...reference.split("/")), "\ndrift\n");
     const drifted = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     assert.deepEqual(drifted.issues, [{ code: "capability_drift", path: reference }]);
@@ -280,7 +279,7 @@ test("Claude support is exact and managed JX3 drift is capability_drift", async 
   }
 });
 
-test("Claude extra JX3 overrides are visible read-only as capability drift", async () => {
+test("Claude extra code-style overrides are visible read-only as capability drift", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-extra-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
@@ -288,9 +287,9 @@ test("Claude extra JX3 overrides are visible read-only as capability drift", asy
     await transaction.applyTransaction(adapter.renderInstall(context(
       target,
       adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
-      [JX3],
+      [CODE_STYLE],
     )));
-    const extra = ".claude/skills/jx3-code-style-correction/override.md";
+    const extra = ".claude/skills/code-style-correction/override.md";
     fs.writeFileSync(path.join(root, ...extra.split("/")), "override\n");
     assert.deepEqual(adapter.detect({ target, packageRoot: PACKAGE_ROOT }).issues, [
       { code: "capability_drift", path: extra },

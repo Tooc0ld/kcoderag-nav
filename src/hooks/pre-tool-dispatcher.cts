@@ -3,7 +3,7 @@
 
 const fs = require("node:fs") as typeof import("node:fs");
 import type { HostId } from "../core/contracts.cjs";
-import { jx3StyleContribution } from "./jx3-style-nudge.cjs";
+import { codeStyleContribution } from "./code-style-nudge.cjs";
 
 export const MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
@@ -94,7 +94,7 @@ export function createDefaultContributors(
     },
     (payload: Readonly<Record<string, unknown>>): string | undefined => {
       if (runtimeHost === undefined || managedRoot === undefined) return undefined;
-      return jx3StyleContribution(payload, {
+      return codeStyleContribution(payload, {
         host: runtimeHost,
         managedRoot,
         ...(statePath === undefined ? {} : { statePath }),

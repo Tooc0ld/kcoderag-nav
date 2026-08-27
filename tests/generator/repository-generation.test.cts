@@ -42,7 +42,7 @@ interface GeneratorModule {
   generatePackage(options: {
     readonly package: Product | "all";
     readonly group: AssetGroup;
-    readonly capabilities?: readonly ("kcoderag-navigation" | "jx3-style-nudge")[];
+    readonly capabilities?: readonly ("kcoderag-navigation" | "code-style-nudge")[];
     readonly sourceRoot: string;
     readonly outputRoot: string;
   }): GenerationResult & { readonly capabilities: readonly string[] };
@@ -335,22 +335,22 @@ test("capability generation from repository sources writes only an isolated outp
       generatePackage(options: {
         readonly package: "qa";
         readonly group: "guidance";
-        readonly capabilities: readonly ["jx3-style-nudge"];
+        readonly capabilities: readonly ["code-style-nudge"];
         readonly sourceRoot: string;
         readonly outputRoot: string;
       }): GenerationResult & { readonly capabilities: readonly string[] };
     }).generatePackage({
       package: "qa",
       group: "guidance",
-      capabilities: ["jx3-style-nudge"],
+      capabilities: ["code-style-nudge"],
       sourceRoot: repositoryRoot,
       outputRoot,
     });
-    assert.deepEqual(generated.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(generated.capabilities, ["code-style-nudge"]);
     assert.equal(generated.writtenPaths.length, 5);
     assert.equal(
-      fs.readFileSync(path.join(outputRoot, "kcoderag-qa", "skills", "jx3-code-style-correction", "SKILL.md")).equals(
-        fs.readFileSync(path.join(repositoryRoot, "plugin-src", "capabilities", "jx3-style-nudge", "skill", "SKILL.md")),
+      fs.readFileSync(path.join(outputRoot, "kcoderag-qa", "skills", "code-style-correction", "SKILL.md")).equals(
+        fs.readFileSync(path.join(repositoryRoot, "plugin-src", "capabilities", "code-style-nudge", "skill", "SKILL.md")),
       ),
       true,
     );

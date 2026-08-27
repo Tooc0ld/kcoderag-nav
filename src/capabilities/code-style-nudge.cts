@@ -1,4 +1,4 @@
-/** Pure JX3 nudge provider bound to exact checked-in native delivery evidence. */
+/** Pure code-style nudge provider bound to exact checked-in native delivery evidence. */
 
 import { evaluateHostVersionSupport } from "../hosts/host-version-support.cjs";
 import {
@@ -9,80 +9,80 @@ import {
   type CapabilitySupportDecision,
 } from "./contracts.cjs";
 
-const JX3_REQUIREMENTS: CapabilityContribution = copyCapabilityContribution({
-  capabilityId: "jx3-style-nudge",
+const CODE_STYLE_REQUIREMENTS: CapabilityContribution = copyCapabilityContribution({
+  capabilityId: "code-style-nudge",
   files: [
     {
-      id: "jx3:skill-index",
-      sourcePath: "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
+      id: "code-style:skill-index",
+      sourcePath: "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
       kind: "skill",
       shared: false,
     },
     {
-      id: "jx3:skill-cpp-lifetime-control-flow",
+      id: "code-style:skill-cpp-lifetime-control-flow",
       sourcePath:
-        "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+        "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
       kind: "skill",
       shared: false,
     },
     {
-      id: "jx3:skill-protocol-serialization-data",
+      id: "code-style:skill-protocol-serialization-data",
       sourcePath:
-        "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
+        "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
       kind: "skill",
       shared: false,
     },
     {
-      id: "jx3:skill-lua-contracts",
+      id: "code-style:skill-lua-contracts",
       sourcePath:
-        "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
+        "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
       kind: "skill",
       shared: false,
     },
     {
-      id: "jx3:skill-change-hygiene-self-review",
+      id: "code-style:skill-change-hygiene-self-review",
       sourcePath:
-        "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
+        "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
       kind: "skill",
       shared: false,
     },
     {
-      id: "jx3:handler",
-      sourcePath: "dist/hooks/jx3-style-nudge.cjs",
+      id: "code-style:handler",
+      sourcePath: "dist/hooks/code-style-nudge.cjs",
       kind: "handler",
       shared: false,
     },
     {
-      id: "jx3:dispatcher",
+      id: "code-style:dispatcher",
       sourcePath: "dist/hooks/pre-tool-dispatcher.cjs",
       kind: "dispatcher",
       shared: true,
     },
     {
-      id: "jx3:once-marker",
+      id: "code-style:once-marker",
       sourcePath: "dist/hooks/once-marker.cjs",
       kind: "marker",
       shared: true,
     },
     {
-      id: "jx3:pre-tool-launcher-windows",
+      id: "code-style:pre-tool-launcher-windows",
       sourcePath: "plugin-src/hooks/run_hook.cmd",
       kind: "launcher",
       shared: true,
     },
     {
-      id: "jx3:pre-tool-launcher-posix",
+      id: "code-style:pre-tool-launcher-posix",
       sourcePath: "plugin-src/hooks/run_hook.sh",
       kind: "launcher",
       shared: true,
     },
   ],
   sections: [
-    { id: "jx3:pre-tool", kind: "pre-tool", shared: true },
+    { id: "code-style:pre-tool", kind: "pre-tool", shared: true },
   ],
 });
 
-function evaluateJx3Support(
+function evaluateCodeStyleSupport(
   context: CapabilitySupportContext,
 ): CapabilitySupportDecision {
   const result = context.evidenceRoot === undefined
@@ -92,7 +92,7 @@ function evaluateJx3Support(
         context.hostVersion,
         context.evidenceRoot,
       );
-  if (!result.jx3StyleNudge || result.receiptDigest === undefined) {
+  if (!result.codeStyleNudge || result.receiptDigest === undefined) {
     return Object.freeze({
       eligible: false,
       code: "host_version_unsupported" as const,
@@ -105,9 +105,8 @@ function evaluateJx3Support(
   });
 }
 
-export const jx3StyleNudgeCapabilityProvider: CapabilityProvider = Object.freeze({
-  id: "jx3-style-nudge" as const,
-  contribution: () => copyCapabilityContribution(JX3_REQUIREMENTS),
-  evaluateSupport: evaluateJx3Support,
+export const codeStyleNudgeCapabilityProvider: CapabilityProvider = Object.freeze({
+  id: "code-style-nudge" as const,
+  contribution: () => copyCapabilityContribution(CODE_STYLE_REQUIREMENTS),
+  evaluateSupport: evaluateCodeStyleSupport,
 });
-

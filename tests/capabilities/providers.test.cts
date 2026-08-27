@@ -3,7 +3,7 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
-type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 
 interface CapabilityContribution {
   readonly capabilityId: CapabilityId;
@@ -44,28 +44,28 @@ const registry = require("../../dist/capabilities/registry.cjs") as {
   resolveCapabilityContributions(ids: readonly string[]): readonly CapabilityContribution[];
 };
 
-const JX3_SKILL_PATHS = Object.freeze([
-  "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
+const CODE_STYLE_SKILL_PATHS = Object.freeze([
+  "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
 ]);
 
 test("synthetic providers declare canonical host-neutral requirements", () => {
   const contributions = registry.resolveCapabilityContributions([
-    "jx3-style-nudge",
+    "code-style-nudge",
     "kcoderag-navigation",
   ]);
   assert.deepEqual(
     contributions.map((contribution) => contribution.capabilityId),
-    ["kcoderag-navigation", "jx3-style-nudge"],
+    ["kcoderag-navigation", "code-style-nudge"],
   );
 
   const navigation = contributions[0];
-  const jx3 = contributions[1];
+  const codeStyle = contributions[1];
   assert.ok(navigation);
-  assert.ok(jx3);
+  assert.ok(codeStyle);
   assert.deepEqual(
     new Set(navigation.files.map((file) => file.kind)),
     new Set(["mcp-config", "skill", "handler", "marker", "launcher", "rule", "plugin"]),
@@ -76,20 +76,20 @@ test("synthetic providers declare canonical host-neutral requirements", () => {
   );
 
   assert.deepEqual(
-    jx3.files
+    codeStyle.files
       .filter((file) => file.kind === "skill")
       .map((file) => file.sourcePath),
-    JX3_SKILL_PATHS,
+    CODE_STYLE_SKILL_PATHS,
   );
   assert.deepEqual(
-    new Set(jx3.files.map((file) => file.kind)),
+    new Set(codeStyle.files.map((file) => file.kind)),
     new Set(["skill", "handler", "dispatcher", "marker", "launcher"]),
   );
   assert.deepEqual(
-    jx3.sections.map((section) => section.kind),
+    codeStyle.sections.map((section) => section.kind),
     ["pre-tool"],
   );
-  for (const sourcePath of JX3_SKILL_PATHS) {
+  for (const sourcePath of CODE_STYLE_SKILL_PATHS) {
     assert.equal(fs.existsSync(path.resolve(sourcePath)), true, sourcePath);
   }
 
@@ -103,10 +103,10 @@ test("synthetic providers declare canonical host-neutral requirements", () => {
     true,
   );
   assert.throws(() => {
-    (jx3.files as unknown as Array<Record<string, unknown>>).push({});
+    (codeStyle.files as unknown as Array<Record<string, unknown>>).push({});
   }, TypeError);
   assert.throws(() => {
-    Object.assign(jx3.files[0] ?? {}, { sourcePath: "caller-mutated" });
+    Object.assign(codeStyle.files[0] ?? {}, { sourcePath: "caller-mutated" });
   }, TypeError);
   assert.notStrictEqual(
     contributions[0],
@@ -114,20 +114,20 @@ test("synthetic providers declare canonical host-neutral requirements", () => {
   );
 });
 
-test("JX3 support delegates to the exact checked-in PASS receipt", () => {
+test("code-style support delegates to the exact checked-in PASS receipt", () => {
   const navigation = registry.getCapabilityProvider("kcoderag-navigation");
-  const jx3 = registry.getCapabilityProvider("jx3-style-nudge");
+  const codeStyle = registry.getCapabilityProvider("code-style-nudge");
 
   assert.deepEqual(
     registry.BUILT_IN_CAPABILITIES.map((manifest) => manifest.id),
-    [navigation.id, jx3.id],
+    [navigation.id, codeStyle.id],
   );
   assert.deepEqual(
     navigation.evaluateSupport({ host: "opencode", hostVersion: "0.0.0" }),
     { eligible: true, deliveryMode: "host_native" },
   );
 
-  const supported = jx3.evaluateSupport({
+  const supported = codeStyle.evaluateSupport({
     host: "claude",
     hostVersion: "2.1.241",
     evidenceRoot: process.cwd(),
@@ -147,13 +147,13 @@ test("JX3 support delegates to the exact checked-in PASS receipt", () => {
     ["claude", "2.1.240"],
   ] as const) {
     assert.deepEqual(
-      jx3.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
+      codeStyle.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
       { eligible: false, code: "host_version_unsupported" },
       `${host}@${hostVersion}`,
     );
     assert.equal(
       Object.isFrozen(
-        jx3.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
+        codeStyle.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
       ),
       true,
     );
@@ -177,7 +177,7 @@ test("navigation declares the shared update notice runtime for hook-capable proj
 test("providers contain no project mutation or network authority", () => {
   for (const relativePath of [
     "src/capabilities/navigation.cts",
-    "src/capabilities/jx3-style-nudge.cts",
+    "src/capabilities/code-style-nudge.cts",
   ]) {
     const source = fs.readFileSync(path.resolve(relativePath), "utf8");
     assert.doesNotMatch(source, /node:(?:fs|http|https|net)|core\/transaction|cli\/commands/);

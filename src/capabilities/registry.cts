@@ -10,11 +10,11 @@ import {
   type CapabilitySupportContext,
 } from "./contracts.cjs";
 import { navigationCapabilityProvider } from "./navigation.cjs";
-import { jx3StyleNudgeCapabilityProvider } from "./jx3-style-nudge.cjs";
+import { codeStyleNudgeCapabilityProvider } from "./code-style-nudge.cjs";
 
 const BUILT_IN_PROVIDERS: readonly CapabilityProvider[] = Object.freeze([
   navigationCapabilityProvider,
-  jx3StyleNudgeCapabilityProvider,
+  codeStyleNudgeCapabilityProvider,
 ]);
 
 export const BUILT_IN_CAPABILITIES: readonly CapabilityManifest[] = Object.freeze(

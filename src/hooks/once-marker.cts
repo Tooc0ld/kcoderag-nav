@@ -140,7 +140,7 @@ function normalizedManagedRoot(value: string): string | undefined {
 
 function validScope(options: OnceMarkerScope): boolean {
   return HOSTS.has(options.host) &&
-    options.capability === "jx3-style-nudge" &&
+    options.capability === "code-style-nudge" &&
     normalizedManagedRoot(options.managedRoot) !== undefined;
 }
 

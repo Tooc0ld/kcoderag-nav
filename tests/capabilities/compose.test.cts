@@ -5,7 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 type HostId = "codex" | "claude" | "cursor" | "opencode";
 
 interface OriginalRecord {
@@ -115,7 +115,7 @@ const projectTarget = require("../../dist/core/project-target.cjs") as ProjectTa
 const transaction = require("../../dist/core/transaction.cjs") as TransactionModule;
 
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 const STATE_PATH = "owned/install-state.json";
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -153,12 +153,12 @@ function fixture() {
   write(root, "unrelated/keep.bin", Buffer.from([0, 255, 17, 42]));
   const mergedShared = Buffer.from("opaque-composed-config\n", "utf8");
   const navigationFile = Buffer.from("navigation-runtime\n", "utf8");
-  const jx3File = Buffer.from("jx3-runtime\n", "utf8");
+  const codeStyleFile = Buffer.from("code-style-runtime\n", "utf8");
   const expectedShared = sha256(originalShared);
   const original = existingOriginal(originalShared);
   const contributions: ProjectedContribution[] = [
     {
-      capabilityId: JX3,
+      capabilityId: CODE_STYLE,
       files: [
         {
           relativePath: "owned/shared.json",
@@ -168,9 +168,9 @@ function fixture() {
           shared: true,
         },
         {
-          relativePath: "owned/jx3.bin",
+          relativePath: "owned/code-style.bin",
           expectedDigest: null,
-          content: jx3File,
+          content: codeStyleFile,
           original: absentOriginal(),
           shared: false,
         },
@@ -178,8 +178,8 @@ function fixture() {
       sections: [
         {
           relativePath: "owned/shared.json",
-          id: "pre-tool.jx3",
-          digest: sha256("jx3-section"),
+          id: "pre-tool.code-style",
+          digest: sha256("code-style-section"),
           fileExisted: true,
           shared: false,
         },
@@ -220,7 +220,7 @@ function fixture() {
     originalShared,
     mergedShared,
     navigationFile,
-    jx3File,
+    codeStyleFile,
     contributions,
   };
 }
@@ -233,7 +233,7 @@ function initialInput(value: ReturnType<typeof fixture>): ComposeInput {
     managedRoots: ["owned"],
     statePath: STATE_PATH,
     stateExpectedDigest: null,
-    selectedCapabilities: [JX3, NAVIGATION],
+    selectedCapabilities: [CODE_STYLE, NAVIGATION],
     contributions: value.contributions,
   };
 }
@@ -284,17 +284,17 @@ test("two projected capabilities compose canonically into one immutable desired 
     assert.equal(Object.isFrozen(desired), true);
     assert.equal(Object.isFrozen(desired.entries), true);
     assert.deepEqual(desired.entries.map((entry) => entry.path.relativePath), [
-      "owned/jx3.bin",
+      "owned/code-style.bin",
       "owned/navigation.bin",
       "owned/shared.json",
       STATE_PATH,
     ]);
 
     const installed = state.parseInstallState(desiredStateBytes(desired));
-    assert.deepEqual(installed.capabilities.map((capability) => capability.id), [NAVIGATION, JX3]);
+    assert.deepEqual(installed.capabilities.map((capability) => capability.id), [NAVIGATION, CODE_STYLE]);
     assert.deepEqual(
       installed.files.find((file) => file.path === "owned/shared.json")?.contributors,
-      [NAVIGATION, JX3],
+      [NAVIGATION, CODE_STYLE],
     );
     assert.deepEqual(
       installed.capabilities.find((capability) => capability.id === NAVIGATION),
@@ -312,7 +312,7 @@ test("two projected capabilities compose canonically into one immutable desired 
       desired.entries.find((entry) => entry.path.relativePath === "owned/shared.json")?.content?.toString("utf8"),
       "opaque-composed-config\n",
     );
-    assert.deepEqual(installed.capabilities.map((capability) => capability.id), [NAVIGATION, JX3]);
+    assert.deepEqual(installed.capabilities.map((capability) => capability.id), [NAVIGATION, CODE_STYLE]);
   } finally {
     fs.rmSync(value.root, { recursive: true, force: true });
   }
@@ -323,9 +323,9 @@ test("collisions, path escapes, and incomplete selected sets fail before the tra
   try {
     const cases: ComposeInput[] = [];
     const collision = cloneContributions(value.contributions);
-    const jx3Shared = collision[0]?.files.find((file) => file.relativePath === "owned/shared.json");
-    assert.ok(jx3Shared);
-    (jx3Shared as { content: Buffer }).content = Buffer.from("different");
+    const codeStyleShared = collision[0]?.files.find((file) => file.relativePath === "owned/shared.json");
+    assert.ok(codeStyleShared);
+    (codeStyleShared as { content: Buffer }).content = Buffer.from("different");
     cases.push({ ...initialInput(value), contributions: collision });
 
     const escaped = cloneContributions(value.contributions);
@@ -397,7 +397,7 @@ test("single-capability recomposition preserves contributors and final removal r
     });
     transaction.applyTransaction(partialDesired);
 
-    assert.equal(fs.existsSync(path.join(value.root, "owned", "jx3.bin")), false);
+    assert.equal(fs.existsSync(path.join(value.root, "owned", "code-style.bin")), false);
     assert.equal(read(value.root, "owned/navigation.bin").toString("utf8"), "navigation-runtime\n");
     assert.equal(read(value.root, "owned/shared.json").toString("utf8"), "opaque-navigation-only\n");
     const partialStateBytes = read(value.root, STATE_PATH);

@@ -1,4 +1,4 @@
-/** Cursor project capability projection; Rule/post-events never imply JX3 pre-write support. */
+/** Cursor project capability projection; Rule/post-events never imply code-style pre-write support. */
 
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
@@ -13,7 +13,7 @@ import { InstallError, type InstallState, type OriginalRecord, type ProjectTarge
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
-import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
+import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
   createSourceFinding,
@@ -41,11 +41,11 @@ const MCP_PATH = ".cursor/mcp.json";
 const HOOKS_PATH = ".cursor/hooks.json";
 const NAV_SKILL_PATH = ".cursor/skills/kcoderag-nav/SKILL.md";
 const RULE_PATH = ".cursor/rules/kcoderag-navigation.mdc";
-const JX3_SKILL_ROOT = ".cursor/skills/jx3-code-style-correction";
+const CODE_STYLE_SKILL_ROOT = ".cursor/skills/code-style-correction";
 const HOOK_ROOT = ".cursor/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".cursor"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 const MCP_SERVER = "kcoderag";
 
 function isRecord(value: unknown): value is JsonMap { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -68,8 +68,8 @@ function encodeOriginal(bytes: Buffer | undefined): OriginalRecord { return byte
 function stateBytes(observation: HostObservation): Buffer | undefined { const bytes = (observation.details as Details | undefined)?.stateBytes; return bytes === undefined ? undefined : Buffer.from(bytes); }
 function verifyState(target: ProjectTarget, state: InstallState): void {
   if (state.host !== "cursor") throw new InstallError("invalid_state", STATE_PATH);
-  for (const record of state.files) { const bytes = readRegular(target, record.path); if (bytes === undefined || sha256(bytes) !== record.digest) throw new InstallError(record.contributors.includes(JX3) ? "capability_drift" : "managed_content_changed", record.path); }
-  if (state.capabilities.some((entry) => entry.id === JX3)) { const integrity = evaluateJx3Integrity({ host: "cursor", managedRoot: target.root }); if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? "."); }
+  for (const record of state.files) { const bytes = readRegular(target, record.path); if (bytes === undefined || sha256(bytes) !== record.digest) throw new InstallError(record.contributors.includes(CODE_STYLE) ? "capability_drift" : "managed_content_changed", record.path); }
+  if (state.capabilities.some((entry) => entry.id === CODE_STYLE)) { const integrity = evaluateCodeStyleIntegrity({ host: "cursor", managedRoot: target.root }); if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? "."); }
 }
 function detectCursor(context: { readonly target: ProjectTarget }): HostObservation {
   let bytes: Buffer | undefined;
@@ -81,7 +81,7 @@ function selectedInstall(context: HostInstallContext): readonly CapabilityId[] {
 function preservedForUpdate(context: HostInstallContext, selected: readonly CapabilityId[]): readonly CapabilityId[] { if (context.command !== "update" || context.observation.currentState === undefined) return Object.freeze([]); const projected = new Set(context.selectedCapabilities ?? selected); return Object.freeze(selected.filter((id) => !projected.has(id))); }
 function selectedUninstall(context: HostUninstallContext): readonly CapabilityId[] { const state = context.observation.currentState; if (state === undefined) throw new InstallError("not_installed", STATE_PATH); const removals = (context as HostUninstallContext & Extras).selectedCapabilities; if (removals === undefined) return Object.freeze([]); const remove = new Set(resolveCapabilitySelection(removals).map((entry) => entry.id)); return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id))); }
 function defaultVersion(): string | undefined { try { const result = childProcess.spawnSync("cursor", ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 8_192, windowsHide: true }); if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined; return /^(\d+\.\d+\.\d+)\r?\n?$/u.exec(result.stdout)?.[1]; } catch { return undefined; } }
-function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CursorAdapterOptions): void { if (!selected.includes(JX3)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(JX3).evaluateSupport({ host: "cursor", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
+function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CursorAdapterOptions): void { if (!selected.includes(CODE_STYLE)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({ host: "cursor", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
 
 function mergeMcp(current: Buffer | undefined, packageRoot: string, owned: boolean) {
   const document = current === undefined ? {} : parseJson(current, "invalid_json", MCP_PATH); const servers = document.mcpServers === undefined ? {} : document.mcpServers; if (!isRecord(servers)) throw new InstallError("invalid_json", MCP_PATH); if (!owned && servers[MCP_SERVER] !== undefined) throw new InstallError("unmanaged_name_conflict", MCP_PATH); const entry = qaEntry(packageRoot); servers[MCP_SERVER] = entry; document.mcpServers = servers; return Object.freeze({ bytes: canonicalJson(document), entry });
@@ -92,7 +92,7 @@ function mergeHooks(current: Buffer | undefined, selected: readonly CapabilityId
   const desired = new Map<string, JsonMap | undefined>([
     ["afterMCPExecution", selected.includes(NAVIGATION) ? managedHook(`node ${HOOK_ROOT}/mcp-call-marker.cjs cursor`) : undefined],
     ["postToolUse", selected.includes(NAVIGATION) ? managedHook(`node ${HOOK_ROOT}/update-notice.cjs cursor`) : undefined],
-    ["preToolUse", selected.includes(JX3) ? managedHook(`node ${HOOK_ROOT}/pre-tool-dispatcher.cjs cursor`) : undefined],
+    ["preToolUse", selected.includes(CODE_STYLE) ? managedHook(`node ${HOOK_ROOT}/pre-tool-dispatcher.cjs cursor`) : undefined],
   ]);
   for (const [event, entry] of desired) { const existing = hooks[event] === undefined ? [] : hooks[event]; if (!Array.isArray(existing)) throw new InstallError("invalid_json", HOOKS_PATH); const unrelated = existing.filter((value) => !JSON.stringify(value).includes("kcoderag-nav")); if (!owned && unrelated.length !== existing.length) throw new InstallError("unmanaged_name_conflict", HOOKS_PATH); if (entry === undefined) { if (unrelated.length === 0) delete hooks[event]; else hooks[event] = unrelated; } else hooks[event] = [...unrelated, entry]; }
   document.hooks = hooks; return Object.freeze({ bytes: canonicalJson(document), marker: desired.get("afterMCPExecution"), notice: desired.get("postToolUse"), pre: desired.get("preToolUse") });
@@ -107,9 +107,9 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
     projectedFile(target, state, MCP_PATH, mcp.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, RULE_PATH, sourceAsset(packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), false), projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md"), false),
     projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-worker.cjs`, sourceAsset(packageRoot, "dist/hooks/update-worker.cjs"), false),
   ]), sections: Object.freeze([section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", [hooks.marker, hooks.notice], hooksCurrent !== undefined)]) })); }
-  if (projected.includes(JX3)) result.push(Object.freeze({ capabilityId: JX3, files: Object.freeze([
-    projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
-  ]), sections: Object.freeze([section(HOOKS_PATH, "jx3:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
+  if (projected.includes(CODE_STYLE)) result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
+    projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
+  ]), sections: Object.freeze([section(HOOKS_PATH, "code-style:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
   return Object.freeze(result);
 }
 function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[], preserved: readonly CapabilityId[] = []) { const previousState = context.observation.currentState; const bytes = stateBytes(context.observation); const projected = selected.filter((id) => !preserved.includes(id)); const reconciled = preserved.length === 0 ? Object.freeze([]) : contributions(context.target, context.packageRoot, selected, preserved, previousState); return composeCapabilitySet({ host: "cursor", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, preservedCapabilities: preserved, contributions: contributions(context.target, context.packageRoot, selected, projected, previousState), reconciledContributions: reconciled, ...(previousState === undefined ? {} : { previousState }) }); }

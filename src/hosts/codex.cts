@@ -1,4 +1,4 @@
-/** Codex capability projection with receipt-gated JX3 and path-only source findings. */
+/** Codex capability projection with receipt-gated code-style support and path-only source findings. */
 
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
@@ -14,7 +14,7 @@ import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
-import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
+import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
   createSourceFinding,
@@ -51,11 +51,11 @@ const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".codex/config.toml";
 const HOOKS_PATH = ".codex/hooks.json";
 const NAV_SKILL_PATH = ".agents/skills/kcoderag-nav/SKILL.md";
-const JX3_SKILL_ROOT = ".agents/skills/jx3-code-style-correction";
+const CODE_STYLE_SKILL_ROOT = ".agents/skills/code-style-correction";
 const HOOK_ROOT = ".codex/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".codex", ".agents/skills"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 const TOML_BEGIN = "# BEGIN kcoderag-nav:kcoderag-navigation";
 const TOML_END = "# END kcoderag-nav:kcoderag-navigation";
 
@@ -110,10 +110,10 @@ function verifyStateFiles(target: ProjectTarget, state: InstallState): void {
   if (state.host !== "codex") throw new InstallError("invalid_state", STATE_PATH);
   for (const record of state.files) {
     const current = readRegular(target, record.path);
-    if (current === undefined || sha256(current) !== record.digest) throw new InstallError(record.contributors.includes(JX3) ? "capability_drift" : "managed_content_changed", record.path);
+    if (current === undefined || sha256(current) !== record.digest) throw new InstallError(record.contributors.includes(CODE_STYLE) ? "capability_drift" : "managed_content_changed", record.path);
   }
-  if (state.capabilities.some((entry) => entry.id === JX3)) {
-    const integrity = evaluateJx3Integrity({ host: "codex", managedRoot: target.root });
+  if (state.capabilities.some((entry) => entry.id === CODE_STYLE)) {
+    const integrity = evaluateCodeStyleIntegrity({ host: "codex", managedRoot: target.root });
     if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? ".");
   }
 }
@@ -157,11 +157,11 @@ function defaultVersion(): string | undefined {
   } catch { return undefined; }
 }
 function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CodexAdapterOptions): void {
-  if (!selected.includes(JX3)) return;
+  if (!selected.includes(CODE_STYLE)) return;
   const extras = context as (HostInstallContext | HostUninstallContext) & Extras;
   const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion();
   if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
-  const decision = getCapabilityProvider(JX3).evaluateSupport({ host: "codex", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot });
+  const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({ host: "codex", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot });
   if (!decision.eligible) throw new InstallError(decision.code);
 }
 
@@ -230,7 +230,7 @@ function section(relativePath: string, id: string, value: unknown, fileExisted: 
 const NAV_RUNTIME = Object.freeze([
   ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"], ["dist/hooks/update-check.cjs", "update-check.cjs"], ["dist/hooks/update-notice.cjs", "update-notice.cjs"], ["dist/hooks/update-worker.cjs", "update-worker.cjs"], ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
   ["kcoderag-qa/hooks/run_marker.cmd", "run_marker.cmd"], ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
-  ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/jx3-style-nudge.cjs", "jx3-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
+  ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/code-style-nudge.cjs", "code-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
 const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-serialization-data.md", "lua-contracts.md", "change-hygiene-self-review.md"] as const);
 function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], projected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
@@ -248,13 +248,13 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
     ]) }));
   }
-  if (projected.includes(JX3)) {
-    result.push(Object.freeze({ capabilityId: JX3, files: Object.freeze([
+  if (projected.includes(CODE_STYLE)) {
+    result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
       projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
-      projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false),
-      ...REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)),
-      projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
-    ]), sections: Object.freeze([section(HOOKS_PATH, "jx3:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
+      projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false),
+      ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
+      projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
+    ]), sections: Object.freeze([section(HOOKS_PATH, "code-style:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
   }
   return Object.freeze(result);
 }

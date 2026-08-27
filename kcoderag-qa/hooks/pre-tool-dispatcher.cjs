@@ -8,7 +8,7 @@ exports.dispatchPayload = dispatchPayload;
 exports.dispatchRawInput = dispatchRawInput;
 exports.main = main;
 const fs = require("node:fs");
-const jx3_style_nudge_cjs_1 = require("./jx3-style-nudge.cjs");
+const code_style_nudge_cjs_1 = require("./code-style-nudge.cjs");
 exports.MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
 const navigation = (() => {
@@ -65,7 +65,7 @@ function createDefaultContributors(runtime = {}) {
         (payload) => {
             if (runtimeHost === undefined || managedRoot === undefined)
                 return undefined;
-            return (0, jx3_style_nudge_cjs_1.jx3StyleContribution)(payload, {
+            return (0, code_style_nudge_cjs_1.codeStyleContribution)(payload, {
                 host: runtimeHost,
                 managedRoot,
                 ...(statePath === undefined ? {} : { statePath }),

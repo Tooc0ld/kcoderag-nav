@@ -1,5 +1,5 @@
 ---
-name: jx3-code-style-correction
+name: code-style-correction
 description: Guide JX3 Sword3 C/C++ headers and Lua changes before writing, using project-native rules for result handling, ownership, lifecycle, protocol/version/serialization, Lua stack contracts, packet buffers, formatting, and file hygiene. Use whenever creating or modifying .c, .cc, .cpp, .cxx, .h, .hh, .hpp, .hxx, .inl, .ipp, or .lua code in a JX3 project; do not use for read-only analysis, pure rename/delete operations, or unrelated languages.
 ---
 

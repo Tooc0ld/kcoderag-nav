@@ -16,12 +16,12 @@ interface OnceMarkerModule {
   nudgeMarkerKey(payload: unknown, options: {
     readonly host: HostId;
     readonly managedRoot: string;
-    readonly capability: "jx3-style-nudge";
+    readonly capability: "code-style-nudge";
   }): string | undefined;
   claimNudgeOnce(payload: unknown, options: {
     readonly host: HostId;
     readonly managedRoot: string;
-    readonly capability: "jx3-style-nudge";
+    readonly capability: "code-style-nudge";
     readonly cacheRoot: string;
   }): { readonly claimed: boolean; readonly key?: string };
 }
@@ -44,7 +44,7 @@ function options(root: string, overrides: Partial<{ host: HostId; managedRoot: s
   return {
     host: overrides.host ?? "claude" as const,
     managedRoot: overrides.managedRoot ?? path.join(root, "managed project"),
-    capability: "jx3-style-nudge" as const,
+    capability: "code-style-nudge" as const,
     cacheRoot: root,
   };
 }
@@ -105,7 +105,7 @@ test("concurrent processes have exactly one exclusive-create winner", async () =
     const script = [
       "const marker = require(process.argv[1]);",
       "const result = marker.claimNudgeOnce({ session_id: 'shared' }, {",
-      "host: 'claude', managedRoot: process.argv[3], capability: 'jx3-style-nudge', cacheRoot: process.argv[2] });",
+      "host: 'claude', managedRoot: process.argv[3], capability: 'code-style-nudge', cacheRoot: process.argv[2] });",
       "process.stdout.write(result.claimed ? '1' : '0');",
     ].join(" ");
     const contenders = Array.from({ length: 24 }, () => new Promise<string>((resolve, reject) => {

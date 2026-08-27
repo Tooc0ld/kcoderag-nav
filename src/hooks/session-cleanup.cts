@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Receipt-gated exact-lane cleanup for JX3 once claims; unsupported events retain markers. */
+/** Receipt-gated exact-lane cleanup for code-style once claims; unsupported events retain markers. */
 
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");

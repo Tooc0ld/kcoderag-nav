@@ -14,7 +14,7 @@ import { parseJsoncObject, upsertJsonObjectProperty } from "../core/json-splice.
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { createStatusResult, parseInstallState } from "../core/state.cjs";
-import { evaluateJx3Integrity } from "../hooks/jx3-style-nudge.cjs";
+import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
   createSourceFinding,
@@ -34,14 +34,14 @@ interface Details { readonly stateBytes?: Buffer; readonly configPath?: ConfigPa
 const STATE_PATH = ".opencode/kcoderag-nav/install-state.json";
 const PLUGIN_PATH = ".opencode/plugins/kcoderag-nav.js";
 const NAV_SKILL_PATH = ".opencode/skills/kcoderag-nav/SKILL.md";
-const JX3_SKILL_ROOT = ".opencode/skills/jx3-code-style-correction";
+const CODE_STYLE_SKILL_ROOT = ".opencode/skills/code-style-correction";
 const HOOK_ROOT = ".opencode/kcoderag-nav/hooks";
 const CONFIG_CANDIDATES = Object.freeze(["opencode.json", "opencode.jsonc"] as const);
 type ConfigPath = (typeof CONFIG_CANDIDATES)[number];
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const MANAGED_ROOTS = Object.freeze([".opencode", ...CONFIG_CANDIDATES] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 
 function isRecord(value: unknown): value is JsonMap { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function sha256(value: Buffer | string): string { return crypto.createHash("sha256").update(value).digest("hex"); }
@@ -71,8 +71,8 @@ function selectConfig(target: ProjectTarget, state?: InstallState): ConfigPath {
 function verifyState(target: ProjectTarget, state: InstallState): void {
   if (state.host !== "opencode") throw new InstallError("invalid_state", STATE_PATH);
   selectConfig(target, state);
-  for (const record of state.files) { const bytes = readRegular(target, record.path); if (bytes === undefined || sha256(bytes) !== record.digest) throw new InstallError(record.contributors.includes(JX3) ? "capability_drift" : "managed_content_changed", record.path); }
-  if (state.capabilities.some((entry) => entry.id === JX3)) { const integrity = evaluateJx3Integrity({ host: "opencode", managedRoot: target.root }); if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? "."); }
+  for (const record of state.files) { const bytes = readRegular(target, record.path); if (bytes === undefined || sha256(bytes) !== record.digest) throw new InstallError(record.contributors.includes(CODE_STYLE) ? "capability_drift" : "managed_content_changed", record.path); }
+  if (state.capabilities.some((entry) => entry.id === CODE_STYLE)) { const integrity = evaluateCodeStyleIntegrity({ host: "opencode", managedRoot: target.root }); if (!integrity.ok) throw new InstallError("capability_drift", integrity.finding?.path ?? "."); }
 }
 function detectOpenCode(context: { readonly target: ProjectTarget }): HostObservation {
   let bytes: Buffer | undefined;
@@ -84,7 +84,7 @@ function selectedInstall(context: HostInstallContext): readonly CapabilityId[] {
 function preservedForUpdate(context: HostInstallContext, selected: readonly CapabilityId[]): readonly CapabilityId[] { if (context.command !== "update" || context.observation.currentState === undefined) return Object.freeze([]); const projected = new Set(context.selectedCapabilities ?? selected); return Object.freeze(selected.filter((id) => !projected.has(id))); }
 function selectedUninstall(context: HostUninstallContext): readonly CapabilityId[] { const state = context.observation.currentState; if (state === undefined) throw new InstallError("not_installed", STATE_PATH); const removals = (context as HostUninstallContext & Extras).selectedCapabilities; if (removals === undefined) return Object.freeze([]); const remove = new Set(resolveCapabilitySelection(removals).map((entry) => entry.id)); return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id))); }
 function defaultVersion(): string | undefined { try { const result = childProcess.spawnSync("opencode", ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 8_192, windowsHide: true }); if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined; return /^(\d+\.\d+\.\d+)\r?\n?$/u.exec(result.stdout)?.[1]; } catch { return undefined; } }
-function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: OpenCodeAdapterOptions): void { if (!selected.includes(JX3)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(JX3).evaluateSupport({ host: "opencode", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
+function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: OpenCodeAdapterOptions): void { if (!selected.includes(CODE_STYLE)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({ host: "opencode", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
 
 function mergeConfig(current: Buffer | undefined, configPath: ConfigPath, packageRoot: string, selected: readonly CapabilityId[], state: InstallState | undefined) {
   const original = current?.toString("utf8") ?? "{}\n";
@@ -114,8 +114,8 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
   if (projected.includes(NAVIGATION)) result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
     projectedFile(target, state, configPath, config.bytes, true, true), projectedFile(target, state, PLUGIN_PATH, sourceAsset(packageRoot, "kcoderag-qa/opencode/kcoderag-nav.js"), false), projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-worker.cjs`, sourceAsset(packageRoot, "dist/hooks/update-worker.cjs"), false),
   ]), sections: Object.freeze([section(configPath, "navigation:mcp", config.entry, currentConfig !== undefined), section(configPath, "navigation:post-tool", config.pluginId, currentConfig !== undefined), ...(config.schemaManaged ? [section(configPath, "navigation:schema", OPENCODE_SCHEMA_URL, currentConfig !== undefined)] : [])]) }));
-  if (projected.includes(JX3)) result.push(Object.freeze({ capabilityId: JX3, files: Object.freeze([
-    projectedFile(target, state, `${JX3_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${JX3_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/jx3-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
+  if (projected.includes(CODE_STYLE)) result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
+    projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
   ]), sections: Object.freeze([]) }));
   return Object.freeze(result);
 }

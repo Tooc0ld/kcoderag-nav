@@ -108,7 +108,7 @@ function normalizedManagedRoot(value) {
 }
 function validScope(options) {
     return HOSTS.has(options.host) &&
-        options.capability === "jx3-style-nudge" &&
+        options.capability === "code-style-nudge" &&
         normalizedManagedRoot(options.managedRoot) !== undefined;
 }
 function nudgeMarkerKey(payload, options) {

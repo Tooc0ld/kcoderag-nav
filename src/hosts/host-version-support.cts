@@ -1,4 +1,4 @@
-/** Runtime-self-contained JX3 support frozen from build-time verified PASS receipts. */
+/** Runtime-self-contained code-style support frozen from build-time verified PASS receipts. */
 
 import type { HostId } from "../core/contracts.cjs";
 
@@ -11,7 +11,7 @@ export interface HostVersionSupportRow {
 
 export interface HostVersionSupportResult {
   readonly navigation: true;
-  readonly jx3StyleNudge: boolean;
+  readonly codeStyleNudge: boolean;
   readonly code?: "host_version_unsupported";
   readonly receiptDigest?: string;
 }
@@ -38,13 +38,13 @@ export function evaluateHostVersionSupport(
   if (row !== undefined) {
     return Object.freeze({
       navigation: true as const,
-      jx3StyleNudge: true,
+      codeStyleNudge: true,
       receiptDigest: row.receiptDigest,
     });
   }
   return Object.freeze({
     navigation: true as const,
-    jx3StyleNudge: false,
+    codeStyleNudge: false,
     code: "host_version_unsupported" as const,
   });
 }

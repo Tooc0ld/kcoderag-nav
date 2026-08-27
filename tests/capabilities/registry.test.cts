@@ -4,7 +4,7 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 // Synthetic contract coverage only: this suite never invokes the public CLI or
 // treats package/generated host assets as proof of a real installation.
 
-type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 
 interface CapabilityContribution {
   readonly capabilityId: CapabilityId;
@@ -30,7 +30,7 @@ const registry = require("../../dist/capabilities/registry.cjs") as {
 test("synthetic contract: the closed registry resolves navigation without host or installed assets", () => {
   assert.deepEqual(
     registry.BUILT_IN_CAPABILITIES.map((provider) => provider.id),
-    ["kcoderag-navigation", "jx3-style-nudge"],
+    ["kcoderag-navigation", "code-style-nudge"],
   );
   assert.equal(Object.isFrozen(registry.BUILT_IN_CAPABILITIES), true);
   assert.equal(
@@ -39,14 +39,14 @@ test("synthetic contract: the closed registry resolves navigation without host o
   );
 
   const requested = [
-    "jx3-style-nudge",
+    "code-style-nudge",
     "kcoderag-navigation",
     "kcoderag-navigation",
   ];
   const selected = registry.resolveCapabilitySelection(requested);
   assert.deepEqual(
     selected.map((provider) => provider.id),
-    ["kcoderag-navigation", "jx3-style-nudge"],
+    ["kcoderag-navigation", "code-style-nudge"],
   );
   assert.equal(Object.isFrozen(selected), true);
   assert.notStrictEqual(selected[0], registry.getCapabilityProvider("kcoderag-navigation"));
@@ -54,7 +54,7 @@ test("synthetic contract: the closed registry resolves navigation without host o
   requested[0] = "unknown-after-resolution";
   assert.deepEqual(
     selected.map((provider) => provider.id),
-    ["kcoderag-navigation", "jx3-style-nudge"],
+    ["kcoderag-navigation", "code-style-nudge"],
   );
 
   const contributions = registry.resolveCapabilityContributions([

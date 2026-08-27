@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 "use strict";
-/** Bounded structured-write classifier for the nav-managed JX3 Skill reminder. */
+/** Bounded structured-write classifier for the nav-managed code-style Skill reminder. */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JX3_SOURCE_EXTENSIONS = exports.JX3_NUDGE = void 0;
-exports.evaluateJx3Integrity = evaluateJx3Integrity;
-exports.isJx3SourcePath = isJx3SourcePath;
+exports.CODE_STYLE_SOURCE_EXTENSIONS = exports.CODE_STYLE_NUDGE = void 0;
+exports.evaluateCodeStyleIntegrity = evaluateCodeStyleIntegrity;
+exports.isCodeStyleSourcePath = isCodeStyleSourcePath;
 exports.structuredMutationPaths = structuredMutationPaths;
-exports.jx3StyleContribution = jx3StyleContribution;
+exports.codeStyleContribution = codeStyleContribution;
 const once_marker_cjs_1 = require("./once-marker.cjs");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-exports.JX3_NUDGE = "JX3 source change: before writing, load and follow $jx3-code-style-correction and its compact checklist. " +
+exports.CODE_STYLE_NUDGE = "Code-style source change: before writing, load and follow $code-style-correction and its compact checklist. " +
     "Explicit user and project instructions take precedence. Before finishing, review only the regions changed in this task.";
-exports.JX3_SOURCE_EXTENSIONS = Object.freeze([
+exports.CODE_STYLE_SOURCE_EXTENSIONS = Object.freeze([
     ".c",
     ".cc",
     ".cpp",
@@ -27,7 +27,7 @@ exports.JX3_SOURCE_EXTENSIONS = Object.freeze([
     ".lua",
 ]);
 const STRUCTURED_WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
-const JX3_EXTENSION_SET = new Set(exports.JX3_SOURCE_EXTENSIONS);
+const CODE_STYLE_EXTENSION_SET = new Set(exports.CODE_STYLE_SOURCE_EXTENSIONS);
 const MAX_PATCH_CHARS = 131_072;
 const MAX_PATCH_LINES = 8_192;
 const MAX_PATCH_FILES = 64;
@@ -138,7 +138,7 @@ function unexpectedSkillPath(root, skillPath) {
         return skillPath;
     }
 }
-function evaluateJx3Integrity(options) {
+function evaluateCodeStyleIntegrity(options) {
     try {
         if (!path.isAbsolute(options.managedRoot))
             return drift();
@@ -171,16 +171,16 @@ function evaluateJx3Integrity(options) {
             return drift(expectedStateRelativePath);
         }
         const capabilities = state.capabilities.filter(isRecord);
-        const jx3Capabilities = capabilities.filter((capability) => capability.id === "jx3-style-nudge");
-        if (jx3Capabilities.length !== 1)
+        const codeStyleCapabilities = capabilities.filter((capability) => capability.id === "code-style-nudge");
+        if (codeStyleCapabilities.length !== 1)
             return drift(expectedStateRelativePath);
-        const capability = jx3Capabilities[0];
+        const capability = codeStyleCapabilities[0];
         if (capability === undefined || !Array.isArray(capability.files) || !capability.files.every(safeRelativePath)) {
             return drift(expectedStateRelativePath);
         }
         const capabilityPaths = capability.files;
         const skillPath = singlePathEnding(capabilityPaths, "/SKILL.md");
-        const handlerPath = singlePathEnding(capabilityPaths, "/jx3-style-nudge.cjs");
+        const handlerPath = singlePathEnding(capabilityPaths, "/code-style-nudge.cjs");
         const dispatcherPath = singlePathEnding(capabilityPaths, "/pre-tool-dispatcher.cjs");
         const referencePaths = REQUIRED_REFERENCE_NAMES.map((name) => singlePathEnding(capabilityPaths, `/references/${name}`));
         if (skillPath === undefined ||
@@ -201,7 +201,7 @@ function evaluateJx3Integrity(options) {
                 typeof record.digest !== "string" ||
                 !DIGEST_RE.test(record.digest) ||
                 !Array.isArray(record.contributors) ||
-                !record.contributors.includes("jx3-style-nudge")) {
+                !record.contributors.includes("code-style-nudge")) {
                 return drift(relativePath);
             }
             const filePath = containedRegularFile(root, relativePath);
@@ -233,7 +233,7 @@ function boundedTargetPath(value) {
     }
     return value;
 }
-function isJx3SourcePath(value) {
+function isCodeStyleSourcePath(value) {
     if (typeof value !== "string" || value.length === 0 || value.length > MAX_TARGET_PATH_CHARS) {
         return false;
     }
@@ -245,7 +245,7 @@ function isJx3SourcePath(value) {
     const dotIndex = finalSegment.lastIndexOf(".");
     if (dotIndex <= 0)
         return false;
-    return JX3_EXTENSION_SET.has(finalSegment.slice(dotIndex).toLowerCase());
+    return CODE_STYLE_EXTENSION_SET.has(finalSegment.slice(dotIndex).toLowerCase());
 }
 function parseHeaderPath(line, prefix) {
     if (!line.startsWith(prefix))
@@ -335,17 +335,17 @@ function structuredMutationPaths(payload) {
     }
     return Object.freeze([]);
 }
-function jx3StyleContribution(payload, options) {
-    if (options === undefined || !structuredMutationPaths(payload).some(isJx3SourcePath)) {
+function codeStyleContribution(payload, options) {
+    if (options === undefined || !structuredMutationPaths(payload).some(isCodeStyleSourcePath)) {
         return undefined;
     }
-    if (!evaluateJx3Integrity(options).ok)
+    if (!evaluateCodeStyleIntegrity(options).ok)
         return undefined;
     const claim = (0, once_marker_cjs_1.claimNudgeOnce)(payload, {
         host: options.host,
         managedRoot: options.managedRoot,
-        capability: "jx3-style-nudge",
+        capability: "code-style-nudge",
         ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
     });
-    return claim.claimed ? exports.JX3_NUDGE : undefined;
+    return claim.claimed ? exports.CODE_STYLE_NUDGE : undefined;
 }

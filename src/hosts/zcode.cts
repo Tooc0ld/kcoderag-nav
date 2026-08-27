@@ -75,7 +75,7 @@ const NAV_SKILL_PATH = ".zcode/skills/kcoderag-nav/SKILL.md";
 const HOOK_ROOT = ".zcode/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
-const JX3 = "jx3-style-nudge" as const;
+const CODE_STYLE = "code-style-nudge" as const;
 const PRE_TOOL_MATCHER = "^(Grep|Glob|Bash)$";
 const POST_TOOL_MATCHER = "^(mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$";
 const MANAGED_HOOK_ARGUMENT_PREFIX = "${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/";
@@ -244,11 +244,11 @@ function assertSupport(
   context: HostInstallContext | HostUninstallContext,
   options: ZCodeAdapterOptions,
 ): void {
-  if (!selected.includes(JX3)) return;
+  if (!selected.includes(CODE_STYLE)) return;
   const extras = context as (HostInstallContext | HostUninstallContext) & Extras;
   const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.();
   if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
-  const decision = getCapabilityProvider(JX3).evaluateSupport({
+  const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({
     host: "zcode",
     hostVersion,
     evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot,
@@ -418,7 +418,7 @@ function contributions(
         ),
         projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/grep-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/grep-nudge.cjs"), false),
-        projectedFile(target, state, `${HOOK_ROOT}/jx3-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/jx3-style-nudge.cjs"), false),
+        projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false),

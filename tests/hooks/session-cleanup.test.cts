@@ -12,7 +12,7 @@ interface OnceMarkerModule {
   claimNudgeOnce(payload: unknown, options: {
     readonly host: HostId;
     readonly managedRoot: string;
-    readonly capability: "jx3-style-nudge";
+    readonly capability: "code-style-nudge";
     readonly cacheRoot: string;
   }): { readonly claimed: boolean; readonly key?: string };
 }
@@ -22,7 +22,7 @@ interface SessionCleanupModule {
   cleanupSessionClaim(payload: unknown, options: {
     readonly host: HostId;
     readonly managedRoot: string;
-    readonly capability: "jx3-style-nudge";
+    readonly capability: "code-style-nudge";
     readonly cacheRoot: string;
     readonly receiptProvesSessionEnd?: (host: HostId, field: StableField) => boolean;
   }): boolean;
@@ -38,7 +38,7 @@ function fixture(): string {
 }
 
 function options(root: string, host: HostId, managedRoot: string) {
-  return { host, managedRoot, capability: "jx3-style-nudge" as const, cacheRoot: root };
+  return { host, managedRoot, capability: "code-style-nudge" as const, cacheRoot: root };
 }
 
 test("checked-in delivery receipts do not infer unproved SessionEnd cleanup", () => {

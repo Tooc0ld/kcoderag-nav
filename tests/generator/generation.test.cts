@@ -8,7 +8,7 @@ const path = require("node:path") as typeof import("node:path");
 
 type Product = "qa" | "cursor";
 type ProductSelection = Product | "all";
-type CapabilityId = "kcoderag-navigation" | "jx3-style-nudge";
+type CapabilityId = "kcoderag-navigation" | "code-style-nudge";
 type AssetGroup =
   | "runtime-cjs"
   | "runtime-launcher"
@@ -61,8 +61,8 @@ const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
     "runtime-cjs": [
+      "hooks/code-style-nudge.cjs",
       "hooks/grep-nudge.cjs",
-      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
@@ -74,8 +74,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
+      "hooks/code-style-nudge.cjs",
       "hooks/grep-nudge.cjs",
-      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
@@ -89,8 +89,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/update-worker.cjs",
     ],
     runtime: [
+      "hooks/code-style-nudge.cjs",
       "hooks/grep-nudge.cjs",
-      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
@@ -116,21 +116,21 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "metadata-guidance": [
       "agents/kcode-explorer.md",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
     metadata: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".codex.mcp.json", ".mcp.json"],
     guidance: [
       "agents/kcode-explorer.md",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
     docs: ["README.md"],
     version: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"],
@@ -141,9 +141,9 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       ".mcp.json",
       "README.md",
       "agents/kcode-explorer.md",
+      "hooks/code-style-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
-      "hooks/jx3-style-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
@@ -157,11 +157,11 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
   },
   cursor: {
@@ -175,21 +175,21 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "metadata-guidance": [
       "rules/kcoderag-navigation.mdc",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
     metadata: [".cursor-plugin/plugin.json", "mcp.json"],
     guidance: [
       "rules/kcoderag-navigation.mdc",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
     docs: ["README.md"],
     version: [".cursor-plugin/plugin.json"],
@@ -199,11 +199,11 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "mcp.json",
       "rules/kcoderag-navigation.mdc",
       "skills/code-lookup-discipline/SKILL.md",
-      "skills/jx3-code-style-correction/SKILL.md",
-      "skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/jx3-code-style-correction/references/lua-contracts.md",
-      "skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "skills/code-style-correction/SKILL.md",
+      "skills/code-style-correction/references/change-hygiene-self-review.md",
+      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "skills/code-style-correction/references/lua-contracts.md",
+      "skills/code-style-correction/references/protocol-serialization-data.md",
     ],
   },
 };
@@ -284,7 +284,7 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/hooks/run_marker.sh", "#!/bin/sh\r\nnode mcp-call-marker.cjs claude\r\n");
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
   write(sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs", "module.exports={name:'dispatcher'};\n");
-  write(sourceRoot, "dist/hooks/jx3-style-nudge.cjs", "module.exports={name:'jx3'};\n");
+  write(sourceRoot, "dist/hooks/code-style-nudge.cjs", "module.exports={name:'style'};\n");
   write(sourceRoot, "dist/hooks/once-marker.cjs", "module.exports={name:'once'};\n");
   write(sourceRoot, "dist/hooks/session-cleanup.cjs", "module.exports={name:'cleanup'};\n");
   write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
@@ -309,7 +309,7 @@ function createFixture(): Fixture {
   );
   write(sourceRoot, "plugin-src/cursor/README.md.tmpl", "# Cursor {{plugin_version}}\r\n");
   write(sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc", "alwaysApply: true\r\n");
-  write(sourceRoot, "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md", "# Canonical JX3 Skill\n");
+  write(sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md", "# Canonical code style Skill\n");
   for (const reference of [
     "cpp-lifetime-control-flow.md",
     "protocol-serialization-data.md",
@@ -318,7 +318,7 @@ function createFixture(): Fixture {
   ]) {
     write(
       sourceRoot,
-      `plugin-src/capabilities/jx3-style-nudge/skill/references/${reference}`,
+      `plugin-src/capabilities/code-style-nudge/skill/references/${reference}`,
       `# ${reference}\n`,
     );
   }
@@ -362,50 +362,50 @@ test("renders isolated capability projections from explicit canonical groups", (
   try {
     assert.deepEqual(Object.keys(generator.CAPABILITY_PROJECTION_PATHS), [
       "kcoderag-navigation",
-      "jx3-style-nudge",
+      "code-style-nudge",
     ]);
     assert.deepEqual(
-      Object.keys(generator.CAPABILITY_PROJECTION_PATHS["jx3-style-nudge"].qa),
+      Object.keys(generator.CAPABILITY_PROJECTION_PATHS["code-style-nudge"].qa),
       ["runtime", "registration", "metadata", "guidance", "docs", "all"],
     );
 
     const qa = generator.generatePackage({
       package: "qa",
       group: "all",
-      capabilities: ["jx3-style-nudge"],
+      capabilities: ["code-style-nudge"],
       sourceRoot: fixture.sourceRoot,
       outputRoot: fixture.outputRoot,
     });
-    assert.deepEqual(qa.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(qa.capabilities, ["code-style-nudge"]);
     assert.deepEqual(qa.writtenPaths, [
+      "kcoderag-qa/hooks/code-style-nudge.cjs",
       "kcoderag-qa/hooks/hooks.json",
-      "kcoderag-qa/hooks/jx3-style-nudge.cjs",
       "kcoderag-qa/hooks/once-marker.cjs",
       "kcoderag-qa/hooks/pre-tool-dispatcher.cjs",
       "kcoderag-qa/hooks/run_hook.cmd",
       "kcoderag-qa/hooks/run_hook.sh",
       "kcoderag-qa/hooks/session-cleanup.cjs",
-      "kcoderag-qa/skills/jx3-code-style-correction/SKILL.md",
-      "kcoderag-qa/skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "kcoderag-qa/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "kcoderag-qa/skills/jx3-code-style-correction/references/lua-contracts.md",
-      "kcoderag-qa/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "kcoderag-qa/skills/code-style-correction/SKILL.md",
+      "kcoderag-qa/skills/code-style-correction/references/change-hygiene-self-review.md",
+      "kcoderag-qa/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "kcoderag-qa/skills/code-style-correction/references/lua-contracts.md",
+      "kcoderag-qa/skills/code-style-correction/references/protocol-serialization-data.md",
     ]);
 
     const cursor = generator.generatePackage({
       package: "cursor",
       group: "guidance",
-      capabilities: ["jx3-style-nudge"],
+      capabilities: ["code-style-nudge"],
       sourceRoot: fixture.sourceRoot,
       outputRoot: fixture.outputRoot,
     });
-    assert.deepEqual(cursor.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(cursor.capabilities, ["code-style-nudge"]);
     assert.deepEqual(cursor.writtenPaths, [
-      "kcoderag-cursor/skills/jx3-code-style-correction/SKILL.md",
-      "kcoderag-cursor/skills/jx3-code-style-correction/references/change-hygiene-self-review.md",
-      "kcoderag-cursor/skills/jx3-code-style-correction/references/cpp-lifetime-control-flow.md",
-      "kcoderag-cursor/skills/jx3-code-style-correction/references/lua-contracts.md",
-      "kcoderag-cursor/skills/jx3-code-style-correction/references/protocol-serialization-data.md",
+      "kcoderag-cursor/skills/code-style-correction/SKILL.md",
+      "kcoderag-cursor/skills/code-style-correction/references/change-hygiene-self-review.md",
+      "kcoderag-cursor/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
+      "kcoderag-cursor/skills/code-style-correction/references/lua-contracts.md",
+      "kcoderag-cursor/skills/code-style-correction/references/protocol-serialization-data.md",
     ]);
 
     const canonicalSkillFiles = [
@@ -418,8 +418,8 @@ test("renders isolated capability projections from explicit canonical groups", (
     for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
       for (const relativePath of canonicalSkillFiles) {
         assert.equal(
-          fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "jx3-code-style-correction", ...relativePath.split("/"))).equals(
-            fs.readFileSync(path.join(fixture.sourceRoot, "plugin-src", "capabilities", "jx3-style-nudge", "skill", ...relativePath.split("/"))),
+          fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "code-style-correction", ...relativePath.split("/"))).equals(
+            fs.readFileSync(path.join(fixture.sourceRoot, "plugin-src", "capabilities", "code-style-nudge", "skill", ...relativePath.split("/"))),
           ),
           true,
           `${product}:${relativePath}`,
@@ -432,7 +432,7 @@ test("renders isolated capability projections from explicit canonical groups", (
       () => generator.generatePackage({
         package: "cursor",
         group: "runtime",
-        capabilities: ["jx3-style-nudge"],
+        capabilities: ["code-style-nudge"],
         sourceRoot: fixture.sourceRoot,
         outputRoot: fixture.outputRoot,
       }),
@@ -759,12 +759,12 @@ test("CLI canonicalizes repeatable capability selection", () => {
     const selected = runGeneratorCli(fixture, [
       "--package", "qa",
       "--group", "guidance",
-      "--capability", "jx3-style-nudge",
-      "--capability", "jx3-style-nudge",
+      "--capability", "code-style-nudge",
+      "--capability", "code-style-nudge",
     ]);
     assert.equal(selected.status, 0, selected.stderr);
     const result = JSON.parse(selected.stdout) as GenerationResult;
-    assert.deepEqual(result.capabilities, ["jx3-style-nudge"]);
+    assert.deepEqual(result.capabilities, ["code-style-nudge"]);
     assert.equal(result.writtenPaths.length, 5);
   } finally {
     cleanup(fixture);
