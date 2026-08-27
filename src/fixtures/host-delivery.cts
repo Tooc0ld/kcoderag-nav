@@ -135,6 +135,7 @@ const HOST_STATE_PATHS: Readonly<Record<HostId, string>> = Object.freeze({
   codex: ".codex/kcoderag-nav/install-state.json",
   cursor: ".cursor/kcoderag-nav/install-state.json",
   opencode: ".opencode/kcoderag-nav/install-state.json",
+  zcode: ".zcode/kcoderag-nav/install-state.json",
 });
 
 const PROBE_SOURCE = String.raw`"use strict";

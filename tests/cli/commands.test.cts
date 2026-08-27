@@ -6,7 +6,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 function digest(bytes: Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -465,7 +465,7 @@ test("interactive selection uses the fixed host list, cwd/target confirmation, a
     );
 
     assert.equal(exitCode, 2);
-    assert.deepEqual(hostLists, [["codex", "claude", "cursor", "opencode"]]);
+    assert.deepEqual(hostLists, [["codex", "claude", "cursor", "opencode", "zcode"]]);
     assert.equal(confirmations[0]?.target, fs.realpathSync(explicit));
     assert.equal("environment" in (confirmations[0] ?? {}), false);
     assert.deepEqual(calls, []);

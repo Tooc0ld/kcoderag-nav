@@ -138,7 +138,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isHost(value: unknown): value is HostId {
-  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode";
+  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode" ||
+    value === "zcode";
 }
 
 function validateOriginal(value: unknown): value is OriginalRecord {

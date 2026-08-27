@@ -69,7 +69,7 @@ jobs:
         run: npm run docs:check
       - name: Audit retired authority directly
         run: npm run audit:retirement
-      - name: Run required four-host contract smoke
+      - name: Run required five-host contract smoke
         run: npm run smoke:required
       - name: Audit real npm tarball
         run: npm run pack:audit
@@ -110,7 +110,7 @@ jobs:
         run: npm run docs:check
       - name: Audit retired authority directly
         run: npm run audit:retirement
-      - name: Run required four-host contract smoke
+      - name: Run required five-host contract smoke
         run: npm run smoke:required
       - name: Audit real npm tarball
         run: npm run pack:audit

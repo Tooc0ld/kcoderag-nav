@@ -42,6 +42,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "dist/hosts/claude.cjs",
   "dist/hosts/cursor.cjs",
   "dist/hosts/opencode.cjs",
+  "dist/hosts/zcode.cjs",
   "dist/hosts/user-sources.cjs",
   "kcoderag-qa/.codex.mcp.json",
   "kcoderag-qa/.mcp.json",

@@ -212,7 +212,12 @@ export function inspectNativeJsonSource(
       for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
         const normalized = key.toLowerCase();
         if (MCP_CONTAINER_KEYS.has(normalized) && typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
-          rawMcp ||= Object.keys(entry as Record<string, unknown>).some(isRegistrationIdentity);
+          const mcpContainer = entry as Record<string, unknown>;
+          rawMcp ||= Object.keys(mcpContainer).some(isRegistrationIdentity);
+          const nestedServers = normalized === "mcp" ? mcpContainer.servers : undefined;
+          if (typeof nestedServers === "object" && nestedServers !== null && !Array.isArray(nestedServers)) {
+            rawMcp ||= Object.keys(nestedServers as Record<string, unknown>).some(isRegistrationIdentity);
+          }
         }
         if (HOOK_CONTAINER_KEYS.has(normalized)) {
           manualHook ||= containsHookIdentity(entry, { count: 0 });

@@ -243,6 +243,9 @@ function defaultHostGlobalRoots(host: HostId, homeDirectory: string): readonly s
   if (host === "opencode") {
     return Object.freeze([path.join(homeDirectory, ".config", "opencode")]);
   }
+  if (host === "zcode") {
+    return Object.freeze([path.join(homeDirectory, ".zcode")]);
+  }
   const roots = [path.join(homeDirectory, ".cursor")];
   if (process.platform === "win32") {
     roots.push(

@@ -30,7 +30,7 @@ function markerFiles(root: string): string[] {
   return fs.existsSync(directory) ? fs.readdirSync(directory).sort() : [];
 }
 
-test("records only successful KCodeRag calls for all four host payload shapes", () => {
+test("records only successful KCodeRag calls for all four hook-capable host payload shapes", () => {
   const root = fixture();
   try {
     const cases: readonly [HostId, Record<string, unknown>][] = [

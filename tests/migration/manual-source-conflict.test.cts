@@ -12,8 +12,9 @@ const codex = require("../../dist/hosts/codex.cjs") as Record<string, any>;
 const claude = require("../../dist/hosts/claude.cjs") as Record<string, any>;
 const cursor = require("../../dist/hosts/cursor.cjs") as Record<string, any>;
 const opencode = require("../../dist/hosts/opencode.cjs") as Record<string, any>;
+const zcode = require("../../dist/hosts/zcode.cjs") as Record<string, any>;
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 const NAVIGATION = "kcoderag-navigation";
 const SECRET_CANARIES = Object.freeze([
@@ -27,6 +28,7 @@ const CONFLICTS = Object.freeze([
   { host: "claude" as const, code: "active_plugin_source", sourceType: "active_plugin", safePath: ".claude/plugins/kcoderag-nav" },
   { host: "cursor" as const, code: "manual_rule_source", sourceType: "manual_rule", safePath: ".cursor/rules/kcoderag.mdc" },
   { host: "opencode" as const, code: "manual_hook_source", sourceType: "manual_hook", safePath: ".config/opencode/hooks/kcoderag.js" },
+  { host: "zcode" as const, code: "raw_mcp_source", sourceType: "raw_mcp", safePath: ".zcode/cli/config.json" },
   { host: "claude" as const, code: "ambiguous_source", sourceType: "ambiguous", safePath: ".claude/kcoderag-nav-state" },
 ] as const);
 
@@ -174,6 +176,17 @@ const NATIVE_SOURCE_CASES = Object.freeze([
     },
   },
   {
+    name: "ZCode user-level raw MCP registration",
+    host: "zcode" as const,
+    expectedPath: ".zcode/cli/config.json",
+    expectedFinding: "raw_mcp_source",
+    arrange(home: string) {
+      writeNativeSource(home, ".zcode/cli/config.json", JSON.stringify({
+        mcp: { servers: { "kcoderag-qa": { type: "http", url: SECRET_CANARIES[0] } } },
+      }));
+    },
+  },
+  {
     name: "bounded oversized Codex hook configuration",
     host: "codex" as const,
     expectedPath: ".codex/hooks.json",
@@ -188,7 +201,8 @@ function nativeAdapter(host: HostId, homeDirectory: string): Record<string, unkn
   if (host === "codex") return codex.createCodexAdapter({ homeDirectory });
   if (host === "claude") return claude.createClaudeAdapter({ homeDirectory });
   if (host === "cursor") return cursor.createCursorAdapter({ homeDirectory });
-  return opencode.createOpenCodeAdapter({ homeDirectory });
+  if (host === "opencode") return opencode.createOpenCodeAdapter({ homeDirectory });
+  return zcode.createZCodeAdapter({ homeDirectory });
 }
 
 test("filesystem-backed adapters structurally gate bounded native sources for every mutation", async () => {

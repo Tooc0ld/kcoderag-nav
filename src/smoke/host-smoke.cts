@@ -1,4 +1,4 @@
-/** Honest three-state, four-host smoke runner with package acquisition and loopback receipts. */
+/** Honest three-state host smoke runner with package acquisition and loopback receipts. */
 
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -42,7 +42,7 @@ export interface SmokeEvidence {
 }
 
 export interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp" | "skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -187,7 +187,7 @@ interface PackageCliOptions {
   readonly all?: boolean;
 }
 
-const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode"] as const);
+const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
 const JX3 = "jx3-style-nudge" as const;
 const RECEIPT_HOST_VERSIONS: Readonly<Record<HostId, string>> = Object.freeze({
@@ -195,6 +195,8 @@ const RECEIPT_HOST_VERSIONS: Readonly<Record<HostId, string>> = Object.freeze({
   claude: "2.1.241",
   cursor: "3.17.8",
   opencode: "1.18.23",
+  // Synthetic contract identifier only; real ZCode version evidence is deferred.
+  zcode: "0.0.0",
 });
 export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "packageAcquired",
@@ -325,6 +327,7 @@ const exactVersions = Object.freeze({
   claude: "2.1.241 (Claude Code)\\n",
   cursor: "3.17.8\\n",
   opencode: "1.18.23\\n",
+  zcode: "0.0.0\\n",
 });
 childProcess.spawnSync = function(executable, args) {
   const argv = Array.isArray(args) ? [...args] : [];
@@ -969,6 +972,19 @@ function readConnection(host: HostId, projectRoot: string): McpConnection | unde
         ? { serverName: expectedServerName(host), url: entry.url }
         : undefined;
     }
+    if (host === "zcode") {
+      const document: unknown = JSON.parse(fs.readFileSync(
+        path.join(projectRoot, ".zcode", "config.json"),
+        "utf8",
+      ));
+      if (!isRecord(document) || !isRecord(document.mcp) || !isRecord(document.mcp.servers)) {
+        return undefined;
+      }
+      const entry = document.mcp.servers[expectedServerName(host)];
+      return isRecord(entry) && typeof entry.url === "string"
+        ? { serverName: expectedServerName(host), url: entry.url }
+        : undefined;
+    }
     const relativePath = host === "claude" ? ".mcp.json" : ".cursor/mcp.json";
     const document: unknown = JSON.parse(fs.readFileSync(path.join(projectRoot, ...relativePath.split("/")), "utf8"));
     if (!isRecord(document) || !isRecord(document.mcpServers)) return undefined;
@@ -1117,6 +1133,27 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       return undefined;
     }
   }
+  if (host === "zcode") {
+    try {
+      const configBytes = fs.readFileSync(path.join(projectRoot, ".zcode", "config.json"));
+      const skillBytes = fs.readFileSync(path.join(
+        projectRoot, ".zcode", "skills", "kcoderag-nav", "SKILL.md",
+      ));
+      const document: unknown = JSON.parse(configBytes.toString("utf8"));
+      const valid = isRecord(document) && isRecord(document.mcp) && isRecord(document.mcp.servers) &&
+        isRecord(document.mcp.servers["kcoderag-qa"]) &&
+        skillBytes.includes(Buffer.from("KCodeRag", "utf8"));
+      return Object.freeze({
+        kind: "skill_mcp" as const,
+        root: valid,
+        deep: valid,
+        sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
+        fingerprint: sha256Parts([configBytes, skillBytes]),
+      });
+    } catch {
+      return undefined;
+    }
+  }
   const command = readRegisteredHookCommand(host, projectRoot);
   if (command === undefined) return undefined;
   try {
@@ -1200,7 +1237,9 @@ function statePath(host: HostId, projectRoot: string): string {
       ? ".claude"
       : host === "opencode"
         ? ".opencode"
-        : ".codex";
+        : host === "zcode"
+          ? ".zcode"
+          : ".codex";
   return path.join(projectRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 
@@ -1257,7 +1296,9 @@ function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): stri
       ? ".claude/plugins/kcoderag-nav"
       : host === "opencode"
         ? ".config/opencode/plugins/kcoderag-nav.js"
-        : ".cursor/plugins/local/kcoderag-nav";
+        : host === "zcode"
+          ? ".zcode/skills/kcoderag-nav/SKILL.md"
+          : ".cursor/plugins/local/kcoderag-nav";
   const conflictPath = path.join(hostHome, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
   fs.writeFileSync(conflictPath, "", "utf8");
@@ -1284,7 +1325,8 @@ function jx3SkillPath(host: HostId): string {
   if (host === "codex") return ".agents/skills/jx3-code-style-correction/SKILL.md";
   if (host === "claude") return ".claude/skills/jx3-code-style-correction/SKILL.md";
   if (host === "cursor") return ".cursor/skills/jx3-code-style-correction/SKILL.md";
-  return ".opencode/skills/jx3-code-style-correction/SKILL.md";
+  if (host === "opencode") return ".opencode/skills/jx3-code-style-correction/SKILL.md";
+  return ".zcode/skills/jx3-code-style-correction/SKILL.md";
 }
 
 function isCliError(result: PackageCliResult, code: string): boolean {
@@ -1815,7 +1857,7 @@ async function runOptionalHost(
   provenance: PackageProvenance,
   runNpm: NpmRunner,
 ): Promise<HostSmokeResult> {
-  if (host === "cursor") {
+  if (host === "cursor" || host === "zcode") {
     return evaluateHostEvidence({
       host,
       mode: "optional-live",

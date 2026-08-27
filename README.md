@@ -1,13 +1,14 @@
 # KCodeRag Nav
 
-KCodeRag Nav 是面向 Codex、Claude Code、Cursor 与 OpenCode 的项目级 capability 安装平台。
+KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项目级 capability 安装平台。
 公共 npm CLI `kcoderag-nav` 把已编译 CJS、Skill、QA MCP 配置和宿主原生资产写入一个明确的
 目标项目。用户只需要 Node.js 22 或更高版本；不需要 Python、Git checkout 或运行时 TypeScript
 编译，也不通过 marketplace 安装。
 
 当前包只提供两个内置 capability：
 
-- `kcoderag-navigation`：四宿主可用的 QA 图优先导航、MCP 配置、成功调用 marker 与离线更新提示。
+- `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置；具备原生项目事件的四个宿主
+  额外提供成功调用 marker 与离线更新提示。
 - `jx3-style-nudge`：C/C++/Lua 结构化写入前的短提示与 `$jx3-code-style-correction` Skill。
 
 QA 是唯一公开 MCP 环境；capability 不是环境选择。旧 QA/Dev 状态、Python 安装、手工 MCP/Hook、
@@ -35,16 +36,18 @@ npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
   --capability jx3-style-nudge --yes
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --yes
 ```
 
 目标默认为当前目录；`--target PATH` 指向另一个精确项目。CLI 不向上推断 Git/SVN 根，也不要求
 专用 marker。文件系统根、用户主目录和宿主用户级 config/plugin/cache 根会被拒绝。一次命令
-只管理一个宿主，因此同一项目的四个宿主可以拥有彼此独立的 capability 集合。
+只管理一个宿主，因此同一项目的五个宿主可以拥有彼此独立的 capability 集合。
 
 ## 当前宿主支持
 
-支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
-或 after-event 推断。
+JX3 支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
+或 after-event 推断。ZCode navigation 当前由项目级 adapter contract 与 synthetic lifecycle smoke
+覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 06。
 
 | 宿主与冻结版本 | `kcoderag-navigation` | `jx3-style-nudge` | JX3 结论 |
 | --- | --- | --- | --- |
@@ -52,6 +55,7 @@ npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation
 | Claude Code `2.1.241` | 支持 | 支持 | exact `PASS`，native model-visible pre-write |
 | Cursor `3.17.8` | 支持 | 不支持 | exact `UNSUPPORTED`；Rule/Skill/after-event 不冒充 pre-write |
 | OpenCode `1.18.23` | 支持 | 不支持 | exact `UNSUPPORTED`；toast/after-event 不冒充 pre-write |
+| ZCode（真机版本待验收） | 支持 | 不支持 | 无 JX3 PASS receipt；选择后返回 `host_version_unsupported` |
 
 未列出的版本也不自动继承 JX3 支持。unsupported host 选择 JX3 时，在 desired-state render 和
 transaction 之前稳定零写拒绝；已经安装的 navigation 保持健康、可用。
@@ -108,14 +112,19 @@ JX3 提示还有完整 D-15 运行时门禁：最近状态必须是 current sche
 | Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | navigation 与 receipt-supported JX3 共用 native `PreToolUse` dispatcher |
 | Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | always-on navigation Rule/Skill/MCP；不声明等价 `PreToolUse` |
 | OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；JX3 unsupported |
+| ZCode | `.zcode/config.json`、`.zcode/skills/` | project MCP + Skill；当前项目级 Hook 会被宿主忽略，因此无自动提示、成功 marker 或 JX3 pre-write |
 
 Codex/Claude launcher 从宿主会话 cwd 向上选择最近的对应受管状态。损坏或不兼容的最近状态是
 静默 fail-open 边界，不穿透到外层项目。状态和 launcher 使用项目相对路径；完整项目 move、rename、
 复制或换盘后仍指向同一内部资产。CLI 自身的 cwd/`--target` 始终是精确目标，不执行这项向上查找。
 
-四宿主使用各自原生成功后事件写入 secret-free、有界、fail-open 的 KCodeRag 调用 marker：
+Codex、Claude Code、Cursor 与 OpenCode 使用各自原生成功后事件写入 secret-free、有界、fail-open
+的 KCodeRag 调用 marker：
 Codex/Claude Code 为 `PostToolUse`，Cursor 为 `afterMCPExecution`，OpenCode 为
-`tool.execute.after`。marker 不保存 MCP 参数、结果、URL、Header 或 Bearer。
+`tool.execute.after`。marker 不保存 MCP 参数、结果、URL、Header 或 Bearer。ZCode 当前不会执行
+项目级 Hook，所以 adapter 不安装 Hook、marker 或自动更新运行时；该限制与 ZCode 官方
+[MCP](https://zcode.z.ai/cn/docs/mcp-services)、[Skill](https://zcode.z.ai/en/docs/skill) 和
+[Hook](https://zcode.z.ai/en/docs/hooks) 合同一致。
 
 ## JX3 一次性提示与人工复位（D-19）
 
@@ -137,10 +146,11 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 
 ## 更新提示、证据与维护者门禁
 
-四宿主共享一个离线前台更新检查器：前台只读有界 cache，过期时分离启动 npm Registry worker，
+Codex、Claude Code、Cursor 与 OpenCode 共享一个离线前台更新检查器：前台只读有界 cache，过期时分离启动 npm Registry worker，
 不等待网络、不自动更新。Codex/Claude 将已知提示加入首次符合条件的上下文；Cursor 返回
 `additional_context`；OpenCode 显示 warning toast。所有异常 fail-open，提示只建议运行所选宿主的
-`npx kcoderag-nav@latest update --host codex|claude|cursor|opencode`。
+显式更新命令，例如 `npx kcoderag-nav@latest update --host codex`。ZCode 没有项目 Hook，因此不会自动检查或提示；
+需要用户显式运行 `npx kcoderag-nav@latest update --host zcode`。
 
 Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
 保留与 JX3 零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP

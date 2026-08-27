@@ -1,7 +1,7 @@
 {
   "name": "kcoderag-nav",
   "version": "0.2.2",
-  "description": "Project-scoped KCodeRag navigation integration for Codex, Claude Code, Cursor, and OpenCode",
+  "description": "Project-scoped KCodeRag navigation integration for Codex, Claude Code, Cursor, OpenCode, and ZCode",
   "type": "commonjs",
   "bin": {
     "kcoderag-nav": "dist/bin/kcoderag-nav.cjs"
@@ -38,6 +38,7 @@
     "dist/hosts/host-version-support.cjs",
     "dist/hosts/index.cjs",
     "dist/hosts/opencode.cjs",
+    "dist/hosts/zcode.cjs",
     "dist/hosts/user-sources.cjs",
     "dist/maintainer/cache-cleanup.cjs",
     "dist/maintainer/dependency-audit.cjs",
@@ -91,6 +92,7 @@
     "test:host:claude": "node --test dist-tests/hosts/claude.test.cjs",
     "test:host:cursor": "node --test dist-tests/hosts/cursor.test.cjs",
     "test:host:opencode": "node --test dist-tests/hosts/opencode.test.cjs",
+    "test:host:zcode": "node --test dist-tests/hosts/zcode.test.cjs",
     "test:cross-host": "node --test dist-tests/hosts/cross-host.test.cjs",
     "test:capabilities": "node --test dist-tests/capabilities/*.test.cjs",
     "test:capability-hooks": "node --test dist-tests/hooks/pre-tool-dispatcher.test.cjs dist-tests/hooks/jx3-style-nudge.test.cjs dist-tests/hooks/once-marker.test.cjs dist-tests/hooks/session-cleanup.test.cjs",

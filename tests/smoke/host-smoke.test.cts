@@ -6,7 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 type SmokeMode = "required-contract" | "optional-live";
 type SmokeStatus = "PASS" | "FAIL" | "NOT_RUN";
 
@@ -33,7 +33,7 @@ interface SmokeEvidence {
 }
 
 interface NavigationContract {
-  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp";
+  readonly kind: "pretooluse_hook" | "rule_skill_mcp" | "plugin_skill_mcp" | "skill_mcp";
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
@@ -441,7 +441,7 @@ test("package acquisition failure occurs before any host project is created", as
         mode: "required-contract",
         packageSpec: "kcoderag-nav@0.0.0",
         temporaryRoot: root,
-        hosts: ["codex", "claude", "cursor", "opencode"],
+        hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
       },
       {
         acquirePackage: async () => {
@@ -577,7 +577,7 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           packageSpec: requestedPackageSpec,
           ...(selector === "latest" ? { expectedVersion: fixture.version } : {}),
           temporaryRoot: root,
-          hosts: ["codex", "claude", "cursor", "opencode"],
+          hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
         },
         {
           runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {
@@ -646,6 +646,8 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
             ? "rule_skill_mcp"
             : host.host === "opencode"
               ? "plugin_skill_mcp"
+              : host.host === "zcode"
+                ? "skill_mcp"
               : "pretooluse_hook",
         );
         assert.equal(host.navigationContract?.root, true);
@@ -681,7 +683,13 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           assert.deepEqual(host.capabilityLifecycle, {
             schemaVersion: 1,
             branch: "unsupported",
-            hostVersion: host.host === "codex" ? "0.146.1" : host.host === "cursor" ? "3.17.8" : "1.18.23",
+            hostVersion: host.host === "codex"
+              ? "0.146.1"
+              : host.host === "cursor"
+                ? "3.17.8"
+                : host.host === "opencode"
+                  ? "1.18.23"
+                  : "0.0.0",
             navigationInstalled: true,
             refusalCode: "host_version_unsupported",
             zeroWrite: true,
@@ -818,7 +826,7 @@ test("every host fails when a per-command content-addressed tarball is replaced 
         packageSpec: `kcoderag-nav@${fixture.version}`,
         expectedVersion: fixture.version,
         temporaryRoot: root,
-        hosts: ["codex", "claude", "cursor", "opencode"],
+        hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
       },
       {
         runNpm: publicRegistryRunner(fixture.tarball, fixture.version, (args) => {

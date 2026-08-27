@@ -62,7 +62,7 @@ function decodeRecord(bytes: Buffer): LockRecord | undefined {
     if (
       typeof value !== "object" || value === null ||
       (value as Partial<LockRecord>).schemaVersion !== LOCK_SCHEMA_VERSION ||
-      !["codex", "claude", "cursor", "opencode"].includes(String((value as Partial<LockRecord>).host)) ||
+      !["codex", "claude", "cursor", "opencode", "zcode"].includes(String((value as Partial<LockRecord>).host)) ||
       !/^[0-9a-f]{64}$/u.test(String((value as Partial<LockRecord>).targetHash)) ||
       !Number.isSafeInteger((value as Partial<LockRecord>).pid) ||
       Number((value as Partial<LockRecord>).pid) <= 0 ||

@@ -5,12 +5,13 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
-type HostId = "codex" | "claude" | "cursor" | "opencode";
+type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 const registry = require("../../dist/hosts/index.cjs") as Record<string, any>;
 const codex = require("../../dist/hosts/codex.cjs") as Record<string, any>;
 const claude = require("../../dist/hosts/claude.cjs") as Record<string, any>;
 const cursor = require("../../dist/hosts/cursor.cjs") as Record<string, any>;
 const opencode = require("../../dist/hosts/opencode.cjs") as Record<string, any>;
+const zcode = require("../../dist/hosts/zcode.cjs") as Record<string, any>;
 const targets = require("../../dist/core/project-target.cjs") as Record<string, any>;
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const PACKAGE_ROOT = path.resolve(".");
@@ -38,7 +39,8 @@ function snapshot(root: string, host: HostId): readonly string[] {
   if (host === "codex") return digestTree(root, [".codex", ".agents"]);
   if (host === "claude") return digestTree(root, [".claude", ".mcp.json"]);
   if (host === "cursor") return digestTree(root, [".cursor"]);
-  return digestTree(root, [".opencode", "opencode.json", "opencode.jsonc"]);
+  if (host === "opencode") return digestTree(root, [".opencode", "opencode.json", "opencode.jsonc"]);
+  return digestTree(root, [".zcode"]);
 }
 
 function adapter(host: HostId): any {
@@ -46,7 +48,8 @@ function adapter(host: HostId): any {
   if (host === "codex") return codex.createCodexAdapter({ ...common, hostVersion: "0.146.1" });
   if (host === "claude") return claude.createClaudeAdapter({ ...common, hostVersion: "2.1.241" });
   if (host === "cursor") return cursor.createCursorAdapter({ ...common, hostVersion: "3.17.8" });
-  return opencode.createOpenCodeAdapter({ ...common, hostVersion: "1.18.23" });
+  if (host === "opencode") return opencode.createOpenCodeAdapter({ ...common, hostVersion: "1.18.23" });
+  return zcode.createZCodeAdapter({ ...common, hostVersion: "0.0.0" });
 }
 
 function installContext(target: any, observation: any, selectedCapabilities: readonly string[]) {
@@ -54,11 +57,11 @@ function installContext(target: any, observation: any, selectedCapabilities: rea
 }
 
 test("registry exposes every host and exact receipt support matrix without fallback parity", () => {
-  assert.deepEqual(registry.HOST_ADAPTERS.map((entry: any) => entry.id), ["codex", "claude", "cursor", "opencode"]);
+  assert.deepEqual(registry.HOST_ADAPTERS.map((entry: any) => entry.id), ["codex", "claude", "cursor", "opencode", "zcode"]);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-matrix-"));
   try {
     const target = targets.resolveProjectTarget(root);
-    for (const host of ["codex", "cursor", "opencode"] as const) {
+    for (const host of ["codex", "cursor", "opencode", "zcode"] as const) {
       const current = adapter(host);
       assert.throws(
         () => current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [JX3])),
@@ -74,27 +77,27 @@ test("registry exposes every host and exact receipt support matrix without fallb
   }
 });
 
-test("four hosts coexist and one-host capability removal leaves every sibling byte unchanged", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-four-host-"));
+test("five hosts coexist and one-host capability removal leaves every sibling byte unchanged", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-five-host-"));
   try {
     fs.writeFileSync(path.join(root, "opencode.jsonc"), "{\n  // keep\n}\n");
     const target = targets.resolveProjectTarget(root);
-    const adapters = Object.fromEntries((["codex", "claude", "cursor", "opencode"] as const).map((host) => [host, adapter(host)])) as Record<HostId, any>;
-    for (const host of ["codex", "cursor", "opencode"] as const) {
+    const adapters = Object.fromEntries((["codex", "claude", "cursor", "opencode", "zcode"] as const).map((host) => [host, adapter(host)])) as Record<HostId, any>;
+    for (const host of ["codex", "cursor", "opencode", "zcode"] as const) {
       const current = adapters[host];
       await transaction.applyTransaction(current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
     }
     await transaction.applyTransaction(adapters.claude.renderInstall(installContext(target, adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION, JX3])));
 
-    for (const host of ["codex", "claude", "cursor", "opencode"] as const) {
+    for (const host of ["codex", "claude", "cursor", "opencode", "zcode"] as const) {
       const observation = adapters[host].detect({ target, packageRoot: PACKAGE_ROOT });
       assert.equal(adapters[host].status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation, doctor: true }).status, "healthy", host);
     }
-    const before = Object.fromEntries((["codex", "cursor", "opencode"] as const).map((host) => [host, snapshot(root, host)])) as Record<string, readonly string[]>;
+    const before = Object.fromEntries((["codex", "cursor", "opencode", "zcode"] as const).map((host) => [host, snapshot(root, host)])) as Record<string, readonly string[]>;
     const claudeInstalled = adapters.claude.detect({ target, packageRoot: PACKAGE_ROOT });
     await transaction.applyTransaction(adapters.claude.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: claudeInstalled, selectedCapabilities: [JX3] }));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, ".claude/kcoderag-nav/install-state.json"), "utf8")).capabilities.map((entry: any) => entry.id), [NAVIGATION]);
-    for (const host of ["codex", "cursor", "opencode"] as const) assert.deepEqual(snapshot(root, host), before[host], host);
+    for (const host of ["codex", "cursor", "opencode", "zcode"] as const) assert.deepEqual(snapshot(root, host), before[host], host);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

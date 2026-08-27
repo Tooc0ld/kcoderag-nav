@@ -8,7 +8,7 @@ const path = require("node:path") as typeof import("node:path");
 
 import type { HostId } from "../core/contracts.cjs";
 
-export type MarkerHost = HostId;
+export type MarkerHost = Exclude<HostId, "zcode">;
 
 export const MCP_CALL_MARKER_SCHEMA_VERSION = 1 as const;
 export const MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;

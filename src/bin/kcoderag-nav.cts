@@ -25,6 +25,7 @@ async function selectHost(hosts: readonly HostId[]): Promise<HostId | undefined>
     claude: "Claude Code",
     cursor: "Cursor",
     opencode: "OpenCode",
+    zcode: "ZCode",
   };
   const choices = hosts.map((host, index) => `${index + 1}) ${labels[host]}`).join("  ");
   const answer = (await question(`Select host: ${choices}\n> `)).trim();

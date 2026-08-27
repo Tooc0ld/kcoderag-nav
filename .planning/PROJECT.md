@@ -2,20 +2,21 @@
 
 ## What This Is
 
-KCodeRag Nav 是面向 Codex、Claude Code、Cursor 与 OpenCode 的 Node.js 项目级 capability
+KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的 Node.js 项目级 capability
 安装平台。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、内置 capability、QA MCP 配置和
 宿主资产部署到明确目标项目的原生目录；它不是 marketplace plugin，也不依赖 Python、Git
 checkout、Git/SVN 项目标记或运行时 TypeScript 编译。
 
 标准入口是 `npx kcoderag-nav@latest install`。未指定宿主时交互选择 Codex、Claude Code、
-Cursor 或 OpenCode；自动化使用 `--host codex|claude|cursor|opencode`，一次调用只管理一个宿主。
+Cursor、OpenCode 或 ZCode；自动化使用 `--host codex|claude|cursor|opencode|zcode`，一次调用只管理一个宿主。
 平台只提供两个内置 capability：`kcoderag-navigation` 与 `jx3-style-nudge`。install 将显式选择
-加入已安装集合，同一项目中的四个宿主仍可各自拥有独立的 capability 集合。
+加入已安装集合，同一项目中的五个宿主仍可各自拥有独立的 capability 集合。
 
 Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
-和共享 skill，OpenCode 使用项目 plugin。四宿主以各自原生成功后事件记录 secret-free、fail-open
-的 KCodeRag 调用 marker。只有冻结 PASS receipt 对应的 Claude Code `2.1.241` 可以安装 JX3
-写前提示；Codex `0.146.1`、Cursor `3.17.8` 与 OpenCode `1.18.23` 保持 navigation-only。
+和共享 skill，OpenCode 使用项目 plugin；ZCode 使用项目 `.zcode/config.json` MCP 与 workspace Skill。
+Codex、Claude Code、Cursor 与 OpenCode 以各自原生成功后事件记录 secret-free、fail-open 的
+KCodeRag 调用 marker；ZCode 当前忽略项目 Hook，因此没有 marker 或自动更新提示。只有冻结 PASS
+receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他四宿主保持 navigation-only。
 安装器同时提供 `status`、`doctor`、`update` 与 `uninstall`，并以 capability-scoped 所有权、
 全部变更命令的来源门禁、完整摘要硬停止和单宿主原子回滚保护项目与用户配置。
 
@@ -49,10 +50,13 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
   superseded in Phase 04.1
 - ✓ OpenCode 项目级 adapter 支持 JSON/JSONC 生命周期，四宿主成功调用事件统一写入 secret-free
   marker；OpenCode `1.18.23` 真机与公开制品证据仍留给 Phase 6 — Quick 260826-dut
+- ✓ ZCode 项目级 adapter 支持 `.zcode/config.json` MCP 与 `.zcode/skills/` lifecycle，并对项目 Hook、
+  marker、自动更新提示与 JX3 保持明确 unsupported；当前只具备 synthetic contract smoke，真机证据
+  留给 Phase 6 — Quick 260827-fch
 - ✓ 两个内置 capability 使用 current schema v1、contributor-scoped 文件/section 与 composite
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
-- ✓ `kcoderag-navigation` 支持四宿主；`jx3-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
-  receipt 可用，三条 exact UNSUPPORTED host 行零写拒绝且保留 navigation — Phase 04.1
+- ✓ `kcoderag-navigation` 支持五宿主；`jx3-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
+  receipt 可用，其他宿主零写拒绝且保留 navigation — Phase 04.1 / Quick 260827-fch
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
 
@@ -63,6 +67,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - [ ] 在真实 Codex、Claude Code 与 Cursor 上用干净项目和公共 npx 包留下可复跑的生命周期、
   MCP、hook/Rule 证据，并关闭 live QA 旧 protocol/content-only 部署漂移 — Phase 6
 - [ ] 在 OpenCode `1.18.23` 上完成公共制品的项目安装、MCP、`tool.execute.after` 与卸载真机证据 — Phase 6
+- [ ] 在 ZCode 上完成公共制品的项目安装、MCP、Skill 与卸载真机证据，并冻结受支持版本 — Phase 6
 - [ ] 固化 GSD Codex runtime/isolation，并缩窄全局 GSD hook 事件范围 — Phase 7
 - [ ] 引入生产级身份、HTTPS、凭据轮换与宿主兼容淘汰策略 — Phase 8
 
@@ -75,7 +80,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - 修改 KCodeRag MCP 服务、解析流水线、Neo4j 数据或接口实现；本仓库只负责项目集成和导航策略
 - Phase 05 的 Hook 精度、Phase 06 的真实 MCP 查询、Phase 07 的 GSD 全局 Hook、Phase 08 的
   身份/HTTPS/凭据轮换
-- Codex、Claude Code、Cursor 或 OpenCode marketplace 分发；用户入口统一为 npm/npx 项目集成
+- Codex、Claude Code、Cursor、OpenCode 或 ZCode marketplace/plugin 分发；用户入口统一为 npm/npx 项目集成
 
 ## Context
 
@@ -86,7 +91,7 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 - Codex 管理 `.codex/` 与 `.agents/skills/`；Claude Code 管理 `.claude/settings.json`、
   `.claude/skills/` 与项目根 `.mcp.json`；Cursor 管理 `.cursor/rules/`、`.cursor/skills/` 与
   `.cursor/mcp.json`/`.cursor/hooks.json`；OpenCode 管理一个项目根 config、`.opencode/plugins/`
-  与 `.opencode/skills/`。
+  与 `.opencode/skills/`；ZCode 管理 `.zcode/config.json`、`.zcode/skills/` 与自己的受管状态。
 - Codex/Claude Hook 从会话 cwd 向上寻找最近的所选宿主 `kcoderag-nav/install-state.json`。
   最近状态即边界；只有 exact current schema、composite digest、capability contributor 清单和每个
   受管文件摘要都完整时才运行，任何损坏均静默 fail-open且不越界使用外层项目。
@@ -102,23 +107,26 @@ Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor �
 
 - **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
 - **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；只提供两个包内内置 capability
-- **宿主边界**: 一次命令只管理和扫描 Codex、Claude Code、Cursor 或 OpenCode 中的一个；跨宿主项目 QA 可共存
+- **宿主边界**: 一次命令只管理和扫描 Codex、Claude Code、Cursor、OpenCode 或 ZCode 中的一个；跨宿主项目 QA 可共存
 - **状态**: 只接受 current capability-scoped schema v1、完整 contributor/section inventory 和 composite digest；旧 schema 是无迁移入口的无效输入
 - **项目边界**: 默认只修改明确目标内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
 - **来源**: install/update/uninstall 全部对 raw/manual/ambiguous/旧来源写前硬停止；CLI 不提供迁移、接管或自动清理权
 - **生命周期**: install 使用 `installed ∪ selected`；update 默认全部已安装能力并可筛选；uninstall 必须显式选择 capability 或 `--all`
-- **支持证据**: navigation 独立支持四宿主；JX3 仅冻结 Claude Code `2.1.241` PASS row，Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23` 为 exact UNSUPPORTED
+- **支持证据**: navigation 独立支持五宿主；ZCode 当前只有 synthetic contract smoke，真机版本待 Phase 6 冻结；JX3 仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
 - **JX3 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
 - **Hook**: Codex/Claude 仅提供 advisory context，向上查找和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **成功调用记录**: Codex/Claude 使用 `PostToolUse`，Cursor 使用 `afterMCPExecution`，OpenCode
-  使用 `tool.execute.after`；全部 secret-free、有界且 fail-open
+  使用 `tool.execute.after`；全部 secret-free、有界且 fail-open；ZCode 当前无可执行的项目 Hook，
+  因此不投影 marker 或自动更新检查
 - **诊断**: `status`/`doctor` 只读且 JSON 单文档；只输出稳定码、scope、source type 和安全路径，不读取或显示凭据值
 - **发布**: `0.2.0` 仅在实现、测试、审查、四通道 CI、pack/public artifact 全通过后自动发布；发布后不可变，真实缺陷只以前进版本修复，本阶段接受版本为 `0.2.2`
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换留给 Phase 08
 - **OpenCode**: 仅项目级安装；同时存在 `opencode.json`/`opencode.jsonc` 时硬停止；真机基线为 `1.18.23`
+- **ZCode**: 仅项目级安装；只管理 `.zcode/config.json` 中 `mcp.servers` 与 `.zcode/skills/`；当前
+  项目 Hook 配置会被宿主忽略，因此不声称自动更新、成功 marker 或 JX3 pre-write；真机基线待 Phase 6
 - **变更保护**: 不覆盖或回退工作区中的无关未提交工作
 
 ## Key Decisions

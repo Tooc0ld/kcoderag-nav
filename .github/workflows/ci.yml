@@ -66,7 +66,7 @@ jobs:
         run: npm run audit:retirement
       - name: Audit real npm tarball
         run: npm run pack:audit
-      - name: Run required four-host contract smoke
+      - name: Run required five-host contract smoke
         run: npm run smoke:required
 
   authenticated-live:

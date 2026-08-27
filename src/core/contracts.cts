@@ -4,7 +4,7 @@ import type { CapabilityId } from "../capabilities/contracts.cjs";
 
 export const CORE_SCHEMA_VERSION = 1 as const;
 
-export type HostId = "codex" | "claude" | "cursor" | "opencode";
+export type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 export type CurrentEnvironmentId = "qa";
 export type InstallStatus =
   | "healthy"

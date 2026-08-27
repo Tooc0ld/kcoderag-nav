@@ -32,7 +32,7 @@ interface CapabilityProvider {
   readonly id: CapabilityId;
   contribution(): CapabilityContribution;
   evaluateSupport(context: {
-    readonly host: "codex" | "claude" | "cursor" | "opencode";
+    readonly host: "codex" | "claude" | "cursor" | "opencode" | "zcode";
     readonly hostVersion: string;
     readonly evidenceRoot?: string;
   }): SupportDecision;
@@ -143,6 +143,7 @@ test("JX3 support delegates to the exact checked-in PASS receipt", () => {
     ["codex", "0.146.1"],
     ["cursor", "3.17.8"],
     ["opencode", "1.18.23"],
+    ["zcode", "0.0.0"],
     ["claude", "2.1.240"],
   ] as const) {
     assert.deepEqual(
@@ -159,7 +160,7 @@ test("JX3 support delegates to the exact checked-in PASS receipt", () => {
   }
 });
 
-test("navigation declares the shared four-host update notice runtime", () => {
+test("navigation declares the shared update notice runtime for hook-capable projections", () => {
   const contribution = registry.getCapabilityProvider("kcoderag-navigation").contribution();
   assert.deepEqual(
     contribution.files.find((file) => file.id === "navigation:update-notice"),

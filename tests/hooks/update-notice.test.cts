@@ -46,7 +46,7 @@ function runtime(overrides: Partial<UpdateRuntime> = {}): UpdateRuntime {
   };
 }
 
-test("normalizes four host payloads into secret-free update identities", () => {
+test("normalizes four hook-capable host payloads into secret-free update identities", () => {
   const cases: readonly [HostId, unknown, string][] = [
     ["codex", { thread_id: "codex-thread", tool_input: { authorization: "Bearer secret" } }, "codex:codex-thread"],
     ["claude", { session_id: "claude-session", tool_input: { url: "https://secret.invalid" } }, "claude:claude-session"],

@@ -64,7 +64,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_project_npx",
-    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor|opencode)[\s\S]{0,160}--capability\s+kcoderag-navigation/iu,
+    pattern: /npx\s+kcoderag-nav@latest\s+install\s+--host\s+(?:codex|claude|cursor|opencode|zcode)[\s\S]{0,160}--capability\s+kcoderag-navigation/iu,
   },
   {
     code: "missing_topic_capabilities",
@@ -113,6 +113,10 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 ]);
 
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  {
+    code: "missing_topic_zcode_boundary",
+    pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*(?:project-level[\s\S]{0,160}hooks?[\s\S]{0,160}(?:ignored|not\s+(?:executed|supported))|项目级[\s\S]{0,100}Hook[\s\S]{0,100}(?:忽略|不执行|不支持)))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))/iu,
+  },
   {
     code: "missing_topic_exact_host_support",
     pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,80}2\.1\.241[^\n]{0,100}(?:PASS|支持|supported))(?=[\s\S]*Codex[^\n]{0,80}0\.146\.1[^\n]{0,100}UNSUPPORTED)(?=[\s\S]*Cursor[^\n]{0,80}3\.17\.8[^\n]{0,100}UNSUPPORTED)(?=[\s\S]*OpenCode[^\n]{0,80}1\.18\.23[^\n]{0,100}UNSUPPORTED)/iu,
@@ -357,7 +361,7 @@ function inspectFile(
     if (/\b(?:python\s+[^\n]*(?:scanner|scan)|jx3[^\n]*(?:scanner|scan)|scanner[^\n]*(?:passed|通过)|静态扫描通过)\b/iu.test(line)) {
       addDiagnostic(diagnostics, "scanner_claim", displayPath, lineNumber);
     }
-    if (/\b(?:Codex|Cursor|OpenCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}\bJX3\b/iu.test(line) &&
+    if (/\b(?:Codex|Cursor|OpenCode|ZCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}\bJX3\b/iu.test(line) &&
         !/(?:UNSUPPORTED|unsupported|does\s+not|not\s+supported|不支持|拒绝|不能|零写)/iu.test(line)) {
       addDiagnostic(diagnostics, "unsupported_jx3_claim", displayPath, lineNumber);
     }
@@ -382,7 +386,7 @@ function inspectFile(
     }
     for (const host of line.matchAll(/--host(?:=|\s+)([^\s`"']+)/gi)) {
       const values = (host[1] ?? "").toLowerCase().split("|");
-      if (values.length === 0 || values.some((value) => !new Set(["codex", "claude", "cursor", "opencode"]).has(value))) {
+      if (values.length === 0 || values.some((value) => !new Set(["codex", "claude", "cursor", "opencode", "zcode"]).has(value))) {
         addDiagnostic(diagnostics, "invalid_host_flag", displayPath, lineNumber);
       }
     }
