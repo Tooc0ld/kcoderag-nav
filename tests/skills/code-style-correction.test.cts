@@ -6,8 +6,8 @@ const path = require("node:path") as typeof import("node:path");
 const skillRoot = path.resolve("plugin-src/capabilities/code-style-nudge/skill");
 const skillPath = path.join(skillRoot, "SKILL.md");
 const expectedRuleIds = Object.freeze([
-  ...Array.from({ length: 19 }, (_, index) => `JX3-R${String(index + 1).padStart(2, "0")}`),
-  ...Array.from({ length: 8 }, (_, index) => `JX3-S${String(index + 1).padStart(2, "0")}`),
+  ...Array.from({ length: 19 }, (_, index) => `R${String(index + 1).padStart(2, "0")}`),
+  ...Array.from({ length: 8 }, (_, index) => `S${String(index + 1).padStart(2, "0")}`),
 ]);
 const expectedReferences = Object.freeze([
   "references/cpp-lifetime-control-flow.md",
@@ -17,18 +17,18 @@ const expectedReferences = Object.freeze([
 ]);
 const expectedPartitions: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "references/cpp-lifetime-control-flow.md": Object.freeze([
-    "JX3-R01", "JX3-R02", "JX3-R05", "JX3-R06", "JX3-R07",
-    "JX3-R11", "JX3-R14", "JX3-R15", "JX3-R17", "JX3-S02",
+    "R01", "R02", "R05", "R06", "R07",
+    "R11", "R14", "R15", "R17", "S02",
   ]),
   "references/protocol-serialization-data.md": Object.freeze([
-    "JX3-R03", "JX3-R04", "JX3-R12", "JX3-R13", "JX3-R16",
-    "JX3-R19", "JX3-S03", "JX3-S04", "JX3-S05", "JX3-S06",
+    "R03", "R04", "R12", "R13", "R16",
+    "R19", "S03", "S04", "S05", "S06",
   ]),
   "references/lua-contracts.md": Object.freeze([
-    "JX3-R08", "JX3-R09", "JX3-R10", "JX3-R18",
+    "R08", "R09", "R10", "R18",
   ]),
   "references/change-hygiene-self-review.md": Object.freeze([
-    "JX3-S01", "JX3-S07", "JX3-S08",
+    "S01", "S07", "S08",
   ]),
 });
 
@@ -37,7 +37,7 @@ function readSkill(): string {
 }
 
 function extractRuleIds(markdown: string): readonly string[] {
-  return markdown.match(/\bJX3-[RS]\d{2}\b/g) ?? [];
+  return markdown.match(/\b[RS]\d{2}\b/g) ?? [];
 }
 
 function extractReferenceTargets(markdown: string): readonly string[] {
@@ -47,11 +47,14 @@ function extractReferenceTargets(markdown: string): readonly string[] {
 function extractRuleSection(markdown: string, id: string): string | undefined {
   const sectionStart = markdown.indexOf(`## ${id}`);
   if (sectionStart < 0) return undefined;
-  const nextSection = markdown.indexOf("\n## JX3-", sectionStart + 1);
-  return markdown.slice(sectionStart, nextSection < 0 ? undefined : nextSection);
+  const followingSection = markdown.slice(sectionStart + 1).search(/\n## [RS]\d{2}/u);
+  return markdown.slice(
+    sectionStart,
+    followingSection < 0 ? undefined : sectionStart + 1 + followingSection,
+  );
 }
 
-test("canonical JX3 Skill is a nav-managed non-overridable asset", () => {
+test("canonical Code Style Skill is a nav-managed non-overridable asset", () => {
   assert.equal(fs.existsSync(skillPath), true, "canonical SKILL.md must exist");
   const markdown = readSkill();
 
@@ -59,6 +62,8 @@ test("canonical JX3 Skill is a nav-managed non-overridable asset", () => {
   assert.match(markdown, /do not (?:directly )?edit/i);
   assert.match(markdown, /do not (?:create|use).{0,30}override/i);
   assert.match(markdown, /AGENTS\.md.{0,80}project (?:documentation|instructions)/i);
+  assert.match(markdown, /^name: code-style-correction$/m);
+  assert.match(markdown, /^# Code Style Correction$/m);
 });
 
 test("SKILL.md alone contains the exact 27-rule compact index", () => {
@@ -70,7 +75,7 @@ test("SKILL.md alone contains the exact 27-rule compact index", () => {
 
   const summaryLines = markdown
     .split(/\r?\n/u)
-    .filter((line) => /^- `JX3-[RS]\d{2}` — \S.{20,}$/u.test(line));
+    .filter((line) => /^- `[RS]\d{2}` — \S.{20,}$/u.test(line));
   assert.equal(summaryLines.length, expectedRuleIds.length, "every rule needs one compact prescriptive line");
   assert.deepEqual([...extractRuleIds(summaryLines.join("\n"))].sort(), [...expectedRuleIds].sort());
 });
@@ -78,7 +83,7 @@ test("SKILL.md alone contains the exact 27-rule compact index", () => {
 test("the compact index fixes precedence and discloses conflicts", () => {
   const markdown = readSkill();
 
-  assert.match(markdown, /user instructions?\s*>\s*project (?:documentation|instructions?)\s*>\s*(?:the )?JX3 Skill/i);
+  assert.match(markdown, /user instructions?\s*>\s*project (?:documentation|instructions?)\s*>\s*(?:the )?Code Style Skill/i);
   assert.match(markdown, /disclose.{0,80}conflict/i);
   assert.match(markdown, /follow.{0,80}higher-priority/i);
 });
