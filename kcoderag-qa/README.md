@@ -126,6 +126,12 @@ rule summary.
 - Successful calls write bounded secret-free markers: Codex/Claude Code use `PostToolUse`, Cursor
   uses `afterMCPExecution`, OpenCode uses `tool.execute.after`, and ZCode uses project `PostToolUse`.
 
+On first open, ZCode also requires the user to trust/approve workspace Hooks in the host. The
+installer writes only project declarations; it cannot pre-authorize workspace Hooks or modify
+user-level trust. Before approval, MCP and the Skill may work while `PreToolUse`/`PostToolUse` stay
+inactive, so there is no dynamic navigation notice, success marker, or Hook update notice. Restart
+the related session after approval. `status`/`doctor` prove managed project bytes, not host admission.
+
 ## QA routing
 
 Use the installed KCodeRag QA service for graph lookup. If QA is unreachable, report
@@ -167,6 +173,12 @@ Each session/project cycle is deduplicated and every failure is silent. The noti
 explicit update command such as `npx kcoderag-nav@latest update --host zcode`. This follows ZCode's official
 [MCP](https://zcode.z.ai/en/docs/mcp-services), [Skill](https://zcode.z.ai/en/docs/skill), and
 [Hook](https://zcode.z.ai/en/docs/hooks) contracts.
+
+“Automatic update” means automatic version awareness only: the detached worker refreshes bounded
+cache and never runs install/update. Required smoke reports `runtimeContract.layer: packaged` after
+installing the real tgz and executing its registered handlers. That proves notice, marker, fail-open,
+and refresh scheduling, but not that a native host loaded or trusted the registration; optional-live
+or a manual UAT receipt must prove native admission and real MCP use separately.
 
 Phase 04.1 packed evidence covers the complete supported Claude dual-order lifecycle and exact
 unsupported-host zero-write refusal while navigation remains usable. Authenticated real-host MCP

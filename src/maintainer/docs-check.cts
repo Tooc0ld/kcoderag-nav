@@ -110,12 +110,20 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     code: "missing_topic_evidence_boundary",
     pattern: /(?:Phase\s+06|authenticated\s+real-|已认证|真实[^\n]{0,80}MCP)[\s\S]{0,180}(?:query|查询|evidence|证据)/iu,
   },
+  {
+    code: "missing_topic_update_awareness",
+    pattern: /(?=[\s\S]*(?:automatic\s+(?:update|version\s+awareness)|自动更新|自动感知))(?=[\s\S]*(?:never|不|绝不)[^\n]{0,100}(?:install|update|安装|执行更新))(?=[\s\S]*(?:explicit|显式)[^\n]{0,100}(?:update|更新))/iu,
+  },
 ]);
 
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
     code: "missing_topic_zcode_boundary",
-    pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*PreToolUse)(?=[\s\S]*PostToolUse)(?=[\s\S]*(?:hooks?\.enabled|hooks?[\s\S]{0,80}enabled|Hook[\s\S]{0,80}启用))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))/iu,
+    pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*PreToolUse)(?=[\s\S]*PostToolUse)(?=[\s\S]*(?:hooks?\.enabled|hooks?[\s\S]{0,80}enabled|Hook[\s\S]{0,80}启用))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))(?=[\s\S]*(?:trust|信任|批准)[\s\S]{0,240}(?:workspace\s+Hook|工作区\s*Hook|Hook))/iu,
+  },
+  {
+    code: "missing_topic_packaged_native_boundary",
+    pattern: /(?=[\s\S]*runtimeContract\.layer\s*:\s*`?packaged`?)(?=[\s\S]*(?:does\s+not|not|不等于|不能证明)[^\n]{0,140}(?:native\s+host|host\s+admission|真宿主|宿主[^\n]{0,40}接纳|宿主[^\n]{0,40}信任))/iu,
   },
   {
     code: "missing_topic_exact_host_support",

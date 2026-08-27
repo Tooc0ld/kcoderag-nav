@@ -5,6 +5,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
+const { pathToFileURL } = require("node:url") as typeof import("node:url");
 
 import type { HostId } from "../core/contracts.cjs";
 import { parseJsoncObject } from "../core/json-splice.cjs";
@@ -33,6 +34,7 @@ export interface SmokeEvidence {
   readonly mcpList: boolean;
   readonly mcpCall: boolean;
   readonly update: boolean;
+  readonly hostRuntime: boolean;
   readonly sourceConflict: boolean;
   readonly conflictInstallBlocked: boolean;
   readonly conflictUpdateBlocked: boolean;
@@ -46,6 +48,19 @@ export interface NavigationContract {
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
+  readonly fingerprint: string;
+}
+
+export interface HostRuntimeContract {
+  readonly schemaVersion: 1;
+  readonly layer: "packaged";
+  readonly kind: "advisory_hooks" | "cursor_events" | "project_plugin";
+  readonly installedAssets: boolean;
+  readonly hookEvent: boolean;
+  readonly successMarker: boolean;
+  readonly updateNotice: boolean;
+  readonly updateRefresh: boolean;
+  readonly failOpen: boolean;
   readonly fingerprint: string;
 }
 
@@ -94,6 +109,7 @@ export interface HostSmokeResult {
   readonly reason: string;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
+  readonly runtimeContract?: HostRuntimeContract;
   readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }
@@ -212,6 +228,7 @@ export const EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[] = Object.freeze([
   "mcpList",
   "mcpCall",
   "update",
+  "hostRuntime",
   "sourceConflict",
   "conflictInstallBlocked",
   "conflictUpdateBlocked",
@@ -273,12 +290,14 @@ export function evaluateHostEvidence(input: {
   readonly unavailableReason?: string;
   readonly failureReason?: string;
   readonly navigationContract?: NavigationContract;
+  readonly runtimeContract?: HostRuntimeContract;
   readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }): HostSmokeResult {
   const evidence = normalizeEvidence(input.evidence);
   const provenance = input.provenance === undefined ? {} : { provenance: input.provenance };
   const navigation = input.navigationContract === undefined ? {} : { navigationContract: input.navigationContract };
+  const runtime = input.runtimeContract === undefined ? {} : { runtimeContract: input.runtimeContract };
   const capability = input.capabilityLifecycle === undefined ? {} : { capabilityLifecycle: input.capabilityLifecycle };
   if (input.unavailableReason !== undefined) {
     return Object.freeze({
@@ -289,6 +308,7 @@ export function evaluateHostEvidence(input: {
       reason: input.unavailableReason,
       evidence,
       ...navigation,
+      ...runtime,
       ...capability,
       ...provenance,
     });
@@ -303,6 +323,7 @@ export function evaluateHostEvidence(input: {
     reason: complete ? "verified" : (input.failureReason ?? "evidence_incomplete"),
     evidence,
     ...navigation,
+    ...runtime,
     ...capability,
     ...provenance,
   });
@@ -1009,18 +1030,28 @@ function sha256Parts(parts: readonly (string | Buffer)[]): string {
   return hash.digest("hex");
 }
 
-function readRegisteredHookCommand(host: "codex" | "claude", projectRoot: string): string | undefined {
+type CommandHookEvent = "PreToolUse" | "PostToolUse";
+interface ProcessHookCommand {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+function readRegisteredHookCommand(
+  host: "codex" | "claude",
+  projectRoot: string,
+  event: CommandHookEvent = "PreToolUse",
+): string | undefined {
   const relativePath = host === "codex" ? [".codex", "hooks.json"] : [".claude", "settings.json"];
   const filePath = path.join(projectRoot, ...relativePath);
   try {
     const metadata = fs.lstatSync(filePath);
     if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
     const document: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks.PreToolUse)) {
+    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks[event])) {
       return undefined;
     }
     const commands: string[] = [];
-    for (const entry of document.hooks.PreToolUse) {
+    for (const entry of document.hooks[event]) {
       if (!isRecord(entry) || !Array.isArray(entry.hooks)) continue;
       for (const hook of entry.hooks) {
         if (!isRecord(hook) || hook.type !== "command") continue;
@@ -1036,18 +1067,21 @@ function readRegisteredHookCommand(host: "codex" | "claude", projectRoot: string
   }
 }
 
-function runRegisteredHook(command: string, cwd: string, runtimeRoot: string): CommandResult {
-  const payload = `${JSON.stringify({
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command: "rg -n SyntheticSymbol src" },
-  })}\n`;
+function runCommandHook(
+  command: string,
+  cwd: string,
+  runtimeRoot: string,
+  payload: string,
+  environment: NodeJS.ProcessEnv = {},
+): CommandResult {
+  const input = payload.endsWith("\n") ? payload : `${payload}\n`;
+  const env = { ...safeEnvironment(runtimeRoot), ...environment };
   if (process.platform === "win32") {
     const completed = childProcess.spawnSync(command, [], {
       shell: process.env.ComSpec ?? "cmd.exe",
       cwd,
-      env: safeEnvironment(runtimeRoot),
-      input: payload,
+      env,
+      input,
       encoding: "utf8",
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
@@ -1061,10 +1095,18 @@ function runRegisteredHook(command: string, cwd: string, runtimeRoot: string): C
   }
   return runProcess("sh", ["-c", command], {
     cwd,
-    env: safeEnvironment(runtimeRoot),
-    input: payload,
+    env,
+    input,
     timeout: 10_000,
   });
+}
+
+function runRegisteredHook(command: string, cwd: string, runtimeRoot: string): CommandResult {
+  return runCommandHook(command, cwd, runtimeRoot, JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "rg -n SyntheticSymbol src" },
+  }));
 }
 
 function validHookOutput(result: CommandResult): boolean {
@@ -1078,18 +1120,21 @@ function validHookOutput(result: CommandResult): boolean {
   }
 }
 
-function readZCodePreToolHook(projectRoot: string): { readonly command: string; readonly args: readonly string[] } | undefined {
+function readZCodeProcessHook(
+  projectRoot: string,
+  event: CommandHookEvent = "PreToolUse",
+): ProcessHookCommand | undefined {
   try {
     const configPath = path.join(projectRoot, ".zcode", "config.json");
     const metadata = fs.lstatSync(configPath);
     if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
     const document: unknown = JSON.parse(fs.readFileSync(configPath, "utf8"));
     if (!isRecord(document) || !isRecord(document.hooks) || document.hooks.enabled !== true ||
-      !isRecord(document.hooks.events) || !Array.isArray(document.hooks.events.PreToolUse)) {
+      !isRecord(document.hooks.events) || !Array.isArray(document.hooks.events[event])) {
       return undefined;
     }
     const hooks: { readonly command: string; readonly args: readonly string[] }[] = [];
-    for (const entry of document.hooks.events.PreToolUse) {
+    for (const entry of document.hooks.events[event]) {
       if (!isRecord(entry) || typeof entry.matcher !== "string" || !Array.isArray(entry.hooks)) continue;
       for (const hook of entry.hooks) {
         if (!isRecord(hook) || hook.type !== "process" || typeof hook.command !== "string" ||
@@ -1107,22 +1152,18 @@ function readZCodePreToolHook(projectRoot: string): { readonly command: string; 
   }
 }
 
-function runZCodeHook(
-  hook: { readonly command: string; readonly args: readonly string[] },
+function runZCodeProcessHook(
+  hook: ProcessHookCommand,
   projectRoot: string,
   cwd: string,
   runtimeRoot: string,
+  payload: string,
+  environment: NodeJS.ProcessEnv = {},
 ): CommandResult {
-  const payload = `${JSON.stringify({
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command: "rg -n SyntheticSymbol src" },
-    cwd,
-  })}\n`;
   return runProcess(hook.command, hook.args, {
     cwd,
-    env: { ...safeEnvironment(runtimeRoot), ZCODE_PROJECT_DIR: projectRoot },
-    input: payload,
+    env: { ...safeEnvironment(runtimeRoot), ...environment, ZCODE_PROJECT_DIR: projectRoot },
+    input: payload.endsWith("\n") ? payload : `${payload}\n`,
     timeout: 10_000,
     commandShim: true,
   });
@@ -1193,10 +1234,15 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
         projectRoot, ".zcode", "kcoderag-nav", "hooks", "pre-tool-dispatcher.cjs",
       ));
       const document: unknown = JSON.parse(configBytes.toString("utf8"));
-      const hook = readZCodePreToolHook(projectRoot);
+      const hook = readZCodeProcessHook(projectRoot);
       if (hook === undefined) return undefined;
-      const rootResult = runZCodeHook(hook, projectRoot, projectRoot, runtimeRoot);
-      const deepResult = runZCodeHook(hook, projectRoot, deepRoot, runtimeRoot);
+      const payload = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "rg -n SyntheticSymbol src" },
+      });
+      const rootResult = runZCodeProcessHook(hook, projectRoot, projectRoot, runtimeRoot, payload);
+      const deepResult = runZCodeProcessHook(hook, projectRoot, deepRoot, runtimeRoot, payload);
       const root = validHookOutput(rootResult);
       const deep = validHookOutput(deepResult);
       const valid = isRecord(document) && isRecord(document.mcp) && isRecord(document.mcp.servers) &&
@@ -1233,6 +1279,475 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   } catch {
     return undefined;
   }
+}
+
+interface InstalledUpdateRuntime {
+  readInstalledHost(stateFile?: string): HostId | undefined;
+  readInstalledVersion(stateFile?: string): string | undefined;
+  scheduleRefresh(payload: unknown, options?: {
+    readonly cacheRoot?: string;
+    readonly host?: HostId;
+    readonly now?: () => number;
+    readonly runtimePath?: string;
+    readonly workerPath?: string;
+    readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
+  }): boolean;
+}
+
+interface OpenCodePluginModule {
+  KCodeRagNav(context: {
+    readonly directory: string;
+    readonly client: { readonly tui: { showToast(input: unknown): Promise<boolean> } };
+  }): Promise<Record<string, (input: unknown) => Promise<void>>>;
+}
+
+function navigationSkillPath(host: HostId, projectRoot: string): string {
+  const relativePath = host === "codex"
+    ? ".agents/skills/kcoderag-nav/SKILL.md"
+    : host === "claude"
+      ? ".claude/skills/kcoderag-nav/SKILL.md"
+      : host === "cursor"
+        ? ".cursor/skills/kcoderag-nav/SKILL.md"
+        : host === "opencode"
+          ? ".opencode/skills/kcoderag-nav/SKILL.md"
+          : ".zcode/skills/kcoderag-nav/SKILL.md";
+  return path.join(projectRoot, ...relativePath.split("/"));
+}
+
+function readSmallRegular(filePath: string, maxBytes = 2 * 1024 * 1024): Buffer | undefined {
+  try {
+    const metadata = fs.lstatSync(filePath);
+    return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size <= maxBytes
+      ? fs.readFileSync(filePath)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function runtimePaths(host: HostId, projectRoot: string): {
+  readonly state: string;
+  readonly hooksRoot: string;
+  readonly marker: string;
+  readonly updateCheck: string;
+  readonly updateWorker: string;
+  readonly skill: string;
+} {
+  const state = statePath(host, projectRoot);
+  const hooksRoot = host === "codex" || host === "claude"
+    ? path.join(path.dirname(state), "qa", "hooks")
+    : path.join(path.dirname(state), "hooks");
+  return Object.freeze({
+    state,
+    hooksRoot,
+    marker: path.join(hooksRoot, "mcp-call-marker.cjs"),
+    updateCheck: path.join(hooksRoot, "update-check.cjs"),
+    updateWorker: path.join(hooksRoot, "update-worker.cjs"),
+    skill: navigationSkillPath(host, projectRoot),
+  });
+}
+
+function updateEnvironment(runtimeRoot: string, projectRoot: string): {
+  readonly cacheRoot: string;
+  readonly environment: NodeJS.ProcessEnv;
+} {
+  const cacheBase = path.join(runtimeRoot, "host-runtime-cache");
+  fs.mkdirSync(cacheBase, { recursive: true });
+  return Object.freeze({
+    cacheRoot: path.join(cacheBase, "kcoderag-nav"),
+    environment: Object.freeze({
+      KCODERAG_NAV_UPDATE_CHECK: "1",
+      LOCALAPPDATA: cacheBase,
+      XDG_CACHE_HOME: cacheBase,
+      ZCODE_PROJECT_DIR: projectRoot,
+    }),
+  });
+}
+
+function nextPatchVersion(version: string | undefined): string | undefined {
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.exec(version ?? "");
+  if (match === null) return undefined;
+  const patch = Number(match[3]);
+  return Number.isSafeInteger(patch) && patch < Number.MAX_SAFE_INTEGER
+    ? `${match[1]}.${match[2]}.${patch + 1}`
+    : undefined;
+}
+
+function seedFreshUpdateCache(cacheRoot: string, latest: string, now: number): void {
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  fs.writeFileSync(path.join(cacheRoot, "remote-cache.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    checkedAt: now,
+    latest,
+  })}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function additionalContext(result: CommandResult, cursor = false): string | undefined {
+  if (result.code !== 0 || Buffer.byteLength(result.stdout, "utf8") > 64 * 1024) return undefined;
+  try {
+    const output: unknown = JSON.parse(result.stdout);
+    if (!isRecord(output)) return undefined;
+    if (cursor) return typeof output.additional_context === "string" ? output.additional_context : undefined;
+    if (!isRecord(output.hookSpecificOutput) ||
+      output.hookSpecificOutput.hookEventName !== "PreToolUse" ||
+      output.hookSpecificOutput.permissionDecision !== undefined) {
+      return undefined;
+    }
+    return typeof output.hookSpecificOutput.additionalContext === "string"
+      ? output.hookSpecificOutput.additionalContext
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function silentSuccess(result: CommandResult): boolean {
+  return result.code === 0 && result.stdout.trim().length === 0;
+}
+
+function markerEvidence(cacheRoot: string): boolean {
+  const directory = path.join(cacheRoot, "mcp-calls");
+  try {
+    const entries = fs.readdirSync(directory, { withFileTypes: true });
+    return entries.length === 1 && entries[0]?.isFile() === true &&
+      /^[0-9a-f]{64}\.json$/u.test(entries[0].name) &&
+      fs.statSync(path.join(directory, entries[0].name)).size > 0 &&
+      fs.statSync(path.join(directory, entries[0].name)).size <= 512;
+  } catch {
+    return false;
+  }
+}
+
+function withProcessEnvironment<T>(environment: NodeJS.ProcessEnv, action: () => T): T {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(environment)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return action();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function withProcessEnvironmentAsync<T>(environment: NodeJS.ProcessEnv, action: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(environment)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await action();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function readCursorHookCommand(
+  projectRoot: string,
+  event: "afterMCPExecution" | "postToolUse",
+): string | undefined {
+  try {
+    const hooksPath = path.join(projectRoot, ".cursor", "hooks.json");
+    const metadata = fs.lstatSync(hooksPath);
+    if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
+    const document: unknown = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks[event])) {
+      return undefined;
+    }
+    const commands = document.hooks[event].flatMap((entry: unknown) =>
+      isRecord(entry) && typeof entry.command === "string" && entry.command.length <= 64 * 1024
+        ? [entry.command]
+        : []);
+    return commands.length === 1 ? commands[0] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function updateRefreshEvidence(
+  host: HostId,
+  paths: ReturnType<typeof runtimePaths>,
+  runtimeRoot: string,
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  const updateBytes = readSmallRegular(paths.updateCheck);
+  const workerBytes = readSmallRegular(paths.updateWorker);
+  if (updateBytes === undefined || workerBytes === undefined) return false;
+  try {
+    const runtime = require(paths.updateCheck) as InstalledUpdateRuntime;
+    const refreshRoot = path.join(runtimeRoot, "host-runtime-refresh", host);
+    let unrefCalled = false;
+    const calls: unknown[][] = [];
+    const scheduled = withProcessEnvironment(environment, () => runtime.scheduleRefresh({
+      tool_name: "Bash",
+      tool_input: { command: "rg -n SyntheticSymbol src" },
+      session_id: `${host}-refresh-contract`,
+      cwd: runtimeRoot,
+    }, {
+      cacheRoot: refreshRoot,
+      host,
+      now: () => 1_800_000_000_000,
+      runtimePath: host === "opencode" ? "node" : process.execPath,
+      workerPath: paths.updateWorker,
+      spawn: (...args: readonly unknown[]) => {
+        calls.push([...args]);
+        return { unref: () => { unrefCalled = true; } };
+      },
+    }));
+    const call = calls[0];
+    const args = call?.[1];
+    const options = call?.[2];
+    return runtime.readInstalledHost(paths.state) === host &&
+      runtime.readInstalledVersion(paths.state) !== undefined && scheduled && calls.length === 1 &&
+      Array.isArray(args) && args[0] === paths.updateWorker && args[1] === "--refresh" &&
+      args[2] === path.resolve(refreshRoot) && isRecord(options) && options.detached === true &&
+      options.stdio === "ignore" && options.windowsHide === true && unrefCalled;
+  } catch {
+    return false;
+  }
+}
+
+function commandRuntimeContract(
+  host: "codex" | "claude" | "cursor" | "zcode",
+  projectRoot: string,
+  runtimeRoot: string,
+): HostRuntimeContract | undefined {
+  const paths = runtimePaths(host, projectRoot);
+  const markerBytes = readSmallRegular(paths.marker);
+  const updateBytes = readSmallRegular(paths.updateCheck);
+  const workerBytes = readSmallRegular(paths.updateWorker);
+  const skillBytes = readSmallRegular(paths.skill);
+  const stateBytes = readSmallRegular(paths.state);
+  if ([markerBytes, updateBytes, workerBytes, skillBytes, stateBytes].some((bytes) => bytes === undefined)) {
+    return undefined;
+  }
+  try {
+    const runtime = require(paths.updateCheck) as InstalledUpdateRuntime;
+    const installedVersion = runtime.readInstalledVersion(paths.state);
+    const latest = nextPatchVersion(installedVersion);
+    if (latest === undefined) return undefined;
+    const now = Date.now();
+    const update = updateEnvironment(runtimeRoot, projectRoot);
+    seedFreshUpdateCache(update.cacheRoot, latest, now);
+    const prePayload = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "rg -n SyntheticSymbol src" },
+      session_id: `${host}-notice-contract`,
+      cwd: projectRoot,
+    });
+    const markerPayload = JSON.stringify(host === "cursor" ? {
+      hook_event_name: "afterMCPExecution",
+      mcp_server_name: "kcoderag-qa",
+      conversation_id: `${host}-marker-contract`,
+      cwd: projectRoot,
+    } : {
+      hook_event_name: "PostToolUse",
+      tool_name: host === "zcode" ? "krag.search_code/1" : "mcp__kcoderag-qa__search_code",
+      tool_input: { query: "SyntheticSymbol" },
+      tool_response: { status: "ok" },
+      session_id: `${host}-marker-contract`,
+      cwd: projectRoot,
+    });
+    let noticeResult: CommandResult;
+    let markerResult: CommandResult;
+    let malformedNotice: CommandResult;
+    let malformedMarker: CommandResult;
+    let registration = false;
+    if (host === "zcode") {
+      const pre = readZCodeProcessHook(projectRoot, "PreToolUse");
+      const post = readZCodeProcessHook(projectRoot, "PostToolUse");
+      if (pre === undefined || post === undefined) return undefined;
+      registration = true;
+      noticeResult = runZCodeProcessHook(pre, projectRoot, projectRoot, runtimeRoot, prePayload, update.environment);
+      markerResult = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, markerPayload, update.environment);
+      malformedNotice = runZCodeProcessHook(pre, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
+      malformedMarker = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
+    } else if (host === "cursor") {
+      const notice = readCursorHookCommand(projectRoot, "postToolUse");
+      const marker = readCursorHookCommand(projectRoot, "afterMCPExecution");
+      if (notice === undefined || marker === undefined) return undefined;
+      registration = true;
+      noticeResult = runCommandHook(notice, projectRoot, runtimeRoot, prePayload, update.environment);
+      markerResult = runCommandHook(marker, projectRoot, runtimeRoot, markerPayload, update.environment);
+      malformedNotice = runCommandHook(notice, projectRoot, runtimeRoot, "{", update.environment);
+      malformedMarker = runCommandHook(marker, projectRoot, runtimeRoot, "{", update.environment);
+    } else {
+      const pre = readRegisteredHookCommand(host, projectRoot, "PreToolUse");
+      const post = readRegisteredHookCommand(host, projectRoot, "PostToolUse");
+      if (pre === undefined || post === undefined) return undefined;
+      registration = true;
+      noticeResult = runCommandHook(pre, projectRoot, runtimeRoot, prePayload, update.environment);
+      markerResult = runCommandHook(post, projectRoot, runtimeRoot, markerPayload, update.environment);
+      malformedNotice = runCommandHook(pre, projectRoot, runtimeRoot, "{", update.environment);
+      malformedMarker = runCommandHook(post, projectRoot, runtimeRoot, "{", update.environment);
+    }
+    const context = additionalContext(noticeResult, host === "cursor");
+    const hookEvent = context !== undefined;
+    const updateNotice = context?.includes(`npx kcoderag-nav@latest update --host ${host}`) === true;
+    const successMarker = silentSuccess(markerResult) && markerEvidence(update.cacheRoot);
+    const failOpen = silentSuccess(malformedNotice) && silentSuccess(malformedMarker);
+    const installedAssets = registration && skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
+    const updateRefresh = updateRefreshEvidence(host, paths, runtimeRoot, update.environment);
+    const kind = host === "cursor" ? "cursor_events" as const : "advisory_hooks" as const;
+    return Object.freeze({
+      schemaVersion: 1 as const,
+      layer: "packaged" as const,
+      kind,
+      installedAssets,
+      hookEvent,
+      successMarker,
+      updateNotice,
+      updateRefresh,
+      failOpen,
+      fingerprint: sha256Parts([
+        kind,
+        host,
+        markerBytes as Buffer,
+        updateBytes as Buffer,
+        workerBytes as Buffer,
+        skillBytes as Buffer,
+        stateBytes as Buffer,
+        String(installedAssets),
+        String(hookEvent),
+        String(successMarker),
+        String(updateNotice),
+        String(updateRefresh),
+        String(failOpen),
+      ]),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function openCodePluginRegistered(projectRoot: string): boolean {
+  try {
+    const configName = fs.existsSync(path.join(projectRoot, "opencode.jsonc")) ? "opencode.jsonc" : "opencode.json";
+    const document = parseJsoncObject(fs.readFileSync(path.join(projectRoot, configName), "utf8"));
+    return Array.isArray(document.plugin) && document.plugin.includes("./.opencode/plugins/kcoderag-nav.js");
+  } catch {
+    return false;
+  }
+}
+
+async function openCodeRuntimeContract(
+  projectRoot: string,
+  runtimeRoot: string,
+): Promise<HostRuntimeContract | undefined> {
+  const host = "opencode" as const;
+  const paths = runtimePaths(host, projectRoot);
+  const pluginPath = path.join(projectRoot, ".opencode", "plugins", "kcoderag-nav.js");
+  const pluginBytes = readSmallRegular(pluginPath);
+  const markerBytes = readSmallRegular(paths.marker);
+  const updateBytes = readSmallRegular(paths.updateCheck);
+  const workerBytes = readSmallRegular(paths.updateWorker);
+  const skillBytes = readSmallRegular(paths.skill);
+  const stateBytes = readSmallRegular(paths.state);
+  if ([pluginBytes, markerBytes, updateBytes, workerBytes, skillBytes, stateBytes].some((bytes) => bytes === undefined)) {
+    return undefined;
+  }
+  const executablePlugin = path.join(path.dirname(pluginPath), ".kcoderag-nav-runtime-contract.mjs");
+  try {
+    fs.writeFileSync(executablePlugin, pluginBytes as Buffer, { flag: "wx", mode: 0o600 });
+    const runtime = require(paths.updateCheck) as InstalledUpdateRuntime;
+    const installedVersion = runtime.readInstalledVersion(paths.state);
+    const latest = nextPatchVersion(installedVersion);
+    if (latest === undefined) return undefined;
+    const update = updateEnvironment(runtimeRoot, projectRoot);
+    seedFreshUpdateCache(update.cacheRoot, latest, Date.now());
+    return await withProcessEnvironmentAsync(update.environment, async () => {
+      const plugin = await import(`${pathToFileURL(executablePlugin).href}?contract=${crypto.randomUUID()}`) as OpenCodePluginModule;
+      const toasts: unknown[] = [];
+      const hooks = await plugin.KCodeRagNav({
+        directory: projectRoot,
+        client: { tui: { showToast: async (input) => { toasts.push(input); return true; } } },
+      });
+      const after = hooks["tool.execute.after"];
+      if (after === undefined) return undefined;
+      let hookEvent = false;
+      let failOpen = false;
+      try {
+        await after({
+          tool: "kcoderag-qa_search_code",
+          sessionID: "opencode-runtime-contract",
+          args: { query: "SyntheticSymbol" },
+        });
+        hookEvent = true;
+        await after(null);
+        failOpen = true;
+      } catch {
+        failOpen = false;
+      }
+      const toastMessage = toasts.flatMap((toast) =>
+        isRecord(toast) && isRecord(toast.body) && typeof toast.body.message === "string"
+          ? [toast.body.message]
+          : [])[0];
+      const updateNotice = toastMessage?.includes("npx kcoderag-nav@latest update --host opencode") === true;
+      const successMarker = markerEvidence(update.cacheRoot);
+      const updateRefresh = updateRefreshEvidence(host, paths, runtimeRoot, update.environment);
+      const installedAssets = openCodePluginRegistered(projectRoot) &&
+        skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
+      const kind = "project_plugin" as const;
+      return Object.freeze({
+        schemaVersion: 1 as const,
+        layer: "packaged" as const,
+        kind,
+        installedAssets,
+        hookEvent,
+        successMarker,
+        updateNotice,
+        updateRefresh,
+        failOpen,
+        fingerprint: sha256Parts([
+          kind,
+          host,
+          pluginBytes as Buffer,
+          markerBytes as Buffer,
+          updateBytes as Buffer,
+          workerBytes as Buffer,
+          skillBytes as Buffer,
+          stateBytes as Buffer,
+          String(installedAssets),
+          String(hookEvent),
+          String(successMarker),
+          String(updateNotice),
+          String(updateRefresh),
+          String(failOpen),
+        ]),
+      });
+    });
+  } catch {
+    return undefined;
+  } finally {
+    try { fs.unlinkSync(executablePlugin); } catch { /* temporary ESM compatibility copy */ }
+  }
+}
+
+function completeRuntimeContract(contract: HostRuntimeContract | undefined): boolean {
+  return contract !== undefined && contract.installedAssets && contract.hookEvent &&
+    contract.successMarker && contract.updateNotice && contract.updateRefresh && contract.failOpen &&
+    /^[a-f0-9]{64}$/u.test(contract.fingerprint);
+}
+
+async function hostRuntimeEvidence(
+  host: HostId,
+  projectRoot: string,
+  runtimeRoot: string,
+): Promise<HostRuntimeContract | undefined> {
+  return host === "opencode"
+    ? await openCodeRuntimeContract(projectRoot, runtimeRoot)
+    : commandRuntimeContract(host, projectRoot, runtimeRoot);
 }
 
 async function rpc(url: string, payload: Record<string, unknown>): Promise<Record<string, any> | undefined> {
@@ -1642,6 +2157,7 @@ async function runRequiredHost(
   let installed = false;
   let sourceConflictPath: string | undefined;
   let navigationContract: NavigationContract | undefined;
+  let runtimeContract: HostRuntimeContract | undefined;
   let capabilityLifecycle: CapabilityLifecycle | undefined;
   let runtimeEvidence: InstalledRuntimeEvidence | undefined;
   try {
@@ -1734,6 +2250,8 @@ async function runRequiredHost(
     navigationContract = navigationEvidence(host, projectRoot, runtimeRoot);
     evidence.navigation = navigationContract !== undefined && navigationContract.root && navigationContract.deep &&
       navigationContract.sameProject && /^[a-f0-9]{64}$/u.test(navigationContract.fingerprint);
+    runtimeContract = await hostRuntimeEvidence(host, projectRoot, runtimeRoot);
+    evidence.hostRuntime = completeRuntimeContract(runtimeContract);
     if (connection?.url === stubUrl) Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
     const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
     evidence.update = update !== undefined;
@@ -1816,6 +2334,7 @@ async function runRequiredHost(
       mode: "required-contract",
       evidence,
       ...(navigationContract === undefined ? {} : { navigationContract }),
+      ...(runtimeContract === undefined ? {} : { runtimeContract }),
       capabilityLifecycle,
       provenance,
     });
@@ -1825,6 +2344,8 @@ async function runRequiredHost(
       mode: "required-contract",
       evidence,
       failureReason: "contract_execution_failed",
+      ...(navigationContract === undefined ? {} : { navigationContract }),
+      ...(runtimeContract === undefined ? {} : { runtimeContract }),
       ...(capabilityLifecycle === undefined ? {} : { capabilityLifecycle }),
       provenance,
     });

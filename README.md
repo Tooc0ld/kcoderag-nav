@@ -114,6 +114,11 @@ JX3 提示还有完整 D-15 运行时门禁：最近状态必须是 current sche
 | OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；JX3 unsupported |
 | ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | project MCP + Skill；`hooks.enabled: true` 的 advisory/fail-open `PreToolUse`、`PostToolUse` marker 与更新提示；JX3 unsupported |
 
+ZCode 首次打开包含项目 Hook 的工作区时，还必须由用户在宿主中信任/批准 workspace Hook。
+安装器只写项目声明，不能替用户预授权或修改用户级 trust；未批准时 MCP 与 Skill 仍可能正常，
+但 `PreToolUse`/`PostToolUse` 不会执行，因此没有动态导航提示、成功 marker 或 Hook 更新提示。
+批准后重启相关会话再验收。`status`/`doctor` 只证明受管项目字节健康，不证明 ZCode 已接纳 Hook。
+
 Codex/Claude launcher 从宿主会话 cwd 向上选择最近的对应受管状态。损坏或不兼容的最近状态是
 静默 fail-open 边界，不穿透到外层项目。状态和 launcher 使用项目相对路径；完整项目 move、rename、
 复制或换盘后仍指向同一内部资产。CLI 自身的 cwd/`--target` 始终是精确目标，不执行这项向上查找。
@@ -152,6 +157,11 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 `additional_context`；OpenCode 显示 warning toast；ZCode 通过项目 `PreToolUse` 注入相同的短提示。
 所有异常 fail-open，提示只建议运行所选宿主的显式更新命令，例如
 `npx kcoderag-nav@latest update --host zcode`。
+
+这里的“自动更新”仅表示自动感知新版本：后台 worker 只刷新版本 cache，绝不运行 install/update。
+required smoke 的 `runtimeContract.layer: packaged` 会从实际 tgz 安装后执行注册处理器，验证提示、
+marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任这些注册。真机接纳与真实 MCP 查询
+必须由独立的 optional-live 或人工 UAT receipt 证明。
 
 Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
 保留与 JX3 零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP

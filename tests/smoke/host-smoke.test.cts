@@ -24,6 +24,7 @@ interface SmokeEvidence {
   readonly mcpList: boolean;
   readonly mcpCall: boolean;
   readonly update: boolean;
+  readonly hostRuntime: boolean;
   readonly sourceConflict: boolean;
   readonly conflictInstallBlocked: boolean;
   readonly conflictUpdateBlocked: boolean;
@@ -37,6 +38,19 @@ interface NavigationContract {
   readonly root: boolean;
   readonly deep: boolean;
   readonly sameProject: boolean;
+  readonly fingerprint: string;
+}
+
+interface HostRuntimeContract {
+  readonly schemaVersion: 1;
+  readonly layer: "packaged";
+  readonly kind: "advisory_hooks" | "cursor_events" | "project_plugin";
+  readonly installedAssets: boolean;
+  readonly hookEvent: boolean;
+  readonly successMarker: boolean;
+  readonly updateNotice: boolean;
+  readonly updateRefresh: boolean;
+  readonly failOpen: boolean;
   readonly fingerprint: string;
 }
 
@@ -85,6 +99,7 @@ interface HostSmokeResult {
   readonly reason: string;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
+  readonly runtimeContract?: HostRuntimeContract;
   readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
 }
@@ -302,6 +317,7 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
     "mcpList",
     "mcpCall",
     "update",
+    "hostRuntime",
     "sourceConflict",
     "conflictInstallBlocked",
     "conflictUpdateBlocked",
@@ -652,6 +668,46 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
         assert.equal(host.navigationContract?.deep, true);
         assert.equal(host.navigationContract?.sameProject, true);
         assert.match(host.navigationContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
+        assert.deepEqual(Object.keys(host.runtimeContract ?? {}).sort(), [
+          "failOpen",
+          "fingerprint",
+          "hookEvent",
+          "installedAssets",
+          "kind",
+          "layer",
+          "schemaVersion",
+          "successMarker",
+          "updateNotice",
+          "updateRefresh",
+        ]);
+        assert.equal(host.runtimeContract?.layer, "packaged");
+        assert.equal(
+          host.runtimeContract?.kind,
+          host.host === "opencode"
+            ? "project_plugin"
+            : host.host === "cursor"
+              ? "cursor_events"
+              : "advisory_hooks",
+        );
+        assert.deepEqual(
+          {
+            installedAssets: host.runtimeContract?.installedAssets,
+            hookEvent: host.runtimeContract?.hookEvent,
+            successMarker: host.runtimeContract?.successMarker,
+            updateNotice: host.runtimeContract?.updateNotice,
+            updateRefresh: host.runtimeContract?.updateRefresh,
+            failOpen: host.runtimeContract?.failOpen,
+          },
+          {
+            installedAssets: true,
+            hookEvent: true,
+            successMarker: true,
+            updateNotice: true,
+            updateRefresh: true,
+            failOpen: true,
+          },
+        );
+        assert.match(host.runtimeContract?.fingerprint ?? "", /^[a-f0-9]{64}$/u);
         if (host.host === "claude") {
           assert.deepEqual(host.capabilityLifecycle, {
             schemaVersion: 1,
@@ -695,6 +751,8 @@ test("exact and latest preserve acquired-manifest and synthetic-tarball provenan
           });
         }
       }
+      const runtimeFingerprints = result.hosts.map((host) => host.runtimeContract?.fingerprint ?? "");
+      assert.equal(new Set(runtimeFingerprints).size, result.hosts.length);
       assert.deepEqual([...lifecycleCommands].sort(), ["doctor", "install", "status", "uninstall", "update"]);
       const serialized = JSON.stringify(result);
       assert.doesNotMatch(

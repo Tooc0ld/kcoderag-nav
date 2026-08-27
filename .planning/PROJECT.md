@@ -53,7 +53,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - ✓ ZCode 项目级 adapter 支持 `.zcode/config.json` MCP 与 `.zcode/skills/` lifecycle；早期基于错误
   宿主假设未投影 Hook 的边界已由 Quick 260827-nuo 取代 — Quick 260827-fch / superseded
 - ✓ ZCode 项目 `hooks.events` 投影 advisory/fail-open `PreToolUse`、成功调用 `PostToolUse` marker 与
-  离线更新提示，并保持 JX3 unsupported — Quick 260827-nuo
+  离线更新提示，并保持 JX3 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
+  workspace Hook — Quick 260827-nuo / Quick 260827-onf
 - ✓ 两个内置 capability 使用 current schema v1、contributor-scoped 文件/section 与 composite
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
 - ✓ `kcoderag-navigation` 支持五宿主；`jx3-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
@@ -68,7 +69,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - [ ] 在真实 Codex、Claude Code 与 Cursor 上用干净项目和公共 npx 包留下可复跑的生命周期、
   MCP、hook/Rule 证据，并关闭 live QA 旧 protocol/content-only 部署漂移 — Phase 6
 - [ ] 在 OpenCode `1.18.23` 上完成公共制品的项目安装、MCP、`tool.execute.after` 与卸载真机证据 — Phase 6
-- [ ] 在 ZCode 上完成公共制品的项目安装、MCP、Skill、Pre/Post Hook 与卸载真机证据，并冻结受支持版本 — Phase 6
+- [ ] 在 ZCode 上完成公共制品的项目安装、MCP、Skill、Pre/Post Hook 与卸载真机证据，并冻结受支持版本；
+  当前真机已证明 MCP/Skill，但工作区 Hook 未获 trust/admission，未出现动态提示或 marker — Phase 6
 - [ ] 固化 GSD Codex runtime/isolation，并缩窄全局 GSD hook 事件范围 — Phase 7
 - [ ] 引入生产级身份、HTTPS、凭据轮换与宿主兼容淘汰策略 — Phase 8
 
@@ -114,7 +116,9 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
 - **来源**: install/update/uninstall 全部对 raw/manual/ambiguous/旧来源写前硬停止；CLI 不提供迁移、接管或自动清理权
 - **生命周期**: install 使用 `installed ∪ selected`；update 默认全部已安装能力并可筛选；uninstall 必须显式选择 capability 或 `--all`
-- **支持证据**: navigation 独立支持五宿主；ZCode 当前只有 synthetic contract smoke，真机版本待 Phase 6 冻结；JX3 仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
+- **支持证据**: navigation 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
+  安装后的处理器合同，不证明真宿主接纳；ZCode 真机 MCP/Skill 已工作但 Hook trust/admission 尚未通过，
+  版本仍待 Phase 6 冻结；JX3 仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
 - **JX3 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
 - **Hook**: Codex/Claude/ZCode 仅提供 advisory context，定位和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
@@ -126,7 +130,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换留给 Phase 08
 - **OpenCode**: 仅项目级安装；同时存在 `opencode.json`/`opencode.jsonc` 时硬停止；真机基线为 `1.18.23`
 - **ZCode**: 仅项目级安装；管理 `.zcode/config.json` 中 `mcp.servers`/`hooks.events`、`.zcode/skills/`
-  与项目 Hook 运行时；PreToolUse 仅 advisory，PostToolUse 仅记录成功 marker，不声称 JX3 pre-write；
+  与项目 Hook 运行时；首次加载必须由用户批准 workspace Hook，CLI 不预授权 user trust；PreToolUse 仅
+  advisory，PostToolUse 仅记录成功 marker，不声称 JX3 pre-write；
   真机基线待 Phase 6
 - **变更保护**: 不覆盖或回退工作区中的无关未提交工作
 

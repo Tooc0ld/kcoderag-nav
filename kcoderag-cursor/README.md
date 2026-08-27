@@ -83,6 +83,8 @@ The `afterMCPExecution` marker and update notice store no MCP arguments, results
 Bearer. The foreground update path reads only bounded local cache; a stale cache can detach the npm
 Registry worker but never waits for network I/O, blocks a tool, or updates automatically. A known
 notice suggests `npx kcoderag-nav@latest update --host cursor`.
+Automatic update means automatic version awareness only: the worker never runs install/update, and
+the explicit update command remains required.
 
 Cursor does not use the Codex/Claude ancestor launcher. Its Rule, Skills, MCP, `postToolUse`, and
 `afterMCPExecution` files move with a complete project copy or rename. Restart Cursor or run
