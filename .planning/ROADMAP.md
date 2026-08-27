@@ -303,24 +303,48 @@ Plans:
   4. 对旧手工 MCP、marketplace/plugin、Python Hook 和多来源冲突只进行 secret-safe 检测，并在写入前硬停止；用户人工清理后可以重试。
   5. 自动化覆盖能力组合、独立更新与卸载、共享配置合成、事务回滚和 legacy 硬停止；公共包继续保持 Node.js 22+、零生产依赖、零 Python 运行时。
 
-**Plans:** 12/12 plans executed
+**Plans:** 12/13 plans executed
 
 Plans:
+**Wave 1**
 
 - [x] 04.1-01-PLAN.md
 - [x] 04.1-02-PLAN.md
 - [x] 04.1-03-PLAN.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 04.1-04-PLAN.md
 - [x] 04.1-05-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [x] 04.1-06-PLAN.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [x] 04.1-07-PLAN.md
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [x] 04.1-08-PLAN.md
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [x] 04.1-09-PLAN.md
 - [x] 04.1-10-PLAN.md
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [x] 04.1-11-PLAN.md
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [x] 04.1-12-PLAN.md
 
-- [ ] TBD (run $gsd-plan-phase 04.1 to break down)
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 04.1-13-PLAN.md
 
 ### Phase 5: 低误报 Hook 与诚实路由
 
