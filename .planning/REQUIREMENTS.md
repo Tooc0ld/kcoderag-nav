@@ -103,7 +103,7 @@
 
 - [x] **PLAT-01**: 公共 npm 包以内置 capability manifest 注册 KCodeRag navigation 与 `jx3-style-nudge`；安装状态、受管文件、摘要和配置 section 按 capability 记录，同一宿主所选能力集合通过一次事务原子提交，独立更新或卸载不会破坏其他能力、宿主或用户配置
 - [x] **PLAT-02**: 五个 CLI 命令支持 capability 粒度的安全语义：交互 install 在单宿主内多选，自动化重复传 `--capability`；status/doctor 默认展示所选宿主全部能力，update 默认更新全部已安装能力且可筛选，uninstall 必须交互选择或显式指定
-- [x] **PLAT-03**: 一份包内 canonical Skill/handler 资产由 Codex、Claude Code、Cursor 与 OpenCode adapter 确定性投影到宿主原生项目路径；写前能力必须通过真实宿主 fixture 证明结构化目标路径、稳定会话标识和非阻断模型上下文注入，宿主版本未知、不可解析、过低或未证明时只拒绝该能力而不伪装降级
+- [x] **PLAT-03**: 一份包内 canonical Skill/handler 资产由 Codex、Claude Code、Cursor、OpenCode 与 ZCode adapter 确定性投影到宿主原生项目路径；写前能力必须通过真实宿主 fixture 证明结构化目标路径、稳定会话标识和非阻断模型上下文注入，宿主版本未知、不可解析、过低或未证明时只拒绝该能力而不伪装降级
 - [x] **LEG-01**: 删除尚未公开使用的旧 CLI、旧状态 schema 和 QA/Dev 迁移兼容逻辑；对 pre-npm 手工 MCP、marketplace/plugin、Python Hook 和多来源冲突仅做 secret-safe、只读检测并在写前硬停止，不迁移、接管或自动删除
 - [x] **JX3-01**: `jx3-style-nudge` 以纯 CJS/JS Hook 配合受管 Markdown `$jx3-code-style-correction` Skill 工作，只在每个稳定宿主会话首次相关 C/C++/头文件/Lua 内容写入前注入一次短提示；无稳定会话 ID、资产漂移或任何运行异常均静默 fail-open，且不运行 Python、SVN、网络、逐次 PostToolUse scanner 或宣称静态扫描通过
 - [x] **TEST-10**: 自动化覆盖 capability 组合与独立生命周期、共享配置/Hook 合成、版本门禁、扩展名和结构化写入过滤、一次性并发 marker、资产漂移、legacy 来源硬停止、事务回滚、secret-safe 输出、Node.js 22/24 及 Windows/Linux；真实宿主 fixture 明确记录每个支持版本的 delivery evidence
@@ -112,8 +112,8 @@
 
 - [ ] **BRAND-01**: 从 `0.3.0` 起，当前 Git HEAD 的源码、测试、生成资产、Skill、README、AGENTS、receipt 和规划文档只使用 `code-style-nudge`、`$code-style-correction` 等中性名称，并通过游戏、公司及其常见大小写、Unicode、分隔变体的零命中门禁
 - [ ] **BRAND-02**: npm dry-run 与最终 pack 的文件名和内容（含编译 CJS、模板、生成资产）通过同一零命中门禁；门禁词表以不产生原始品牌词自命中的方式维护，发布流程不得绕过
-- [ ] **BRAND-03**: 去品牌化只改变名称与公开表述；R01–R19、S01–S08、E01–E15、首次相关写入提示、fail-open、能力组合、原子事务、回滚和真实宿主支持证据保持行为等价，且不保留旧 capability/Skill 兼容别名
-- [ ] **BRAND-04**: 版本按 pre-1.0 破坏性重命名前进到 `0.3.0`；旧 Git 历史、tag、release 和已发布 npm 版本明确不在清理范围，不重写、不撤回、不 unpublish
+- [ ] **BRAND-03**: 去品牌化只改变名称与公开表述；R01–R19、S01–S08、E01–E15、首次相关写入提示、fail-open、能力组合、原子事务、回滚和 Codex/Claude Code/Cursor/OpenCode/ZCode 支持证据保持行为等价，且不保留旧 capability/Skill 兼容别名
+- [ ] **BRAND-04**: 版本按 pre-1.0 破坏性重命名前进到 `0.3.0`，对冻结 Git subject 和同一个实际 tgz 完成五宿主 readiness 证据；本阶段不创建 tag、不 publish、不 registry refetch，旧 Git 历史、tag、release 和已发布 npm 版本明确不在清理范围，不重写、不撤回、不 unpublish
 
 ### Hook 精度与能力诚实性
 
@@ -127,6 +127,7 @@
 - [ ] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
 - [ ] **TEST-08**: 在干净 Claude Code 项目中，通过同一 exact npx 包真实验证 install/status、MCP、Grep/Glob/Bash hook、update 与 uninstall
 - [ ] **TEST-09**: 在干净 Cursor 项目中，通过同一 exact npx 包真实验证 install/status、必要 reload 后的 MCP/Rule/skill、update 与 uninstall
+- [ ] **TEST-11**: 在干净 ZCode 项目中，通过同一 exact npx 包真实验证 install/status、MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook、update 与 uninstall，并冻结受支持版本与 metadata-only delivery receipt
 
 ### GSD 运行时与 Hook
 
@@ -219,6 +220,7 @@
 | TEST-07 | Phase 6 | Pending |
 | TEST-08 | Phase 6 | Pending |
 | TEST-09 | Phase 6 | Pending |
+| TEST-11 | Phase 6 | Pending |
 | GSD-01 | Phase 7 | Pending |
 | GSD-02 | Phase 7 | Pending |
 | SEC-01 | Phase 8 | Pending |

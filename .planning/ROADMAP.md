@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 04.1: 多能力安装平台与 JX3 规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
 - [ ] **Phase 04.2: 公开版本去品牌化** - 从 `0.3.0` 起以中性名称发布代码规范能力，并以源码与 npm 制品零命中门禁防止品牌词回归。
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
-- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor 与 OpenCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
+- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
 - [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
 - [ ] **Phase 8: 生产安全与自动化发布** - 交付身份、HTTPS、凭据轮换、版本化制品和宿主兼容矩阵。
 
@@ -360,7 +360,7 @@ Plans:
   2. 当前 Git HEAD 的全部跟踪文件通过大小写、Unicode 和常见分隔变体的品牌词零命中门禁；历史 Git 提交不重写，旧 tag、release 和 npm 版本不修改或撤回。
   3. `npm pack --dry-run` 的文件名与最终内容（包括编译 CJS、模板和生成资产）通过同一零命中门禁；门禁自身不以原始品牌词制造自命中。
   4. R01–R19、S01–S08、E01–E15 规则内容、首次相关写入提示、fail-open、能力组合、事务回滚和宿主版本证据保持行为等价。
-  5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、四宿主 required smoke、公开文档及权威体验指南同步通过后才具备发布条件；本阶段不执行 unpublish 或历史清理。
+  5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、五宿主 required packaged smoke、公开文档及权威体验指南同步通过后才具备发布条件；本阶段不创建 tag、不 publish、不执行 registry refetch、unpublish 或历史清理。
 
 **Plans:** 0 plans
 
@@ -386,9 +386,9 @@ Plans:
 
 ### Phase 6: 真实宿主兼容与发布证据
 
-**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code、Cursor 或 OpenCode 后，可用可审计证据确认 MCP 工具名、hook/Rule/plugin 和完整项目生命周期真实工作。
+**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code、Cursor、OpenCode 或 ZCode 后，可用可审计证据确认 MCP 工具名、hook/Rule/plugin 和完整项目生命周期真实工作。
 **Mode:** mvp
-**Requirements**: TEST-07, TEST-08, TEST-09
+**Requirements**: TEST-07, TEST-08, TEST-09, TEST-11
 **Depends on:** Phase 5
 **Success Criteria** (what must be TRUE):
 
@@ -396,9 +396,10 @@ Plans:
   2. Claude Code 在干净项目中通过同一 exact npx 包完成 project install/status/update/uninstall，验证 MCP 工具注册名与 Grep/Glob/Bash hook 出参。
   3. Cursor 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，并在必要的项目 reload 后验证 MCP、Rule 与 skill 可见性；不依赖 user-local plugin 或 Team 订阅。
   4. OpenCode `1.18.23` 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，验证项目 MCP、skill、稳定 1.x plugin API 与 `tool.execute.after` 成功调用 marker。
-  5. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
-  6. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
-  7. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
+  5. ZCode 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，验证项目 MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook 与成功 marker，并冻结可复现的受支持版本证据。
+  6. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
+  7. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
+  8. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
 
 **Plans**: TBD
 

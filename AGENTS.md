@@ -5,18 +5,19 @@
 **KCodeRag Nav**
 
 KCodeRag Nav 是 KCodeRag MCP 查询服务的 Node.js 项目集成，面向 Codex、Claude Code、
-Cursor 与 OpenCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、内置 capability、MCP 配置和宿主资产
+Cursor、OpenCode 与 ZCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 运行时、内置 capability、MCP 配置和宿主资产
 部署到目标项目的原生目录；它不是 marketplace plugin，也不依赖 Python、Git checkout 或
 运行时 TypeScript 编译。标准入口是 `npx kcoderag-nav@latest install`。
 
-未指定宿主时交互选择 Codex、Claude Code、Cursor 或 OpenCode；自动化使用
-`--host codex|claude|cursor|opencode`，一次调用只管理一个宿主。当前内置 capability 固定为
+未指定宿主时交互选择 Codex、Claude Code、Cursor、OpenCode 或 ZCode；自动化使用
+`--host codex|claude|cursor|opencode|zcode`，一次调用只管理一个宿主。当前内置 capability 固定为
 `kcoderag-navigation` 与 `jx3-style-nudge`；install 将显式选择加入已安装集合，跨宿主的项目级
 安装可以共存。当前状态只接受 capability-scoped schema v1；旧 QA/Dev 状态、迁移、接管和自动清理
 不再是可执行产品能力。
 
-Codex 与 Claude Code 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
-和共享 skill，OpenCode 使用项目 plugin。四宿主成功调用事件写入 secret-free、fail-open marker。
+Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
+和共享 skill，OpenCode 使用项目 plugin；ZCode 同时使用项目 `.zcode/config.json` MCP 与 workspace Skill。
+五宿主成功调用事件写入 secret-free、fail-open marker。
 install/update/uninstall 只修改 adapter 声明的受管
 项目文件和 section，遇到漂移、危险 target 或所选宿主的手工/活动重复来源时全部在写前硬停止，并按单宿主
 事务完整回滚。`status` 快速报告项目健康；`doctor` 深扫所选宿主的用户级来源且始终只读。
@@ -27,25 +28,26 @@ install/update/uninstall 只修改 adapter 声明的受管
 
 - **运行时**: 用户路径最低 Node.js 22；维护源码编译为 CJS，不允许 Python 或运行时 TypeScript 编译
 - **分发**: 用户安装、更新与卸载统一通过 `npx kcoderag-nav@latest`；只发布两个内置 capability，根 marketplace catalog 不得恢复
-- **宿主边界**: 一次命令只管理 Codex、Claude Code、Cursor 或 OpenCode 中的一个；跨宿主安装可以共存
+- **宿主边界**: 一次命令只管理 Codex、Claude Code、Cursor、OpenCode 或 ZCode 中的一个；跨宿主安装可以共存
 - **状态边界**: 只接受当前 capability-scoped schema v1、完整 contributor/section 清单和 composite digest；旧状态无迁移、接管或清理入口
 - **项目边界**: 默认只修改目标项目内由 adapter 声明的文件/section，不污染用户配置、无关项目或其他宿主
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
 - **来源门禁**: install/update/uninstall 全部深扫所选宿主来源；raw/manual/ambiguous/旧来源只读报告并硬停止，CLI 不迁移、接管或自动清理
-- **根定位**: Codex/Claude Hook 从 cwd 向上选择最近受管状态；损坏最近边界静默 fail-open 且不得穿透，项目移动后仍使用相对路径工作
+- **根定位**: Codex/Claude/ZCode Hook 从 cwd 向上选择最近受管状态；损坏最近边界静默 fail-open 且不得穿透，项目移动后仍使用相对路径工作
 - **诊断**: status/doctor 只读且 secret-safe；`source_conflict` 为 `ok:false`，输出不得包含 URL、Header、Bearer 或配置正文
-- **Hook**: Codex/Claude 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
+- **Hook**: Codex/Claude/ZCode 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
-- **成功调用记录**: Codex/Claude `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
+- **成功调用记录**: Codex/Claude/ZCode `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
   `tool.execute.after` 共用 secret-free、有界、fail-open marker
 - **体验指南所有权**: `MCP_QA_EXPERIENCE_GUIDE.md` 由 KCodeRag 服务仓库独占维护，本仓库不保留副本；影响安装、卸载、更新、发布、宿主兼容、路由或 hook 的变更需同步到该权威文档
-- **JX3 支持**: 只允许冻结 PASS receipt 对应的 Claude Code `2.1.241`；Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23` 及未证明版本必须以 `host_version_unsupported` 零写拒绝，navigation 仍可用
+- **JX3 支持**: 只允许冻结 PASS receipt 对应的 Claude Code `2.1.241`；Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23`、ZCode 及未证明版本必须以 `host_version_unsupported` 零写拒绝，navigation 仍可用
 - **JX3 完整性**: 写前提示前必须验证当前状态 composite digest 及全部受管文件摘要；缺失、损坏或漂移静默 fail-open，由 status/doctor 报 `capability_drift`
 - **D-19 marker**: 需要重置一次性提示时，先关闭所有相关宿主会话，再人工删除 OS cache 下 `kcoderag-nav/nudges`；status/doctor 不清理，删除失败也不阻断宿主
 - **发布**: 全部门禁通过后只验证 readiness，不在本阶段执行 publish；既有不可变版本只以前进版本修复
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
 - **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
 - **OpenCode**: 只允许项目级安装；JSON/JSONC 双配置硬停止；真机验收基线为 `1.18.23`
+- **ZCode**: 只允许项目级安装；管理 `.zcode/config.json` 的 MCP/Hook section、`.zcode/skills/` 与项目 Hook 运行时；CLI 不预授权 workspace trust，Phase 04.2 验收 packaged lifecycle/smoke，真机 trust/admission 与版本冻结留在 Phase 06
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
 <!-- GSD:project-end -->
@@ -70,7 +72,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 ## Frameworks
 
 - Model Context Protocol (MCP) - the external KCodeRag QA service is the `kcoderag-navigation` projection in each selected host's native project configuration.
-- Host adapters - Codex, Claude Code, Cursor, and OpenCode render host-specific desired state behind a shared read/render-only interface.
+- Host adapters - Codex, Claude Code, Cursor, OpenCode, and ZCode render host-specific desired state behind a shared read/render-only interface.
 - Node built-in test runner - compiled `dist-tests/**/*.test.cjs` provides unit, integration, pack, lifecycle, smoke, and release coverage.
 - npm/npx - package acquisition and the five-command project lifecycle; marketplace catalogs are not a distribution surface.
 
@@ -79,19 +81,19 @@ install/update/uninstall 只修改 adapter 声明的受管
 - Runtime dependencies: none beyond Node.js built-ins.
 - Dev dependencies: audited TypeScript and Node 22 declarations only; dependency graph or integrity drift requires re-audit.
 - KCodeRag QA MCP service - provides graph lookup tools; endpoint and authorization values remain opaque sensitive inputs.
-- Codex/Claude hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, MCP, and `afterMCPExecution`; OpenCode consumes a project plugin and MCP configuration.
+- Codex/Claude/ZCode hook runtimes invoke generated Node launchers; Cursor consumes project Rule, skill, MCP, and `afterMCPExecution`; OpenCode consumes a project plugin and MCP configuration.
 
 ## Configuration
 
-- `src/hosts/` declares Codex, Claude Code, Cursor, and OpenCode project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
+- `src/hosts/` declares Codex, Claude Code, Cursor, OpenCode, and ZCode project ownership; `src/core/transaction.cts` is the only filesystem commit boundary.
 - `plugin-src/` is the deterministic template/config source for the two built-in capabilities; generated QA/Cursor assets remain self-contained and version-aligned.
-- Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`; OpenCode targets one root config plus `.opencode/`.
+- Codex targets `.codex/` and `.agents/skills/`; Claude Code targets `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`; Cursor targets `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json`; OpenCode targets one root config plus `.opencode/`; ZCode targets `.zcode/config.json`, `.zcode/skills/`, project hooks, and its managed state.
 - MCP configuration files may contain credentials. Never inspect, print, snapshot, or include their values in diagnostics.
 
 ## Platform Requirements
 
 - Node.js 22+ and npm/npx on Windows or Linux.
-- At least one selected host: Codex, Claude Code, Cursor, or OpenCode.
+- At least one selected host: Codex, Claude Code, Cursor, OpenCode, or ZCode.
 - Network access for initial npm acquisition and the internal QA MCP service. Installed hooks run offline and update checks fail open.
 
 <!-- GSD:stack-end -->
@@ -168,6 +170,7 @@ CLI policy -> selected HostAdapter (read/render only) -> atomic transaction -> p
 Installed Codex/Claude launcher -> CJS advisory hook -> optional detached npm update worker
 Installed Cursor project files  -> Rule + skill + MCP + afterMCPExecution marker
 Installed OpenCode project files -> skill + MCP + tool.execute.after marker
+Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 ```
 
 ## Component Responsibilities
@@ -177,7 +180,7 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 | npm CLI | Parses five commands, selects one host/environment, confirms target, and formats stable output | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
 | Core contracts | Defines safe errors, target/state/status types, runtime checks, and managed-path validation | `src/core/` |
 | Atomic transaction | Performs the only installation filesystem commit, state-last ordering, and complete rollback | `src/core/transaction.cts` |
-| Host adapters | Detect and render Codex, Claude Code, Cursor, or OpenCode project-native desired state without writing | `src/hosts/` |
+| Host adapters | Detect and render Codex, Claude Code, Cursor, OpenCode, or ZCode project-native desired state without writing | `src/hosts/` |
 | Advisory hook | Classifies structural search, emits bounded guidance, and fails open | `src/hooks/grep-nudge.cts` |
 | Update runtime | Reads bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
 | Capability registry | Declares the frozen `kcoderag-navigation` and `jx3-style-nudge` manifests, assets, support policy, and provider contributions | `src/capabilities/` |
@@ -191,9 +194,10 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 - The npm CLI is the composition root. One invocation targets one host; host adapters provide data and the shared transaction owns writes.
 - The product has two built-in capabilities. Install composes `installed ∪ selected`; update targets installed capabilities by default; uninstall requires explicit capability selection or `--all`; a project may contain independent host installations.
 - OpenCode is also project-only; it selects exactly one JSON/JSONC project config and never writes user-global config.
+- ZCode is project-only; it owns bounded sections under `.zcode/config.json`, projects its workspace Skill/hooks, and never pre-authorizes workspace trust.
 - Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained.
-- Codex/Claude hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
-- JX3 delivery is receipt-gated, not inferred from host shape: only Claude Code 2.1.241 is supported; the frozen Codex, Cursor, and OpenCode rows remain navigation-only.
+- Codex/Claude/ZCode hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
+- JX3 delivery is receipt-gated, not inferred from host shape: only Claude Code 2.1.241 is supported; Codex, Cursor, OpenCode, and ZCode remain navigation-only unless separately proven.
 - All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
 
 ## Layers
@@ -217,11 +221,12 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 
 ### Lookup Guidance and Update Awareness
 
-1. Codex/Claude invokes the generated launcher before matched search tools; from the session cwd it walks upward to the nearest selected-host managed state, treats a damaged nearest state as a fail-open boundary, resolves relative sibling CJS, and never falls through to an outer project.
+1. Codex/Claude/ZCode invokes the generated launcher before matched search tools; from the session cwd it walks upward to the nearest selected-host managed state, treats a damaged nearest state as a fail-open boundary, resolves relative sibling CJS, and never falls through to an outer project.
 2. The hook parses bounded input and emits advisory JSON only for eligible structural searches.
 3. A session's first eligible event may schedule a detached npm Registry refresh; foreground execution reads local bounded state only.
 4. Cursor receives navigation policy through its Rule/skill and uses MCP directly; `afterMCPExecution` records a bounded successful-call marker without emulating PreToolUse.
 5. OpenCode uses a project plugin's stable `tool.execute.after` event to record the same marker.
+6. ZCode uses project `hooks.events` for advisory `PreToolUse` and secret-free `PostToolUse` marker recording; workspace trust remains a user decision.
 
 ## Key Abstractions
 
@@ -234,7 +239,7 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 ## Entry Points
 
 - `dist/bin/kcoderag-nav.cjs` - npm bin for install/status/doctor/update/uninstall.
-- `kcoderag-qa/hooks/run_hook.{cmd,sh}` - generated fail-open launchers for Codex/Claude hook events.
+- `kcoderag-qa/hooks/run_hook.{cmd,sh}` - generated fail-open launchers for Codex/Claude/ZCode hook events.
 - `dist/generator/index.cjs` and `dist/maintainer/*.cjs` - deterministic generation, validation, documentation, pack, and release gates.
 - `.githooks/pre-commit` and GitHub Actions - Node-only local/remote assurance entry points.
 
@@ -244,15 +249,15 @@ Installed OpenCode project files -> skill + MCP + tool.execute.after marker
 - **Project scope:** Every resolved path must stay inside the explicit target and adapter-declared roots; reject traversal, symlinks, special files, and ambiguous ownership.
 - **State boundary:** Only the current capability-scoped schema is valid. Retired environment-shaped/Python records are invalid inputs with no migration, adoption, cleanup, or implicit conversion authority.
 - **Source authority:** Install/update/uninstall all hard-stop on selected-host manual or active duplicates before rendering. Sources are diagnostic-only and `status`/`doctor` remain read-only.
-- **Capability support:** Navigation is independent across all four hosts. JX3 is eligible only for an exact checked-in PASS receipt digest; an unsupported selection returns `host_version_unsupported` before desired-state creation and makes zero writes.
+- **Capability support:** Navigation is independent across all five hosts. JX3 is eligible only for an exact checked-in PASS receipt digest; an unsupported selection returns `host_version_unsupported` before desired-state creation and makes zero writes.
 - **JX3 integrity:** The advisory handler validates the nearest current state, its composite digest, and every managed file digest before claiming a once marker; any failure is silent and does not consume the reminder.
 - **Hook safety:** All malformed input, runtime failures, missing Node, and update failures exit 0 without blocking or contaminating stdout.
 - **Secret boundary:** MCP connection and authorization values are opaque; never expose them in output, diagnostics, tests, receipts, or documentation.
 - **Distribution boundary:** Root marketplace catalogs stay retired. Compatibility manifests may remain inside generated self-contained assets but are not install sources.
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
-- **Release boundary:** Publish immutable `0.2.0` only after implementation, tests, review, pack, four-lane CI, and public-artifact gates; post-publication deployment failure fixes forward as `0.2.1` without unpublish or dist-tag rollback.
+- **Release boundary:** Phase 04.2 advances the checked candidate to `0.3.0` and verifies five-host readiness against one exact tgz without tag or publish; any later immutable publication is separately authorized and fixes forward without unpublish or dist-tag rollback.
 - **Documentation boundary:** The sibling KCodeRag repository exclusively owns `MCP_QA_EXPERIENCE_GUIDE.md`; this repository keeps no copy.
-- **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries and OpenCode `1.18.23` evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
+- **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries plus OpenCode/ZCode true-host evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
 
 ## Anti-Patterns
 
