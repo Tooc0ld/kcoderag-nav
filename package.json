@@ -122,6 +122,8 @@
     "test:release": "node --test dist-tests/maintainer/release.test.cjs",
     "test:publish-receipt": "node --test dist-tests/maintainer/publish-receipt.test.cjs",
     "test:release-readiness": "node --test dist-tests/maintainer/release-readiness.test.cjs",
+    "test:readiness-workflow": "node --test dist-tests/maintainer/readiness-workflow.test.cjs",
+    "test:github-artifact-upload": "node --test dist-tests/maintainer/github-artifact-upload.test.cjs",
     "test:pre-release-evidence": "node --test dist-tests/maintainer/pre-release-evidence.test.cjs",
     "test:readiness-seal": "node --test dist-tests/maintainer/readiness-seal.test.cjs",
     "readiness:04.2": "node dist/maintainer/release-readiness.cjs",
