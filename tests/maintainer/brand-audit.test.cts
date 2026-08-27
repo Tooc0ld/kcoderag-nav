@@ -1,0 +1,211 @@
+const { test } = require("node:test") as typeof import("node:test");
+const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const fs = require("node:fs") as typeof import("node:fs");
+const path = require("node:path") as typeof import("node:path");
+
+type FamilyId = "F001" | "F002" | "F003";
+type Scope = "git_path" | "git_content" | "tar_path" | "tar_content";
+
+interface AuditLimits {
+  readonly maxArchiveBytes: number;
+  readonly maxBlobBytes: number;
+  readonly maxMemberBytes: number;
+  readonly maxEntries: number;
+  readonly maxPathBytes: number;
+}
+
+interface Finding {
+  readonly code: string;
+  readonly scope: Scope;
+  readonly familyId: FamilyId;
+  readonly category: "path" | "content";
+  readonly pathToken: string;
+  readonly placeholder: string;
+  readonly componentIndex?: number;
+  readonly componentCount?: number;
+  readonly line?: number;
+  readonly column?: number;
+}
+
+interface AuditResult {
+  readonly ok: boolean;
+  readonly findingCount: number;
+  readonly findings: readonly Finding[];
+}
+
+interface PrivateFinding {
+  readonly exactPath: string;
+  readonly finding: Finding;
+}
+
+interface AuditModule {
+  BrandAuditError: new (code: string) => Error & { readonly code: string };
+  DEFAULT_BRAND_AUDIT_LIMITS: AuditLimits;
+  foldBrandCandidate(input: unknown): string;
+  decodeInspectableText(input: unknown, limits?: Partial<AuditLimits>): string;
+  scanBrandText(input: unknown, options: {
+    readonly scope: Scope;
+    readonly exactPath: string;
+    readonly limits?: Partial<AuditLimits>;
+    readonly onPrivateFinding?: (finding: PrivateFinding) => void;
+  }): AuditResult;
+}
+
+const audit = require("../../dist/maintainer/brand-audit.cjs") as AuditModule;
+const repositoryRoot = path.resolve(__dirname, "../..");
+
+function points(values: readonly number[]): string {
+  return String.fromCodePoint(...values);
+}
+
+const FAMILIES: Readonly<Record<FamilyId, readonly (readonly number[])[]>> = Object.freeze({
+  F001: Object.freeze([
+    Object.freeze([0x6a, 0x78, 0x33]),
+    Object.freeze([0x52_51, 0x7f_51, 0x33]),
+    Object.freeze([0x52_51, 0x7f_51, 0x4e_09]),
+    Object.freeze([0x6a, 0x69, 0x61, 0x6e, 0x77, 0x61, 0x6e, 0x67, 0x33]),
+    Object.freeze([0x6a, 0x69, 0x00_e0, 0x6e, 0x77, 0x01_ce, 0x6e, 0x67, 0x33]),
+    Object.freeze([0x6a, 0x78, 0x6f, 0x6e, 0x6c, 0x69, 0x6e, 0x65, 0x33]),
+    Object.freeze([0x52_51, 0x4f_a0, 0x60_c5, 0x7f_18, 0x7f_51, 0x7e_dc, 0x72_48, 0x53_c1]),
+  ]),
+  F002: Object.freeze([
+    Object.freeze([0x6b, 0x69, 0x6e, 0x67, 0x73, 0x6f, 0x66, 0x74]),
+    Object.freeze([0x91_d1, 0x5c_71]),
+    Object.freeze([0x91_d1, 0x5c_71, 0x8f_6f, 0x4e_f6]),
+  ]),
+  F003: Object.freeze([
+    Object.freeze([0x73, 0x65, 0x61, 0x73, 0x75, 0x6e]),
+    Object.freeze([0x89_7f, 0x5c_71, 0x5c_45]),
+  ]),
+});
+
+function firstAlias(familyId: FamilyId): string {
+  return points(FAMILIES[familyId][0]!);
+}
+
+function expectCode(call: () => unknown, code: string): void {
+  assert.throws(call, (error: unknown) =>
+    error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
+}
+
+function contentScan(input: unknown, exactPath = "src/neutral.cts", limits?: Partial<AuditLimits>): AuditResult {
+  return audit.scanBrandText(input, {
+    scope: "git_content",
+    exactPath,
+    ...(limits === undefined ? {} : { limits }),
+  });
+}
+
+function encodeBigEndian(value: string): Buffer {
+  const little = Buffer.from(value, "utf16le");
+  for (let index = 0; index < little.length; index += 2) {
+    const first = little[index]!;
+    little[index] = little[index + 1]!;
+    little[index + 1] = first;
+  }
+  return Buffer.concat([Buffer.from([0xfe, 0xff]), little]);
+}
+
+test("matcher recognizes only the approved closed families after deterministic folding", () => {
+  for (const [familyId, aliases] of Object.entries(FAMILIES) as [FamilyId, readonly (readonly number[])[]][]) {
+    for (const aliasPoints of aliases) {
+      const alias = points(aliasPoints);
+      const result = contentScan(`prefix ${alias} suffix`);
+      assert.equal(result.ok, false);
+      assert.ok(result.findings.some((finding) => finding.familyId === familyId));
+    }
+  }
+
+  const upper = firstAlias("F002").toUpperCase();
+  assert.equal(contentScan(upper).findings[0]?.familyId, "F002");
+
+  const separated = Array.from(firstAlias("F003")).join("\u2010_\u3000");
+  assert.equal(contentScan(separated).findings[0]?.familyId, "F003");
+
+  const fullWidth = Array.from(firstAlias("F001"), (character) => {
+    const code = character.codePointAt(0)!;
+    return code >= 0x21 && code <= 0x7e ? String.fromCodePoint(code + 0xfe_e0) : character;
+  }).join("");
+  assert.equal(contentScan(fullWidth).findings[0]?.familyId, "F001");
+
+  const decomposed = points(FAMILIES.F001[4]!).normalize("NFD");
+  assert.equal(contentScan(decomposed).findings[0]?.familyId, "F001");
+});
+
+test("matcher keeps approved product, host, and technical controls negative", () => {
+  const controls = [
+    "KCodeRag",
+    "kcoderag-nav",
+    "Codex Claude Code Cursor OpenCode ZCode",
+    "PreToolUse PostToolUse MCP Node.js TypeScript C++ Lua",
+    "https://example.invalid/project/path",
+  ];
+  for (const control of controls) {
+    assert.deepEqual(contentScan(control), { ok: true, findingCount: 0, findings: [] });
+  }
+
+  const splitAcrossComponents = `${points([0x6a])}/${points([0x78, 0x33])}/file.cts`;
+  assert.deepEqual(audit.scanBrandText(splitAcrossComponents, {
+    scope: "git_path",
+    exactPath: splitAcrossComponents,
+  }), { ok: true, findingCount: 0, findings: [] });
+});
+
+test("decoder accepts strict supported text encodings and empty input", () => {
+  const value = "neutral text \u4e2d\u6587";
+  assert.equal(audit.decodeInspectableText(value), value);
+  assert.equal(audit.decodeInspectableText(Buffer.from(value, "utf8")), value);
+  assert.equal(audit.decodeInspectableText(Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from(value, "utf8"),
+  ])), value);
+  assert.equal(audit.decodeInspectableText(Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(value, "utf16le"),
+  ])), value);
+  assert.equal(audit.decodeInspectableText(encodeBigEndian(value)), value);
+  assert.equal(audit.decodeInspectableText(""), "");
+  assert.equal(audit.decodeInspectableText(Buffer.alloc(0)), "");
+  assert.deepEqual(contentScan(""), { ok: true, findingCount: 0, findings: [] });
+  assert.deepEqual(contentScan(Buffer.alloc(0)), { ok: true, findingCount: 0, findings: [] });
+});
+
+test("decoder and matcher fail closed on invalid, malformed, binary, ambiguous, and oversized input", () => {
+  for (const value of [null, undefined, 42, {}, []]) {
+    expectCode(() => audit.decodeInspectableText(value), "invalid_audit_input");
+  }
+  expectCode(() => audit.decodeInspectableText(Buffer.from([0xc3, 0x28])), "malformed_text_encoding");
+  expectCode(() => audit.decodeInspectableText(Buffer.from([0xff, 0xfe, 0x61])), "malformed_text_encoding");
+  expectCode(() => audit.decodeInspectableText(Buffer.from([0x61, 0x00])), "binary_audit_input");
+  expectCode(
+    () => audit.decodeInspectableText(Buffer.from([0xef, 0xbb, 0xbf, 0xff, 0xfe])),
+    "ambiguous_text_encoding",
+  );
+  expectCode(
+    () => audit.decodeInspectableText(Buffer.from("12345", "utf8"), { maxBlobBytes: 4 }),
+    "audit_input_too_large",
+  );
+  expectCode(
+    () => contentScan("neutral", "src/long-name.cts", { maxPathBytes: 4 }),
+    "audit_path_too_large",
+  );
+});
+
+test("self-match scan finds no family in source, compiled core, fixture, or diagnostics", () => {
+  const inspected = [
+    "src/maintainer/brand-audit.cts",
+    "tests/maintainer/brand-audit.test.cts",
+    "dist/maintainer/brand-audit.cjs",
+    "dist-tests/maintainer/brand-audit.test.cjs",
+  ];
+  for (const relativePath of inspected) {
+    const bytes = fs.readFileSync(path.join(repositoryRoot, ...relativePath.split("/")));
+    assert.deepEqual(contentScan(bytes, relativePath), { ok: true, findingCount: 0, findings: [] });
+  }
+
+  const diagnosticValues = [
+    audit.DEFAULT_BRAND_AUDIT_LIMITS,
+    new audit.BrandAuditError("invalid_audit_input"),
+  ];
+  assert.deepEqual(contentScan(JSON.stringify(diagnosticValues)), { ok: true, findingCount: 0, findings: [] });
+});
