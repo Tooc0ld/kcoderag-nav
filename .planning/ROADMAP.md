@@ -291,7 +291,7 @@ Plans:
 
 ### Phase 04.1: 多能力安装平台与 JX3 规范提示 (INSERTED)
 
-**Goal:** 将现有单一导航安装器重构为能力可组合的项目级安装平台：KCodeRag 导航作为首个内置能力保留，新增无 Python、SVN 或网络依赖的 JX3 规范提示能力；旧手工 MCP、plugin 和 Python Hook 仅只读检测并在写前硬停止，不迁移、不接管、不自动清理。
+**Goal:** As a 使用受支持 AI 编码宿主的开发者, I want to 按项目选择并管理导航与 JX3 提示能力, so that 我能在保持能力隔离和低打扰的前提下，于写代码前获得所需规范提示.
 **Mode:** mvp
 **Requirements**: PLAT-01, PLAT-02, PLAT-03, LEG-01, JX3-01, TEST-10
 **Depends on:** Phase 4
