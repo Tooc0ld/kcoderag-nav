@@ -391,9 +391,10 @@ export function renderProjectHookCommands(
   const paths = hostPaths(host, launcher);
   const encoded = encodedBootstrap();
   const decoderWindows = "Function('require','process',Buffer.from(process.argv[1],'base64').toString('utf8'))(require,process)";
+  const escapedDecoderWindows = decoderWindows.replaceAll("(", "^(").replaceAll(")", "^)");
   const decoderPosix = "Function(\"require\",\"process\",Buffer.from(process.argv[1],\"base64\").toString(\"utf8\"))(require,process)";
   return Object.freeze({
     command: `node -e '${decoderPosix}' ${encoded} ${host} ${paths.state} ${paths.posixLauncher} posix 2>/dev/null || :`,
-    commandWindows: `node -e "${decoderWindows}" ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul & exit /b 0`,
+    commandWindows: `cmd.exe /d /s /c "node -e ${escapedDecoderWindows} ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul & exit /b 0"`,
   });
 }

@@ -16,6 +16,10 @@ const projectRoot = require("../../dist/core/project-root.cjs") as {
     readonly launcherRelativePath: string;
     readonly maxAncestors?: number;
   }): { readonly projectRoot: string; readonly launcherPath: string } | undefined;
+  renderProjectHookCommands(
+    host: "codex" | "claude",
+    launcher?: "advisory" | "mcp-call-marker",
+  ): { readonly command: string; readonly commandWindows: string };
 };
 const targets = require("../../dist/core/project-target.cjs") as {
   resolveProjectTarget(target: string): Record<string, unknown>;
@@ -398,6 +402,18 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
   }
 });
 
+test("Windows project commands contain fail-open control flow inside one nested cmd boundary", () => {
+  for (const host of ["codex", "claude"] as const) {
+    for (const launcher of ["advisory", "mcp-call-marker"] as const) {
+      const command = projectRoot.renderProjectHookCommands(host, launcher).commandWindows;
+      assert.match(command, /^cmd\.exe \/d \/s \/c "node -e /u);
+      assert.match(command, / 2>nul & exit \/b 0"$/u);
+      assert.equal(command.match(/"/gu)?.length, 2);
+      assert.doesNotMatch(command, /node -e "/u);
+    }
+  }
+});
+
 test("installed Codex and Claude commands run from project root and a Unicode deep child", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-rendered-command-"));
   try {
@@ -511,13 +527,14 @@ test("complete project copies and renames keep root and deep registered commands
           `${host} moved Windows deep`,
         );
         assertSilentSuccess(runRenderedWindows(installed.command.commandWindows, moved, "not-json"));
-        const emptyPath = path.join(base, `${host}-empty-path`);
-        fs.mkdirSync(emptyPath);
+        const commandProcessorDirectory = path.dirname(
+          process.env.ComSpec ?? process.env.COMSPEC ?? "C:\\Windows\\System32\\cmd.exe",
+        );
         assertSilentSuccess(runRenderedWindows(
           installed.command.commandWindows,
           moved,
           structuralPayload,
-          environment({ PATH: emptyPath }),
+          environment({ PATH: commandProcessorDirectory }),
         ));
       }
       const shellExecutable = posixShell();
