@@ -34,12 +34,6 @@ export interface SourceFinding {
   readonly sourceType: SourceType;
   readonly scope: SourceScope;
   readonly safePath: string;
-  /** Compile-only seam for the not-yet-replaced public controller; runtime findings omit it. */
-  readonly cleanupEligible?: boolean;
-  /** Compile-only seam for Plan 07-owned callers; never populated by current adapters. */
-  readonly cleanupCommand?: string;
-  /** Compile-only seam for Plan 07-owned callers; never populated by current adapters. */
-  readonly cleanupFingerprint?: string;
 }
 
 export interface StatusIssue {

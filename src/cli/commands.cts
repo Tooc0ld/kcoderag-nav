@@ -550,8 +550,6 @@ export async function executeCommand(
       packageRoot,
       environment: QA_ENVIRONMENT,
       observation,
-      allowLegacyUserRemoval: false,
-      allowLegacyDevMigration: false,
       selectedCapabilities: renderSelection,
     };
     const desired = args.command === "uninstall"

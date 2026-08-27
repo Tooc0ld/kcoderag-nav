@@ -49,21 +49,6 @@ export interface SourceScanResult {
   readonly mode: SourceScanMode;
   readonly findings: readonly SourceFinding[];
   readonly hasConflict: boolean;
-  /** Compile-only Plan 07 seam. Current runtime results intentionally omit this property. */
-  readonly cleanupPlans: readonly NativeCleanupPlan[];
-}
-
-/** Compile-only shape consumed by the Plan 07-owned controller; no runtime factory exists. */
-export interface NativeCleanupPlan {
-  readonly safePath: string;
-  readonly command: string;
-  readonly fingerprint: string;
-}
-
-/** Compile-only shape consumed by the Plan 07-owned controller; no adapter accepts it. */
-export interface OwnedCleanupAuthority {
-  readonly allowOwnedSourceCleanup: boolean;
-  readonly cleanupFingerprint?: string;
 }
 
 /** Read-only host probes may execute bounded native inventory commands. */

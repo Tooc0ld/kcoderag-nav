@@ -14,12 +14,7 @@ import type {
   CapabilityContribution,
   CapabilityId,
 } from "../capabilities/contracts.cjs";
-import type {
-  NativeCleanupPlan,
-  OwnedCleanupAuthority,
-  SourceScanMode,
-  SourceScanResult,
-} from "./user-sources.cjs";
+import type { SourceScanMode, SourceScanResult } from "./user-sources.cjs";
 
 export type MutationCommand = "install" | "update";
 
@@ -42,10 +37,6 @@ export interface HostObservation {
   readonly host: HostId;
   readonly target: ProjectTarget;
   readonly currentState?: InstallState;
-  /** Compile-only seam for the Plan 07-owned controller; current adapters never set it. */
-  readonly legacyEnvironment?: CurrentEnvironmentId | "dev";
-  /** Compile-only seam for the Plan 07-owned controller; current adapters never set it. */
-  readonly legacyUserRemoval?: { readonly path: string };
   readonly issues?: readonly StatusIssue[];
   readonly details?: unknown;
 }
@@ -56,20 +47,12 @@ export interface HostInstallContext extends HostReadContext {
   readonly observation: HostObservation;
   /** Install selection or, for update, the contributor projection filter. */
   readonly selectedCapabilities?: readonly CapabilityId[];
-  /** Compile-only Plan 07 seam; current adapters ignore it. */
-  readonly allowLegacyUserRemoval: boolean;
-  /** Compile-only Plan 07 seam; current adapters ignore it. */
-  readonly allowLegacyDevMigration: boolean;
 }
 
 export interface HostUninstallContext extends HostReadContext {
   readonly environment: CurrentEnvironmentId;
   readonly observation: HostObservation;
   readonly selectedCapabilities?: readonly CapabilityId[];
-  /** Compile-only Plan 07 seam; current adapters ignore it. */
-  readonly allowLegacyUserRemoval: boolean;
-  /** Compile-only Plan 07 seam; current adapters ignore it. */
-  readonly allowLegacyDevMigration: boolean;
 }
 
 export interface HostStatusContext extends HostReadContext {
@@ -96,11 +79,6 @@ export interface HostAdapter {
   status(context: HostStatusContext): StatusResult;
   /** Optional until a host implements the shared selected-host source contract. */
   scanUserSources?(context: HostSourceScanContext): Promise<SourceScanResult> | SourceScanResult;
-  /** Compile-only Plan 07 seam; current adapter objects never implement it. */
-  cleanupOwnedSource?(
-    plan: NativeCleanupPlan,
-    authority: OwnedCleanupAuthority,
-  ): Promise<SourceScanResult>;
 }
 
 export function assertHostAdapter(value: unknown, expectedHost: HostId): HostAdapter {

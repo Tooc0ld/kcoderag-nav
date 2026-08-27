@@ -107,6 +107,10 @@ const ACTIVE_SOURCE_ROOTS = Object.freeze([
   "kcoderag-cursor",
 ]);
 
+const HISTORICAL_EVIDENCE_SOURCE_PATHS = new Set([
+  "src/maintainer/head-acceptance.cts",
+]);
+
 const PUBLIC_RUNTIME_ROOTS = Object.freeze([
   "plugin-src",
   "kcoderag-qa",
@@ -638,7 +642,10 @@ function scanActiveRetirementPolicy(root: string): void {
     if (PUBLIC_RUNTIME_ROOTS.some((runtimeRoot) => isWithinRoot(relativePath, runtimeRoot))) {
       failUnless(!/\.(?:cts|mts|ts|tsx)$/u.test(lower), "runtime_source_remains");
     }
-    if (relativePath === "src/maintainer/retirement-audit.cts") continue;
+    if (
+      relativePath === "src/maintainer/retirement-audit.cts" ||
+      HISTORICAL_EVIDENCE_SOURCE_PATHS.has(relativePath)
+    ) continue;
     const absolute = path.join(root, ...relativePath.split("/"));
     failUnless(fs.lstatSync(absolute).isFile(), "unsafe_active_artifact");
     const text = fs.readFileSync(absolute, "utf8");
