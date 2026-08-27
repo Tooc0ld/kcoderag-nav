@@ -209,3 +209,105 @@ test("self-match scan finds no family in source, compiled core, fixture, or diag
   ];
   assert.deepEqual(contentScan(JSON.stringify(diagnosticValues)), { ok: true, findingCount: 0, findings: [] });
 });
+
+test("safe diagnostic findings expose exact metadata keys without raw path or content", () => {
+  const alias = firstAlias("F001");
+  const secretCanary = points([0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x2d, 0x63, 0x61, 0x6e, 0x61, 0x72, 0x79]);
+  const matchingComponent = `${alias}-${secretCanary}`;
+  const exactPath = `private/${matchingComponent}/config.json`;
+  const pathResult = audit.scanBrandText(exactPath, { scope: "tar_path", exactPath });
+  assert.equal(pathResult.findingCount, 1);
+  assert.deepEqual(Object.keys(pathResult.findings[0]!).sort(), [
+    "category",
+    "code",
+    "componentCount",
+    "componentIndex",
+    "familyId",
+    "pathToken",
+    "placeholder",
+    "scope",
+  ]);
+  assert.deepEqual(pathResult.findings[0], {
+    code: "brand_family_detected",
+    scope: "tar_path",
+    familyId: "F001",
+    category: "path",
+    pathToken: pathResult.findings[0]!.pathToken,
+    placeholder: "<F001>",
+    componentIndex: 2,
+    componentCount: 3,
+  });
+  assert.match(pathResult.findings[0]!.pathToken, /^[0-9a-f]{64}$/u);
+
+  const contentResult = contentScan(`line one\n${alias} ${secretCanary}`, exactPath);
+  assert.deepEqual(Object.keys(contentResult.findings[0]!).sort(), [
+    "category",
+    "code",
+    "column",
+    "familyId",
+    "line",
+    "pathToken",
+    "placeholder",
+    "scope",
+  ]);
+  assert.equal(contentResult.findings[0]!.line, 2);
+  assert.equal(contentResult.findings[0]!.column, 1);
+
+  for (const serialized of [JSON.stringify(pathResult), JSON.stringify(contentResult)]) {
+    assert.equal(serialized.includes(exactPath), false);
+    assert.equal(serialized.includes(matchingComponent), false);
+    assert.equal(serialized.includes(alias), false);
+    assert.equal(serialized.includes(secretCanary), false);
+  }
+});
+
+test("private remediation receives the validated path without making it serializable", () => {
+  const alias = firstAlias("F002");
+  const exactPath = "private/remediation/source.cts";
+  const privateFindings: PrivateFinding[] = [];
+  const result = audit.scanBrandText(`prefix ${alias} suffix`, {
+    scope: "git_content",
+    exactPath,
+    onPrivateFinding: (finding) => privateFindings.push(finding),
+  });
+
+  assert.equal(privateFindings.length, 1);
+  assert.equal(privateFindings[0]!.exactPath, exactPath);
+  assert.strictEqual(privateFindings[0]!.finding, result.findings[0]);
+  assert.equal(JSON.stringify(result).includes(exactPath), false);
+  assert.deepEqual(Object.keys(result).sort(), ["findingCount", "findings", "ok"]);
+});
+
+test("secret canary and callback failures collapse to one stable public error", () => {
+  const alias = firstAlias("F003");
+  const secretCanary = points([0x70, 0x72, 0x69, 0x76, 0x61, 0x74, 0x65, 0x2d, 0x76, 0x61, 0x6c, 0x75, 0x65]);
+  const exactPath = `private/${secretCanary}/source.lua`;
+  let captured: unknown;
+  try {
+    audit.scanBrandText(alias, {
+      scope: "tar_content",
+      exactPath,
+      onPrivateFinding: () => {
+        throw new Error(`${exactPath}:${alias}:${secretCanary}`);
+      },
+    });
+  } catch (error) {
+    captured = error;
+  }
+  assert.ok(captured instanceof Error);
+  assert.equal((captured as Error & { code?: string }).code, "private_remediation_failed");
+  const serialized = JSON.stringify({
+    name: (captured as Error).name,
+    message: (captured as Error).message,
+    code: (captured as Error & { code?: string }).code,
+  });
+  assert.equal(serialized.includes(exactPath), false);
+  assert.equal(serialized.includes(alias), false);
+  assert.equal(serialized.includes(secretCanary), false);
+
+  expectCode(() => audit.scanBrandText(alias, {
+    scope: "git_content",
+    exactPath,
+    onPrivateFinding: 42 as unknown as (finding: PrivateFinding) => void,
+  }), "invalid_audit_options");
+});
