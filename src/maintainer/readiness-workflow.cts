@@ -381,13 +381,21 @@ function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>): Cand
   const artifactPath = path.join(artifactRoot, input.artifactName);
   let handle: number | undefined;
   try {
+    const runnerTempInput = process.env.RUNNER_TEMP ?? "";
+    failUnless(runnerTempInput.length > 0, "downloaded_artifact_invalid");
     const rootMetadata = fs.lstatSync(artifactRoot);
     const fileMetadata = fs.lstatSync(artifactPath);
+    const runnerTemp = fs.realpathSync(path.resolve(runnerTempInput));
     const realRoot = fs.realpathSync(artifactRoot);
     const realFile = fs.realpathSync(artifactPath);
+    const relativeRoot = path.relative(runnerTemp, realRoot);
     failUnless(
       rootMetadata.isDirectory()
         && !rootMetadata.isSymbolicLink()
+        && relativeRoot.length > 0
+        && relativeRoot !== ".."
+        && !relativeRoot.startsWith(`..${path.sep}`)
+        && !path.isAbsolute(relativeRoot)
         && fileMetadata.isFile()
         && !fileMetadata.isSymbolicLink()
         && path.dirname(realFile) === realRoot,
