@@ -64,10 +64,10 @@ jobs:
         run: npm run docs:check
       - name: Audit retired authority directly
         run: npm run audit:retirement
-      - name: Audit real npm tarball
-        run: npm run pack:audit
-      - name: Run required five-host contract smoke
-        run: npm run smoke:required
+      - name: Test npm package contract
+        run: npm run test:pack
+      - name: Test five-host smoke contract
+        run: npm run test:smoke
 
   authenticated-live:
     name: Optional authenticated host smoke
