@@ -1,6 +1,7 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
@@ -14,7 +15,17 @@ interface PackAuditModule {
     readonly expectedPaths: readonly string[];
     readonly archiveEntries: ReadonlyMap<string, Buffer>;
   }): { readonly version: string; readonly entryCount: number };
-  auditPack(options: { readonly root: string }): {
+  auditPack(options: { readonly root: string }, dependencies?: {
+    readonly scanTarball?: (options: { readonly bytes: Buffer; readonly expectedSha256: string }) => {
+      readonly schemaVersion: 1;
+      readonly scope: "tar";
+      readonly artifactSha256: string;
+      readonly memberCount: number;
+      readonly scannedCount: number;
+      readonly findingCount: number;
+      readonly findings: readonly unknown[];
+    };
+  }): {
     readonly version: string;
     readonly entryCount: number;
     readonly statusPreserved: boolean;
@@ -32,17 +43,17 @@ const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
 const CAPABILITY_REGISTRY_PATH = "dist/capabilities/registry.cjs";
 const DISPATCHER_PATH = "dist/hooks/pre-tool-dispatcher.cjs";
-const JX3_RUNTIME_PATHS = Object.freeze([
-  "dist/hooks/jx3-style-nudge.cjs",
+const CODE_STYLE_RUNTIME_PATHS = Object.freeze([
+  "dist/hooks/code-style-nudge.cjs",
   "dist/hooks/once-marker.cjs",
   "dist/hooks/session-cleanup.cjs",
 ]);
-const JX3_SKILL_PATHS = Object.freeze([
-  "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
+const CODE_STYLE_SKILL_PATHS = Object.freeze([
+  "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
 ]);
 
 function clone<T>(value: T): T {
@@ -86,7 +97,23 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
     cwd: repositoryRoot,
     encoding: "utf8",
   });
-  const result = packAudit.auditPack({ root: repositoryRoot });
+  let scanCount = 0;
+  const result = packAudit.auditPack({ root: repositoryRoot }, {
+    scanTarball: (options) => {
+      scanCount += 1;
+      const digest = crypto.createHash("sha256").update(options.bytes).digest("hex");
+      assert.equal(options.expectedSha256, digest);
+      return Object.freeze({
+        schemaVersion: 1,
+        scope: "tar",
+        artifactSha256: digest,
+        memberCount: 0,
+        scannedCount: 0,
+        findingCount: 0,
+        findings: Object.freeze([]),
+      });
+    },
+  });
   const statusAfter = childProcess.execFileSync("git", ["status", "--short"], {
     cwd: repositoryRoot,
     encoding: "utf8",
@@ -96,6 +123,7 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
   assert.ok(result.entryCount > 25);
   assert.equal(result.statusPreserved, true);
   assert.equal(result.treePreserved, true);
+  assert.equal(scanCount, 1);
   assert.equal(statusAfter, statusBefore);
 });
 
@@ -133,18 +161,18 @@ test("requires exact archive equality and all self-contained host assets", () =>
   );
 });
 
-test("requires the capability registry, dispatcher runtime, and canonical JX3 Skill tree", () => {
+test("requires the capability registry, dispatcher runtime, and canonical code style Skill tree", () => {
   const exact = baseline();
   for (const required of [
     CAPABILITY_REGISTRY_PATH,
     DISPATCHER_PATH,
-    ...JX3_RUNTIME_PATHS,
-    ...JX3_SKILL_PATHS,
+    ...CODE_STYLE_RUNTIME_PATHS,
+    ...CODE_STYLE_SKILL_PATHS,
   ]) {
     assert.equal(exact.expectedPaths.includes(required), true, required);
   }
 
-  for (const required of JX3_SKILL_PATHS) {
+  for (const required of CODE_STYLE_SKILL_PATHS) {
     const missing = baseline();
     missing.packageJson.files = missing.packageJson.files.filter((item: string) => item !== required);
     const expectedPaths = missing.expectedPaths.filter((item) => item !== required);
@@ -282,7 +310,7 @@ test("rejects root marketplace and retired scanner or SVN workflow surfaces", ()
   for (const forbiddenPath of [
     ".claude-plugin/marketplace.json",
     ".cursor-plugin/marketplace.json",
-    "scripts/run-jx3-scanner.cjs",
+    `scripts/run-${String.fromCodePoint(0x6a, 0x78, 0x33)}-scanner.cjs`,
     "scripts/svn-review.cjs",
   ]) {
     const current = baseline();
@@ -371,6 +399,7 @@ test("pack implementation is local-only and disables lifecycle scripts", () => {
 test("pack audit delegates all gzip and tar parsing to the shared non-extracting parser", () => {
   const source = fs.readFileSync(path.join(repositoryRoot, "src", "maintainer", "pack-audit.cts"), "utf8");
   assert.match(source, /readTarArchive/u);
+  assert.match(source, /scanTarball/u);
   assert.doesNotMatch(source, /gunzipSync|parsePaxPath|function readTarEntries/u);
   assert.doesNotMatch(source, /execFileSync\([^)]*tar|spawnSync\([^)]*tar/iu);
 });

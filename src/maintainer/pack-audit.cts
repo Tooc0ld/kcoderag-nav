@@ -6,7 +6,8 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
-const zlib = require("node:zlib") as typeof import("node:zlib");
+const brandAudit = require("./brand-audit.cjs") as typeof import("./brand-audit.cjs");
+const tarArchive = require("./tar-archive.cjs") as typeof import("./tar-archive.cjs");
 
 type JsonMap = Record<string, any>;
 
@@ -35,7 +36,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "dist/core/mutation-lock.cjs",
   "dist/core/project-root.cjs",
   "dist/core/transaction.cjs",
-  "dist/hooks/jx3-style-nudge.cjs",
+  "dist/hooks/code-style-nudge.cjs",
   "dist/hooks/once-marker.cjs",
   "dist/hooks/pre-tool-dispatcher.cjs",
   "dist/hooks/session-cleanup.cjs",
@@ -63,11 +64,11 @@ const REQUIRED_ASSETS = Object.freeze([
   "kcoderag-cursor/mcp.json",
   "kcoderag-cursor/rules/kcoderag-navigation.mdc",
   "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/SKILL.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/change-hygiene-self-review.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/cpp-lifetime-control-flow.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/lua-contracts.md",
-  "plugin-src/capabilities/jx3-style-nudge/skill/references/protocol-serialization-data.md",
+  "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
+  "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
 ]);
 
 const VERSION_MANIFESTS = Object.freeze([
@@ -126,6 +127,10 @@ function normalizeRelative(relativePath: string): string {
     throw new PackAuditError("files_policy_invalid");
   }
   return value;
+}
+
+interface PackAuditDependencies {
+  readonly scanTarball?: typeof brandAudit.scanTarball;
 }
 
 function assertNotRetiredProductPath(relativePath: string): void {
@@ -336,75 +341,17 @@ export function validatePack(input: {
   return Object.freeze({ version: packageJson.version, entryCount: actualPaths.length });
 }
 
-function parseOctal(bytes: Buffer): number {
-  const value = bytes.toString("ascii").replace(/\0.*$/u, "").trim();
-  if (!/^[0-7]*$/u.test(value)) throw new PackAuditError("tar_invalid");
-  return value.length === 0 ? 0 : Number.parseInt(value, 8);
-}
-
-function tarString(bytes: Buffer): string {
-  const end = bytes.indexOf(0);
-  return bytes.subarray(0, end < 0 ? bytes.length : end).toString("utf8");
-}
-
-function parsePaxPath(bytes: Buffer): string | undefined {
-  let offset = 0;
-  let found: string | undefined;
-  while (offset < bytes.length) {
-    const space = bytes.indexOf(0x20, offset);
-    if (space < 0) break;
-    const length = Number.parseInt(bytes.subarray(offset, space).toString("ascii"), 10);
-    if (!Number.isSafeInteger(length) || length <= 0 || offset + length > bytes.length) break;
-    const record = bytes.subarray(space + 1, offset + length - 1).toString("utf8");
-    const equals = record.indexOf("=");
-    if (equals > 0 && record.slice(0, equals) === "path") found = record.slice(equals + 1);
-    offset += length;
-  }
-  return found;
-}
-
-function stripPackageRoot(value: string): string {
-  if (!value.startsWith("package/")) throw new PackAuditError("tar_invalid");
-  return normalizeRelative(value.slice("package/".length));
-}
-
-function readTarEntries(tarball: string): ReadonlyMap<string, Buffer> {
-  let tar: Buffer;
+function archiveFileEntries(tarballBytes: Buffer): ReadonlyMap<string, Buffer> {
   try {
-    tar = zlib.gunzipSync(fs.readFileSync(tarball));
-  } catch {
-    throw new PackAuditError("tar_invalid");
-  }
-  const entries = new Map<string, Buffer>();
-  let offset = 0;
-  let pendingPath: string | undefined;
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) break;
-    const name = tarString(header.subarray(0, 100));
-    const prefix = tarString(header.subarray(345, 500));
-    const headerPath = prefix.length > 0 ? `${prefix}/${name}` : name;
-    const size = parseOctal(header.subarray(124, 136));
-    const type = header[156] ?? 0;
-    const bodyStart = offset + 512;
-    const bodyEnd = bodyStart + size;
-    if (bodyEnd > tar.length) throw new PackAuditError("tar_invalid");
-    const body = tar.subarray(bodyStart, bodyEnd);
-    if (type === 0x78) {
-      pendingPath = parsePaxPath(body) ?? pendingPath;
-    } else if (type === 0x4c) {
-      pendingPath = tarString(body);
-    } else if (type === 0 || type === 0x30) {
-      const relativePath = stripPackageRoot(pendingPath ?? headerPath);
-      if (entries.has(relativePath)) throw new PackAuditError("tar_invalid");
-      entries.set(relativePath, Buffer.from(body));
-      pendingPath = undefined;
-    } else if (type !== 0x35) {
-      throw new PackAuditError("tar_invalid");
+    const entries = new Map<string, Buffer>();
+    for (const entry of tarArchive.readTarArchive(tarballBytes)) {
+      if (entry.type === "file") entries.set(entry.path, Buffer.from(entry.body));
     }
-    offset = bodyStart + Math.ceil(size / 512) * 512;
+    return entries;
+  } catch (error) {
+    if (error instanceof tarArchive.TarArchiveError) throw new PackAuditError("tar_invalid");
+    throw error;
   }
-  return entries;
 }
 
 function npmInvocation(): { executable: string; prefix: readonly string[] } {
@@ -495,7 +442,10 @@ function npmPackFileList(stdout: Buffer): { readonly filename: string; readonly 
 }
 
 /** Build and inspect a real local tarball without publishing or changing the repository. */
-export function auditPack(options: { readonly root: string }): PackAuditResult {
+export function auditPack(
+  options: { readonly root: string },
+  dependencies: PackAuditDependencies = {},
+): PackAuditResult {
   const root = path.resolve(options.root);
   const before = repositorySnapshot(root);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-pack-audit-"));
@@ -514,7 +464,20 @@ export function auditPack(options: { readonly root: string }): PackAuditResult {
       temporary,
     ], true));
     const tarball = path.join(temporary, packed.filename);
-    const archiveEntries = readTarEntries(tarball);
+    const tarballBytes = fs.readFileSync(tarball);
+    const artifactSha256 = crypto.createHash("sha256").update(tarballBytes).digest("hex");
+    let brandResult: ReturnType<typeof brandAudit.scanTarball>;
+    try {
+      brandResult = (dependencies.scanTarball ?? brandAudit.scanTarball)({
+        bytes: tarballBytes,
+        expectedSha256: artifactSha256,
+      });
+    } catch (error) {
+      if (error instanceof brandAudit.BrandAuditError) throw new PackAuditError(error.code);
+      throw error;
+    }
+    if (brandResult.findingCount !== 0) throw new PackAuditError("brand_family_detected");
+    const archiveEntries = archiveFileEntries(tarballBytes);
     const archivePaths = [...archiveEntries.keys()].sort(compare);
     assertNoNonPublishedCompiledOutputs(packed.paths);
     if (

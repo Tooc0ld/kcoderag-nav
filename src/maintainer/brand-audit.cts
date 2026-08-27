@@ -2,6 +2,7 @@
 
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
+const tarArchive = require("./tar-archive.cjs") as typeof import("./tar-archive.cjs");
 
 export type BrandFamilyId = "F001" | "F002" | "F003";
 export type BrandAuditScope = "git_path" | "git_content" | "tar_path" | "tar_content";
@@ -66,6 +67,23 @@ export interface GitTreeScanResult {
   readonly scope: "git";
   readonly subject: string;
   readonly tree: string;
+  readonly scannedCount: number;
+  readonly findingCount: number;
+  readonly findings: readonly BrandAuditFinding[];
+}
+
+export interface TarballScanOptions {
+  readonly bytes: Buffer;
+  readonly expectedSha256: string;
+  readonly limits?: Partial<BrandAuditLimits>;
+  readonly onPrivateFinding?: (finding: PrivateBrandFinding) => void;
+}
+
+export interface TarballScanResult {
+  readonly schemaVersion: 1;
+  readonly scope: "tar";
+  readonly artifactSha256: string;
+  readonly memberCount: number;
   readonly scannedCount: number;
   readonly findingCount: number;
   readonly findings: readonly BrandAuditFinding[];
@@ -581,6 +599,56 @@ export function scanGitTree(
     scope: "git",
     subject,
     tree,
+    scannedCount: entries.length,
+    findingCount: findings.length,
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Verify and scan every validated member of one immutable actual package archive. */
+export function scanTarball(options: TarballScanOptions): TarballScanResult {
+  failUnless(isPlainObject(options), "invalid_tarball_options");
+  failUnless(Buffer.isBuffer(options.bytes), "invalid_tarball_bytes");
+  failUnless(typeof options.expectedSha256 === "string" && /^[0-9a-f]{64}$/u.test(options.expectedSha256),
+    "invalid_tarball_sha");
+  failUnless(options.onPrivateFinding === undefined || typeof options.onPrivateFinding === "function",
+    "invalid_tarball_options");
+  const limits = resolveLimits(options.limits);
+  failUnless(options.bytes.length <= limits.maxArchiveBytes, "tar_archive_too_large");
+  const artifactSha256 = crypto.createHash("sha256").update(options.bytes).digest("hex");
+  failUnless(
+    crypto.timingSafeEqual(Buffer.from(artifactSha256, "ascii"), Buffer.from(options.expectedSha256, "ascii")),
+    "tarball_sha_mismatch",
+  );
+  const entries = tarArchive.readTarArchive(options.bytes, {
+    maxArchiveBytes: limits.maxArchiveBytes,
+    maxInflatedBytes: limits.maxArchiveBytes,
+    maxMemberBytes: limits.maxMemberBytes,
+    maxEntries: limits.maxEntries,
+    maxPathBytes: limits.maxPathBytes,
+  });
+  const findings: BrandAuditFinding[] = [];
+  for (const entry of entries) {
+    addFindings(findings, scanBrandText(entry.path, {
+      scope: "tar_path",
+      exactPath: entry.path,
+      limits,
+      ...(options.onPrivateFinding === undefined ? {} : { onPrivateFinding: options.onPrivateFinding }),
+    }));
+    if (entry.type === "file") {
+      addFindings(findings, scanBrandText(entry.body, {
+        scope: "tar_content",
+        exactPath: entry.path,
+        limits,
+        ...(options.onPrivateFinding === undefined ? {} : { onPrivateFinding: options.onPrivateFinding }),
+      }));
+    }
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    scope: "tar",
+    artifactSha256,
+    memberCount: entries.length,
     scannedCount: entries.length,
     findingCount: findings.length,
     findings: Object.freeze(findings),
