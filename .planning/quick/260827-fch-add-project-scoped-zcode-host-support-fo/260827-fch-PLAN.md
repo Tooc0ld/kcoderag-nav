@@ -1,7 +1,7 @@
 ---
 quick_id: 260827-fch
 slug: add-project-scoped-zcode-host-support-fo
-status: in_progress
+status: complete
 description: Add project-scoped ZCode host support for navigation MCP and Skill, with honest unsupported Hook/JX3 boundaries and five-host lifecycle coverage
 ---
 

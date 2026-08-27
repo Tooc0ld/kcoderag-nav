@@ -4,10 +4,10 @@ current_phase: 04.2
 current_phase_name: 公开版本去品牌化
 status: planning
 stopped_at: Phase 04.2 inserted, ready to discuss and plan
-last_updated: "2026-08-27T03:34:51.034Z"
+last_updated: "2026-08-27T03:43:26.807Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 04.2 inserted after Phase 04.1
-state_head: 6029456d4c78812c593ca4f3161acf3e4f25c4d5
+last_activity_desc: "Completed quick task 260827-fch: Add project-scoped ZCode host support for navigation MCP and Skill"
+state_head: 9c7d0c53c76985774b8df81610cdc8fb4e57bc9b
 progress:
   total_phases: 11
   completed_phases: 6
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 Phase: 04.2 — 公开版本去品牌化
 Plan: Not started
 Status: Ready to discuss and plan
-Last activity: 2026-08-27 — Phase 04.2 inserted after Phase 04.1
+Last activity: 2026-08-27 - Completed quick task 260827-fch: Add project-scoped ZCode host support for navigation MCP and Skill
 
 Progress: [█████░░░░░] 55%
 
@@ -342,6 +342,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260824-ecs | Enable stricter TypeScript compiler checks in source and test configs and verify the build | 2026-08-24 | 7dcbbfa | [260824-ecs-enable-stricter-typescript-compiler-chec](./quick/260824-ecs-enable-stricter-typescript-compiler-chec/) |
 | 260826-dut | Add project-only OpenCode support and four-host successful MCP-call markers | 2026-08-26 | 8e317b6, KCodeRag:5568e4c0 | [260826-dut-add-project-only-opencode-host-support-a](./quick/260826-dut-add-project-only-opencode-host-support-a/) |
 | 260826-uvk | Unify offline update checks and native notices across Codex, Claude Code, Cursor, and OpenCode | 2026-08-26 | 8aadcef, 8402f05, KCodeRag:7b32a794 | [260826-uvk-codex-claude-code-cursor-opencode](./quick/260826-uvk-codex-claude-code-cursor-opencode/) |
+| 260827-fch | Add project-scoped ZCode host support for navigation MCP and Skill | 2026-08-27 | 903506f, KCodeRag:6891fd14 | [260827-fch-add-project-scoped-zcode-host-support-fo](./quick/260827-fch-add-project-scoped-zcode-host-support-fo/) |
 
 ### Roadmap Evolution
 
