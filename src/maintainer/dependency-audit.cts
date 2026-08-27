@@ -140,7 +140,7 @@ function assertPackageAndScriptPolicy(packageJson: JsonMap): void {
   );
   throwUnless(
     packageJson.scripts["ci:local"] ===
-      "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run pack:audit && npm run smoke:required",
+      "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack && npm run test:smoke",
     "script_policy_drift",
   );
   throwUnless(
