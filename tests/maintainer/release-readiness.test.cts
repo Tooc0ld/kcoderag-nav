@@ -118,7 +118,7 @@ function runner(bytes: Buffer, dryFiles: readonly string[] = ["README.md", "pack
       const destination = args[destinationIndex + 1];
       assert.equal(typeof destination, "string");
       fs.writeFileSync(path.join(destination as string, "kcoderag-nav-0.3.0.tgz"), bytes);
-      return manifest(["README.md", "package.json"]);
+      return manifest(dryFiles);
     },
   };
 }

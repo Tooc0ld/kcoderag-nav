@@ -7,7 +7,10 @@ const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const brandAudit = require("./brand-audit.cjs") as typeof import("./brand-audit.cjs");
+const releaseReadiness = require("./release-readiness.cjs") as typeof import("./release-readiness.cjs");
 const tarArchive = require("./tar-archive.cjs") as typeof import("./tar-archive.cjs");
+
+import type { CandidatePackageArtifactLease } from "./release-readiness.cjs";
 
 type JsonMap = Record<string, any>;
 
@@ -16,6 +19,11 @@ export interface PackAuditResult {
   readonly entryCount: number;
   readonly statusPreserved: boolean;
   readonly treePreserved: boolean;
+}
+
+export interface PackAuditArtifactResult extends PackAuditResult {
+  readonly artifactSha256: string;
+  readonly memberCount: number;
 }
 
 export class PackAuditError extends Error {
@@ -93,6 +101,7 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/fixtures/host-delivery.cjs",
   "dist/maintainer/head-acceptance.cjs",
   "dist/maintainer/pre-release-evidence.cjs",
+  "dist/maintainer/release-readiness.cjs",
   "dist/maintainer/retirement-audit.cjs",
 ]);
 
@@ -418,6 +427,50 @@ function repositorySnapshot(root: string): { readonly status: Buffer; readonly t
   return Object.freeze({ status, tree: digest.digest("hex") });
 }
 
+/** Validate a readiness-owned archive snapshot without packing or reopening its private path. */
+export function auditPackArtifact(
+  lease: CandidatePackageArtifactLease,
+  options: { readonly root: string },
+): PackAuditArtifactResult {
+  const root = path.resolve(options.root);
+  const before = repositorySnapshot(root);
+  let completed: PackAuditArtifactResult | undefined;
+  let failure: unknown;
+  try {
+    const packageJson = parseJson(fs.readFileSync(path.join(root, "package.json")), "package_manifest_invalid");
+    const expectedPaths = expandPackageFiles(root, packageJson);
+    completed = releaseReadiness.withCandidatePackageBytes(lease, "pack-audit", (bytes, artifact) => {
+      const archiveEntries = archiveFileEntries(bytes);
+      const validated = validatePack({ packageJson, expectedPaths, archiveEntries });
+      if (validated.version !== artifact.version || archiveEntries.size !== artifact.memberCount) {
+        throw new PackAuditError("artifact_metadata_drift");
+      }
+      return Object.freeze({
+        ...validated,
+        artifactSha256: artifact.sha256,
+        memberCount: artifact.memberCount,
+        statusPreserved: true,
+        treePreserved: true,
+      });
+    });
+  } catch (error) {
+    failure = error;
+  }
+  const after = repositorySnapshot(root);
+  const statusPreserved = before.status.equals(after.status);
+  const treePreserved = before.tree === after.tree;
+  if (!statusPreserved) throw new PackAuditError("repository_status_mutated");
+  if (!treePreserved) throw new PackAuditError("repository_tree_mutated");
+  if (failure !== undefined) {
+    if (failure instanceof releaseReadiness.CandidatePackageArtifactError) {
+      throw new PackAuditError(failure.code);
+    }
+    throw failure;
+  }
+  if (completed === undefined) throw new PackAuditError("pack_audit_failed");
+  return Object.freeze({ ...completed, statusPreserved, treePreserved });
+}
+
 function npmPackFileList(stdout: Buffer): { readonly filename: string; readonly paths: readonly string[] } {
   let value: unknown;
   try {
@@ -521,6 +574,7 @@ export function main(argv: readonly string[] = process.argv.slice(2)): number {
 exports.PackAuditError = PackAuditError;
 exports.NON_PUBLISHED_COMPILED_OUTPUTS = NON_PUBLISHED_COMPILED_OUTPUTS;
 exports.auditPack = auditPack;
+exports.auditPackArtifact = auditPackArtifact;
 exports.expandPackageFiles = expandPackageFiles;
 exports.main = main;
 exports.validatePack = validatePack;
