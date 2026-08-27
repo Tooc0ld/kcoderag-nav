@@ -46,6 +46,7 @@ test("ZCode projects native workspace MCP and Skill without claiming project Hoo
     assert.equal(rendered.mcp.servers["kcoderag-qa"].type, "http");
     assert.equal("enable" in rendered.mcp.servers["kcoderag-qa"], false);
     assert.equal(typeof rendered.mcp.servers["kcoderag-qa"].url, "string");
+    assert.equal(rendered.mcp.servers["kcoderag-qa"].url.endsWith("/"), false);
     assert.equal(typeof rendered.mcp.servers["kcoderag-qa"].headers.Authorization, "string");
     assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag-nav/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".zcode/kcoderag-nav/hooks")), false);
