@@ -368,6 +368,16 @@ Plans:
 
 - [ ] TBD (run $gsd-plan-phase 04.2 to break down)
 
+**Cross-cutting constraints:**
+
+- D-02/D-14：本计划只处理显式paths；每批从immutable commit验证zero-hit且public output不含raw path/match。
+- 每批编辑前记录private dirty path+hunk baseline，重叠则blocking checkpoint，未重叠才精确stage/commit。
+- Phase03.1 npx/runtime历史语义保持。
+- Phase04 deployment assurance历史语义保持。
+- D-02：Phase04.2 PLAN artifacts自身进入immutable Git zero-hit，无planning例外。
+- 中性化不改变D-01–D-18、BRAND-01–04、tasks、commands或evidence语义。
+- D-02：Phase04.2 SUMMARY artifacts自身进入immutable Git zero-hit，无planning例外。
+
 ### Phase 5: 低误报 Hook 与诚实路由
 
 **Goal:** hook 只在宽范围结构查找时提醒；精确文本、本地复核、常见 Lua 全局处理器和不可用索引都有低打扰且真实的路由。
