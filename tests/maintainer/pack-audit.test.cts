@@ -367,3 +367,10 @@ test("pack implementation is local-only and disables lifecycle scripts", () => {
   assert.match(source, /--ignore-scripts/u);
   assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/iu);
 });
+
+test("pack audit delegates all gzip and tar parsing to the shared non-extracting parser", () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, "src", "maintainer", "pack-audit.cts"), "utf8");
+  assert.match(source, /readTarArchive/u);
+  assert.doesNotMatch(source, /gunzipSync|parsePaxPath|function readTarEntries/u);
+  assert.doesNotMatch(source, /execFileSync\([^)]*tar|spawnSync\([^)]*tar/iu);
+});

@@ -4,6 +4,7 @@ const childProcess = require("node:child_process") as typeof import("node:child_
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const zlib = require("node:zlib") as typeof import("node:zlib");
 
 type FamilyId = "F001" | "F002" | "F003";
 type Scope = "git_path" | "git_content" | "tar_path" | "tar_content";
@@ -45,6 +46,16 @@ interface GitAuditResult {
   readonly findings: readonly Finding[];
 }
 
+interface TarAuditResult {
+  readonly schemaVersion: 1;
+  readonly scope: "tar";
+  readonly artifactSha256: string;
+  readonly memberCount: number;
+  readonly scannedCount: number;
+  readonly findingCount: number;
+  readonly findings: readonly Finding[];
+}
+
 interface PrivateFinding {
   readonly exactPath: string;
   readonly finding: Finding;
@@ -69,6 +80,11 @@ interface AuditModule {
   }, dependencies?: {
     readonly runGit?: (root: string, args: readonly string[], input: Buffer | undefined, maxBuffer: number) => Buffer;
   }): GitAuditResult;
+  scanTarball(options: {
+    readonly bytes: Buffer;
+    readonly expectedSha256: string;
+    readonly limits?: Partial<AuditLimits>;
+  }): TarAuditResult;
 }
 
 const audit = require("../../dist/maintainer/brand-audit.cjs") as AuditModule;
@@ -150,6 +166,38 @@ function createGitFixture(files: Readonly<Record<string, string>>): {
   git(root, ["add", "--", ...Object.keys(files)]);
   git(root, ["commit", "--quiet", "-m", "fixture"]);
   return Object.freeze({ root, subject: git(root, ["rev-parse", "HEAD"]) });
+}
+
+function tarHeader(name: string, body: Buffer): Buffer {
+  const output = Buffer.alloc(512);
+  output.write(name, 0, 100, "utf8");
+  for (const [offset, length, value] of [
+    [100, 8, 0o644], [108, 8, 0], [116, 8, 0], [124, 12, body.length], [136, 12, 0],
+  ] as const) {
+    output.write(value.toString(8).padStart(length - 1, "0"), offset, length - 1, "ascii");
+    output[offset + length - 1] = 0;
+  }
+  output.fill(0x20, 148, 156);
+  output[156] = 0x30;
+  output.write("ustar\0", 257, 6, "ascii");
+  output.write("00", 263, 2, "ascii");
+  const checksum = output.reduce((sum, byte) => sum + byte, 0);
+  output.write(checksum.toString(8).padStart(6, "0"), 148, 6, "ascii");
+  output[154] = 0;
+  output[155] = 0x20;
+  return output;
+}
+
+function tarball(entries: Readonly<Record<string, string>>): Buffer {
+  const chunks: Buffer[] = [];
+  for (const [relativePath, value] of Object.entries(entries)) {
+    const body = Buffer.from(value, "utf8");
+    chunks.push(tarHeader(`package/${relativePath}`, body), body);
+    const padding = (512 - (body.length % 512)) % 512;
+    if (padding > 0) chunks.push(Buffer.alloc(padding));
+  }
+  chunks.push(Buffer.alloc(1024));
+  return zlib.gzipSync(Buffer.concat(chunks));
 }
 
 test("matcher recognizes only the approved closed families after deterministic folding", () => {
@@ -487,4 +535,37 @@ test("CLI emits one safe JSON document for findings, success, and argument error
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+test("tarball scan binds expected bytes and scans every member path and body safely", () => {
+  const alias = firstAlias("F003");
+  const secretCanary = points([0x74, 0x61, 0x72, 0x2d, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74]);
+  const exactPath = `private/${alias}-${secretCanary}.md`;
+  const bytes = tarball({
+    [exactPath]: `prefix ${alias} ${secretCanary} suffix\n`,
+    "src/neutral.cts": "neutral\n",
+  });
+  const expectedSha256 = require("node:crypto").createHash("sha256").update(bytes).digest("hex") as string;
+  const result = audit.scanTarball({ bytes, expectedSha256 });
+  assert.deepEqual(Object.keys(result).sort(), [
+    "artifactSha256", "findingCount", "findings", "memberCount", "scannedCount", "schemaVersion", "scope",
+  ]);
+  assert.equal(result.scope, "tar");
+  assert.equal(result.artifactSha256, expectedSha256);
+  assert.equal(result.memberCount, 2);
+  assert.equal(result.scannedCount, 2);
+  assert.equal(result.findingCount, 2);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes(exactPath), false);
+  assert.equal(serialized.includes(alias), false);
+  assert.equal(serialized.includes(secretCanary), false);
+
+  expectCode(
+    () => audit.scanTarball({ bytes, expectedSha256: "0".repeat(64) }),
+    "tarball_sha_mismatch",
+  );
+  expectCode(
+    () => audit.scanTarball({ bytes: Buffer.from("invalid"), expectedSha256: "0".repeat(64) }),
+    "tarball_sha_mismatch",
+  );
 });
