@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Read-only staged-tree gate for deterministic generated plugin assets. */
+/** Read-only staged-tree gate for deterministic managed project assets. */
 
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const fs = require("node:fs") as typeof import("node:fs");

@@ -218,6 +218,7 @@ function assertNpmTree(npmTree: JsonMap): void {
   }
 }
 
+/** Validate the closed dependency and script policy without mutating caller-owned input. */
 function auditDependencyGraph(input: AuditInput): AuditResult {
   const { packageJson, packageLock, npmTree } = input;
   throwUnless(isRecord(packageJson) && isRecord(packageLock) && isRecord(npmTree), "invalid_audit_input");

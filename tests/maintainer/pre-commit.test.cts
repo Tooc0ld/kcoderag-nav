@@ -95,7 +95,7 @@ test("unrelated staged files take the fast path without invoking build or genera
   assert.deepEqual(bytes(current.index), before);
 });
 
-test("complete QA and Cursor staging runs checks while preserving unrelated dirty and untracked work", () => {
+test("complete generated-product staging runs checks while preserving unrelated dirty and untracked work", () => {
   for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
     const current = fixture(`${product} complete group`);
     const generated = path.join(current.root, product, "README.md");

@@ -43,7 +43,7 @@ function expectAuditError(input: ReturnType<typeof actualGraph>, code: string): 
   );
 }
 
-test("accepts only the approved exact development graph", () => {
+test("accepts only the closed approved development graph", () => {
   const result = auditModule.auditDependencyGraph(actualGraph());
   assert.deepEqual(result, {
     directDependencies: 2,

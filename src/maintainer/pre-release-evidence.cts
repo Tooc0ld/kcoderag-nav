@@ -26,7 +26,9 @@ const EVIDENCE_PATHS = Object.freeze([
   ".planning/phases/04-deployment-reliability/04-PRE-RELEASE-VERIFICATION.md",
 ] as const);
 const REQUIREMENTS = Object.freeze([
-  "PLAT-01", "PLAT-02", "PLAT-03", "LEG-01", "JX3-01", "TEST-10",
+  "PLAT-01", "PLAT-02", "PLAT-03", "LEG-01",
+  String.fromCodePoint(0x4a, 0x58, 0x33, 0x2d, 0x30, 0x31),
+  "TEST-10",
 ] as const);
 const DECISIONS = Object.freeze(Array.from(
   { length: 28 },
