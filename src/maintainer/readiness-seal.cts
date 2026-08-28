@@ -8,6 +8,7 @@ const brandAudit = require("./brand-audit.cjs") as typeof import("./brand-audit.
 const releaseReadiness = require("./release-readiness.cjs") as typeof import("./release-readiness.cjs");
 
 type JsonMap = Record<string, unknown>;
+type PackageProductSnapshot = import("./release-readiness.cjs").PackageProductSnapshot;
 
 export interface ReadinessSealOptions {
   readonly root: string;
@@ -165,6 +166,28 @@ function validateReceipt(root: string, receiptPath: string, candidate: string, d
   );
 }
 
+function readProductSnapshot(root: string, subject: string): PackageProductSnapshot {
+  try {
+    return releaseReadiness.readPackageProductSnapshot(root, subject);
+  } catch (error) {
+    if (error instanceof releaseReadiness.ReleaseReadinessError) {
+      throw new ReadinessSealError("candidate_product_drift");
+    }
+    throw error;
+  }
+}
+
+function samePaths(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && left.every((relativePath, index) => relativePath === right[index]);
+}
+
+function hasExactSourceOids(product: PackageProductSnapshot): boolean {
+  const oidPaths = Object.keys(product.oids);
+  return oidPaths.length === product.sourcePaths.length
+    && product.sourcePaths.every((relativePath) => Object.hasOwn(product.oids, relativePath));
+}
+
 /** Compare immutable Git subjects; only non-package planning evidence may differ. */
 export function runReadinessSeal(options: ReadinessSealOptions): ReadinessSealResult {
   failUnless(isRecord(options), "invalid_seal_options");
@@ -172,13 +195,16 @@ export function runReadinessSeal(options: ReadinessSealOptions): ReadinessSealRe
   const root = fs.realpathSync(path.resolve(options.root));
   const candidate = resolveSubject(root, options.candidateSubject, "invalid_candidate_subject");
   const finalSubject = resolveSubject(root, options.finalSubject, "invalid_final_subject");
-  const candidateProduct = releaseReadiness.readPackageProductSnapshot(root, candidate.subject);
-  const finalProduct = releaseReadiness.readPackageProductSnapshot(root, finalSubject.subject);
+  const candidateProduct = readProductSnapshot(root, candidate.subject);
+  const finalProduct = readProductSnapshot(root, finalSubject.subject);
   failUnless(
     candidateProduct.digest === finalProduct.digest
-      && candidateProduct.paths.length === finalProduct.paths.length
-      && candidateProduct.paths.every((relativePath, index) => relativePath === finalProduct.paths[index])
-      && candidateProduct.paths.every((relativePath) =>
+      && samePaths(candidateProduct.paths, finalProduct.paths)
+      && samePaths(candidateProduct.sourcePaths, finalProduct.sourcePaths)
+      && samePaths(candidateProduct.generatedPaths, finalProduct.generatedPaths)
+      && hasExactSourceOids(candidateProduct)
+      && hasExactSourceOids(finalProduct)
+      && candidateProduct.sourcePaths.every((relativePath) =>
         candidateProduct.oids[relativePath] === finalProduct.oids[relativePath]),
     "candidate_product_drift",
   );
