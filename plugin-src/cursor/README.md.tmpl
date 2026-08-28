@@ -2,14 +2,15 @@
 
 This generated tree is the Cursor asset set consumed by the public `kcoderag-nav` project
 installer. It contains the QA MCP projection, graph-first navigation Rule/Skill, update and
-successful-call hooks, plus the canonical JX3 knowledge files used by supported host projections.
+successful-call hooks, plus the canonical code-style knowledge files used by supported host
+projections.
 Asset presence is not host-delivery evidence. This tree is not a marketplace or user-directory
 install source.
 
 QA is the only public environment for MCP. The current package has two built-in capabilities:
-`kcoderag-navigation` and `jx3-style-nudge`. Cursor `3.17.8` supports navigation, while its exact
-receipt verdict for JX3 is `UNSUPPORTED`; the CLI therefore rejects JX3 selection with
-`host_version_unsupported` and zero writes.
+`kcoderag-navigation` and `code-style-nudge`. Cursor `3.17.8` supports navigation, while its exact
+receipt verdict for code-style guidance is `UNSUPPORTED`; the CLI therefore rejects
+`code-style-nudge` selection with `host_version_unsupported` and zero writes.
 
 ## Install navigation into one project
 
@@ -63,19 +64,19 @@ Old environment-shaped/Python state has no decoder or migration authority. Remov
 recomposes shared files from any remaining contributors and restores an original only when its last
 contributor is gone.
 
-Complete D-15 integrity is checked before any JX3 once claim: current state, composite digest, and
+Complete D-15 integrity is checked before any code-style once claim: current state, composite digest, and
 every managed file digest must match. Missing or edited assets stay silent and fail-open, do not
 consume a reminder, and appear as `capability_drift` in status/doctor.
 
 ## Cursor capability boundary
 
 Cursor navigation uses its always-on Rule, shared Skill, QA MCP configuration, `postToolUse` update
-notice, and `afterMCPExecution` successful-call marker. It does not use or claim a Codex/Claude
-Code-style JX3 `PreToolUse` delivery. A Rule, packaged JX3 Skill, toast, or after-event is not
+notice, and `afterMCPExecution` successful-call marker. It does not use or claim native
+Codex/Claude `PreToolUse` delivery. A Rule, packaged code-style Skill, toast, or after-event is not
 model-visible native pre-write evidence.
 
 The CLI reads Cursor `3.17.8` strictly and evaluates its frozen digest-bound `UNSUPPORTED` receipt.
-Selecting JX3 stops before desired-state render/transaction with `host_version_unsupported`; an
+Selecting `code-style-nudge` stops before desired-state render/transaction with `host_version_unsupported`; an
 existing navigation tree remains byte-identical and healthy. Exact strings, current edits, and an
 unavailable or stale index remain valid reasons to use scoped local search.
 
@@ -90,15 +91,15 @@ Cursor does not use the Codex/Claude ancestor launcher. Its Rule, Skills, MCP, `
 `afterMCPExecution` files move with a complete project copy or rename. Restart Cursor or run
 **Developer: Reload Window** after install/update.
 
-## JX3 marker manual reset and evidence boundary
+## Code-style marker manual reset and evidence boundary
 
-On hosts where JX3 is supported, once claims live in the OS cache directory
-`kcoderag-nav/nudges`. To reset them, first close every related Codex, Claude Code, Cursor, and
-OpenCode session, then delete the whole cache directory with an OS file tool, and finally reopen
+On hosts where code-style guidance is supported, once claims live in the OS cache directory
+`kcoderag-nav/nudges`. To reset them, first close every related Codex, Claude Code, Cursor,
+OpenCode, and ZCode session, then delete the whole cache directory with an OS file tool, and reopen
 the needed sessions. `status` and `doctor` are read-only; there is no cleanup command. Listing,
 capacity-pruning, or deletion errors are fail-open and never block host work.
 
-Phase 04.1 evidence proves Cursor navigation and exact JX3 zero-write refusal. It does not claim
+Phase 04.1 evidence proves Cursor navigation and exact code-style zero-write refusal. It does not claim
 authenticated real-Cursor MCP query evidence; that remains Phase 06 work. Connection and
 authorization values stay opaque in generation, install, diagnostics, tests, logs, receipts, and
 documentation.

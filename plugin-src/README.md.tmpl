@@ -10,8 +10,8 @@ The package exposes exactly two built-in capabilities:
 - `kcoderag-navigation` provides the QA MCP projection and graph-first guidance on five hosts.
   All five hosts receive a successful-call marker and offline
   update notice.
-- `jx3-style-nudge` provides a short structured pre-write advisory and the canonical
-  `$jx3-code-style-correction` Skill where exact host evidence supports native delivery.
+- `code-style-nudge` provides a short structured pre-write advisory and the canonical
+  `$code-style-correction` Skill where exact host evidence supports native delivery.
 
 QA is the only public environment for MCP. Capabilities are not environment choices. Retired QA/Dev
 state, Python installs, handwritten MCP/Hook, plugins, and other manual sources have no migration,
@@ -30,7 +30,7 @@ Automation repeats `--capability` and confirms the exact target:
 ```powershell
 npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
-  --capability jx3-style-nudge --yes
+  --capability code-style-nudge --yes
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --yes
@@ -49,18 +49,18 @@ Native project locations are `.codex/` plus `.agents/skills/` for Codex;
 
 ## Exact support matrix
 
-JX3 support comes only from checked-in digest-bound receipts. ZCode navigation currently has
+Code-style guidance support comes only from checked-in digest-bound receipts. ZCode navigation currently has
 project adapter-contract and synthetic lifecycle coverage; real-host evidence remains Phase 06:
 
-| Frozen host row | Navigation | JX3 nudge | Evidence verdict |
+| Frozen host row | Navigation | Code-style nudge | Evidence verdict |
 | --- | --- | --- | --- |
 | Codex `0.146.1` | supported | unsupported | exact `UNSUPPORTED` |
 | Claude Code `2.1.241` | supported | supported | exact `PASS`, native model-visible pre-write |
 | Cursor `3.17.8` | supported | unsupported | exact `UNSUPPORTED` |
 | OpenCode `1.18.23` | supported | unsupported | exact `UNSUPPORTED` |
-| ZCode (real-host version pending) | supported | unsupported | no JX3 PASS receipt; exact refusal |
+| ZCode (real-host version pending) | supported | unsupported | no code-style PASS receipt; exact refusal |
 
-Unlisted versions do not inherit JX3 support. Selecting JX3 on an unsupported host returns
+Unlisted versions do not inherit code-style guidance support. Selecting `code-style-nudge` on an unsupported host returns
 `host_version_unsupported` before desired-state rendering or transaction work and writes nothing;
 an existing navigation install stays healthy.
 
@@ -104,7 +104,7 @@ unsafe target, or ambiguous ownership stops before the first write. Shared files
 from remaining contributors and restore their original bytes only after the final contributor is
 removed.
 
-JX3 also enforces complete D-15 runtime integrity before claiming its once marker: the nearest
+Code-style guidance also enforces complete D-15 runtime integrity before claiming its once marker: the nearest
 state, composite digest, and every managed file digest must match. A missing or edited Skill,
 reference, handler, dispatcher, launcher, or registration is silent and fail-open, leaves the
 marker unclaimed, and appears as `capability_drift` in status/doctor. There is no embedded fallback
@@ -115,14 +115,14 @@ rule summary.
 - The QA MCP exposes `search_code`, `context`, `get_call_chain`, `list_indexes`, `cypher`, and
   `submit_feedback`.
 - Codex and Claude Code navigation is advisory and fail-open. Only the exact supported Claude row
-  adds JX3 to the native `PreToolUse` dispatcher.
+  adds code-style guidance to the native `PreToolUse` dispatcher.
 - Cursor uses an always-on Rule, shared navigation Skill, MCP, `postToolUse` update notice, and
-  `afterMCPExecution` success marker. It does not claim equivalent JX3 `PreToolUse` delivery.
+  `afterMCPExecution` success marker. It does not claim equivalent code-style `PreToolUse` delivery.
 - OpenCode uses a project plugin and MCP. Its toast and `tool.execute.after` event do not claim
   model-visible pre-write delivery.
 - ZCode uses project MCP and `hooks.events` with `hooks.enabled: true` in `.zcode/config.json` plus a workspace Skill. Its
   advisory, fail-open `PreToolUse` adds navigation/update context and its `PostToolUse` records
-  success; neither hook claims JX3 pre-write delivery.
+  success; neither hook claims code-style pre-write delivery.
 - Successful calls write bounded secret-free markers: Codex/Claude Code use `PostToolUse`, Cursor
   uses `afterMCPExecution`, OpenCode uses `tool.execute.after`, and ZCode uses project `PostToolUse`.
 
@@ -134,15 +134,15 @@ the related session after approval. `status`/`doctor` prove managed project byte
 
 {{routing_policy}}
 
-Codex and Claude Code launchers start at the session cwd and select the nearest host-specific
+Codex, Claude Code, and ZCode launchers start at the session cwd and select the nearest host-specific
 managed state. A damaged or incompatible nearest state is a silent fail-open boundary and never
 falls through to an outer project. State uses relative paths and digests, so a complete project
 move, rename, copy, or drive change remains usable. CLI cwd and `--target` are always exact; only
 the runtime launcher walks upward.
 
-## JX3 once marker and manual D-19 reset
+## Code-style once marker and manual D-19 reset
 
-JX3 considers only structured Write/Edit/MultiEdit/apply_patch-style calls with a reliable target,
+Code-style guidance considers only structured Write/Edit/MultiEdit/apply_patch-style calls with a reliable target,
 a frozen C/C++/Lua extension, and a non-empty `session_id`, `thread_id`, or `conversation_id`. It is
 silent for shell, delete/rename-only, unknown-path, or unstable-identity events. One host session,
 project boundary, and capability can claim at most one notice.
@@ -151,7 +151,7 @@ Claims live in the operating-system cache directory `kcoderag-nav/nudges` (norma
 `%LOCALAPPDATA%\kcoderag-nav\nudges` on Windows or
 `${XDG_CACHE_HOME:-$HOME/.cache}/kcoderag-nav/nudges` on Linux). To reset them manually:
 
-1. Close every related Codex, Claude Code, Cursor, and OpenCode session.
+1. Close every related Codex, Claude Code, Cursor, OpenCode, and ZCode session.
 2. Delete the whole `kcoderag-nav/nudges` directory with an operating-system file tool.
 3. Open only the host sessions you need.
 
