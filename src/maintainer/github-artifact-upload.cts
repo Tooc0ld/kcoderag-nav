@@ -266,7 +266,7 @@ async function dataPlanePut(
     }, timeoutMs);
     let response: Response;
     try {
-      response = await fetcher(url, { ...init, signal: controller.signal, redirect: "error" });
+      response = await fetcher(url, { ...init, signal: controller.signal, redirect: "manual" });
     } catch (error) {
       const classification: GitHubArtifactUploadStatusClass = timedOut
         || error instanceof Error && error.name === "AbortError"

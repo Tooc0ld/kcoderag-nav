@@ -680,6 +680,7 @@ test("retry classes are bounded while redirects and ordinary 4xx stop immediatel
         });
       }
       if (init?.method === "PUT" && url.searchParams.get("comp") === "block") {
+        assert.equal(init.redirect, "manual");
         stageAttempts += 1;
         return terminal.response;
       }
