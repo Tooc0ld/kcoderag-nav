@@ -57,7 +57,7 @@ coverage:
     requirement: DEP-01
     verification:
       - kind: e2e
-        ref: "0.2.2 status/doctor against I:/JX3_SVN/Head for codex, claude, and cursor"
+        ref: "0.2.2 status/doctor against REDACTED_HISTORICAL_HEAD_PROJECT for codex, claude, and cursor"
         status: pass
     human_judgment: false
   - id: D3
@@ -100,7 +100,7 @@ status: complete
 
 - Preserved immutable 0.2.0, corrected real Codex/Claude inventory parsing in 0.2.1, and corrected concurrent Windows launcher output isolation in 0.2.2.
 - Converged npm exact/latest 0.2.2, `master`, `origin/master`, `v0.2.2`, and npm `gitHead` on `e9b6566ac2149485f9b31c5cf948ccc959b39d60`.
-- Verified real `I:\JX3_SVN\Head` Codex, Claude Code, and Cursor project installations as QA-only and healthy with no active source conflict.
+- Verified the real, redacted `REDACTED_HISTORICAL_HEAD_PROJECT` Codex, Claude Code, and Cursor project installations as QA-only and healthy with no active source conflict.
 - Verified installed Codex and Claude launchers from root, Unicode-deep, and space-deep working directories with exit 0, valid advisory JSON, and identical output fingerprints per host.
 
 ## Task Commits
