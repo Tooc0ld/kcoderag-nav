@@ -74,6 +74,12 @@ const OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const MAX_RECEIPT_BYTES = 16 * 1024;
 const MAX_ARTIFACT_BYTES = tarArchive.DEFAULT_TAR_ARCHIVE_LIMITS.maxArchiveBytes;
+const SAFE_UPLOAD_STAGES = Object.freeze([
+  "create_artifact", "stage_block", "commit_block_list", "finalize_artifact",
+] as const);
+const SAFE_UPLOAD_STATUS_CLASSES = Object.freeze([
+  "network", "timeout", "3xx", "4xx", "408", "429", "5xx", "other",
+] as const);
 
 export class ReadinessWorkflowError extends Error {
   readonly code: string;
@@ -541,7 +547,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       || error instanceof releaseReadiness.CandidatePackageArtifactError
       ? error.code
       : "readiness_workflow_failed";
-    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: "FAIL", reason })}\n`);
+    const metadata = error instanceof artifactUpload.GitHubArtifactUploadError
+      && typeof error.stage === "string"
+      && SAFE_UPLOAD_STAGES.includes(error.stage)
+      && typeof error.statusClass === "string"
+      && SAFE_UPLOAD_STATUS_CLASSES.includes(error.statusClass)
+      ? { stage: error.stage, statusClass: error.statusClass }
+      : {};
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: "FAIL", reason, ...metadata })}\n`);
     return 1;
   }
 }

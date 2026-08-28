@@ -24,6 +24,22 @@ export interface GitHubArtifactUploadReceipt {
   readonly size: number;
 }
 
+export type GitHubArtifactUploadStage =
+  | "create_artifact"
+  | "stage_block"
+  | "commit_block_list"
+  | "finalize_artifact";
+
+export type GitHubArtifactUploadStatusClass =
+  | "network"
+  | "timeout"
+  | "3xx"
+  | "4xx"
+  | "408"
+  | "429"
+  | "5xx"
+  | "other";
+
 interface BackendIds {
   readonly workflowRunBackendId: string;
   readonly workflowJobRunBackendId: string;
@@ -33,17 +49,31 @@ const ARTIFACT_SERVICE = "github.actions.results.api.v1.ArtifactService";
 const MAX_CONTROL_RESPONSE_BYTES = 64 * 1024;
 const MAX_TOKEN_BYTES = 32 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const AZURE_STORAGE_VERSION = "2021-12-02";
+const AZURE_BLOCK_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
+const MAX_BLOCK_COUNT = 128;
+const BLOCK_ID_WIDTH = 8;
+const MAX_SIGNED_URL_BYTES = 16 * 1024;
+const MAX_OPERATION_URL_BYTES = 24 * 1024;
 const BACKEND_ID_RE = /^[A-Za-z0-9._-]{1,128}$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const ARTIFACT_ID_RE = /^[1-9][0-9]{0,30}$/u;
 
 export class GitHubArtifactUploadError extends Error {
   readonly code: string;
+  readonly stage: GitHubArtifactUploadStage | undefined;
+  readonly statusClass: GitHubArtifactUploadStatusClass | undefined;
 
-  constructor(code: string) {
+  constructor(code: string, metadata: {
+    readonly stage?: GitHubArtifactUploadStage;
+    readonly statusClass?: GitHubArtifactUploadStatusClass;
+  } = {}) {
     super(code);
     this.name = "GitHubArtifactUploadError";
     this.code = code;
+    this.stage = metadata.stage;
+    this.statusClass = metadata.statusClass;
   }
 }
 
@@ -109,8 +139,8 @@ function resultsOrigin(value: string): string {
   return parsed.origin;
 }
 
-function signedBlobUrl(value: unknown): string {
-  failUnless(typeof value === "string" && value.length > 0 && value.length <= 16 * 1024,
+function signedBlobUrl(value: unknown): URL {
+  failUnless(typeof value === "string" && value.length > 0 && value.length <= MAX_SIGNED_URL_BYTES,
     "artifact_service_invalid");
   let parsed: URL;
   try {
@@ -124,11 +154,92 @@ function signedBlobUrl(value: unknown): string {
       && parsed.username.length === 0
       && parsed.password.length === 0
       && parsed.hash.length === 0
-      && parsed.searchParams.has("sig")
+      && parsed.searchParams.getAll("sig").length === 1
+      && (parsed.searchParams.get("sig") ?? "").length > 0
+      && !parsed.searchParams.has("comp")
+      && !parsed.searchParams.has("blockid")
       && (hostname.endsWith(".blob.core.windows.net") || hostname.endsWith(".blob.storage.azure.net")),
     "artifact_service_invalid",
   );
-  return parsed.href;
+  return parsed;
+}
+
+function statusClass(status: number): GitHubArtifactUploadStatusClass {
+  if (status === 408) return "408";
+  if (status === 429) return "429";
+  if (status >= 300 && status <= 399) return "3xx";
+  if (status >= 400 && status <= 499) return "4xx";
+  if (status >= 500 && status <= 599) return "5xx";
+  return "other";
+}
+
+function blockId(index: number): string {
+  failUnless(Number.isSafeInteger(index) && index >= 0 && index < MAX_BLOCK_COUNT,
+    "artifact_metadata_drift");
+  return Buffer.from(index.toString(10).padStart(BLOCK_ID_WIDTH, "0"), "ascii").toString("base64");
+}
+
+function blockPlan(bytes: Buffer): readonly { readonly id: string; readonly body: Buffer }[] {
+  failUnless(bytes.length > 0 && bytes.length <= MAX_ARTIFACT_BYTES, "artifact_metadata_drift");
+  const count = Math.ceil(bytes.length / AZURE_BLOCK_SIZE_BYTES);
+  failUnless(count > 0 && count <= MAX_BLOCK_COUNT, "artifact_metadata_drift");
+  const blocks = Array.from({ length: count }, (_, index) => Object.freeze({
+    id: blockId(index),
+    body: bytes.subarray(index * AZURE_BLOCK_SIZE_BYTES, Math.min(bytes.length, (index + 1) * AZURE_BLOCK_SIZE_BYTES)),
+  }));
+  failUnless(new Set(blocks.map((block) => block.id)).size === blocks.length
+    && blocks.every((block) => block.body.length > 0), "artifact_metadata_drift");
+  return Object.freeze(blocks);
+}
+
+function operationUrl(signed: URL, operation: "block" | "blocklist", id?: string): string {
+  const target = new URL(signed.href);
+  target.searchParams.append("comp", operation);
+  if (id !== undefined) target.searchParams.append("blockid", id);
+  failUnless(target.href.length <= MAX_OPERATION_URL_BYTES, "artifact_service_invalid");
+  return target.href;
+}
+
+function blockListBody(ids: readonly string[]): Buffer {
+  failUnless(ids.length > 0 && ids.length <= MAX_BLOCK_COUNT && new Set(ids).size === ids.length,
+    "artifact_metadata_drift");
+  return Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?><BlockList>${ids.map((id) => `<Latest>${id}</Latest>`).join("")}</BlockList>`,
+    "utf8",
+  );
+}
+
+async function dataPlanePut(
+  fetcher: typeof fetch,
+  url: string,
+  body: Buffer,
+  contentType: string,
+  stage: "stage_block" | "commit_block_list",
+  timeoutMs: number,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetchBounded(fetcher, url, {
+      method: "PUT",
+      headers: {
+        "content-length": String(body.length),
+        "content-type": contentType,
+        "x-ms-version": AZURE_STORAGE_VERSION,
+      },
+      body: body as unknown as BodyInit,
+    }, timeoutMs);
+  } catch (error) {
+    if (error instanceof GitHubArtifactUploadError) {
+      throw new GitHubArtifactUploadError(error.code, { stage, statusClass: "network" });
+    }
+    throw new GitHubArtifactUploadError("artifact_upload_failed", { stage, statusClass: "network" });
+  }
+  if (!response.ok) {
+    throw new GitHubArtifactUploadError("artifact_upload_failed", {
+      stage,
+      statusClass: statusClass(response.status),
+    });
+  }
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
@@ -252,15 +363,26 @@ export async function uploadCandidateArtifactFromLease(
         "artifact_service_invalid");
       created = true;
       const uploadUrl = signedBlobUrl(create.signedUploadUrl);
-      const uploaded = await fetchBounded(fetcher, uploadUrl, {
-        method: "PUT",
-        headers: {
-          "content-type": "application/gzip",
-          "x-ms-blob-type": "BlockBlob",
-        },
-        body: bytes as unknown as BodyInit,
-      }, timeoutMs);
-      failUnless(uploaded.ok, "artifact_upload_failed");
+      const blocks = blockPlan(bytes);
+      for (const block of blocks) {
+        await dataPlanePut(
+          fetcher,
+          operationUrl(uploadUrl, "block", block.id),
+          block.body,
+          "application/octet-stream",
+          "stage_block",
+          timeoutMs,
+        );
+      }
+      const commitBody = blockListBody(blocks.map((block) => block.id));
+      await dataPlanePut(
+        fetcher,
+        operationUrl(uploadUrl, "blocklist"),
+        commitBody,
+        "application/xml; charset=utf-8",
+        "commit_block_list",
+        timeoutMs,
+      );
 
       const finalize = await artifactControlRequest(fetcher, origin, runtimeToken, "FinalizeArtifact", {
         workflowRunBackendId: ids.workflowRunBackendId,
