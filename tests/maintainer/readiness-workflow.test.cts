@@ -44,6 +44,9 @@ interface ReadinessWorkflowModule {
 const workflowContract = require("../../dist/maintainer/readiness-workflow.cjs") as ReadinessWorkflowModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const workflowPath = path.join(repositoryRoot, ".github", "workflows", "readiness.yml");
+const actionRoot = path.join(repositoryRoot, ".github", "actions", "readiness-upload");
+const actionManifestPath = path.join(actionRoot, "action.yml");
+const actionEntrypointPath = path.join(actionRoot, "index.cjs");
 const SHA256 = "a".repeat(64);
 
 function workflow(): string {
@@ -163,11 +166,110 @@ test("one package job uploads one lease artifact then four lanes consume that ar
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length, 6);
   assert.equal(source.match(/uses:\s*actions\/download-artifact@[0-9a-f]{40}/gu)?.length, 4);
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 4);
-  assert.equal(source.match(/npm run readiness:workflow-upload/gu)?.length, 1);
+  assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
+  assert.equal(source.match(/npm run readiness:workflow-upload/gu)?.length ?? 0, 0);
   assert.equal(source.match(/npm run readiness:workflow-lane/gu)?.length, 4);
   assert.equal(source.match(/npm run readiness:workflow-verify/gu)?.length, 1);
   assert.doesNotMatch(source, /actions\/upload-artifact@/u);
   assert.doesNotMatch(source, /npm\s+(?:publish|view)|dist-tag|create-release|gh\s+release|git\s+(?:tag|push)|packageSpec|registry_refetch/iu);
+});
+
+test("missing artifact runtime inputs fail before a request or workflow output is produced", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-missing-runtime-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const requestMarkerPath = path.join(temporaryRoot, "fetch-called.txt");
+  const preloadPath = path.join(temporaryRoot, "reject-fetch.cjs");
+  fs.writeFileSync(outputPath, "", "utf8");
+  fs.writeFileSync(preloadPath, [
+    '"use strict";',
+    'const fs = require("node:fs");',
+    "const originalFetch = globalThis.fetch;",
+    `globalThis.fetch = async (...args) => { const target = String(args[0]); if (target.startsWith("https://")) fs.writeFileSync(${JSON.stringify(requestMarkerPath)}, "called", "utf8"); return originalFetch(...args); };`,
+    "",
+  ].join("\n"), "utf8");
+  const env = { ...process.env };
+  delete env.ACTIONS_RESULTS_URL;
+  delete env.ACTIONS_RUNTIME_TOKEN;
+  Object.assign(env, {
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: "refs/heads/readiness/04.2-candidate",
+    GITHUB_SHA: "a".repeat(40),
+    READINESS_WORKFLOW_COMMIT: "a".repeat(40),
+    GITHUB_OUTPUT: outputPath,
+  });
+
+  try {
+    const result = childProcess.spawnSync(process.execPath, [
+      "--require",
+      preloadPath,
+      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+      "package-upload",
+    ], {
+      cwd: repositoryRoot,
+      env,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      schemaVersion: 1,
+      status: "FAIL",
+      reason: "artifact_auth_invalid",
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(fs.statSync(outputPath).size, 0);
+    assert.equal(fs.existsSync(requestMarkerPath), false);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("package producer resolves through a candidate-local JavaScript action handler", async () => {
+  const source = workflow();
+  const packageJob = jobBody(source, "package");
+  assert.equal(packageJob.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
+  assert.doesNotMatch(packageJob, /run:\s*npm run readiness:workflow-upload/u);
+  assert.equal(fs.existsSync(actionManifestPath), true);
+  assert.equal(fs.existsSync(actionEntrypointPath), true);
+
+  const manifest = fs.readFileSync(actionManifestPath, "utf8").replace(/\r\n/gu, "\n");
+  assert.deepEqual(
+    [...manifest.matchAll(/^([a-z][a-z0-9-]*):/gmu)].map((match) => match[1]),
+    ["name", "description", "outputs", "runs"],
+  );
+  const outputBlock = manifest.slice(manifest.indexOf("outputs:"), manifest.indexOf("\nruns:"));
+  assert.deepEqual(
+    [...outputBlock.matchAll(/^  ([a-z][a-z0-9-]*):/gmu)].map((match) => match[1]),
+    ["artifact-id", "artifact-name", "artifact-sha256", "member-count", "candidate-subject"],
+  );
+  assert.match(manifest, /^runs:\s*\n  using:\s*node24\s*\n  main:\s*index\.cjs\s*$/mu);
+  assert.doesNotMatch(manifest, /^inputs:|^permissions:|^  pre:|^  post:/mu);
+
+  const entrypoint = fs.readFileSync(actionEntrypointPath, "utf8");
+  assert.doesNotMatch(entrypoint, /node:child_process|\b(?:spawn|spawnSync|exec|execFile|fork)\b|\bnpm\b|\.tgz|node:fs|node:path|uploadCandidateArtifact/iu);
+  let calls = 0;
+  const processState: { exitCode?: number } = {};
+  const execute = new Function("require", "process", entrypoint.replace(/^#![^\n]*\n/u, "")) as (
+    loader: (specifier: string) => { readonly main: (argv: readonly string[]) => Promise<number> },
+    processLike: { exitCode?: number },
+  ) => void;
+  execute((specifier) => {
+    assert.equal(specifier, "../../../dist/maintainer/readiness-workflow.cjs");
+    return {
+      main: async (argv) => {
+        calls += 1;
+        assert.deepEqual(argv, ["package-upload"]);
+        return 17;
+      },
+    };
+  }, processState);
+  await new Promise<void>((resolve) => { setImmediate(resolve); });
+  assert.equal(calls, 1);
+  assert.equal(processState.exitCode, 17);
 });
 
 test("workflow keeps one exact four-lane Windows/Linux Node 22/24 fan-out", () => {
