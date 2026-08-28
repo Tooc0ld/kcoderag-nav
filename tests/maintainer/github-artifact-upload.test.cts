@@ -511,6 +511,51 @@ test("retryable stage responses cancel bodies before retry without changing ID o
   }
 });
 
+test("response cancellation timeout and rejection never block successful progression", async () => {
+  const fixture = packageFixture();
+  const cleanup = { hanging: 0, rejected: 0 };
+  const hangingResponse = new Response(new ReadableStream<Uint8Array>({
+    cancel() {
+      cleanup.hanging += 1;
+      return new Promise<void>(() => { /* intentionally unsettled */ });
+    },
+  }, { highWaterMark: 0 }), { status: 201 });
+  const rejectedResponse = new Response(new ReadableStream<Uint8Array>({
+    cancel() {
+      cleanup.rejected += 1;
+      throw new Error("cancel-rejection-secret-canary");
+    },
+  }, { highWaterMark: 0 }), { status: 201 });
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/CreateArtifact")) {
+      return jsonResponse({
+        ok: true,
+        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=private",
+      });
+    }
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "block") return hangingResponse;
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "blocklist") return rejectedResponse;
+    if (url.pathname.endsWith("/FinalizeArtifact")) return jsonResponse({ ok: true, artifactId: "4242" });
+    throw new Error("unexpected_request");
+  };
+
+  try {
+    const started = Date.now();
+    const receipt = await upload.uploadCandidateArtifactFromLease(fixture.lease, {
+      runtimeToken: runtimeToken(),
+      resultsUrl: "https://results-receiver.actions.githubusercontent.com/",
+      fetcher,
+      cleanupTimeoutMs: 25,
+    });
+    assert.equal(receipt.artifactId, "4242");
+    assert.deepEqual(cleanup, { hanging: 1, rejected: 1 });
+    assert.ok(Date.now() - started < 1_000);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("terminal commit 4xx cancels without retry and cleanup failure preserves original metadata", async () => {
   const fixture = packageFixture();
   const stageResponse = trackedResponse(201, "success-stage-secret");
