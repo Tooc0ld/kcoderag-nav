@@ -15,9 +15,10 @@ MCP entry in `.zcode/config.json`, the navigation Skill in `.zcode/skills/`, and
 state under `.zcode/kcoderag-nav/`. Install, status, doctor, update, and uninstall use the shared
 single-host transaction and source-conflict boundaries.
 
-ZCode does not receive a project Hook, successful-call marker, automatic update notice, or JX3
-pre-write projection. The current official ZCode contract ignores project-level Hook configuration;
-JX3 therefore returns `host_version_unsupported` before writes. Manual npm update remains available.
+At this historical checkpoint, ZCode did not receive a project Hook, successful-call marker,
+automatic update notice, or code-style pre-write projection. The then-observed ZCode contract was
+treated as ignoring project-level Hook configuration; the capability now named `code-style-nudge`
+therefore returned `host_version_unsupported` before writes. Manual npm update remained available.
 
 ## Changes
 
@@ -27,8 +28,8 @@ JX3 therefore returns `host_version_unsupported` before writes. Manual npm updat
   preservation, Skill lifecycle, full restoration, drift handling, and user-source diagnostics.
 - Added focused ZCode, cross-host, CLI, capability, source-conflict, smoke, docs, pack, and CI
   coverage; generated the canonical QA README.
-- Updated the main README, project context, CI labels, and the sibling authoritative
-  `MCP_QA_EXPERIENCE_GUIDE.md` with the honest ZCode Hook/update boundary.
+- Updated the main README, project context, CI labels, and the then-authoritative sibling guide with
+  the honest ZCode Hook/update boundary. The repository-local guide later became the sole authority.
 
 ## Checks run
 
@@ -44,7 +45,7 @@ JX3 therefore returns `host_version_unsupported` before writes. Manual npm updat
 
 ## Deferred evidence
 
-The local desktop installation was detected read-only as ZCode 3.9.2 at
-`C:/Users/kingsoft/AppData/Local/Programs/ZCode/ZCode.exe`, but no `zcode` command is on this
-shell's `PATH`. Per user direction, the desktop app was not launched and no real-host lifecycle,
-MCP, Skill, Hook, or version receipt was claimed. That evidence remains Phase 06 work.
+The local desktop installation was detected read-only as ZCode 3.9.2 in a user-local application
+directory, but no `zcode` command was on that shell's `PATH`. Per user direction, the desktop app was
+not launched and no real-host lifecycle, MCP, Skill, Hook, or version receipt was claimed. That
+evidence remains Phase 06 work.

@@ -14,7 +14,8 @@ Corrected the earlier ZCode host assumption and added native workspace Hook supp
 navigation install now composes project MCP and Skill assets with an advisory, fail-open
 `PreToolUse` process Hook, a secret-free `PostToolUse` successful-call marker, and the shared
 offline update notice. Local Grep, Glob, and Bash remain available because the Hook never emits a
-deny or permission decision. JX3 remains explicitly unsupported.
+deny or permission decision. The capability now named `code-style-nudge` remained explicitly
+unsupported.
 
 The adapter preserves unrelated workspace Hook events, claims `hooks.enabled` only when the
 installer changed it, tracks contributor-scoped Hook sections and runtime files, and hard-stops an
@@ -28,7 +29,7 @@ unmanaged Hook that targets the managed runtime before any write.
 - Upgraded required smoke evidence from ZCode `skill_mcp` to an executed `pretooluse_hook`
   contract at the project root and a Unicode deep directory.
 - Updated canonical README/template/generated assets, documentation gates, project contracts, and
-  the sibling authoritative `MCP_QA_EXPERIENCE_GUIDE.md`.
+  the then-authoritative sibling guide. The repository-local guide later became the sole authority.
 
 ## Verification
 
@@ -48,4 +49,5 @@ unmanaged Hook that targets the managed runtime before any write.
 The locally installed ZCode executable reports `3.9.2.6069`. The packaged project and installed
 Hook processes were exercised directly, but a native desktop conversation has not yet invoked a
 real KCodeRag query in this acceptance project. Public npm exact/latest and authenticated native
-MCP evidence remain Phase 06 work; this quick task does not upgrade JX3 support.
+MCP evidence remain Phase 06 work; this quick task did not upgrade support for the capability now
+named `code-style-nudge`.
