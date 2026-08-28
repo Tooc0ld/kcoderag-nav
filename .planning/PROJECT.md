@@ -9,21 +9,21 @@ checkout、Git/SVN 项目标记或运行时 TypeScript 编译。
 
 标准入口是 `npx kcoderag-nav@latest install`。未指定宿主时交互选择 Codex、Claude Code、
 Cursor、OpenCode 或 ZCode；自动化使用 `--host codex|claude|cursor|opencode|zcode`，一次调用只管理一个宿主。
-平台只提供两个内置 capability：`kcoderag-navigation` 与 `jx3-style-nudge`。install 将显式选择
+平台只提供两个内置 capability：`kcoderag-navigation` 与 `code-style-nudge`。install 将显式选择
 加入已安装集合，同一项目中的五个宿主仍可各自拥有独立的 capability 集合。
 
 Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
 和共享 skill，OpenCode 使用项目 plugin；ZCode 同时使用项目 `.zcode/config.json` MCP 与 workspace Skill。
 五个宿主以各自原生成功后事件记录 secret-free、fail-open 的 KCodeRag 调用 marker；ZCode 通过
 项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。只有冻结 PASS
-receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他四宿主保持 navigation-only。
+receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；其他四宿主保持 navigation-only。
 安装器同时提供 `status`、`doctor`、`update` 与 `uninstall`，并以 capability-scoped 所有权、
 全部变更命令的来源门禁、完整摘要硬停止和单宿主原子回滚保护项目与用户配置。
 
 ## Core Value
 
 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内组合可靠、低打扰的 QA 图优先导航与
-证据支持的 JX3 写前规范提示。
+证据支持的代码规范写前提示。
 
 ## Requirements
 
@@ -53,11 +53,11 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - ✓ ZCode 项目级 adapter 支持 `.zcode/config.json` MCP 与 `.zcode/skills/` lifecycle；早期基于错误
   宿主假设未投影 Hook 的边界已由 Quick 260827-nuo 取代 — Quick 260827-fch / superseded
 - ✓ ZCode 项目 `hooks.events` 投影 advisory/fail-open `PreToolUse`、成功调用 `PostToolUse` marker 与
-  离线更新提示，并保持 JX3 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
+  离线更新提示，并保持代码规范能力 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
   workspace Hook — Quick 260827-nuo / Quick 260827-onf
 - ✓ 两个内置 capability 使用 current schema v1、contributor-scoped 文件/section 与 composite
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
-- ✓ `kcoderag-navigation` 支持五宿主；`jx3-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
+- ✓ `kcoderag-navigation` 支持五宿主；`code-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
   receipt 可用，其他宿主零写拒绝且保留 navigation — Phase 04.1 / Quick 260827-fch
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
@@ -118,8 +118,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - **生命周期**: install 使用 `installed ∪ selected`；update 默认全部已安装能力并可筛选；uninstall 必须显式选择 capability 或 `--all`
 - **支持证据**: navigation 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
   安装后的处理器合同，不证明真宿主接纳；ZCode 真机 MCP/Skill 已工作但 Hook trust/admission 尚未通过，
-  版本仍待 Phase 6 冻结；JX3 仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
-- **JX3 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
+  版本仍待 Phase 6 冻结；代码规范能力仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
+- **代码规范 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
 - **Hook**: Codex/Claude/ZCode 仅提供 advisory context，定位和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **成功调用记录**: Codex/Claude/ZCode 使用 `PostToolUse`，Cursor 使用 `afterMCPExecution`，OpenCode
@@ -131,7 +131,7 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 - **OpenCode**: 仅项目级安装；同时存在 `opencode.json`/`opencode.jsonc` 时硬停止；真机基线为 `1.18.23`
 - **ZCode**: 仅项目级安装；管理 `.zcode/config.json` 中 `mcp.servers`/`hooks.events`、`.zcode/skills/`
   与项目 Hook 运行时；首次加载必须由用户批准 workspace Hook，CLI 不预授权 user trust；PreToolUse 仅
-  advisory，PostToolUse 仅记录成功 marker，不声称 JX3 pre-write；
+  advisory，PostToolUse 仅记录成功 marker，不声称代码规范 pre-write；
   真机基线待 Phase 6
 - **变更保护**: 不覆盖或回退工作区中的无关未提交工作
 
@@ -142,9 +142,9 @@ receipt 对应的 Claude Code `2.1.241` 可以安装 JX3 写前提示；其他�
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | **04.1 D-01–D-07**：只管理两个内置 capability；install 使用 `installed ∪ selected`，update 更新已安装集合，uninstall 必须选择 capability 或 `--all` | 让能力独立组合，同时保持一次一个宿主、一次完整原子事务 | Validated in Phase 04.1 |
-| **04.1 D-15**：JX3 提示前验证 current schema、composite digest 与全部受管文件摘要 | 损坏能力不能消耗一次性 marker，也不能用内置简版规则掩盖漂移 | Validated in Phase 04.1 |
+| **04.1 D-15**：代码规范提示前验证 current schema、composite digest 与全部受管文件摘要 | 损坏能力不能消耗一次性 marker，也不能用内置简版规则掩盖漂移 | Validated in Phase 04.1 |
 | **04.1 D-19/D-20**：marker 位于 OS cache 的 `kcoderag-nav/nudges`，仅稳定会话创建一次；人工复位前关闭全部相关宿主会话 | 不污染项目，避免删除后仍运行的会话立刻重建 marker；所有缓存错误 fail-open | Validated in Phase 04.1 |
-| **04.1 D-21–D-24**：JX3 支持只来自 exact digest-bound PASS receipt；未证明宿主返回 `host_version_unsupported` 且零写 | 不把 Rule、Skill、toast 或 after-event 伪装成 model-visible native pre-write | Validated in Phase 04.1 |
+| **04.1 D-21–D-24**：代码规范支持只来自 exact digest-bound PASS receipt；未证明宿主返回 `host_version_unsupported` 且零写 | 不把 Rule、Skill、toast 或 after-event 伪装成 model-visible native pre-write | Validated in Phase 04.1 |
 | **04.1 manual-source boundary**：全部变更命令对 manual/active/ambiguous/旧来源硬停止，无 migration/adoption/cleanup authority | 任何写入前先消除重复来源和模糊所有权，不扩大 CLI 删除权限 | Validated in Phase 04.1 |
 
 ### Historical milestone decisions (superseded where noted)

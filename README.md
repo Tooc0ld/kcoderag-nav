@@ -9,15 +9,16 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 
 - `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置；五个宿主
   额外提供成功调用 marker 与离线更新提示。
-- `jx3-style-nudge`：C/C++/Lua 结构化写入前的短提示与 `$jx3-code-style-correction` Skill。
+- `code-style-nudge`：C/C++/Lua 结构化写入前的短提示与 `$code-style-correction` Skill。
 
 QA 是唯一公开 MCP 环境；capability 不是环境选择。旧 QA/Dev 状态、Python 安装、手工 MCP/Hook、
 plugin 或其他来源没有迁移、接管或自动清理入口。发现它们时，CLI 只做 secret-safe 报告并在
 全部变更命令写入前停止。
 
-面向 QA 使用者的完整接入与体验指南由 KCodeRag 服务仓库独占维护，见
-[MCP_QA_EXPERIENCE_GUIDE.md](https://github.com/Tooc0ld/KCodeRag/blob/main/MCP_QA_EXPERIENCE_GUIDE.md)。
-本仓库不保留该指南副本，也不在文档或诊断中展示 MCP URL、Header、Bearer 或配置正文。
+面向 QA 使用者的完整接入与体验指南由本仓库独占维护，见
+[docs/MCP_QA_EXPERIENCE_GUIDE.md](docs/MCP_QA_EXPERIENCE_GUIDE.md)。兄弟服务仓库中的旧指南仅是
+Phase 04.2 的一次性只读迁入来源；后续不修改、同步或绑定其摘要。本仓库不在文档或诊断中展示
+MCP URL、Header、Bearer 或配置正文。
 
 ## 快速安装
 
@@ -33,7 +34,7 @@ npx kcoderag-nav@latest install
 ```powershell
 npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
-  --capability jx3-style-nudge --yes
+  --capability code-style-nudge --yes
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --yes
@@ -45,19 +46,19 @@ npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --
 
 ## 当前宿主支持
 
-JX3 支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
+代码规范能力的支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
 或 after-event 推断。ZCode navigation 当前由项目级 adapter contract 与 synthetic lifecycle smoke
 覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 06。
 
-| 宿主与冻结版本 | `kcoderag-navigation` | `jx3-style-nudge` | JX3 结论 |
+| 宿主与冻结版本 | `kcoderag-navigation` | `code-style-nudge` | 代码规范结论 |
 | --- | --- | --- | --- |
 | Codex `0.146.1` | 支持 | 不支持 | exact `UNSUPPORTED`；选择后返回 `host_version_unsupported` |
 | Claude Code `2.1.241` | 支持 | 支持 | exact `PASS`，native model-visible pre-write |
 | Cursor `3.17.8` | 支持 | 不支持 | exact `UNSUPPORTED`；Rule/Skill/after-event 不冒充 pre-write |
 | OpenCode `1.18.23` | 支持 | 不支持 | exact `UNSUPPORTED`；toast/after-event 不冒充 pre-write |
-| ZCode（真机版本待验收） | 支持 | 不支持 | 无 JX3 PASS receipt；选择后返回 `host_version_unsupported` |
+| ZCode（真机版本待验收） | 支持 | 不支持 | 无代码规范 PASS receipt；选择后返回 `host_version_unsupported` |
 
-未列出的版本也不自动继承 JX3 支持。unsupported host 选择 JX3 时，在 desired-state render 和
+未列出的版本也不自动继承代码规范支持。unsupported host 选择 `code-style-nudge` 时，在 desired-state render 和
 transaction 之前稳定零写拒绝；已经安装的 navigation 保持健康、可用。
 
 ## 五个生命周期命令
@@ -99,7 +100,7 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 写入前停止。更新/卸载一个 capability 时，共享文件按 contributor 合成；只有最后一个 contributor
 移除后才恢复原始内容。事务失败只回滚所选宿主。
 
-JX3 提示还有完整 D-15 运行时门禁：最近状态必须是 current schema，其 composite digest 与每个
+代码规范提示还有完整 D-15 运行时门禁：最近状态必须是 current schema，其 composite digest 与每个
 受管文件摘要必须全部匹配。Skill、references、handler、dispatcher、launcher 或注册中的任何
 缺失/漂移都会静默 fail-open，且不会提前创建一次性 marker；`status`/`doctor` 报
 `capability_drift`。handler 没有内置简版规则兜底。
@@ -108,11 +109,11 @@ JX3 提示还有完整 D-15 运行时门禁：最近状态必须是 current sche
 
 | 宿主 | 项目级受管位置 | 当前行为 |
 | --- | --- | --- |
-| Codex | `.codex/`、`.agents/skills/` | advisory/fail-open navigation `PreToolUse`；JX3 unsupported |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | navigation 与 receipt-supported JX3 共用 native `PreToolUse` dispatcher |
+| Codex | `.codex/`、`.agents/skills/` | advisory/fail-open navigation `PreToolUse`；code-style unsupported |
+| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | navigation 与 receipt-supported code-style guidance 共用 native `PreToolUse` dispatcher |
 | Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | always-on navigation Rule/Skill/MCP；不声明等价 `PreToolUse` |
-| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；JX3 unsupported |
-| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | project MCP + Skill；`hooks.enabled: true` 的 advisory/fail-open `PreToolUse`、`PostToolUse` marker 与更新提示；JX3 unsupported |
+| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；code-style unsupported |
+| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | project MCP + Skill；`hooks.enabled: true` 的 advisory/fail-open `PreToolUse`、`PostToolUse` marker 与更新提示；code-style unsupported |
 
 ZCode 首次打开包含项目 Hook 的工作区时，还必须由用户在宿主中信任/批准 workspace Hook。
 安装器只写项目声明，不能替用户预授权或修改用户级 trust；未批准时 MCP 与 Skill 仍可能正常，
@@ -128,13 +129,13 @@ Codex/Claude launcher 从宿主会话 cwd 向上选择最近的对应受管状�
 Codex/Claude Code 为 `PostToolUse`，Cursor 为 `afterMCPExecution`，OpenCode 为
 `tool.execute.after`，ZCode 为项目 `PostToolUse`。marker 不保存 MCP 参数、结果、URL、Header
 或 Bearer。ZCode 的 `PreToolUse` 只添加导航与更新上下文，绝不拒绝 Grep、Glob 或 Bash，也不
-冒充 JX3 pre-write；该行为使用 ZCode 官方
+冒充代码规范 pre-write；该行为使用 ZCode 官方
 [MCP](https://zcode.z.ai/cn/docs/mcp-services)、[Skill](https://zcode.z.ai/en/docs/skill) 和
 [Hook](https://zcode.z.ai/en/docs/hooks) 合同一致。
 
-## JX3 一次性提示与人工复位（D-19）
+## 代码规范一次性提示与人工复位（D-19）
 
-JX3 只在结构化 Write/Edit/MultiEdit/apply_patch 类调用能提供目标路径、扩展名属于冻结的
+`code-style-nudge` 只在结构化 Write/Edit/MultiEdit/apply_patch 类调用能提供目标路径、扩展名属于冻结的
 C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_id` 时提示。每个宿主会话、
 项目边界和 capability 最多一次；普通 shell、纯删除/重命名或缺少稳定 ID 时静默。
 
@@ -142,7 +143,7 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 `%LOCALAPPDATA%\kcoderag-nav\nudges`，Linux 通常为
 `${XDG_CACHE_HOME:-$HOME/.cache}/kcoderag-nav/nudges`）。如需人工复位：
 
-1. 先关闭所有与该项目相关的 Codex、Claude Code、Cursor 和 OpenCode 会话。
+1. 先关闭所有与该项目相关的 Codex、Claude Code、Cursor、OpenCode 和 ZCode 会话。
 2. 再用操作系统文件工具删除整个 `kcoderag-nav/nudges` 目录。
 3. 重新打开需要的宿主会话。
 
@@ -164,7 +165,7 @@ marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任
 必须由独立的 optional-live 或人工 UAT receipt 证明。
 
 Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
-保留与 JX3 零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP
+保留与代码规范能力零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP
 query evidence；真实查询和 OpenCode 公共 exact/latest 证据属于 Phase 06。
 
 维护源码是 strict TypeScript `.cts`，构建为 Node.js 22+ 可直接执行的 CJS，生产依赖为零。生成
@@ -178,6 +179,10 @@ npm test
 npm run generate:check
 npm run pack:audit
 ```
+
+Phase 04.2 只验证 exact `0.3.0` 候选对冻结 Git subject 和同一个实际 tgz 的五宿主 readiness；
+本阶段不创建 tag、不 publish，也不执行 registry refetch。后续发布需要独立授权，已发布版本只通过
+前进版本修复，不 unpublish 或回退 dist-tag。
 
 当前内部 QA profile 的连接材料视为不透明敏感输入。生成、CLI、状态、测试、receipt 与文档只处理
 必要元数据；生产身份、HTTPS 与轮换属于 Phase 08。

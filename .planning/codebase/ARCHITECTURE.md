@@ -1,193 +1,216 @@
-<!-- refreshed: 2026-08-20 -->
+<!-- refreshed: 2026-08-28 -->
 # Architecture
 
-**Analysis Date:** 2026-08-20
+**Analysis Date:** 2026-08-28
 
 ## System Overview
 
 ```text
- npx kcoderag-nav@latest <install|status|doctor|update|uninstall>
-                              |
-                    CLI policy + host registry
-                              |
-        +---------------------+---------------------+
-        |                     |                     |
-  Codex adapter        Claude Code adapter      Cursor adapter
- .codex/.agents       .claude + root .mcp     .cursor Rule/skill/MCP
-        |                     |                     |
-        +---------------------+---------------------+
-                              |
-                 validated desired state +
-                 single-host atomic transaction
+npx kcoderag-nav@latest <install|status|doctor|update|uninstall>
+        |
+        v
+CLI policy -> selected HostAdapter (read/render only) -> atomic transaction -> project-native files
+        |                                                        |
+        +-> status/doctor (read-only)                             +-> managed state/digests
+
+Installed Codex/Claude launcher -> CJS advisory hook -> optional detached npm update worker
+Installed Cursor project files  -> Rule + skill + MCP + afterMCPExecution marker
+Installed OpenCode project files -> skill + MCP + tool.execute.after marker
+Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 ```
 
-The Node.js project-integration runtime is the primary lifecycle architecture. Each command chooses
-one adapter, adapters only inspect/render/status, and the host-neutral transaction is the normal
-filesystem writer. Cursor's separately authorized legacy user-local migration is the one explicit
-cross-boundary capability; it preflights exact ownership and journals compensation before deletion.
+KCodeRag Nav is a Node.js project-integration package for Codex, Claude Code, Cursor, OpenCode,
+and ZCode. The public composition root is one npm CLI. Every invocation selects exactly one host,
+the adapter renders a complete desired state without writing, and the shared transaction is the
+only installation filesystem writer.
 
-The environment package/marketplace tree below remains during the ordered Phase 03.1 retirement
-and generation migration, but it is no longer the architectural seam for the unified CLI.
-
-```text
-                       kcoderag-nav marketplace
-                    `.claude-plugin/marketplace.json`
-                                  |
-                 +----------------+----------------+
-                 |                                 |
-          Dev plugin package                 QA plugin package
-          `kcoderag-dev/`                    `kcoderag-qa/`
-                 |                                 |
-     MCP registration/config                 MCP registration/config
-     permissions + README                   permissions + README
-                 |                                 |
-       shared navigation behavior per environment
-       skill + PreToolUse lookup-nudge hook + tests
-```
-
-This repository is a plugin distribution repository, not the KCodeRag parser or MCP
-server implementation. It packages two environment-specific Claude Code/Codex plugin
-variants that point to internal MCP services and teach agents graph-first navigation.
+The package contains two capabilities: `kcoderag-navigation` and `code-style-nudge`. Navigation is
+available on all five hosts. Code-style guidance is enabled only by an exact checked-in PASS receipt;
+the frozen supported row is Claude Code `2.1.241`, while unsupported or unproved rows fail before
+desired-state creation without affecting navigation.
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| Public npx CLI | Parses five lifecycle commands, confirmation, target and one host | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
-| Host registry | Resolves exactly Codex, Claude Code, or Cursor | `src/hosts/index.cts` |
-| Codex adapter | Owns project Codex configuration, skill, CJS hook and state | `src/hosts/codex.cts` |
-| Claude Code adapter | Owns project settings hook, root MCP key, skill, payload and state | `src/hosts/claude.cts` |
-| Cursor adapter | Owns project Rule/skill/MCP/state and authorized user-local migration | `src/hosts/cursor.cts` |
-| Atomic transaction | Validates digests, stages all files, commits state last, and rolls back | `src/core/transaction.cts` |
-| Marketplace manifest | Publishes the two plugin names, local sources, and descriptions | `.claude-plugin/marketplace.json` |
-| Dev package | Dev MCP permission scope and navigation assets | `kcoderag-dev/` |
-| QA package | QA MCP permission scope and navigation assets | `kcoderag-qa/` |
-| MCP permission policy | Allows only the package's environment-qualified MCP namespace | `kcoderag-dev/settings.json`, `kcoderag-qa/settings.json` |
-| Hook registration | Runs the advisory lookup hook before search tools | `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json` |
-| Lookup hook | Detects likely structural searches and emits guidance; fails open | `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py` |
-| Navigation skill | Defines graph-first search/context/call-chain workflow | `kcoderag-dev/skills/code-lookup-discipline/SKILL.md`, `kcoderag-qa/skills/code-lookup-discipline/SKILL.md` |
-| Explorer agent | Provides read-only graph-first exploration instructions (Dev package) | `kcoderag-dev/agents/kcode-explorer.md` |
+| Public npm CLI | Parses five commands, selects one host, confirms an exact project target, and emits stable output | `src/bin/kcoderag-nav.cts`, `src/cli/commands.cts` |
+| Core contracts | Defines safe errors, target/state/status types, runtime checks, and managed-path validation | `src/core/` |
+| Atomic transaction | Performs the only installation write, commits state last, and rolls back the selected host | `src/core/transaction.cts` |
+| Host registry | Resolves exactly Codex, Claude Code, Cursor, OpenCode, or ZCode | `src/hosts/index.cts` |
+| Host adapters | Detect and render host-native desired state without committing files | `src/hosts/` |
+| Capability registry | Declares the two built-in manifests, providers, assets, and receipt-bound support policy | `src/capabilities/` |
+| Advisory hook | Classifies structural search and eligible writes, emits bounded guidance, and fails open | `src/hooks/` |
+| Update runtime | Reads a bounded local cache in foreground and refreshes npm latest in a detached worker | `src/hooks/update-check.cts`, `src/hooks/update-worker.cts` |
+| Generator | Produces deterministic self-contained QA and Cursor assets from canonical templates | `src/generator/index.cts`, `plugin-src/` |
+| Source diagnostics | Detects selected-host manual or active duplicates with secret-safe metadata | `src/core/`, `src/hosts/`, `src/cli/commands.cts` |
+| Maintainer gates | Enforces dependency, generation, documentation, pack, scrub, and readiness contracts | `src/maintainer/` |
+| Smoke harness | Acquires one actual package and proves lifecycle and loopback MCP evidence | `src/smoke/` |
 
 ## Pattern Overview
 
-**Overall:** Environment-specific plugin packaging with shared graph-first navigation policy.
-
-**Key Characteristics:**
-- The marketplace is the composition root; each plugin is independently installable.
-- Dev and QA are parallel packages with separate MCP namespace permissions and endpoint configuration files (`kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`).
-- Hooks are advisory and non-blocking. Structural lookup is redirected toward MCP tools, while exact text/local edit searches remain local.
-- Runtime behavior is implemented by host plugin systems; this repository contains configuration, prompts, and a standard-library Python hook rather than a server runtime.
+- One CLI invocation manages one host; project installations for different hosts can coexist.
+- `install` composes `installed ∪ selected`; `update` defaults to installed capabilities; `uninstall`
+  requires an explicit capability or `--all` in automation.
+- Only current capability-scoped schema v1 is accepted. Retired environment-shaped or Python state
+  has no migration, adoption, cleanup, or implicit conversion path.
+- Every mutation deep-scans the selected host for manual or active duplicate sources before render.
+  `status` and `doctor` remain read-only and expose only stable codes and safe paths.
+- Canonical TypeScript and templates generate executable CJS and host assets. Installed execution
+  requires Node.js 22+ only, with no runtime compiler or production dependency.
+- Codex, Claude Code, and ZCode use advisory non-blocking hooks. Cursor intentionally uses an
+  always-on Rule/skill/MCP model, and OpenCode uses a project plugin.
+- Installed ownership is contributor-scoped, digest-backed, drift-aware, and recoverable without
+  touching unrelated configuration.
 
 ## Layers
 
-**Distribution layer:**
-- Purpose: Declare installable plugin products.
-- Location: `.claude-plugin/marketplace.json`
-- Contains: Owner, marketplace name, plugin source paths, descriptions.
-- Depends on: The two package directories.
+### Controller
 
-**Plugin configuration layer:**
-- Purpose: Bind each package to its MCP server and host permissions.
-- Location: `kcoderag-dev/.mcp.json`, `kcoderag-dev/settings.json`, `kcoderag-qa/.mcp.json`, `kcoderag-qa/settings.json`
-- Contains: Environment-specific MCP registration and allow-list namespace.
-- Used by: Claude Code/Codex plugin host.
+`src/bin/` and `src/cli/` validate command policy, runtime, host selection, exact targets,
+confirmation, and stable human/JSON output. They orchestrate reads and one transaction rather than
+writing host files directly.
 
-**Agent guidance layer:**
-- Purpose: Encode graph-first lookup workflow and tool selection.
-- Location: `*/skills/code-lookup-discipline/SKILL.md`, `kcoderag-dev/agents/kcode-explorer.md`
-- Contains: Search decision table, fallback rules, and exploration role instructions.
-- Used by: Agents operating after plugin installation.
+### Core
 
-**Hook layer:**
-- Purpose: Detect structural search intent and add non-blocking guidance.
-- Location: `*/hooks/hooks.json`, `*/hooks/grep_nudge.py`
-- Contains: PreToolUse matcher and parser/heuristics for Grep, Glob, Bash, and common shell search commands.
-- Used by: Claude Code/Codex hook runner.
+`src/core/` owns host-neutral contracts, path validation, state schema v1, composite digests,
+mutation locks, project-root discovery, and transactional mutation. It does not import host-specific
+modules.
+
+### Providers
+
+`src/hosts/` owns host-native roots, structured merge rules, source discovery, and desired-state
+rendering. Adapters are read/render-only and return immutable plans to the transaction layer.
+
+### Runtime Hooks
+
+`src/hooks/` implements bounded parsing, structural-search guidance, receipt-gated code-style
+guidance, one-time marker handling, successful-call markers, and offline update awareness. Every
+host boundary catches malformed or unsupported input and exits successfully without blocking the
+original operation.
+
+### Build and Distribution
+
+`src/generator/`, `plugin-src/`, generated QA/Cursor trees, and the root `package.json` form the
+deterministic npm product. Generated trees are outputs, not independent maintenance sources. Root
+marketplace catalogs and retired package trees are not installation surfaces.
+
+### Assurance
+
+`src/maintainer/`, `src/smoke/`, tests, local hooks, and CI prove dependency closure, deterministic
+generation, exact package inventory, secret-safe diagnostics, five-host packaged lifecycle, and
+readiness evidence.
 
 ## Data Flow
 
-### Plugin Installation and Lookup Guidance
+### Project Installation
 
-1. The host reads `.claude-plugin/marketplace.json` and resolves a selected package source.
-2. Package MCP configuration and permissions are loaded from the selected `kcoderag-*/.mcp.json` and `settings.json`.
-3. For `Grep`, `Glob`, or `Bash`, the host invokes the registered PreToolUse command in `kcoderag-*/hooks/hooks.json`.
-4. `grep_nudge.py` parses tool input, suppresses mechanical/local-file cases, and emits `additionalContext` recommending `search_code`, `context`, or `get_call_chain`.
-5. The hook exits successfully with no output for malformed input or non-structural searches, preserving fail-open behavior.
+1. The CLI validates Node.js 22+, flags, the exact project target, selected host, and requested
+   capabilities.
+2. The selected adapter reads current state and performs the selected-host source gate without
+   exposing credential values.
+3. Capability support and current-state integrity are preflighted before desired-state creation.
+4. The adapter renders one complete immutable desired state for the requested final capability set.
+5. `applyTransaction` verifies expected digests, stages bytes, commits state last, and restores the
+   selected host on failure.
+6. Output reports only stable codes and safe relative paths.
 
-**State Management:** The repository has no application database or persistent runtime state. Hook state is per invocation; package configuration is static. MCP service state lives outside this repository.
+### Lookup Guidance and Update Awareness
+
+1. Codex, Claude Code, or ZCode invokes a generated launcher for the relevant native hook event.
+2. From session cwd, the launcher walks upward to the nearest selected-host managed state. A damaged
+   nearest boundary fails open and never falls through to an outer project.
+3. The dispatcher validates schema, composite digest, and every managed file digest before routing
+   capability handlers.
+4. Navigation emits bounded advice only for eligible structural searches. Code-style guidance also
+   requires a supported receipt row, an eligible structured write, and a stable session identity.
+5. The first eligible event may schedule a detached registry refresh; foreground execution reads
+   local bounded state only.
+6. Codex/Claude/ZCode `PostToolUse`, Cursor `afterMCPExecution`, and OpenCode
+   `tool.execute.after` record the same secret-free bounded success marker.
+
+## Host Projections
+
+| Host | Managed project surface | Native behavior |
+|------|-------------------------|-----------------|
+| Codex | `.codex/`, `.agents/skills/` | advisory Pre/PostToolUse launchers and MCP projection |
+| Claude Code | `.claude/settings.json`, `.claude/skills/`, root `.mcp.json` | advisory Pre/PostToolUse dispatcher and MCP projection |
+| Cursor | `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, `.cursor/hooks.json` | always-on Rule/skill/MCP plus success marker |
+| OpenCode | one root JSON/JSONC config and `.opencode/` | project plugin, skill, MCP, and after-event marker |
+| ZCode | `.zcode/config.json`, `.zcode/skills/`, project hook runtime | project MCP/skill and advisory Pre/PostToolUse; trust remains user-controlled |
 
 ## Key Abstractions
 
-**Host adapter:**
-- Purpose: Declare a host's managed roots and pure detect/render/status behavior without writing.
-- Examples: `src/hosts/codex.cts`, `src/hosts/claude.cts`, `src/hosts/cursor.cts`.
-- Pattern: Narrow structured-section ownership plus exclusive files, exact state digests, and one
-  registry-selected desired state per CLI invocation.
+**HostAdapter** declares host identity, managed roots, detection, rendering, and status methods. It
+cannot commit files.
 
-**Cursor legacy migration:**
-- Purpose: Replace a verified retired user-local plugin with project-native Cursor integration.
-- Pattern: Independent removal authority, exact file/directory/tree/profile preflight, private
-  journal/backup, allow-listed deletion, and compensating restoration of both trees.
+**DesiredState** is one complete immutable mutation plan for a selected host, including expected
+digests and the state path.
 
-**Environment package:**
-- Purpose: Keep Dev and QA MCP permissions, instructions, hooks, and documentation independently installable.
-- Examples: `kcoderag-dev/`, `kcoderag-qa/`
-- Pattern: Parallel directory trees with environment-specific names and MCP namespaces.
+**InstallState** is the exact schema-v1 ownership graph for capabilities, contributor-scoped files
+and sections, originals, individual digests, and one composite digest.
 
-**Structural lookup heuristic:**
-- Purpose: Classify a local search as symbol/navigation-oriented.
-- Examples: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`
-- Pattern: Pure functions normalize command input, apply regex/token rules, then produce optional hook JSON.
+**InstallError** is a stable secret-safe refusal with optional normalized path metadata.
 
-## Entry Points
-
-**Marketplace entry point:**
-- Location: `.claude-plugin/marketplace.json`
-- Triggers: `codex plugin marketplace add` or Claude marketplace installation.
-- Responsibilities: Resolve `kcoderag-dev` and `kcoderag-qa` source directories.
-
-**Hook entry point:**
-- Location: `kcoderag-dev/hooks/grep_nudge.py` or `kcoderag-qa/hooks/grep_nudge.py`
-- Triggers: Host `PreToolUse` event for `Grep`, `Glob`, or `Bash`.
-- Responsibilities: Read JSON stdin, classify lookup patterns, write optional JSON stdout, and fail open.
+**Generated product** is the byte-deterministic CJS, templates, skills, host configuration, and
+launchers derived from canonical sources and the root package version.
 
 ## Architectural Constraints
 
-- **Runtime ownership:** MCP servers and graph data are external; do not add parser/database behavior to this package repository.
-- **Environment isolation:** Dev permissions use the Dev-qualified MCP namespace and QA permissions use the QA-qualified namespace (`kcoderag-dev/settings.json`, `kcoderag-qa/settings.json`).
-- **Hook safety:** Hook errors, malformed JSON, and unsupported commands must return success without blocking the user's tool call (`*/hooks/grep_nudge.py`).
-- **Secret boundary:** Environment MCP configuration files exist at `kcoderag-dev/.mcp.json` and `kcoderag-qa/.mcp.json`; treat their contents as sensitive and never expose credentials.
-- **Duplication boundary:** Dev and QA assets intentionally mirror one another; changes to behavior should be synchronized and tested in both package trees.
+- Only the shared transaction writes installation files.
+- Every resolved path stays inside the explicit target and adapter-declared managed roots; traversal,
+  symlinks, special files, and ambiguous ownership are rejected.
+- MCP URL, authorization, headers, and connection bodies are opaque sensitive values and never enter
+  diagnostics, documentation, tests, or receipts.
+- Unsupported code-style selections return `host_version_unsupported` before rendering and make zero
+  writes; navigation eligibility remains independent.
+- Marker creation follows full managed-tree integrity verification; drift cannot consume a valid
+  one-time reminder.
+- OpenCode and ZCode are project-only. OpenCode rejects simultaneous JSON and JSONC roots. ZCode does
+  not pre-authorize workspace trust.
+- `docs/MCP_QA_EXPERIENCE_GUIDE.md` is the sole current experience guide. The sibling repository's
+  former guide is only a one-time read-only import source and is not updated or bound into readiness.
+- Phase 04.2 verifies exact `0.3.0` readiness against one frozen subject and one actual tgz. It does
+  not tag, publish, refetch the registry, unpublish, or rewrite history.
+- Phase 05 hook precision, Phase 06 authenticated true-host evidence, Phase 07 global GSD hooks, and
+  Phase 08 identity/HTTPS/token rotation remain deferred.
 
 ## Anti-Patterns
 
 ### Treating local grep as the structural source of truth
 
-**What happens:** Agents use local text search for definitions, callers, or cross-language relationships.
-**Why it's wrong:** The package is designed to route structural questions to the indexed KCodeRag MCP graph.
-**Do this instead:** Follow `*/skills/code-lookup-discipline/SKILL.md`; use `search_code`, `context`, and `get_call_chain`, then local search only for exact strings or uncommitted edits.
+Use the KCodeRag MCP graph for definitions, callers, and cross-language relationships; reserve local
+search for exact strings and uncommitted edits.
 
-### Making the hook blocking or stateful
+### Making advisory hooks blocking or stateful
 
-**What happens:** Hook classification failure prevents a search command or stores mutable process state.
-**Why it's wrong:** The hook is explicitly advisory and must remain fail-open.
-**Do this instead:** Keep `hook_output()` and `main()` pure/short-lived and preserve the success exit path in `*/hooks/grep_nudge.py`.
+Hook parsing, lookup, marker, and update failures must produce no blocking result. Persistent state is
+limited to bounded, secret-free cache and marker records with explicit ownership.
+
+### Writing host files directly from adapters
+
+Adapters only inspect and render. All installation mutation belongs to the transaction layer.
+
+### Treating generated trees as canonical sources
+
+Update TypeScript or `plugin-src/`, then regenerate and verify. Do not hand-maintain product output.
 
 ## Error Handling
 
-**Strategy:** Fail open at the hook boundary; configuration/installation errors are delegated to the host.
-
-**Patterns:**
-- `main()` catches malformed input and returns exit code 0 in `*/hooks/grep_nudge.py`.
-- `hook_output()` returns `None` for absent or invalid `tool_input`.
-- Advisory output is emitted only when a structural lookup heuristic matches.
+- Expected CLI failures use stable `InstallError` codes and safe paths.
+- Transaction failure restores the selected host; rollback failure keeps a private recovery tree and
+  reports only its safe relative location.
+- Hook and worker boundaries swallow operational failures, emit no diagnostic noise on protocol
+  stdout, and never reject the original host operation.
+- `status` and `doctor` are read-only; JSON mode emits exactly one parseable secret-safe value.
 
 ## Cross-Cutting Concerns
 
-**Logging:** No application logging; hook communicates through optional JSON stdout.
-**Validation:** Unit-style hook tests cover command parsing and classification in `kcoderag-dev/hooks/test_grep_nudge.py` and `kcoderag-qa/hooks/test_grep_nudge.py`.
-**Authentication:** MCP authentication/credentials are configured externally through each package's `.mcp.json`; values are not documented here.
+- Deterministic CJS and host assets aligned to the root package version.
+- Narrow project ownership and unrelated configuration preservation.
+- Secret-safe metadata-only evidence.
+- Node 22/24 and Windows/Linux parity.
+- Honest separation between packaged readiness and Phase 06 authenticated true-host evidence.
 
 ---
 
-*Architecture analysis: 2026-08-20*
+*Architecture analysis refreshed: 2026-08-28*

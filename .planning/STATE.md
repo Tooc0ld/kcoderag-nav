@@ -112,7 +112,7 @@ Progress: [█████░░░░░] 55%
 | Phase 04.1 P01 | 76 min | 2 tasks | 7 files |
 | Phase 04.1 P03 | 16 min | 2 tasks | 7 files |
 | Phase 04.1 P04 | 30min | 2 tasks | 13 files |
-| Phase 04.1-jx3 P05 | 21min | 3 tasks | 14 files |
+| Phase 04.1-code-style P05 | 21min | 3 tasks | 14 files |
 | Phase 04.1 P06 | 34min | 3 tasks | 13 files |
 | Phase 04.1 P07 | 43m | 3 tasks | 13 files |
 | Phase 04.1 P08 | 30min | 3 tasks | 12 files |
@@ -209,7 +209,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 03.1]: Public documentation treats kcoderag-nav as a Node.js 22+ npx project integration, not a marketplace plugin or repository-checkout installer.
 - [Phase 03.1]: Cursor documentation exposes Rule, skill, and MCP semantics without claiming Codex/Claude Code PreToolUse hook equivalence.
 - [Phase 03.1]: Canonical README templates and all three generated README assets commit together under the versioned pre-commit gate.
-- [Phase 03.1]: KCodeRag remains the sole owner of MCP_QA_EXPERIENCE_GUIDE.md; kcoderag-nav stores only sanitized cross-repository provenance.
+- [Phase 03.1]: KCodeRag historically owned MCP_QA_EXPERIENCE_GUIDE.md and kcoderag-nav stored only sanitized cross-repository provenance; Phase 04.2 supersedes that ownership with this repository's local guide.
 - [Phase 03.1]: Codex, Claude Code, and Cursor share the Node.js 22+ npx lifecycle while Cursor uses Rule, skill, and MCP rather than an equivalent PreToolUse hook.
 - [Phase 03.1]: Guide-only sibling commits on a dirty staged index use a normal-hook temporary clone and exact fast-forward, preserving the original index and baseline.
 - [Phase 03.1]: Keep failed v0.1.5 immutable and unpublished; user-authorized v0.1.6 is the first successful public npm release.
@@ -267,23 +267,23 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04]: 04-15: preserve distinct immutable implementation, evidence, and release commits in one direct-child chain
 - [Phase 04]: 04-15: retire failed attestation forward and refreeze rather than reuse stale evidence
 - [Phase 04]: Public 0.2.0 and 0.2.1 remain immutable; parser and Windows launcher defects were repaired forward and real Head acceptance converged on exact/latest 0.2.2.
-- [Phase 04.1]: Keep all 27 JX3 rule IDs exactly once in SKILL.md while validating deliberate repetitions by exact reference partition. — This separates compact index completeness from progressive-disclosure detail.
+- [Phase 04.1]: Keep all 27 code-style rule IDs exactly once in SKILL.md while validating deliberate repetitions by exact reference partition. — This separates compact index completeness from progressive-disclosure detail.
 - [Phase 04.1]: Ship four shallow Markdown references without scanner, Python, SVN, history, build, or deployment workflow content. — The nudge capability remains pure pre-write guidance and future deterministic audit retains scanner ownership.
 - [Phase 04.1]: Treat precedence, changed-region scope, minimal correction, and honest evidence questions as behavior-test contracts. — False-positive restraint is tested alongside positive prescriptions.
 - [Phase 04.1]: Use authorized KSCC 1.2.1 for real Claude sessions while binding support to independently verified Claude Code 2.1.241.
-- [Phase 04.1]: Enable JX3 only for exact host versions with checked-in digest-bound PASS receipts; navigation eligibility remains independent.
-- [Phase 04.1]: Keep Codex, Cursor, and OpenCode JX3 delivery unsupported until native model-visible pre-write context is directly proved.
+- [Phase 04.1]: Enable code-style guidance only for exact host versions with checked-in digest-bound PASS receipts; navigation eligibility remains independent.
+- [Phase 04.1]: Keep Codex, Cursor, and OpenCode code-style delivery unsupported until native model-visible pre-write context is directly proved.
 - [Phase 04.1]: Keep the public built-in manifest separate from provider instances so invalid selections finish validation before provider access.
 - [Phase 04.1]: Capability providers declare package-relative files and logical sections; host adapters retain native paths, merge semantics, and mutation boundaries.
-- [Phase 04.1]: Navigation remains independently eligible; JX3 fails closed unless exact checked-in host receipt evidence returns PASS with its frozen digest.
+- [Phase 04.1]: Navigation remains independently eligible; code-style guidance fails closed unless exact checked-in host receipt evidence returns PASS with its frozen digest.
 - [Phase 04.1]: Install state is one exact capability graph; retired environment-shaped and Python records are invalid inputs, not migration candidates.
 - [Phase 04.1]: Shared-file ownership is bound to canonical contributor IDs and one composite digest; originals restore only after the final contributor is removed.
 - [Phase 04.1]: Manual or retired host sources expose frozen path/code metadata only and never executable cleanup or inferred ownership.
-- [Phase 04.1]: JX3 once claims accept only non-empty string session_id, thread_id, or conversation_id values; no fallback identities are allowed.
-- [Phase 04.1]: JX3 marker saturation suppresses new nudges without evicting live session claims.
+- [Phase 04.1]: Code-style once claims accept only non-empty string session_id, thread_id, or conversation_id values; no fallback identities are allowed.
+- [Phase 04.1]: Code-style marker saturation suppresses new nudges without evicting live session claims.
 - [Phase 04.1]: Automatic SessionEnd cleanup remains disabled until an exact checked-in delivery receipt proves the host event and stable identity lane.
-- [Phase 04.1]: JX3 managed-tree integrity is verified before marker creation so drift cannot consume the first valid session reminder.
-- [Phase 04.1]: JX3 projection is enabled only for the frozen Claude 2.1.241 PASS row; current Codex, Cursor, and OpenCode versions reject JX3 before desired-state creation.
+- [Phase 04.1]: Code-style managed-tree integrity is verified before marker creation so drift cannot consume the first valid session reminder.
+- [Phase 04.1]: Code-style projection is enabled only for the frozen Claude 2.1.241 PASS row; current Codex, Cursor, and OpenCode versions reject code-style guidance before desired-state creation.
 - [Phase 04.1]: Published host support uses a self-contained frozen lookup while checked-in receipt parsing and digest proof remain build-time only.
 - [Phase 04.1]: Nearest-project launch requires the exact current capability schema, composite digest, and every managed file digest; invalid nearest boundaries never fall through.
 - [Phase 04.1]: Cursor retains its native kcoderag MCP identity while the other host projections use their native kcoderag-qa registrations.
@@ -294,17 +294,17 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.1]: Pack audit validates the exact temporary tgz independently while repository generation drift remains a separate required pre-commit and CI gate.
 - [Phase 04.1]: Retirement policy rejects executable authority and active instructions while explicitly historical or legacy Markdown regions remain records.
 - [Phase 04.1]: Plan 09 generated QA runtime, registration, and guidance as independent no-op-proven groups while leaving Cursor outputs untouched.
-- [Phase 04.1]: Generated QA JX3 guidance is accepted only by exact canonical byte identity plus static and behavioral tests.
+- [Phase 04.1]: Generated QA code-style guidance is accepted only by exact canonical byte identity plus static and behavioral tests.
 - [Phase 04.1]: The QA product retains an explicit twenty-six-member closed inventory with no wildcard relaxation.
-- [Phase 04.1]: Cursor navigation metadata and guidance use navigation-only generation so JX3 packaging cannot imply support parity.
-- [Phase 04.1]: Packaged Cursor JX3 Skill assets do not grant support; Cursor 3.17.8 remains receipt-bound unsupported.
+- [Phase 04.1]: Cursor navigation metadata and guidance use navigation-only generation so code-style packaging cannot imply support parity.
+- [Phase 04.1]: Packaged Cursor code-style Skill assets do not grant support; Cursor 3.17.8 remains receipt-bound unsupported.
 - [Phase 04.1]: Cursor product evidence enumerates nine exact members and rejects native pre-write equivalence in navigation assets.
-- [Phase 04.1]: Claude 2.1.241 is the sole receipt-supported JX3 lane; Codex 0.146.1, Cursor 3.17.8, and OpenCode 1.18.23 remain explicit UNSUPPORTED navigation-only lanes.
+- [Phase 04.1]: Claude 2.1.241 is the sole receipt-supported code-style lane; Codex 0.146.1, Cursor 3.17.8, and OpenCode 1.18.23 remain explicit UNSUPPORTED navigation-only lanes.
 - [Phase 04.1]: Packed smoke receipts serialize only stable codes, booleans, exact versions, and digests; temporary roots and command output remain internal.
 - [Phase 04.1]: Release preparation runs ci:local, docs:check, and audit:retirement as a frozen ordered gate inventory, while CI and tag release invoke docs and retirement explicitly.
-- [Phase 04.1]: Current guidance distinguishes navigation from JX3, derives desired capabilities from installed union selected, and keeps unsupported-host navigation usable.
-- [Phase 04.1]: Only Claude Code 2.1.241 has a PASS delivery receipt; exact unsupported host versions reject JX3 before render or transaction with zero writes.
-- [Phase 04.1]: The sibling MCP_QA_EXPERIENCE_GUIDE.md remains the sole authoritative guide and is bound by a schema-v3 sanitized cross-repository receipt.
+- [Phase 04.1]: Current guidance distinguishes navigation from code-style guidance, derives desired capabilities from installed union selected, and keeps unsupported-host navigation usable.
+- [Phase 04.1]: Only Claude Code 2.1.241 has a PASS delivery receipt; exact unsupported host versions reject code-style guidance before render or transaction with zero writes.
+- [Phase 04.1]: The sibling MCP_QA_EXPERIENCE_GUIDE.md was the historical authority and was bound by a schema-v3 sanitized cross-repository receipt; Phase 04.2 supersedes it with the repository-local guide.
 
 ### Pending Todos
 
@@ -313,7 +313,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 ### Blockers/Concerns
 
 - Phase 1–3 是基于当前代码、quick history 与测试的回溯完成记录；实现提交仍保留在 quick task 历史中。
-- required CI 已覆盖四宿主，历史 Head 三宿主验收保持有效；OpenCode 1.18.23 已通过未发布 tarball 真机验收，但公共 exact/latest 证据仍待新版本发布。authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
+- Phase 04 的 required CI 覆盖四宿主，历史 Head 三宿主验收保持有效；Phase 04.2 readiness 扩展为五宿主 packaged lifecycle/smoke。OpenCode 1.18.23 已通过未发布 tarball 真机验收，但公共 exact/latest 证据仍待新版本发布。authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
 - GSD runtime 本地补丁当前解析正确，但 GSD 更新可能覆盖，且全局 context monitor 仍注册过宽。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
 - Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
@@ -348,8 +348,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Roadmap Evolution
 
-- Phase 04.1 inserted after Phase 4: 多能力安装平台与 JX3 规范提示 (URGENT)
-- Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and JX3 nudge
+- Phase 04.1 inserted after Phase 4: 多能力安装平台与代码规范提示 (URGENT)
+- Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and code-style nudge
 - Phase 04.2 inserted after Phase 04.1: 公开版本去品牌化 (URGENT)
 
 ## Deferred Items

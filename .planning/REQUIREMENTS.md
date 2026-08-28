@@ -69,7 +69,7 @@
 - [x] **DEP-01 — QA-only 公开发布与 Head 部署（D-01、D-02、D-04、D-17–D-20）**:
   公共 `kcoderag-nav` 自 `0.2.0` 起、CLI、生成资产和用户文档只提供 QA；Dev 只由严格 legacy
   解码器读取，并且迁移需要独立明确授权。实现、测试、审查、pack、四通道 CI 与公开制品门禁
-  全部通过后无需再次人工审批即可发布。`I:\JX3_SVN\Head` 最终必须使用公开 exact `0.2.2`
+  全部通过后无需再次人工审批即可发布。内部 Head 验收项目最终必须使用公开 exact `0.2.2`
   完成三宿主 QA-only 部署，Codex/Claude 还需通过 root/deep Hook 复核；最终 healthy、无活动重复
   来源。若已发布制品在真实迁移中失败，项目事务回滚但 npm 版本、tag 和 latest 保持不可变，
   只能以前进版本修复；本阶段实际由 `0.2.0` 经 `0.2.1` 前进到已验收的 `0.2.2`。
@@ -99,13 +99,13 @@
 | DEP-02 | runtime/path safety | root/deep/nested/damaged/moved 跨平台自动化，危险全局 target 拒绝和普通非 VCS target 成功 |
 | DEP-03 | diagnostics/authority | selected-host source fixtures、只读 status/doctor、secret sentinels 不出现在输出、指纹不匹配零写入 |
 
-### 多能力安装平台与 JX3 规范提示
+### 多能力安装平台与代码规范提示
 
-- [x] **PLAT-01**: 公共 npm 包以内置 capability manifest 注册 KCodeRag navigation 与 `jx3-style-nudge`；安装状态、受管文件、摘要和配置 section 按 capability 记录，同一宿主所选能力集合通过一次事务原子提交，独立更新或卸载不会破坏其他能力、宿主或用户配置
+- [x] **PLAT-01**: 公共 npm 包以内置 capability manifest 注册 KCodeRag navigation 与 `code-style-nudge`；安装状态、受管文件、摘要和配置 section 按 capability 记录，同一宿主所选能力集合通过一次事务原子提交，独立更新或卸载不会破坏其他能力、宿主或用户配置
 - [x] **PLAT-02**: 五个 CLI 命令支持 capability 粒度的安全语义：交互 install 在单宿主内多选，自动化重复传 `--capability`；status/doctor 默认展示所选宿主全部能力，update 默认更新全部已安装能力且可筛选，uninstall 必须交互选择或显式指定
 - [x] **PLAT-03**: 一份包内 canonical Skill/handler 资产由 Codex、Claude Code、Cursor、OpenCode 与 ZCode adapter 确定性投影到宿主原生项目路径；写前能力必须通过真实宿主 fixture 证明结构化目标路径、稳定会话标识和非阻断模型上下文注入，宿主版本未知、不可解析、过低或未证明时只拒绝该能力而不伪装降级
 - [x] **LEG-01**: 删除尚未公开使用的旧 CLI、旧状态 schema 和 QA/Dev 迁移兼容逻辑；对 pre-npm 手工 MCP、marketplace/plugin、Python Hook 和多来源冲突仅做 secret-safe、只读检测并在写前硬停止，不迁移、接管或自动删除
-- [x] **JX3-01**: `jx3-style-nudge` 以纯 CJS/JS Hook 配合受管 Markdown `$jx3-code-style-correction` Skill 工作，只在每个稳定宿主会话首次相关 C/C++/头文件/Lua 内容写入前注入一次短提示；无稳定会话 ID、资产漂移或任何运行异常均静默 fail-open，且不运行 Python、SVN、网络、逐次 PostToolUse scanner 或宣称静态扫描通过
+- [x] **STYLE-01**: `code-style-nudge` 以纯 CJS/JS Hook 配合受管 Markdown `$code-style-correction` Skill 工作，只在每个稳定宿主会话首次相关 C/C++/头文件/Lua 内容写入前注入一次短提示；无稳定会话 ID、资产漂移或任何运行异常均静默 fail-open，且不运行 Python、SVN、网络、逐次 PostToolUse scanner 或宣称静态扫描通过
 - [x] **TEST-10**: 自动化覆盖 capability 组合与独立生命周期、共享配置/Hook 合成、版本门禁、扩展名和结构化写入过滤、一次性并发 marker、资产漂移、legacy 来源硬停止、事务回滚、secret-safe 输出、Node.js 22/24 及 Windows/Linux；真实宿主 fixture 明确记录每个支持版本的 delivery evidence
 
 ### 公开版本去品牌化
@@ -207,7 +207,7 @@
 | PLAT-02 | Phase 04.1 | Complete |
 | PLAT-03 | Phase 04.1 | Complete |
 | LEG-01 | Phase 04.1 | Complete |
-| JX3-01 | Phase 04.1 | Complete |
+| STYLE-01 | Phase 04.1 | Complete |
 | TEST-10 | Phase 04.1 | Complete |
 | BRAND-01 | Phase 04.2 | Pending |
 | BRAND-02 | Phase 04.2 | Pending |

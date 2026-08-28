@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: 受管项目安装与环境生命周期** - 在不污染用户环境的前提下交付互斥的 QA/Dev 项目级安装、冲突保护与显式切换。 (completed 2026-08-23)
 - [x] **Phase 3: 可预测的单环境图导航** - 让用户只查询当前安装环境，并在环境故障时获得明确、低打扰的 fallback 指引。 (completed 2026-08-23)
 - [x] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。 (completed 2026-08-26)
-- [x] **Phase 04.1: 多能力安装平台与 JX3 规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
+- [x] **Phase 04.1: 多能力安装平台与代码规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
 - [ ] **Phase 04.2: 公开版本去品牌化** - 从 `0.3.0` 起以中性名称发布代码规范能力，并以源码与 npm 制品零命中门禁防止品牌词回归。
 - [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
 - [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
@@ -201,7 +201,7 @@ Plans:
   2. **D-05–D-08:** Codex/Claude Hook 从 cwd 向上选择最近状态边界；root/deep/Unicode/nested/moved 行为可复跑，损坏最近边界静默 fail-open 且不穿透；危险全局 target 被拒绝而普通非 VCS 目录可用。
   3. **D-03/D-09–D-16:** status 快速、doctor 深扫且二者只读；selected-host active source 产生 `source_conflict`/`ok:false` 并阻断 install/update。owned source 清理权限独立且绑定冻结 fingerprint，raw/manual/ambiguous 来源只允许人工清理，任何输出均不含连接或凭据值。
   4. **D-04:** 实现、测试、审查、pack、四通道 CI 和公开制品门禁全部通过后直接发布不可变 `0.2.0`；真实验收发现的缺陷只通过 `0.2.1`/`0.2.2` 前进修复，不设置回退或 unpublish 路径。
-  5. **D-17–D-19:** `I:\JX3_SVN\Head` 使用公开 exact `kcoderag-nav@0.2.2` 完成 Codex、Claude Code、Cursor QA-only 部署；最终三宿主 healthy、无活动重复来源，Codex/Claude 根/Unicode 深层/空格深层 Hook 指向同一项目。
+  5. **D-17–D-19:** 内部 Head 验收项目使用公开 exact `kcoderag-nav@0.2.2` 完成 Codex、Claude Code、Cursor QA-only 部署；最终三宿主 healthy、无活动重复来源，Codex/Claude 根/Unicode 深层/空格深层 Hook 指向同一项目。
   6. **D-20:** 公开版本后的真实迁移失败保持项目事务恢复原状，npm/tag/latest 不回退或 unpublish；0.2.0 的解析问题和 0.2.1 的 Windows 并发 launcher 问题均以 0.2.2 修复前进并重新验收。
   7. README 与 KCodeRag 权威指南在删除公共 Dev 代码/资产前先同步 QA-only 合同；Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换和 OpenCode 实现保持未交付。
 
@@ -291,17 +291,17 @@ Plans:
 
 - [x] `04-16-PLAN.md` — 以不可变 fix-forward 的公开 exact `0.2.2` 完成三宿主 Head 验收并记录偏差
 
-### Phase 04.1: 多能力安装平台与 JX3 规范提示 (INSERTED)
+### Phase 04.1: 多能力安装平台与代码规范提示 (INSERTED)
 
-**Goal:** As a 使用受支持 AI 编码宿主的开发者, I want to 按项目选择并管理导航与 JX3 提示能力, so that 我能在保持能力隔离和低打扰的前提下，于写代码前获得所需规范提示.
+**Goal:** As a 使用受支持 AI 编码宿主的开发者, I want to 按项目选择并管理导航与代码规范提示能力, so that 我能在保持能力隔离和低打扰的前提下，于写代码前获得所需规范提示.
 **Mode:** mvp
-**Requirements**: PLAT-01, PLAT-02, PLAT-03, LEG-01, JX3-01, TEST-10
+**Requirements**: PLAT-01, PLAT-02, PLAT-03, LEG-01, STYLE-01, TEST-10
 **Depends on:** Phase 4
 **Success Criteria** (what must be TRUE):
 
   1. 五个 CLI 命令可按单宿主管理显式选择的能力集合；状态、文件和配置 section 的所有权按 capability 记录，卸载一个能力不会破坏其他能力或用户配置。
   2. KCodeRag QA 导航通过统一 capability contract 接入；共享 Hook dispatcher 有界组合各能力提示，单个能力异常不会阻断宿主操作。
-  3. `jx3-style-nudge` 仅在首次相关 C/C++、头文件或 Lua 写入前提醒加载 `$jx3-code-style-correction`；不运行 SVN、Python 扫描器或网络请求，也不宣称已经完成规范审核。
+  3. `code-style-nudge` 仅在首次相关 C/C++、头文件或 Lua 写入前提醒加载 `$code-style-correction`；不运行 SVN、Python 扫描器或网络请求，也不宣称已经完成规范审核。
   4. 对旧手工 MCP、marketplace/plugin、Python Hook 和多来源冲突只进行 secret-safe 检测，并在写入前硬停止；用户人工清理后可以重试。
   5. 自动化覆盖能力组合、独立更新与卸载、共享配置合成、事务回滚和 legacy 硬停止；公共包继续保持 Node.js 22+、零生产依赖、零 Python 运行时。
 
