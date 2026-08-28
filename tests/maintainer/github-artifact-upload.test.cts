@@ -262,18 +262,18 @@ test("block stage and block list commit preserve the exact private lease buffer"
     });
     assert.deepEqual(events, ["create", "stage_block", "commit_block_list", "finalize"]);
     assert.deepEqual(bodies[0], {
-      workflowRunBackendId: "run-backend-id",
-      workflowJobRunBackendId: "job-backend-id",
+      workflow_run_backend_id: "run-backend-id",
+      workflow_job_run_backend_id: "job-backend-id",
       name: "kcoderag-nav-0.3.0.tgz",
-      mimeType: { value: "application/gzip" },
+      mime_type: "application/gzip",
       version: 7,
     });
     assert.deepEqual(bodies[3], {
-      workflowRunBackendId: "run-backend-id",
-      workflowJobRunBackendId: "job-backend-id",
+      workflow_run_backend_id: "run-backend-id",
+      workflow_job_run_backend_id: "job-backend-id",
       name: "kcoderag-nav-0.3.0.tgz",
       size: String(fixture.bytes.length),
-      hash: { value: `sha256:${crypto.createHash("sha256").update(fixture.bytes).digest("hex")}` },
+      hash: `sha256:${crypto.createHash("sha256").update(fixture.bytes).digest("hex")}`,
     });
     assert.deepEqual(receipt, {
       artifactId: "4242",
@@ -930,8 +930,8 @@ test("failed upload deletes the partial artifact before the lease is disposed an
     if (url.endsWith("/DeleteArtifact")) {
       events.push("delete");
       assert.deepEqual(requestBody(init), {
-        workflowRunBackendId: "run-backend-id",
-        workflowJobRunBackendId: "job-backend-id",
+        workflow_run_backend_id: "run-backend-id",
+        workflow_job_run_backend_id: "job-backend-id",
         name: "kcoderag-nav-0.3.0.tgz",
       });
       return jsonResponse({ ok: true, artifactId: "4242" });
