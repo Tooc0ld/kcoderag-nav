@@ -541,6 +541,8 @@ export interface PackageProductSnapshot {
   readonly digest: string;
   readonly localGuideDigest: string;
   readonly paths: readonly string[];
+  readonly sourcePaths: readonly string[];
+  readonly generatedPaths: readonly string[];
   readonly oids: Readonly<Record<string, string>>;
 }
 
@@ -748,7 +750,7 @@ function validateSemanticReview(root: string, candidateSubject: string, receiptP
   });
 }
 
-/** Read the exact package allow-list from an immutable Git subject and hash its product blobs. */
+/** Bind immutable source blobs and the exact declared clean-build output inventory. */
 export function readPackageProductSnapshot(rootInput: string, subjectInput: string): PackageProductSnapshot {
   const root = fs.realpathSync(path.resolve(rootInput));
   const resolved = resolveSubject(root, subjectInput);
@@ -763,17 +765,31 @@ export function readPackageProductSnapshot(rootInput: string, subjectInput: stri
     "package_identity_invalid",
   );
   const declared = packageJson.files as string[];
-  readinessFailUnless(new Set(declared).size === declared.length && declared.includes(LOCAL_GUIDE_PATH),
+  readinessFailUnless(
+    new Set(declared).size === declared.length
+      && !declared.includes("package.json")
+      && declared.includes(LOCAL_GUIDE_PATH),
     "package_inventory_invalid");
   const paths = Object.freeze(["package.json", ...declared].sort(compare));
+  const generatedPaths = Object.freeze(declared.filter((relativePath) => relativePath.startsWith("dist/")).sort(compare));
+  const generatedPathSet = new Set(generatedPaths);
+  const sourcePaths = Object.freeze(paths.filter((relativePath) => !generatedPathSet.has(relativePath)));
   const oids: Record<string, string> = {};
   const digest = crypto.createHash("sha256");
-  let localGuideDigest = "";
+  digest.update("kcoderag-nav:package-product-snapshot:v2\0", "utf8");
   for (const relativePath of paths) {
+    digest.update("declared\0", "utf8").update(relativePath, "utf8").update("\0");
+  }
+  for (const relativePath of generatedPaths) {
+    digest.update("generated\0", "utf8").update(relativePath, "utf8").update("\0");
+  }
+  let localGuideDigest = "";
+  for (const relativePath of sourcePaths) {
     const blob = readGitBlob(root, resolved.subject, relativePath, "package_inventory_invalid");
     oids[relativePath] = blob.oid;
     const bodyDigest = sha256(blob.bytes);
-    digest.update(relativePath, "utf8").update("\0").update(blob.oid, "ascii").update("\0")
+    digest.update("source\0", "utf8").update(relativePath, "utf8").update("\0")
+      .update(blob.oid, "ascii").update("\0")
       .update(bodyDigest, "ascii").update("\0");
     if (relativePath === LOCAL_GUIDE_PATH) localGuideDigest = bodyDigest;
   }
@@ -785,6 +801,8 @@ export function readPackageProductSnapshot(rootInput: string, subjectInput: stri
     digest: digest.digest("hex"),
     localGuideDigest,
     paths,
+    sourcePaths,
+    generatedPaths,
     oids: Object.freeze(oids),
   });
 }
