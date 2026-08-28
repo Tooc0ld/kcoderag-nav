@@ -43,7 +43,7 @@ jobs:
         id: upload
         env:
           READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
-        run: npm run readiness:workflow-upload
+        uses: ./.github/actions/readiness-upload
 
   linux-node22:
     needs: package

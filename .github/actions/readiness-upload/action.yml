@@ -1,0 +1,16 @@
+name: Readiness candidate upload
+description: Upload one audited candidate package through the job-scoped artifact service
+outputs:
+  artifact-id:
+    description: Artifact service identifier
+  artifact-name:
+    description: Candidate archive name
+  artifact-sha256:
+    description: Candidate archive SHA-256
+  member-count:
+    description: Candidate archive member count
+  candidate-subject:
+    description: Candidate Git subject
+runs:
+  using: node24
+  main: index.cjs
