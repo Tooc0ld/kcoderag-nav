@@ -9,7 +9,8 @@
 将公共 `kcoderag-nav` 从 QA/Dev 双环境项目集成收敛为 QA-only，并为 Codex、Claude Code 与
 Cursor 提供严格项目级的安装、旧来源迁移、用户级冲突诊断和稳定 Hook 根定位。Phase 结束前，
 实现必须通过测试、审查、四通道 CI 与公开 npm 制品验证，直接发布不可变的 `0.2.0`，再使用
-公开 exact 版本将 `I:\JX3_SVN\Head` 的旧项目级 QA 安全迁移为当前受管安装。
+公开 exact 版本将 `REDACTED_HISTORICAL_HEAD_PROJECT` 的旧项目级 QA 安全迁移为当前受管安装。
+该 token 是对已完成验收所用真实项目路径的中性化代称，不表示 Phase 04.2 执行了新的部署。
 
 这一边界有意覆盖 Phase 03.1 的 Dev 安装决策。规划必须先同步修订 `.planning/PROJECT.md`、
 `.planning/REQUIREMENTS.md`、`.planning/ROADMAP.md`、受管 AGENTS 内容、README 与 KCodeRag
@@ -152,7 +153,7 @@ Cursor 提供严格项目级的安装、旧来源迁移、用户级冲突诊断�
 <specifics>
 ## Specific Ideas
 
-- 当前 `I:\JX3_SVN\Head` 的 Codex QA 状态为 `update_available`，issue 为 `legacy_migration_available`；它是 Phase 04 的实际迁移目标。
+- 当时 `REDACTED_HISTORICAL_HEAD_PROJECT` 的 Codex QA 状态为 `update_available`，issue 为 `legacy_migration_available`；它是 Phase 04 已完成迁移的实际目标之中性化记录。
 - 当前用户级 Codex 存在名为 `kcoderag-nav` 的旧 marketplace 注册，指向已退役 marketplace manifest 的仓库根，并导致 `codex plugin list` 失败；它应作为“所有权明确、可确认清理”的真实 fixture，而不是 raw 配置自动删除的先例。
 - 目标体验是普通用户只运行 `npx kcoderag-nav@latest install --host <host>` 即获得项目级 QA；Dev 不出现在帮助、交互选择、安装状态或用户文档中。
 - Head 部署只接受公开 exact `kcoderag-nav@0.2.0`，并留下制品身份、健康状态、来源清洁和嵌套目录 Hook 证据。

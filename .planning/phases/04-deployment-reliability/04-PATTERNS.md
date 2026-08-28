@@ -469,7 +469,7 @@ Remove Dev manifests from version/release-owned sets. From `0.1.8`, the authoriz
 
 Head acceptance must be a separate post-publication sequence using `kcoderag-nav@0.2.0` exactly:
 
-1. `doctor` for Codex at `I:\JX3_SVN\Head`.
+1. `doctor` for Codex at the redacted historical target `REDACTED_HISTORICAL_HEAD_PROJECT`.
 2. Show and explicitly authorize the known owned stale user-level source cleanup; use the verified native uninstall command.
 3. Run exact `update`/legacy migration.
 4. Run exact `status` and `doctor` and capture metadata-only evidence.
