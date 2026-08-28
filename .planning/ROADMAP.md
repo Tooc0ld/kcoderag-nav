@@ -362,11 +362,49 @@ Plans:
   4. R01–R19、S01–S08、E01–E15 规则内容、首次相关写入提示、fail-open、能力组合、事务回滚和宿主版本证据保持行为等价。
   5. 根版本前进到 `0.3.0`，完整 CI、确定性生成、pack audit、五宿主 required packaged smoke、公开文档及本仓库 `docs/MCP_QA_EXPERIENCE_GUIDE.md` 通过后才具备发布条件；兄弟仓库指南不再更新或绑定，本阶段不创建 tag、不 publish、不执行 registry refetch、unpublish 或历史清理。
 
-**Plans:** 0 plans
+**Plans:** 35/39 plans executed
 
 Plans:
 
-- [ ] TBD (run $gsd-plan-phase 04.2 to break down)
+- [x] 04.2-01-PLAN.md
+- [x] 04.2-02-PLAN.md
+- [x] 04.2-03-PLAN.md
+- [x] 04.2-04-PLAN.md
+- [x] 04.2-05-PLAN.md
+- [x] 04.2-06-PLAN.md
+- [x] 04.2-07-PLAN.md
+- [x] 04.2-08-PLAN.md
+- [x] 04.2-09-PLAN.md
+- [x] 04.2-10-PLAN.md
+- [x] 04.2-11-PLAN.md
+- [x] 04.2-12-PLAN.md
+- [x] 04.2-13-PLAN.md
+- [x] 04.2-14-PLAN.md
+- [x] 04.2-15-PLAN.md
+- [x] 04.2-16-PLAN.md
+- [x] 04.2-17-PLAN.md
+- [x] 04.2-18-PLAN.md
+- [x] 04.2-19-PLAN.md
+- [x] 04.2-20-PLAN.md
+- [x] 04.2-21-PLAN.md
+- [x] 04.2-22-PLAN.md
+- [x] 04.2-23-PLAN.md
+- [x] 04.2-24-PLAN.md
+- [x] 04.2-25-PLAN.md
+- [x] 04.2-26-PLAN.md
+- [x] 04.2-27-PLAN.md
+- [x] 04.2-28-PLAN.md
+- [x] 04.2-29-PLAN.md
+- [x] 04.2-30-PLAN.md
+- [ ] 04.2-31-PLAN.md
+- [ ] 04.2-32-PLAN.md
+- [x] 04.2-33-PLAN.md
+- [x] 04.2-34-PLAN.md
+- [x] 04.2-35-PLAN.md
+- [x] 04.2-36-PLAN.md
+- [x] 04.2-37-PLAN.md
+- [ ] 04.2-38-PLAN.md
+- [ ] 04.2-39-PLAN.md
 
 **Cross-cutting constraints:**
 
