@@ -944,6 +944,7 @@ test("failed upload deletes the partial artifact before the lease is disposed an
       runtimeToken: runtimeToken(),
       resultsUrl: "https://results-receiver.actions.githubusercontent.com/",
       fetcher,
+      maxAttempts: 1,
     }), "artifact_upload_failed");
     assert.deepEqual(events, ["create", "upload", "delete"]);
     assert.throws(
