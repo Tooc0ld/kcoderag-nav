@@ -96,9 +96,13 @@ function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function exactKeys(value: unknown, keys: readonly string[]): value is JsonMap {
-  return isRecord(value)
-    && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+function protoJsonString(value: JsonMap, localName: string, protoName: string): string {
+  const hasLocalName = Object.hasOwn(value, localName);
+  const hasProtoName = Object.hasOwn(value, protoName);
+  failUnless(hasLocalName !== hasProtoName, "artifact_service_invalid");
+  const field = value[hasLocalName ? localName : protoName];
+  failUnless(typeof field === "string", "artifact_service_invalid");
+  return field;
 }
 
 function decodeBackendIds(token: string): BackendIds {
@@ -467,10 +471,9 @@ export async function uploadCandidateArtifactFromLease(
         mime_type: "application/gzip",
         version: 7,
       }, timeoutMs);
-      failUnless(exactKeys(create, ["ok", "signedUploadUrl"]) && create.ok === true,
-        "artifact_service_invalid");
+      failUnless(isRecord(create) && create.ok === true, "artifact_service_invalid");
       created = true;
-      const uploadUrl = signedBlobUrl(create.signedUploadUrl);
+      const uploadUrl = signedBlobUrl(protoJsonString(create, "signedUploadUrl", "signed_upload_url"));
       for (const block of blocks) {
         await dataPlanePut(
           fetcher,
@@ -502,15 +505,11 @@ export async function uploadCandidateArtifactFromLease(
         size: String(bytes.length),
         hash: `sha256:${digest}`,
       }, timeoutMs);
-      failUnless(
-        exactKeys(finalize, ["ok", "artifactId"])
-          && finalize.ok === true
-          && typeof finalize.artifactId === "string"
-          && ARTIFACT_ID_RE.test(finalize.artifactId),
-        "artifact_service_invalid",
-      );
+      failUnless(isRecord(finalize) && finalize.ok === true, "artifact_service_invalid");
+      const artifactId = protoJsonString(finalize, "artifactId", "artifact_id");
+      failUnless(ARTIFACT_ID_RE.test(artifactId), "artifact_service_invalid");
       return Object.freeze({
-        artifactId: finalize.artifactId,
+        artifactId,
         name,
         sha256: digest,
         memberCount: artifact.memberCount,
