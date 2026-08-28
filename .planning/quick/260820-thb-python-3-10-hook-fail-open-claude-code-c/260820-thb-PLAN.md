@@ -92,8 +92,8 @@ Output: 跨平台 runtime launchers、生成/安装集成、`status --json`、lo
 </objective>
 
 <execution_context>
-@C:/Users/kingsoft/.codex/gsd-core/workflows/execute-plan.md
-@C:/Users/kingsoft/.codex/gsd-core/templates/summary.md
+@gsd-core/workflows/execute-plan.md
+@gsd-core/templates/summary.md
 </execution_context>
 
 <context>

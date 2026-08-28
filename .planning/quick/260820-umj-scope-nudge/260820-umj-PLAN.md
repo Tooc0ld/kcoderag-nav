@@ -65,9 +65,9 @@ Output: 规范源 parser 与 nudge、生成器路由短句、QA/Dev 同步产物
 </objective>
 
 <execution_context>
-@C:/Users/kingsoft/.codex/gsd-core/workflows/execute-plan.md
-@C:/Users/kingsoft/.codex/gsd-core/templates/summary.md
-@C:/Users/kingsoft/.codex/gsd-core/references/tdd.md
+@gsd-core/workflows/execute-plan.md
+@gsd-core/templates/summary.md
+@gsd-core/references/tdd.md
 </execution_context>
 
 <context>

@@ -136,8 +136,8 @@ Output: 规范源、确定性生成器、项目级安装器、更新后的 QA/De
 </objective>
 
 <execution_context>
-@C:/Users/kingsoft/.codex/gsd-core/workflows/execute-plan.md
-@C:/Users/kingsoft/.codex/gsd-core/templates/summary.md
+@gsd-core/workflows/execute-plan.md
+@gsd-core/templates/summary.md
 </execution_context>
 
 <context>
