@@ -1,159 +1,164 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-08-23
+**Analysis Date:** 2026-08-28
 
 ## Directory Layout
 
 ```text
 kcoderag-nav/
-├── package.json                    # Node 22+ CJS build, test, and public bin contract
+├── package.json                     # Node 22+ build, scripts, package inventory, public bin
+├── package-lock.json                # Audited development dependency graph
 ├── src/
-│   ├── bin/                        # Compiled CLI entry source
-│   ├── cli/                        # Five-command policy, confirmation, and dispatch
-│   ├── core/                       # Host-neutral target, state, and atomic transaction core
-│   ├── generator/                  # Deterministic QA/Dev/Cursor asset renderer
-│   ├── hooks/                      # TypeScript hook and async update-check sources
-│   ├── hosts/                      # Codex, Claude Code, Cursor adapters and registry
-│   ├── maintainer/                 # Dependency and repository maintenance audits
-│   └── tracer/                     # Proven Codex QA npx vertical slice
-├── tests/
-│   ├── core/                       # Compiled shared-core and rollback matrix
-│   ├── generator/                  # Determinism and live repository generation gates
-│   ├── hooks/                      # Hook, launcher, and update-check parity tests
-│   ├── hosts/                      # Per-host lifecycle and cross-host isolation tests
-│   ├── maintainer/                 # Compiled supply-chain contract tests
-│   └── tracer/                     # Compiled npx tracer tests
-├── .github/workflows/ci.yml        # Required Windows/Linux × Node 22/24 test matrix
-├── .githooks/pre-commit            # Node 22 launcher for the index-safe generation gate
-├── .claude-plugin/                 # Marketplace metadata
-│   └── marketplace.json
-├── kcoderag-dev/                   # Dev environment plugin
-│   ├── agents/                     # Explorer agent prompt
-│   ├── hooks/                      # PreToolUse registration, implementation, tests
-│   ├── skills/code-lookup-discipline/ # Graph-first navigation skill
-│   ├── .mcp.json                   # Dev MCP registration (sensitive configuration)
-│   ├── settings.json               # Dev MCP permission allow-list
-│   └── README.md                   # Installation and behavior documentation
-├── kcoderag-qa/                    # QA environment plugin (parallel layout)
-│   ├── hooks/
-│   ├── skills/code-lookup-discipline/
-│   ├── .mcp.json                   # QA MCP registration (sensitive configuration)
-│   ├── settings.json
-│   └── README.md
-└── .planning/codebase/             # Generated architecture maps
+│   ├── bin/                         # Compiled CLI entry source
+│   ├── cli/                         # Command policy, confirmation, host dispatch, output
+│   ├── capabilities/                # Two built-in capability contracts/providers/registry
+│   ├── core/                        # Host-neutral target, state, locks, transaction, diagnostics
+│   ├── fixtures/                    # Host delivery evidence capture/verification
+│   ├── generator/                   # Deterministic QA/Cursor product renderer
+│   ├── hooks/                       # Advisory dispatch, guidance, markers, update runtime
+│   ├── hosts/                       # Codex, Claude, Cursor, OpenCode, ZCode adapters
+│   ├── maintainer/                  # Dependency, docs, scrub, pack, readiness, release gates
+│   └── smoke/                       # One-package five-host lifecycle/MCP smoke harness
+├── tests/                           # Mirrored compiled Node test sources
+├── plugin-src/
+│   ├── capabilities/                # Canonical navigation and code-style Skill assets
+│   ├── hooks/                       # Host launcher/registration templates
+│   └── README.md.tmpl               # Generated package guidance source
+├── kcoderag-qa/                     # Deterministic generated QA product tree
+├── kcoderag-cursor/                 # Deterministic generated Cursor product tree
+├── docs/
+│   └── MCP_QA_EXPERIENCE_GUIDE.md  # Sole current installation/experience authority
+├── .github/workflows/               # Required CI and separately authorized release workflow
+├── .githooks/pre-commit             # Node-based index-safe repository gate
+└── .planning/                        # Project context, roadmap, phase artifacts, codebase maps
 ```
 
-## Directory Purposes
+Compiled `dist/` and `dist-tests/` trees are local build outputs. They are package/test inputs but not
+canonical maintenance sources.
 
-**`.claude-plugin/`:** Marketplace composition metadata. Key file: `.claude-plugin/marketplace.json`.
+## Directory Responsibilities
 
-**`src/core/`:** Host-neutral Node.js core. `contracts.cts` defines safe schemas,
-`project-target.cts` validates the exact explicit target and adapter roots, `state.cts` creates
-validated desired state without writing, and `transaction.cts` is the only core filesystem
-mutator. All `.cts` maintenance sources compile to directly executable `.cjs`.
+### `src/core/`
 
-**`src/hosts/`:** Pure read/render/status adapters for Codex, Claude Code, and Cursor.
-`index.cts` is the fixed public registry; `commands.cts` selects exactly one adapter and the shared
-transaction applies its desired state. Cursor additionally exposes a separately authorized,
-journaled migration for the retired user-local installation.
+Defines host-neutral contracts, exact target validation, schema-v1 install state, managed-path safety,
+source diagnostics, mutation locks, and the only installation filesystem transaction. It must not
+import host-specific modules.
 
-**`tests/core/`:** Node built-in tests for target/runtime/status contracts, digest preflight,
-state-last commits, injected staging/commit failures, complete rollback, and retained recovery
-evidence when rollback itself fails.
+### `src/hosts/`
 
-**`kcoderag-dev/`:** Installable Dev plugin. It contains the Dev MCP permission namespace, hook implementation, navigation skill, explorer agent, and user-facing install documentation.
+Contains pure read/render/status adapters and the fixed host registry. Each adapter owns native project
+paths and structured merge rules; it returns one immutable desired state and never commits files.
 
-**`kcoderag-qa/`:** Installable QA plugin. It mirrors the Dev package while targeting QA MCP configuration and permissions.
+### `src/capabilities/`
 
-**`*/hooks/`:** Generated Codex/Claude hook declarations, self-relative Node launchers, and
-self-contained CJS hook/update runtime. Cursor intentionally uses Rule/skill/MCP assets instead.
+Declares `kcoderag-navigation` and `code-style-nudge`, their package-relative assets, logical section
+contributions, provider registry, and receipt-bound support checks. Host adapters retain native paths.
 
-**`*/skills/code-lookup-discipline/`:** Host-discoverable `SKILL.md` instructions for selecting graph tools over local search.
+### `src/hooks/`
 
-**`.planning/codebase/`:** Destination for generated codebase maps; keep architecture/structure documents here.
+Owns bounded advisory classification, dispatcher composition, one-time code-style markers,
+successful-call markers, session cleanup policy, local update-cache reads, and detached refresh work.
+Protocol boundaries always fail open.
+
+### `src/generator/` and `plugin-src/`
+
+Render sorted deterministic product bytes from canonical templates, compiled CJS, package version,
+and opaque connection inputs. Generated trees must never become competing maintenance sources.
+
+### `src/maintainer/`
+
+Implements exact dependency, generated-tree, documentation, retirement, scrub-baseline, brand, pack,
+evidence, readiness, and release-policy gates. Repository-only compiled tools are excluded from the
+public package inventory where declared.
+
+### `src/smoke/`
+
+Acquires one actual tgz into temporary projects and exercises install/status/doctor/update/uninstall,
+host runtime handlers, markers, update awareness, source conflicts, rollback, and loopback MCP evidence
+for all required hosts.
+
+### `tests/`
+
+Mirrors production areas with `*.test.cts`. Tests import compiled `dist/**/*.cjs`, so clean verification
+always builds first. Temporary projects and repositories provide real filesystem/Git boundaries.
 
 ## Key File Locations
 
-**Entry Points:**
-- `src/bin/kcoderag-nav.cts`: TypeScript maintenance source for the public compiled CJS bin.
-- `src/hosts/index.cts`: Registry seam for `--host codex|claude|cursor` and interactive selection.
-- `src/maintainer/pre-commit.cts`: Read-only index/generator commit gate.
-- `src/maintainer/pack-audit.cts`: Exact real npm tarball allow-list audit.
-- `.claude-plugin/marketplace.json`: Marketplace and plugin source entry point.
-- `kcoderag-dev/hooks/grep-nudge.cjs`: Dev hook process entry point.
-- `kcoderag-qa/hooks/grep-nudge.cjs`: QA hook process entry point.
+### Entry Points
 
-**Configuration:**
-- `kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`: Environment MCP registration; contents are sensitive.
-- `kcoderag-dev/settings.json`, `kcoderag-qa/settings.json`: Environment-specific MCP permission allow-lists.
-- `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json`: PreToolUse registration.
+- `src/bin/kcoderag-nav.cts` — public CLI source.
+- `src/cli/commands.cts` — five-command orchestration.
+- `src/hosts/index.cts` — five-host adapter registry.
+- `src/generator/index.cts` — deterministic asset generator.
+- `src/smoke/host-smoke.cts` — package lifecycle smoke runner.
+- `src/maintainer/release-readiness.cts` — local readiness contract.
 
-**Core Logic:**
-- `src/core/contracts.cts`, `src/core/project-target.cts`, `src/core/state.cts`, and
-  `src/core/transaction.cts`: Shared host-neutral installation boundary and sole write engine.
-- `src/hooks/grep-nudge.cts` and generated QA/Dev CJS: Search command tokenization,
-  local-scope suppression, symbol heuristics, and advisory JSON generation.
-- `*/skills/code-lookup-discipline/SKILL.md`: Agent-facing lookup policy.
+### Core Logic
 
-**Testing:**
-- `tests/core/transaction.test.cts`
-- `tests/hosts/codex.test.cts`, `tests/hosts/claude.test.cts`, `tests/hosts/cursor.test.cts`
-- `tests/hosts/cross-host.test.cts`
-- `tests/maintainer/pre-commit.test.cts`, `tests/maintainer/pack-audit.test.cts`
-- `tests/maintainer/ci-contract.test.cts`
+- `src/core/contracts.cts` — public host/command/status types and stable errors.
+- `src/core/state.cts` — schema-v1 capability ownership and composite digest validation.
+- `src/core/transaction.cts` — state-last atomic commit and rollback.
+- `src/core/project-root.cts` — nearest managed-state launch contract.
+- `src/core/source-diagnostics.cts` — selected-host duplicate-source reporting.
+
+### Capability and Hook Logic
+
+- `src/capabilities/registry.cts` — frozen built-in capability registry.
+- `src/capabilities/code-style-nudge.cts` — code-style provider contributions.
+- `src/hooks/pre-tool-dispatcher.cts` — bounded capability handler composition.
+- `src/hooks/grep-nudge.cts` — navigation classification.
+- `src/hooks/code-style-nudge.cts` — eligible-write advisory behavior.
+- `src/hooks/once-marker.cts` and `src/hooks/mcp-call-marker.cts` — bounded secret-free markers.
+
+### Assurance
+
+- `src/maintainer/pre-commit.cts` — index-safe local gate.
+- `src/maintainer/pack-audit.cts` — exact actual-tgz audit.
+- `src/maintainer/brand-audit.cts` — closed-family path/content scanner.
+- `src/maintainer/scrub-baseline.cts` — dirty-worktree preservation contract.
+- `docs/MCP_QA_EXPERIENCE_GUIDE.md` — repository-owned current guide.
 
 ## Naming Conventions
 
-**Files:**
-- Kebab-case or responsibility-based `.cts` names for TypeScript maintenance sources; compiled
-  output mirrors these paths as `.cjs` under ignored `dist/` and `dist-tests/` roots.
-- Lowercase snake_case for Python (`grep_nudge.py`, `test_grep_nudge.py`).
-- Conventional host filenames for plugin metadata (`settings.json`, `hooks.json`, `.mcp.json`, `SKILL.md`, `README.md`).
-- Uppercase Markdown maps under `.planning/codebase/` (`ARCHITECTURE.md`, `STRUCTURE.md`).
-
-**Directories:**
-- Environment packages use `kcoderag-dev` and `kcoderag-qa`.
-- Host capability directories use lowercase plural names (`hooks`, `agents`, `skills`).
-- Skill names use kebab-case (`code-lookup-discipline`).
+- TypeScript source: kebab-case `.cts`; tests: `*.test.cts`; emitted files: matching `.cjs` paths.
+- Functions/locals: `camelCase`; exported interfaces/types: `PascalCase`; constants:
+  `SCREAMING_SNAKE_CASE`.
+- Host-native asset names remain unchanged unless the canonical generator and every consumer are
+  updated together.
+- Capability IDs are `kcoderag-navigation` and `code-style-nudge`; Skill name is
+  `code-style-correction`.
 
 ## Where to Add New Code
 
-**New project host adapter:**
-- Add a pure adapter under `src/hosts/`, register it in `src/hosts/index.cts`, and keep all writes
-  in the shared transaction or an explicitly authorized cross-boundary migration capability.
-- Add lifecycle and cross-host isolation cases under `tests/hosts/`; do not change core state or
-  transaction code merely to add a host.
+### New host adapter
 
-**New environment plugin:**
-- Add a package directory parallel to `kcoderag-dev/` and `kcoderag-qa/`.
-- Register it in `.claude-plugin/marketplace.json`.
-- Provide its own `.mcp.json`, `settings.json`, `README.md`, `hooks/`, and `skills/` as needed.
+Add a pure adapter under `src/hosts/`, register it in `src/hosts/index.cts`, declare only project
+roots/sections, and add lifecycle, source-gate, isolation, rollback, pack, and smoke coverage. Keep
+writes in the shared transaction.
 
-**New hook behavior:**
-- Implement once in `src/hooks/grep-nudge.cts` and regenerate both QA/Dev CJS products.
-- Update canonical registration/launchers under `plugin-src/hooks/` only when the host contract changes.
-- Add table and real launcher coverage under `tests/hooks/`.
+### New capability
 
-**New agent guidance:**
-- Add a host skill under `*/skills/<kebab-case-name>/SKILL.md`.
-- Add an agent prompt under `*/agents/` only for role-specific behavior; keep general policy in skills.
+Add its contract/provider under `src/capabilities/`, canonical assets under `plugin-src/capabilities/`,
+host contributions through adapter render, and complete composition/lifecycle/integrity tests. A new
+public capability changes the closed product contract and requires explicit planning.
 
-**Documentation:**
-- Update the relevant package `README.md` for installation or user-visible behavior.
-- Put generated architecture maps in `.planning/codebase/`.
+### New hook behavior
 
-## Special Directories
+Implement bounded pure behavior under `src/hooks/`, compose it through the dispatcher, and cover
+malformed input, time/size bounds, fail-open behavior, launcher protocols, and supported host evidence.
 
-**`.claude-plugin/`:** Marketplace metadata; hand-maintained and committed.
+### Documentation changes
 
-**`.planning/codebase/`:** Generated analysis artifacts; committed according to project planning workflow.
+Update `README.md` for the public overview and `docs/MCP_QA_EXPERIENCE_GUIDE.md` for authoritative
+installation/experience behavior. Do not update or synchronize an external guide.
 
-**`*/hooks/__pycache__/`:** Python bytecode cache may appear locally; generated and should not be treated as source.
+## Special Boundaries
 
-**`*/.codex-plugin/`:** Present in the working tree as untracked plugin metadata directories; treat as user/agent work and do not overwrite without explicit scope.
-
-**`*/.mcp.json`:** Environment integration configuration; existence is noted, but credentials and endpoint values must not be copied into documentation.
+- `.planning/` is managed by GSD; planned docs scrubs must preserve unrelated dirty/untracked work.
+- MCP configuration values are sensitive even when their files are package inputs.
+- `.github/workflows/release.yml` is not authority to publish during readiness-only work.
+- Root marketplace catalogs and retired environment package trees must not be restored.
 
 ---
 
-*Structure analysis: 2026-08-24*
+*Structure analysis refreshed: 2026-08-28*

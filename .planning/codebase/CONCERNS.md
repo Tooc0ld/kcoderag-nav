@@ -1,99 +1,115 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-08-20
+**Analysis Date:** 2026-08-28
 
-## Tech Debt
+## Security and Operational Risks
 
-**Duplicated environment plugins:**
-- Issue: Dev and QA ship near-identical copies of the hook, tests, skill, hook registration, and MCP manifest.
-- Files: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`, `kcoderag-dev/hooks/test_grep_nudge.py`, `kcoderag-qa/hooks/test_grep_nudge.py`
-- Impact: Bug fixes and heuristic changes can drift between environments; every change must be reviewed twice.
-- Fix approach: Extract shared hook/test assets or generate the two environment packages from one source, leaving only endpoint/name/theme metadata environment-specific.
+### Built-in internal QA credential
 
-**Hard-coded plugin runtime configuration:**
-- Issue: Hook registration embeds a Windows-specific `PLUGIN_ROOT` lookup and a separate Unix `$CLAUDE_PLUGIN_ROOT` command.
-- Files: `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json`
-- Impact: Installation hosts that provide only one of these variables can silently skip the hook; failures are fail-open and therefore difficult to notice.
-- Fix approach: Validate the plugin host contract in installation tests and use one documented, host-supported root variable per runtime.
+- **Risk:** The current internal QA profile includes an install-ready bearer value. Distribution
+  beyond the accepted internal test boundary would expose a reusable credential.
+- **Boundary:** CLI output, diagnostics, tests, receipts, and documentation treat MCP connection
+  material as opaque and must never print URL, headers, bearer values, or configuration bodies.
+- **Planned resolution:** Phase 08 owns identity, HTTPS, credential rotation, and production release
+  policy. This phase must not claim that risk is resolved.
 
-## Known Bugs
+### Host delivery is evidence-bound
 
-**Hook command parser has incomplete shell coverage:**
-- Symptoms: `shell_lookup_patterns` recognizes a fixed list of commands/options and tokenizes with a deliberately simple regex; aliases, pipelines, PowerShell parameter forms, and nested quoting can be classified incorrectly.
-- Files: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`
-- Trigger: Use an unsupported search alias or command form, or place the search expression behind shell syntax not covered by `SHELL_WRAPPER_OPTIONS`.
-- Workaround: Use the explicitly tested `rg`, `grep`, `git grep`, `findstr`, or `Select-String` forms.
+- **Risk:** A host may accept a Skill or configuration file without exposing model-visible native
+  pre-write context. Inferring support from file shape would create false capability claims.
+- **Current mitigation:** `code-style-nudge` support requires an exact checked-in digest-bound PASS
+  receipt. Unsupported or unproved versions return `host_version_unsupported` before render and make
+  zero writes while navigation remains usable.
+- **Remaining work:** Phase 06 owns authenticated true-host MCP evidence, OpenCode/ZCode admission,
+  and ZCode version freezing.
 
-## Security Considerations
+### Workspace trust is outside installer authority
 
-**Bearer credentials bundled in plugin manifests:**
-- Risk: MCP manifests contain a shared bearer token and an internal HTTP endpoint; distributing or committing the plugin exposes a reusable credential and permits network interception.
-- Files: `kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`, `kcoderag-dev/README.md`, `kcoderag-qa/README.md`
-- Current mitigation: The README identifies the endpoint as internal and the plugin advertises read capability, but the credential remains client-side and transport is HTTP.
-- Recommendations: Inject tokens at install/runtime, rotate any exposed credentials, use HTTPS with certificate validation, and avoid documenting credentials as bundled installation behavior.
+- **Risk:** ZCode project hooks may be present and byte-healthy while the host has not admitted them.
+- **Current mitigation:** The adapter writes only project declarations and never pre-authorizes
+  workspace trust. `status` and `doctor` report managed bytes, not user trust state.
+- **Operator action:** Users approve workspace hooks in the host and restart the relevant session
+  before true-host acceptance.
 
-**Untrusted hook input handling:**
-- Risk: Hook input is read from stdin and echoed into advisory decisions; although output is JSON and exceptions fail open, oversized or adversarial regex-like strings can consume hook time.
-- Files: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`
-- Current mitigation: A 65,536-character command limit and an adversarial timing regression test exist.
-- Recommendations: Bound pattern length independently, keep regexes linear-time, and add fuzz/property tests around all parser entry points.
+## Precision and Performance
 
-## Performance Bottlenecks
+### Advisory classification remains heuristic
 
-**Per-tool invocation process startup:**
-- Problem: Every matching PreToolUse event launches a new Python interpreter and imports the hook module.
-- Files: `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json`, `kcoderag-dev/hooks/grep_nudge.py`
-- Cause: The integration is command-based rather than a resident process; matching `Bash` broadens invocation frequency.
-- Improvement path: Keep the hook lightweight, measure p95 latency on Windows and Unix, and narrow the matcher or use a supported long-lived hook mechanism if startup becomes user-visible.
+- **Risk:** Structural-search nudges can still fire for fixed strings, narrow local review, generated
+  text, or common Lua global handlers.
+- **Current mitigation:** Hook boundaries are advisory, bounded, and fail open; local tools are never
+  blocked.
+- **Planned resolution:** Phase 05 owns precision improvements, marker consumption policy, and honest
+  routing based on actual index capabilities.
 
-## Fragile Areas
+### Per-event Node process startup
 
-**Heuristic symbol classification:**
-- Files: `kcoderag-dev/hooks/grep_nudge.py`, `kcoderag-qa/hooks/grep_nudge.py`
-- Why fragile: A small allow/deny vocabulary (`NON_SYMBOL`, `SILENT_RES`, `KEYWORDS`) determines whether local search is nudged; repository-specific identifiers and language syntax can produce false positives or negatives.
-- Safe modification: Add paired positive/negative cases to both `test_grep_nudge.py` files, including the exact host payload shape, before changing heuristics.
-- Test coverage: Unit-like cases cover common patterns and one timing guard, but do not cover exhaustive command grammar, Unicode edge cases, or fuzzing.
+- **Risk:** Codex, Claude Code, and ZCode command hooks start a Node process for matched events.
+- **Current mitigation:** Launchers and handlers are self-contained CJS with bounded input, no
+  foreground network access, suppressed operational failures, and short execution timeouts.
+- **Watch:** Measure real-host p95 latency before expanding matcher coverage.
 
-**Dual-host hook contract:**
-- Files: `kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json`, `kcoderag-dev/hooks/test_grep_nudge.py`, `kcoderag-qa/hooks/test_grep_nudge.py`
-- Why fragile: Claude and Codex payloads, matcher names, environment variable names, and output schema are coupled across JSON and Python without a schema validation test.
-- Safe modification: Add fixture-driven contract tests for each host and validate manifests before publishing either plugin.
-- Test coverage: No repository-level install/manifest smoke test is present.
+## Integrity-Sensitive Areas
 
-## Scaling Limits
+### Shared capability composition
 
-**Plugin distribution and endpoint coupling:**
-- Current capacity: Each installed plugin points directly to one fixed Dev or QA MCP URL and shared credential.
-- Limit: Network reachability, endpoint availability, and token rotation affect every installation simultaneously; there is no local fallback or endpoint discovery.
-- Scaling path: Introduce environment-scoped configuration with health checks, token rotation, and an explicit unavailable-service UX.
+- **Risk:** Multiple capabilities contribute to the same host files or structured sections. An
+  incomplete contributor graph could remove another capability or user content.
+- **Current mitigation:** Schema v1 records complete contributor lists, originals, individual
+  digests, and one composite digest. Desired state is rendered completely and committed state-last
+  by one transaction.
+- **Safe modification:** Add composition, independent lifecycle, rollback, and drift tests whenever
+  provider contributions change.
 
-## Dependencies at Risk
+### Nearest-project hook discovery
 
-**Host hook environment contract:**
-- Risk: Behavior depends on Claude Code/Codex hook event names and environment variables that are not version-pinned in this repository.
-- Impact: Host upgrades can stop hook execution or change payload schemas without a failing project test.
-- Migration plan: Maintain a versioned compatibility matrix and run smoke tests against supported host versions before release.
+- **Risk:** A damaged nested project could accidentally fall through to an outer project's hook
+  runtime or state.
+- **Current mitigation:** The nearest discovered managed boundary is authoritative. Invalid schema,
+  digest, path, or runtime state fails open and stops the upward search.
+- **Safe modification:** Preserve root, deep cwd, nested, damaged-nearest, moved-project, Unicode,
+  and spaced-path launcher coverage.
 
-## Missing Critical Features
+### Generated product inventory
 
-**Automated packaging/release validation:**
-- Problem: No visible build or CI configuration validates JSON manifests, plugin paths, executable hooks, or parity between Dev and QA.
-- Blocks: Regressions can reach users through marketplace installation even when Python tests pass locally.
+- **Risk:** Canonical TypeScript/templates, compiled CJS, generated QA/Cursor assets, and package
+  allow-lists can drift independently.
+- **Current mitigation:** Deterministic generation, repository checks, exact pack inventory, brand
+  audit, and one-tgz smoke/readiness evidence are separate mandatory gates.
+- **Safe modification:** Change canonical sources first; never hand-maintain generated product trees.
 
-## Test Coverage Gaps
+### Dirty-worktree documentation scrubs
 
-**Installation and integration path:**
-- What's not tested: Marketplace discovery, plugin installation, MCP connection/authentication, hook execution from the actual host, and endpoint TLS behavior.
-- Files: `.claude-plugin/marketplace.json`, `kcoderag-dev/.codex-plugin/plugin.json`, `kcoderag-qa/.codex-plugin/plugin.json`, `kcoderag-dev/.mcp.json`, `kcoderag-qa/.mcp.json`
-- Risk: Broken paths, incompatible manifest schema, unavailable network services, and credential failures remain undetected until installation/runtime.
-- Priority: High
+- **Risk:** Planned neutralization can overlap user hunks or accidentally stage unrelated work.
+- **Current mitigation:** Explicit-path scrub baseline capture, blocking overlap checkpoints,
+  exact-path staging, immutable commit audits, and post-commit baseline preservation assertions.
 
-**Cross-environment parity:**
-- What's not tested: A single test suite running the same cases against both plugin copies and asserting identical hook behavior.
-- Files: `kcoderag-dev/hooks/test_grep_nudge.py`, `kcoderag-qa/hooks/test_grep_nudge.py`
-- Risk: Dev and QA can silently diverge in advisory behavior or security handling.
-- Priority: Medium
+## Source and Ownership Boundaries
+
+### Manual or duplicate host sources
+
+- **Risk:** Raw MCP, manual Hook/Rule, active plugin, or ambiguous historical sources can create two
+  authorities for one selected host.
+- **Current mitigation:** Every mutation deep-scans the selected host and hard-stops before render;
+  status/doctor are read-only and secret-safe. The CLI does not migrate, adopt, or clean these sources.
+
+### Project target safety
+
+- **Risk:** Traversal, symlinks, special files, global roots, or ambiguous ownership could extend
+  mutation beyond the selected project.
+- **Current mitigation:** Adapters declare managed roots and sections; the transaction rejects
+  undeclared paths, unsafe modes, digest drift, and dangerous targets before writes.
+
+## Assurance Gaps
+
+- Phase 04.2 proves packaged five-host lifecycle/smoke against one exact `0.3.0` candidate tgz; it
+  does not tag, publish, or prove authenticated service queries.
+- Phase 06 must close real MCP protocol/content evidence and true-host acceptance for all required
+  rows.
+- Phase 07 must make global GSD runtime/hook changes durable against updates.
+- Phase 08 must replace the internal credential posture and establish production compatibility and
+  release controls.
 
 ---
 
-*Concerns audit: 2026-08-20*
+*Concerns audit refreshed: 2026-08-28*

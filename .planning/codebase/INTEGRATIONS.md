@@ -1,69 +1,94 @@
 # External Integrations
 
-**Analysis Date:** 2026-08-20
+**Analysis Date:** 2026-08-28
 
-## APIs & External Services
+## KCodeRag QA MCP Service
 
-**Code knowledge MCP (Dev):**
-- KCodeRag Dev MCP server - graph-first symbol search, context inspection, call-chain traversal, index listing, read-only Cypher, and feedback submission.
-  - SDK/Client: MCP server registration referenced by `kcoderag-dev/.codex-plugin/plugin.json` and `kcoderag-dev/.mcp.json` (the latter not read because it may contain credentials).
-  - Auth: README documents an internal HTTP endpoint with a bundled shared Bearer credential; value is not recorded (`kcoderag-dev/README.md`).
+- **Purpose:** Supplies graph-first symbol search, context, call-chain, index, and related navigation
+  tools through Model Context Protocol.
+- **Projection:** `kcoderag-navigation` renders the service into each selected host's native project
+  configuration.
+- **Ownership:** The remote parser, graph, protocol deployment, and service data are outside this
+  repository. This package owns only project integration and user guidance.
+- **Credentials:** Endpoint and authorization values are opaque sensitive inputs. Diagnostics,
+  documentation, tests, receipts, and smoke output must never include their values.
+- **Current boundary:** Internal QA accepts an install-ready bearer risk until Phase 08. Authenticated
+  real-service query evidence and protocol alignment remain Phase 06 work.
 
-**Code knowledge MCP (QA):**
-- KCodeRag QA MCP server - the same six read/navigation tools for the QA graph environment.
-  - SDK/Client: MCP server registration referenced by `kcoderag-qa/.codex-plugin/plugin.json` and `kcoderag-qa/.mcp.json` (contents not read).
-  - Auth: README documents an internal HTTP endpoint with a bundled shared Bearer credential; value is not recorded (`kcoderag-qa/README.md`).
+## Host Integrations
 
-## Data Storage
+### Codex
 
-**Databases:**
-- KCodeRag knowledge graph (remote service behind MCP) - queried through MCP tools rather than a direct database driver; concrete database provider is not exposed in this repository.
+- Project surfaces: `.codex/` and `.agents/skills/`.
+- Native events: advisory/fail-open `PreToolUse` plus `PostToolUse` success marker.
+- Launcher behavior: resolves the nearest valid managed state from session cwd and runs relative CJS.
 
-**File Storage:**
-- Local plugin checkout only: Markdown, JSON, and Python files under `kcoderag-dev/` and `kcoderag-qa/`.
+### Claude Code
 
-**Caching:**
-- None detected in this plugin repository.
+- Project surfaces: `.claude/settings.json`, `.claude/skills/`, and root `.mcp.json`.
+- Native events: advisory/fail-open `PreToolUse` dispatcher plus `PostToolUse` success marker.
+- Code-style support: exact Claude Code `2.1.241` PASS receipt only.
 
-## Authentication & Identity
+### Cursor
 
-**Auth Provider:**
-- Internal Bearer-token authentication at the Dev/QA MCP HTTP endpoints, configured in the respective hidden `.mcp.json` files and described without values in `kcoderag-dev/README.md` and `kcoderag-qa/README.md`.
-- Tokens are bundled by the internal plugin according to the READMEs; rotate the bundled credential together with the plugin version.
+- Project surfaces: `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and
+  `.cursor/hooks.json`.
+- Native behavior: always-on Rule/skill/MCP; `afterMCPExecution` records successful calls.
+- Boundary: No claim of an equivalent native model-visible pre-write hook.
 
-## Monitoring & Observability
+### OpenCode
 
-**Error Tracking:**
-- None detected.
+- Project surfaces: exactly one root JSON/JSONC configuration plus `.opencode/`.
+- Native behavior: project plugin, skill, MCP, and `tool.execute.after` marker.
+- Safety: Simultaneous JSON and JSONC project roots hard-stop. User-global configuration is never
+  managed.
 
-**Logs:**
-- Hook failures are explicitly advisory and fail open; `kcoderag-dev/hooks/grep_nudge.py` and `kcoderag-qa/hooks/grep_nudge.py` return exit code 0 on malformed input and emit optional JSON context only when a structural lookup is detected.
+### ZCode
 
-## CI/CD & Deployment
+- Project surfaces: `.zcode/config.json`, `.zcode/skills/`, and project hook runtime.
+- Native events: advisory `PreToolUse`, successful-call `PostToolUse`, and offline update context.
+- Trust boundary: The CLI does not pre-authorize workspace hooks. Host admission remains a user
+  decision and true-host verification remains Phase 06.
 
-**Hosting:**
-- Not detected for the plugin itself. The MCP endpoints are internal Dev and QA network services.
+## npm and Registry
 
-**CI Pipeline:**
-- None detected. Validation is executable locally through `kcoderag-dev/hooks/test_grep_nudge.py` and `kcoderag-qa/hooks/test_grep_nudge.py`.
+- Public acquisition uses `npx kcoderag-nav@latest` and the package's root `package.json` bin.
+- Foreground hooks never access the network. They read a bounded local cache and may schedule a
+  detached worker to refresh npm latest metadata.
+- Redirects, unexpected package identity, malformed content type/JSON, and invalid versions fail open
+  without affecting the host operation.
+- Phase 04.2 validates one exact local `0.3.0` candidate tgz only; it does not tag, publish, or refetch
+  the registry.
 
-## Environment Configuration
+## Local Files and State
 
-**Required env vars:**
-- `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` are used by hook launch commands to locate `grep_nudge.py` (`kcoderag-dev/hooks/hooks.json`, `kcoderag-qa/hooks/hooks.json`).
-- MCP endpoint and Bearer configuration lives in the corresponding `.mcp.json` files; names and values are intentionally not enumerated.
+- Each host owns project-scoped configuration, Skill assets, hook/plugin runtime as applicable, and
+  one capability-scoped schema-v1 state file.
+- State contains contributors, sections, originals, per-file/section digests, and one composite
+  digest. It contains no MCP response bodies or diagnostic copies of connection values.
+- User-cache files are limited to bounded secret-free call/update/nudge markers and mutation locks.
 
-**Secrets location:**
-- `kcoderag-dev/.mcp.json` and `kcoderag-qa/.mcp.json` exist and are treated as sensitive configuration; README states shared credentials are bundled. No secret values are reproduced.
+## Authentication and Identity
 
-## Webhooks & Callbacks
+- The package does not implement user identity or a database client.
+- Current internal bearer material is treated as an opaque install input and accepted only for the
+  internal QA stage.
+- Phase 08 owns production identity, HTTPS, credential rotation, and compatibility retirement.
 
-**Incoming:**
-- Claude Code/Codex `PreToolUse` callbacks invoke the local hook through `kcoderag-dev/hooks/hooks.json` and `kcoderag-qa/hooks/hooks.json`.
+## Monitoring and Observability
 
-**Outgoing:**
-- Hook output is a host callback JSON object containing `hookSpecificOutput.additionalContext`; it nudges the host toward MCP tools and does not mutate files or block commands (`kcoderag-dev/hooks/grep_nudge.py`).
+- Hook failures are intentionally silent and fail open.
+- `status` provides a fast project health view; `doctor` deep-scans the selected host's project and
+  user-level duplicate sources. Both are read-only and secret-safe.
+- Success markers store only bounded ownership/time metadata and never MCP arguments or results.
+
+## CI and Readiness
+
+- GitHub Actions validates Windows/Linux on Node 22/24.
+- Maintainer gates cover dependency integrity, strict build, Node tests, deterministic generation,
+  documentation, retirement/source policy, actual tgz inventory, brand audit, and packaged smoke.
+- Packaged smoke is not authenticated true-host evidence. Phase 06 retains that obligation.
 
 ---
 
-*Integration audit: 2026-08-20*
+*Integration audit refreshed: 2026-08-28*
