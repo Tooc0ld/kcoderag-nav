@@ -212,7 +212,8 @@ test("block stage and block list commit preserve the exact private lease buffer"
       assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer /u);
       return jsonResponse({
         ok: true,
-        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sv=trusted&sig=private",
+        signed_upload_url: "https://candidate.blob.core.windows.net/results/candidate?sv=trusted&sig=private",
+        ignored_future_field: "ignored",
       });
     }
     if (method === "PUT" && url.hostname === "candidate.blob.core.windows.net") {
@@ -249,7 +250,7 @@ test("block stage and block list commit preserve the exact private lease buffer"
     if (url.pathname.endsWith("/FinalizeArtifact")) {
       events.push("finalize");
       bodies.push(requestBody(init));
-      return jsonResponse({ ok: true, artifactId: "4242" });
+      return jsonResponse({ ok: true, artifact_id: "4242", ignored_future_field: "ignored" });
     }
     throw new Error("unexpected_request");
   };
