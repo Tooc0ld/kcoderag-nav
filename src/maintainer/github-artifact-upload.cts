@@ -417,8 +417,8 @@ async function deletePartialArtifact(
 ): Promise<void> {
   try {
     await artifactControlRequest(fetcher, origin, token, "DeleteArtifact", {
-      workflowRunBackendId: ids.workflowRunBackendId,
-      workflowJobRunBackendId: ids.workflowJobRunBackendId,
+      workflow_run_backend_id: ids.workflowRunBackendId,
+      workflow_job_run_backend_id: ids.workflowJobRunBackendId,
       name,
     }, timeoutMs);
   } catch {
@@ -461,10 +461,10 @@ export async function uploadCandidateArtifactFromLease(
     let created = false;
     try {
       const create = await artifactControlRequest(fetcher, origin, runtimeToken, "CreateArtifact", {
-        workflowRunBackendId: ids.workflowRunBackendId,
-        workflowJobRunBackendId: ids.workflowJobRunBackendId,
+        workflow_run_backend_id: ids.workflowRunBackendId,
+        workflow_job_run_backend_id: ids.workflowJobRunBackendId,
         name,
-        mimeType: { value: "application/gzip" },
+        mime_type: "application/gzip",
         version: 7,
       }, timeoutMs);
       failUnless(exactKeys(create, ["ok", "signedUploadUrl"]) && create.ok === true,
@@ -496,11 +496,11 @@ export async function uploadCandidateArtifactFromLease(
       );
 
       const finalize = await artifactControlRequest(fetcher, origin, runtimeToken, "FinalizeArtifact", {
-        workflowRunBackendId: ids.workflowRunBackendId,
-        workflowJobRunBackendId: ids.workflowJobRunBackendId,
+        workflow_run_backend_id: ids.workflowRunBackendId,
+        workflow_job_run_backend_id: ids.workflowJobRunBackendId,
         name,
         size: String(bytes.length),
-        hash: { value: `sha256:${digest}` },
+        hash: `sha256:${digest}`,
       }, timeoutMs);
       failUnless(
         exactKeys(finalize, ["ok", "artifactId"])

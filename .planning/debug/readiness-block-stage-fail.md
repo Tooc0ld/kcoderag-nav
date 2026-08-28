@@ -1,8 +1,8 @@
 ---
-status: fixing
+status: awaiting_human_verify
 trigger: "Phase 04.2 readiness run 33187499766 failed in the package upload step after deterministic block staging transport was introduced"
 created: 2026-08-28
-updated: 2026-08-29T00:04:32+08:00
+updated: 2026-08-29T00:12:00+08:00
 ---
 
 # Debug Session: Readiness Block Stage Failure
@@ -19,9 +19,9 @@ updated: 2026-08-29T00:04:32+08:00
 
 - bug_class: bohrbug
 - hypothesis: The CreateArtifact 4xx is caused by sending TypeScript object names and wrapper objects directly, while the official v7 JSON client serializes protobuf original field names and scalar wrapper values.
-- test: Apply the smallest serialization-only fix to CreateArtifact, FinalizeArtifact, and DeleteArtifact control requests, then rerun the exact-wire regression test.
-- expecting: The focused uploader suite changes from 12/13 to 13/13 without altering action/workflow topology or data-plane bytes.
-- next_action: Replace only the three control-plane request bodies with their protobuf JSON wire shapes.
+- test: Await a separately frozen candidate and authorized readiness run to verify GitHub accepts CreateArtifact and advances through all four lanes.
+- expecting: The package job passes CreateArtifact, block staging, commit, and finalize; the four closed lane receipts then pass verification.
+- next_action: Return the locally accepted fix to the Phase 04.2 orchestrator without pushing, rerunning, or freezing a candidate.
 - reasoning_checkpoint:
     hypothesis: "Direct JSON.stringify of in-memory protobuf-shaped objects causes GitHub to reject CreateArtifact because the official JSON wire contract uses original snake_case field names and scalar wrapper values."
     confirming_evidence:
@@ -55,6 +55,14 @@ updated: 2026-08-29T00:04:32+08:00
   checked: Focused compiled uploader suite after changing only the exact-wire test oracle.
   found: The suite is RED at 12/13; the single failure shows actual camelCase/object-wrapper CreateArtifact JSON versus expected snake_case/scalar-wrapper protobuf JSON. All other uploader behaviors remain green.
   implication: The protocol defect is locally deterministic and isolated to control-plane serialization; spectrum-based localization is unnecessary because the one failing strict contract assertion directly identifies the fault site.
+- timestamp: 2026-08-29T00:06:00+08:00
+  checked: Focused uploader suite after the serialization-only source change.
+  found: Build passes and all 13 uploader tests pass, including exact same-process lease bytes, deterministic blocks, cleanup, bounds, and the corrected protobuf JSON wire oracle.
+  implication: The minimal source change directly fixes the locally reproduced root-cause behavior without disturbing data-plane behavior.
+- timestamp: 2026-08-29T00:12:00+08:00
+  checked: Adjacent readiness workflow suite and fix-acceptance guardrail.
+  found: Readiness workflow tests pass 9/9; the source diff is a balanced 8-addition/8-deletion serialization replacement; reverting only the source fix restores the RED contract test and reapplying restores 13/13 GREEN. No Stryker configuration or dependency exists, so mutation testing is explicitly skipped.
+  implication: Local verification accepts the minimal fix and attributes the repaired behavior to this source change; only a fresh authorized hosted run can verify the external service boundary.
 
 ## Eliminated
 
@@ -68,8 +76,16 @@ updated: 2026-08-29T00:04:32+08:00
 ## Resolution
 
 - root_cause: Direct JSON serialization bypassed the official protobuf JSON mapping, sending camelCase control fields and object-shaped StringValue wrappers; GitHub rejected CreateArtifact with 4xx before block staging.
-- fix: pending
+- fix: Serialize CreateArtifact, FinalizeArtifact, and DeleteArtifact requests with protobuf original field names and scalar StringValue JSON representations.
 - oracle_type: specified
-- verification: RED — focused uploader suite 12/13, exact-wire assertion fails on CreateArtifact serialization.
+- verification:
+    target_test: { result: pass, suite: "github-artifact-upload 13/13" }
+    mutation_check: { result: skipped, reason_if_skipped: "Stryker is not configured or installed" }
+    no_op_deletion: { result: pass, deletion_justified_by_rca: false, detail: "balanced 8-addition/8-deletion serialization replacement" }
+    adjacent_tests: { result: pass, suites_run: ["readiness-workflow 9/9"] }
+    revert_and_reconfirm: { result: pass, bug_returned_on_revert: true, fixed_on_reapply: true }
+    guardrail_verdict: accepted
+    environment: "hosted GitHub service verification pending a separately authorized candidate run"
 - files_changed:
+  - src/maintainer/github-artifact-upload.cts
   - tests/maintainer/github-artifact-upload.test.cts
