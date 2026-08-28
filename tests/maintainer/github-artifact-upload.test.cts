@@ -35,7 +35,11 @@ interface ReleaseReadinessModule {
 }
 
 interface UploadModule {
-  GitHubArtifactUploadError: new (code: string) => Error & { readonly code: string };
+  GitHubArtifactUploadError: new (code: string) => Error & {
+    readonly code: string;
+    readonly stage?: string;
+    readonly statusClass?: string;
+  };
   uploadCandidateArtifactFromLease(
     lease: CandidatePackageArtifactLease,
     options?: {
@@ -173,31 +177,55 @@ function restoreArtifactRuntimeEnvironment(): () => void {
   };
 }
 
-test("uploads the private lease buffer once through create raw-put finalize and returns metadata only", async () => {
+test("block stage and block list commit preserve the exact private lease buffer", async () => {
   const fixture = packageFixture();
   const events: string[] = [];
   const bodies: unknown[] = [];
+  const stagedIds: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
-    const url = String(input);
+    const url = new URL(String(input));
     const method = init?.method ?? "GET";
-    if (url.endsWith("/CreateArtifact")) {
+    if (url.pathname.endsWith("/CreateArtifact")) {
       events.push("create");
       bodies.push(requestBody(init));
       assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer /u);
       return jsonResponse({
         ok: true,
-        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=private",
+        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sv=trusted&sig=private",
       });
     }
-    if (method === "PUT") {
-      events.push("upload");
-      bodies.push(init?.body);
-      assert.ok(Buffer.isBuffer(init?.body));
-      assert.ok((init?.body as Buffer).equals(fixture.bytes));
-      assert.match(JSON.stringify(init?.headers), /BlockBlob/u);
-      return new Response(null, { status: 201 });
+    if (method === "PUT" && url.hostname === "candidate.blob.core.windows.net") {
+      assert.equal(url.searchParams.get("sv"), "trusted");
+      assert.equal(url.searchParams.get("sig"), "private");
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("x-ms-version"), "2021-12-02");
+      if (url.searchParams.get("comp") === "block") {
+        events.push("stage_block");
+        const blockId = url.searchParams.get("blockid");
+        assert.notEqual(blockId, null);
+        stagedIds.push(blockId as string);
+        assert.equal(Buffer.from(blockId as string, "base64").toString("ascii"), "00000000");
+        assert.equal(headers.get("content-type"), "application/octet-stream");
+        assert.equal(headers.get("content-length"), String(fixture.bytes.length));
+        assert.ok(Buffer.isBuffer(init?.body));
+        assert.ok((init?.body as Buffer).equals(fixture.bytes));
+        bodies.push(init?.body);
+        return new Response(null, { status: 201 });
+      }
+      if (url.searchParams.get("comp") === "blocklist") {
+        events.push("commit_block_list");
+        assert.equal(url.searchParams.has("blockid"), false);
+        assert.equal(headers.get("content-type"), "application/xml; charset=utf-8");
+        assert.ok(Buffer.isBuffer(init?.body));
+        const body = (init?.body as Buffer).toString("utf8");
+        assert.equal(headers.get("content-length"), String(Buffer.byteLength(body)));
+        assert.deepEqual([...body.matchAll(/<Latest>([^<]+)<\/Latest>/gu)].map((match) => match[1]), stagedIds);
+        bodies.push(init?.body);
+        return new Response(null, { status: 201 });
+      }
+      throw new Error("unexpected_bare_put");
     }
-    if (url.endsWith("/FinalizeArtifact")) {
+    if (url.pathname.endsWith("/FinalizeArtifact")) {
       events.push("finalize");
       bodies.push(requestBody(init));
       return jsonResponse({ ok: true, artifactId: "4242" });
@@ -211,7 +239,21 @@ test("uploads the private lease buffer once through create raw-put finalize and 
       resultsUrl: "https://results-receiver.actions.githubusercontent.com/",
       fetcher,
     });
-    assert.deepEqual(events, ["create", "upload", "finalize"]);
+    assert.deepEqual(events, ["create", "stage_block", "commit_block_list", "finalize"]);
+    assert.deepEqual(bodies[0], {
+      workflowRunBackendId: "run-backend-id",
+      workflowJobRunBackendId: "job-backend-id",
+      name: "kcoderag-nav-0.3.0.tgz",
+      mimeType: { value: "application/gzip" },
+      version: 7,
+    });
+    assert.deepEqual(bodies[3], {
+      workflowRunBackendId: "run-backend-id",
+      workflowJobRunBackendId: "job-backend-id",
+      name: "kcoderag-nav-0.3.0.tgz",
+      size: String(fixture.bytes.length),
+      hash: { value: `sha256:${crypto.createHash("sha256").update(fixture.bytes).digest("hex")}` },
+    });
     assert.deepEqual(receipt, {
       artifactId: "4242",
       name: "kcoderag-nav-0.3.0.tgz",
@@ -231,26 +273,85 @@ test("uploads the private lease buffer once through create raw-put finalize and 
   }
 });
 
-test("reads runner authentication only from process env and preserves create upload finalize", async () => {
+test("safe upload failure reports commit status class, cleans up, and disposes the lease", async () => {
+  const fixture = packageFixture();
+  const events: string[] = [];
+  const secretCanary = "azure-error-secret-canary";
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/CreateArtifact")) {
+      events.push("create");
+      return jsonResponse({
+        ok: true,
+        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=signed-secret-canary",
+      });
+    }
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "block") {
+      events.push("stage_block");
+      return new Response(null, { status: 201 });
+    }
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "blocklist") {
+      events.push("commit_block_list");
+      return new Response(secretCanary, { status: 503 });
+    }
+    if (url.pathname.endsWith("/DeleteArtifact")) {
+      events.push("delete");
+      return jsonResponse({ ok: true, artifactId: "4242" });
+    }
+    if (url.pathname.endsWith("/FinalizeArtifact")) events.push("finalize");
+    throw new Error("unexpected_request");
+  };
+
+  try {
+    let failure: unknown;
+    try {
+      await upload.uploadCandidateArtifactFromLease(fixture.lease, {
+        runtimeToken: runtimeToken(),
+        resultsUrl: "https://results-receiver.actions.githubusercontent.com/",
+        fetcher,
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.ok(failure instanceof Error);
+    assert.equal((failure as Error & { code?: string }).code, "artifact_upload_failed");
+    assert.equal((failure as Error & { stage?: string }).stage, "commit_block_list");
+    assert.equal((failure as Error & { statusClass?: string }).statusClass, "5xx");
+    assert.deepEqual(events, ["create", "stage_block", "commit_block_list", "delete"]);
+    assert.doesNotMatch(JSON.stringify(failure), /signed-secret-canary|azure-error-secret-canary/iu);
+    assert.throws(
+      () => readiness.withCandidatePackageBytes(fixture.lease, "workflow-upload", () => undefined),
+      (error: unknown) => (error as { code?: unknown }).code === "artifact_disposed",
+    );
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("reads runner authentication only from process env and preserves create stage commit finalize", async () => {
   const fixture = packageFixture();
   const restoreEnvironment = restoreArtifactRuntimeEnvironment();
   const events: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
-    const url = String(input);
-    if (url.endsWith("/CreateArtifact")) {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/CreateArtifact")) {
       events.push("create");
       return jsonResponse({
         ok: true,
         signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=private",
       });
     }
-    if (init?.method === "PUT") {
-      events.push("upload");
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "block") {
+      events.push("stage_block");
       assert.ok(Buffer.isBuffer(init.body));
       assert.ok((init.body as Buffer).equals(fixture.bytes));
       return new Response(null, { status: 201 });
     }
-    if (url.endsWith("/FinalizeArtifact")) {
+    if (init?.method === "PUT" && url.searchParams.get("comp") === "blocklist") {
+      events.push("commit_block_list");
+      return new Response(null, { status: 201 });
+    }
+    if (url.pathname.endsWith("/FinalizeArtifact")) {
       events.push("finalize");
       return jsonResponse({ ok: true, artifactId: "4242" });
     }
@@ -261,7 +362,7 @@ test("reads runner authentication only from process env and preserves create upl
     process.env.ACTIONS_RUNTIME_TOKEN = runtimeToken();
     process.env.ACTIONS_RESULTS_URL = "https://results-receiver.actions.githubusercontent.com/";
     const receipt = await upload.uploadCandidateArtifactFromLease(fixture.lease, { fetcher });
-    assert.deepEqual(events, ["create", "upload", "finalize"]);
+    assert.deepEqual(events, ["create", "stage_block", "commit_block_list", "finalize"]);
     assert.deepEqual(receipt, {
       artifactId: "4242",
       name: "kcoderag-nav-0.3.0.tgz",

@@ -49,6 +49,13 @@ const actionManifestPath = path.join(actionRoot, "action.yml");
 const actionEntrypointPath = path.join(actionRoot, "index.cjs");
 const SHA256 = "a".repeat(64);
 
+function artifactRuntimeToken(runId = "run-backend-id", jobId = "job-backend-id"): string {
+  const payload = Buffer.from(JSON.stringify({
+    scp: `Actions.Results:${runId}:${jobId}`,
+  })).toString("base64url");
+  return `header.${payload}.signature`;
+}
+
 function workflow(): string {
   return fs.readFileSync(workflowPath, "utf8");
 }
@@ -230,6 +237,76 @@ test("missing artifact runtime inputs fail before a request or workflow output i
     assert.equal(result.stderr, "");
     assert.equal(fs.statSync(outputPath).size, 0);
     assert.equal(fs.existsSync(requestMarkerPath), false);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("safe upload failure stdout exposes only commit stage and status class", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-safe-upload-failure-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const preloadPath = path.join(temporaryRoot, "artifact-failure-fetch.cjs");
+  const canaries = [
+    "signed-query-secret-canary",
+    "azure-response-secret-canary",
+    "response-header-secret-canary",
+    "run-secret-canary",
+    "job-secret-canary",
+  ];
+  fs.writeFileSync(outputPath, "", "utf8");
+  fs.writeFileSync(preloadPath, [
+    '"use strict";',
+    "const originalFetch = globalThis.fetch;",
+    "globalThis.fetch = async (input, init) => {",
+    "  const target = String(input);",
+    "  if (!target.startsWith(\"https://\")) return originalFetch(input, init);",
+    "  const url = new URL(target);",
+    "  if (url.pathname.endsWith(\"/CreateArtifact\")) return new Response(JSON.stringify({ ok: true, signedUploadUrl: \"https://candidate.blob.core.windows.net/results/candidate?sv=trusted&sig=signed-query-secret-canary\" }), { status: 200, headers: { \"content-type\": \"application/json\" } });",
+    "  if (init?.method === \"PUT\" && url.searchParams.get(\"comp\") === \"block\") return new Response(null, { status: 201 });",
+    "  if (init?.method === \"PUT\" && url.searchParams.get(\"comp\") === \"blocklist\") return new Response(\"azure-response-secret-canary\", { status: 503, headers: { \"x-secret\": \"response-header-secret-canary\" } });",
+    "  if (url.pathname.endsWith(\"/DeleteArtifact\")) return new Response(JSON.stringify({ ok: true, artifactId: \"4242\" }), { status: 200, headers: { \"content-type\": \"application/json\" } });",
+    "  throw new Error(\"unexpected_request\");",
+    "};",
+    "",
+  ].join("\n"), "utf8");
+  const env = {
+    ...process.env,
+    ACTIONS_RESULTS_URL: "https://results-receiver.actions.githubusercontent.com/",
+    ACTIONS_RUNTIME_TOKEN: artifactRuntimeToken("run-secret-canary", "job-secret-canary"),
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: "refs/heads/readiness/04.2-candidate",
+    GITHUB_SHA: "a".repeat(40),
+    READINESS_WORKFLOW_COMMIT: "a".repeat(40),
+    GITHUB_OUTPUT: outputPath,
+  };
+
+  try {
+    const result = childProcess.spawnSync(process.execPath, [
+      "--require",
+      preloadPath,
+      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+      "package-upload",
+    ], {
+      cwd: repositoryRoot,
+      env,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      schemaVersion: 1,
+      status: "FAIL",
+      reason: "artifact_upload_failed",
+      stage: "commit_block_list",
+      statusClass: "5xx",
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(fs.statSync(outputPath).size, 0);
+    for (const canary of canaries) assert.doesNotMatch(result.stdout, new RegExp(canary, "u"));
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
