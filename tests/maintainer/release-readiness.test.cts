@@ -40,6 +40,17 @@ interface ReleaseReadinessModule {
     consumer: CandidateConsumer,
     callback: (bytes: Buffer, artifact: CandidatePackageArtifact) => T,
   ): T;
+  readPackageProductSnapshot(root: string, subject: string): {
+    readonly subject: string;
+    readonly tree: string;
+    readonly version: "0.3.0";
+    readonly digest: string;
+    readonly localGuideDigest: string;
+    readonly paths: readonly string[];
+    readonly sourcePaths: readonly string[];
+    readonly generatedPaths: readonly string[];
+    readonly oids: Readonly<Record<string, string>>;
+  };
   runReleaseReadiness(options: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>;
 }
 
@@ -264,7 +275,6 @@ function readinessFixture(): {
     writeFixture(root, relativePath, `canonical-${index}\n`);
   }
   writeFixture(root, "docs/MCP_QA_EXPERIENCE_GUIDE.md", "local authority\n");
-  writeFixture(root, "dist/bin/kcoderag-nav.cjs", "#!/usr/bin/env node\n");
   writeFixture(root, "kcoderag-cursor/.cursor-plugin/plugin.json", '{"name":"kcoderag-nav","version":"0.3.0"}\n');
   writeFixture(root, "kcoderag-qa/.claude-plugin/plugin.json", '{"name":"kcoderag-qa","version":"0.3.0"}\n');
   writeFixture(root, "kcoderag-qa/.codex-plugin/plugin.json", '{"name":"kcoderag-qa","version":"0.3.0"}\n');
@@ -325,6 +335,71 @@ function readinessOptions(fixture: ReturnType<typeof readinessFixture>): Readonl
     checks: LOCAL_CHECK_NAMES.map((name) => ({ name, conclusion: "PASS" })),
   };
 }
+
+test("source product snapshot partitions immutable sources from declared generated outputs", () => {
+  const fixture = readinessFixture();
+  try {
+    const snapshot = readiness.readPackageProductSnapshot(fixture.root, fixture.candidateSubject);
+    assert.deepEqual(snapshot.paths, [
+      "dist/bin/kcoderag-nav.cjs",
+      "docs/MCP_QA_EXPERIENCE_GUIDE.md",
+      "package.json",
+    ]);
+    assert.deepEqual(snapshot.sourcePaths, [
+      "docs/MCP_QA_EXPERIENCE_GUIDE.md",
+      "package.json",
+    ]);
+    assert.deepEqual(snapshot.generatedPaths, ["dist/bin/kcoderag-nav.cjs"]);
+    assert.deepEqual(Object.keys(snapshot.oids).sort(), [...snapshot.sourcePaths]);
+    assert.equal(Object.hasOwn(snapshot.oids, "dist/bin/kcoderag-nav.cjs"), false);
+    assert.match(snapshot.digest, /^[0-9a-f]{64}$/u);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("source product snapshot rejects missing source identities and invalid declarations", () => {
+  const scenarios = [
+    {
+      files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md", "src/missing.cts"],
+      code: "package_inventory_invalid",
+    },
+    {
+      files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md", "generated/missing.cjs"],
+      code: "package_inventory_invalid",
+    },
+    {
+      files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md", "../escape.cjs"],
+      code: "package_identity_invalid",
+    },
+    {
+      files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md", "/absolute.cjs"],
+      code: "package_identity_invalid",
+    },
+    {
+      files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md", "docs/MCP_QA_EXPERIENCE_GUIDE.md"],
+      code: "package_inventory_invalid",
+    },
+  ] as const;
+  for (const scenario of scenarios) {
+    const fixture = readinessFixture();
+    try {
+      writeFixture(fixture.root, "package.json", `${JSON.stringify({
+        name: "kcoderag-nav",
+        version: "0.3.0",
+        files: scenario.files,
+      }, null, 2)}\n`);
+      git(fixture.root, ["add", "--", "package.json"]);
+      git(fixture.root, ["commit", "--quiet", "-m", "invalid declaration"]);
+      expectCode(
+        () => readiness.readPackageProductSnapshot(fixture.root, git(fixture.root, ["rev-parse", "HEAD"])),
+        scenario.code,
+      );
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
 
 test("exact 0.3.0 local readiness remains BLOCKED until four platform lanes exist", () => {
   const fixture = readinessFixture();
