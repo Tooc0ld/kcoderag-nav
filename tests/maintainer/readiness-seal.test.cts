@@ -27,10 +27,14 @@ function fixture(): { readonly root: string; readonly candidate: string; readonl
   git(root, ["config", "user.email", "tests@example.invalid"]);
   git(root, ["config", "user.name", "KCodeRag Tests"]);
   write(root, "package.json", JSON.stringify({
-    name: "kcoderag-nav", version: "0.3.0", files: ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md"],
+    name: "kcoderag-nav", version: "0.3.0", files: [
+      "dist/bin/kcoderag-nav.cjs",
+      "docs/MCP_QA_EXPERIENCE_GUIDE.md",
+      "src/runtime.cts",
+    ],
   }) + "\n");
-  write(root, "dist/bin/kcoderag-nav.cjs", "#!/usr/bin/env node\n");
   write(root, "docs/MCP_QA_EXPERIENCE_GUIDE.md", "local authority\n");
+  write(root, "src/runtime.cts", "export const runtime = true;\n");
   git(root, ["add", "--", "."]);
   git(root, ["commit", "--quiet", "-m", "candidate"]);
   const candidate = git(root, ["rev-parse", "HEAD"]);
@@ -40,7 +44,7 @@ function fixture(): { readonly root: string; readonly candidate: string; readonl
   return { root, candidate, final: git(root, ["rev-parse", "HEAD"]) };
 }
 
-test("documentation-only final child passes without renaming it as the tested candidate", () => {
+test("documentation-only final child passes with declared dist outputs absent from both Git trees", () => {
   const item = fixture();
   try {
     const before = git(item.root, ["status", "--porcelain=v1"]);
@@ -60,8 +64,8 @@ test("documentation-only final child passes without renaming it as the tested ca
   }
 });
 
-test("seal rejects package or local-guide drift and final Git brand findings", () => {
-  for (const relativePath of ["dist/bin/kcoderag-nav.cjs", "docs/MCP_QA_EXPERIENCE_GUIDE.md"] as const) {
+test("seal rejects tracked source blob drift", () => {
+  for (const relativePath of ["src/runtime.cts", "docs/MCP_QA_EXPERIENCE_GUIDE.md"] as const) {
     const item = fixture();
     try {
       write(item.root, relativePath, "changed product\n");
@@ -76,5 +80,62 @@ test("seal rejects package or local-guide drift and final Git brand findings", (
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("seal reports a missing immutable source identity as candidate product drift", () => {
+  const item = fixture();
+  try {
+    fs.rmSync(path.join(item.root, "src", "runtime.cts"));
+    git(item.root, ["add", "-u", "--", "src/runtime.cts"]);
+    git(item.root, ["commit", "--quiet", "-m", "missing source"]);
+    assert.throws(
+      () => seal.runReadinessSeal({
+        root: item.root, candidateSubject: item.candidate, finalSubject: git(item.root, ["rev-parse", "HEAD"]),
+      }),
+      (error: unknown) => (error as { code?: unknown }).code === "candidate_product_drift",
+    );
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("seal rejects declared generated-output inventory drift without generated Git blobs", () => {
+  const item = fixture();
+  try {
+    write(item.root, "package.json", JSON.stringify({
+      name: "kcoderag-nav", version: "0.3.0", files: [
+        "dist/bin/renamed.cjs",
+        "docs/MCP_QA_EXPERIENCE_GUIDE.md",
+        "src/runtime.cts",
+      ],
+    }) + "\n");
+    git(item.root, ["add", "--", "package.json"]);
+    git(item.root, ["commit", "--quiet", "-m", "generated inventory drift"]);
+    assert.throws(
+      () => seal.runReadinessSeal({
+        root: item.root, candidateSubject: item.candidate, finalSubject: git(item.root, ["rev-parse", "HEAD"]),
+      }),
+      (error: unknown) => (error as { code?: unknown }).code === "candidate_product_drift",
+    );
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("seal retains the documentation-only final child boundary", () => {
+  const item = fixture();
+  try {
+    write(item.root, "README.md", "unrelated child change\n");
+    git(item.root, ["add", "--", "README.md"]);
+    git(item.root, ["commit", "--quiet", "-m", "non-planning child"]);
+    assert.throws(
+      () => seal.runReadinessSeal({
+        root: item.root, candidateSubject: item.candidate, finalSubject: git(item.root, ["rev-parse", "HEAD"]),
+      }),
+      (error: unknown) => (error as { code?: unknown }).code === "final_child_scope_invalid",
+    );
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
   }
 });
