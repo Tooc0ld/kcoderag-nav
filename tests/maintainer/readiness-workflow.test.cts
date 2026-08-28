@@ -141,10 +141,14 @@ function jobBody(source: string, jobName: string): string {
 
 test("readiness workflow has one exact branch-push authority and minimal read-only permissions", () => {
   const source = workflow();
+  const normalized = source.replace(/\r\n/gu, "\n");
   assert.match(source, /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- readiness\/04\.2-candidate\s*$/mu);
   assert.equal(source.match(/readiness\/04\.2-candidate/gu)?.length, 2);
   assert.doesNotMatch(source, /branches-ignore:|tags:|tags-ignore:|workflow_dispatch:|schedule:|pull_request:|workflow_call:|workflow_run:/u);
-  assert.match(source, /permissions:\s*\r?\n\s+contents:\s*read/u);
+  assert.equal(
+    normalized.slice(normalized.indexOf("permissions:"), normalized.indexOf("\nenv:")),
+    "permissions:\n  contents: read\n",
+  );
   assert.doesNotMatch(source, /contents:\s*write|actions:\s*write|packages:\s*write|id-token:\s*write|deployments:\s*write/u);
   assert.match(source, /github\.event_name == 'push'/u);
   assert.match(source, /github\.ref == 'refs\/heads\/readiness\/04\.2-candidate'/u);
@@ -162,9 +166,12 @@ test("one package job uploads one lease artifact then four lanes consume that ar
     "verify-lanes",
   ]);
   assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 6);
+  assert.equal(source.match(/uses:\s*actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/gu)?.length, 6);
+  assert.equal(source.match(/uses:\s*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu)?.length, 6);
   assert.equal(source.match(/persist-credentials:\s*false/gu)?.length, 6);
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length, 6);
   assert.equal(source.match(/uses:\s*actions\/download-artifact@[0-9a-f]{40}/gu)?.length, 4);
+  assert.equal(source.match(/uses:\s*actions\/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131/gu)?.length, 4);
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 4);
   assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
   assert.equal(source.match(/npm run readiness:workflow-upload/gu)?.length ?? 0, 0);

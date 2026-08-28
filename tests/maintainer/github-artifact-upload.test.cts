@@ -38,10 +38,10 @@ interface UploadModule {
   GitHubArtifactUploadError: new (code: string) => Error & { readonly code: string };
   uploadCandidateArtifactFromLease(
     lease: CandidatePackageArtifactLease,
-    options: {
-      readonly runtimeToken: string;
-      readonly resultsUrl: string;
-      readonly fetcher: typeof fetch;
+    options?: {
+      readonly runtimeToken?: string;
+      readonly resultsUrl?: string;
+      readonly fetcher?: typeof fetch;
       readonly timeoutMs?: number;
     },
   ): Promise<Readonly<Record<string, unknown>>>;
@@ -154,6 +154,25 @@ function expectUploadCode(call: () => Promise<unknown>, code: string): Promise<v
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
 }
 
+function restoreArtifactRuntimeEnvironment(): () => void {
+  const keys = ["ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL"] as const;
+  const snapshot = keys.map((key) => ({
+    key,
+    owned: Object.prototype.hasOwnProperty.call(process.env, key),
+    value: process.env[key],
+  }));
+  return () => {
+    for (const entry of snapshot) {
+      if (entry.owned) {
+        assert.notEqual(entry.value, undefined);
+        process.env[entry.key] = entry.value as string;
+      } else {
+        delete process.env[entry.key];
+      }
+    }
+  };
+}
+
 test("uploads the private lease buffer once through create raw-put finalize and returns metadata only", async () => {
   const fixture = packageFixture();
   const events: string[] = [];
@@ -208,6 +227,80 @@ test("uploads the private lease buffer once through create raw-put finalize and 
       (error: unknown) => (error as { code?: unknown }).code === "artifact_disposed",
     );
   } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("reads runner authentication only from process env and preserves create upload finalize", async () => {
+  const fixture = packageFixture();
+  const restoreEnvironment = restoreArtifactRuntimeEnvironment();
+  const events: string[] = [];
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/CreateArtifact")) {
+      events.push("create");
+      return jsonResponse({
+        ok: true,
+        signedUploadUrl: "https://candidate.blob.core.windows.net/results/candidate?sig=private",
+      });
+    }
+    if (init?.method === "PUT") {
+      events.push("upload");
+      assert.ok(Buffer.isBuffer(init.body));
+      assert.ok((init.body as Buffer).equals(fixture.bytes));
+      return new Response(null, { status: 201 });
+    }
+    if (url.endsWith("/FinalizeArtifact")) {
+      events.push("finalize");
+      return jsonResponse({ ok: true, artifactId: "4242" });
+    }
+    throw new Error("unexpected_request");
+  };
+
+  try {
+    process.env.ACTIONS_RUNTIME_TOKEN = runtimeToken();
+    process.env.ACTIONS_RESULTS_URL = "https://results-receiver.actions.githubusercontent.com/";
+    const receipt = await upload.uploadCandidateArtifactFromLease(fixture.lease, { fetcher });
+    assert.deepEqual(events, ["create", "upload", "finalize"]);
+    assert.deepEqual(receipt, {
+      artifactId: "4242",
+      name: "kcoderag-nav-0.3.0.tgz",
+      sha256: crypto.createHash("sha256").update(fixture.bytes).digest("hex"),
+      memberCount: 2,
+      size: fixture.bytes.length,
+    });
+    assert.throws(
+      () => readiness.withCandidatePackageBytes(fixture.lease, "workflow-upload", () => undefined),
+      (error: unknown) => (error as { code?: unknown }).code === "artifact_disposed",
+    );
+  } finally {
+    restoreEnvironment();
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("missing process env authentication makes no fetch and does not consume the lease", async () => {
+  const fixture = packageFixture();
+  const restoreEnvironment = restoreArtifactRuntimeEnvironment();
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+
+  try {
+    delete process.env.ACTIONS_RUNTIME_TOKEN;
+    delete process.env.ACTIONS_RESULTS_URL;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new Error("must_not_call");
+    };
+    await expectUploadCode(() => upload.uploadCandidateArtifactFromLease(fixture.lease),
+      "artifact_auth_invalid");
+    assert.equal(fetchCalled, false);
+    let consumed = false;
+    readiness.withCandidatePackageBytes(fixture.lease, "workflow-upload", () => { consumed = true; });
+    assert.equal(consumed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnvironment();
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
