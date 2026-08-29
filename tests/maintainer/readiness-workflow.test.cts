@@ -1,6 +1,7 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
@@ -29,6 +30,16 @@ interface PlatformLaneReceipt {
 }
 
 interface ReadinessWorkflowModule {
+  openDownloadedLease(input: {
+    readonly laneId: PlatformLaneId;
+    readonly artifactRoot: string;
+    readonly artifactName: string;
+    readonly artifactSha256: string;
+    readonly memberCount: number;
+  }): {
+    readonly artifact: { readonly sha256: string; readonly memberCount: number };
+    dispose(): void;
+  };
   parsePlatformLaneReceipt(value: unknown): PlatformLaneReceipt;
   verifyPlatformLaneSet(
     receipts: readonly unknown[],
@@ -370,6 +381,71 @@ test("workflow keeps one exact four-lane Windows/Linux Node 22/24 fan-out", () =
     assert.match(body, new RegExp(`node-version:\\s*[\"']${nodeMajor}[\"']`, "u"));
     assert.match(body, new RegExp(`--lane ${laneId}`, "u"));
     assert.match(body, /needs:\s*package/u);
+  }
+});
+
+test("downloaded lease accepts only one canonical or pinned fallback raw filename", () => {
+  const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as Record<string, any>;
+  const sourceLease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["workflow-upload"],
+  });
+  let candidateBytes: Buffer;
+  let artifactSha256: string;
+  let memberCount: number;
+  try {
+    const fixtureArtifact = releaseReadiness.withCandidatePackageBytes(
+      sourceLease,
+      "workflow-upload",
+      (bytes: Buffer, artifact: { readonly memberCount: number }) => ({
+        bytes: Buffer.from(bytes),
+        sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+        memberCount: artifact.memberCount,
+      }),
+    );
+    candidateBytes = fixtureArtifact.bytes;
+    artifactSha256 = fixtureArtifact.sha256;
+    memberCount = fixtureArtifact.memberCount;
+  } finally {
+    sourceLease.dispose();
+  }
+
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-download-"));
+  const previousRunnerTemp = process.env.RUNNER_TEMP;
+  process.env.RUNNER_TEMP = runnerTemp;
+  const open = (names: readonly string[]) => {
+    const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
+    for (const name of names) fs.writeFileSync(path.join(artifactRoot, name), candidateBytes);
+    return workflowContract.openDownloadedLease({
+      laneId: "linux-node22",
+      artifactRoot,
+      artifactName: "kcoderag-nav-0.3.0.tgz",
+      artifactSha256,
+      memberCount,
+    });
+  };
+
+  try {
+    for (const acceptedName of ["kcoderag-nav-0.3.0.tgz", "artifact"]) {
+      const lease = open([acceptedName]);
+      try {
+        assert.equal(lease.artifact.sha256, artifactSha256);
+        assert.equal(lease.artifact.memberCount, memberCount);
+      } finally {
+        lease.dispose();
+      }
+    }
+    for (const rejectedNames of [
+      ["kcoderag-nav-0.3.0.tgz", "artifact"],
+      ["kcoderag-nav-0.3.0.tgz", "extra"],
+      ["unexpected"],
+    ]) {
+      expectCode(() => open(rejectedNames), "downloaded_artifact_invalid");
+    }
+  } finally {
+    if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+    else process.env.RUNNER_TEMP = previousRunnerTemp;
+    fs.rmSync(runnerTemp, { recursive: true, force: true });
   }
 });
 

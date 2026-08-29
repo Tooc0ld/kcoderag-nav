@@ -18,11 +18,25 @@ updated: 2026-08-29
 ## Current Focus
 
 - bug_class: bohrbug
-- hypothesis: CONFIRMED — `plugin-src/environments/qa.mcp.json` is the declared canonical MCP source and its endpoint pathname ends in `/mcp/`; the generator intentionally copies/projects that value, so all generated endpoint-bearing products retain the forbidden trailing slash.
-- test: mechanically remove only the terminal pathname slash in the canonical JSON value, run the established generator, then rerun the same three-boolean compliance oracle on canonical and generated projections.
-- expecting: the canonical source and generated QA Claude/Codex projections all remain parseable with an MCP reference and report `no_trailing_slash_after_mcp=true`; generation check and host/generator tests remain green.
-- known_pattern_candidate: "zcode-mcp-trailing-slash — prior resolved session touches the same endpoint normalization class and must be tested before open-ended hypotheses."
-- next_action: stage the exact repair/canonical/generated/test/debug set, confirm unrelated paths remain unstaged, and commit through the normal pre-commit hook without bypass flags.
+- hypothesis: CONFIRMED — the pinned raw downloader has a literal `artifact` fallback when its response supplies no parseable filename, while `openDownloadedLease` lstat's only the producer metadata name; the hosted service path still selects the fallback despite the blob property, so all lanes fail before digest/tar/smoke.
+- test: add a regression using locally generated valid candidate bytes under the exact pinned fallback basename; require fallback-only and canonical-only roots to pass, but reject ambiguous, extra, symlink, or arbitrary roots before archive use.
+- expecting: the fallback-only RED oracle fails on current code, then passes after a bounded singleton-root resolver; canonical behavior and every SHA/member/tar/lease/host check remain unchanged.
+- next_action: stage only this debug record plus the readiness workflow source/test, verify the exact index inventory, and commit through the normal hook before refreezing a descendant candidate.
+- reasoning_checkpoint:
+    hypothesis: "All four hosted lanes fail before smoke because the official downloader materializes its literal fallback basename `artifact`, but `openDownloadedLease` looks only for the producer metadata name and normalizes the resulting missing-path error."
+    confirming_evidence:
+      - "The exact pinned official source uses literal `artifact` when Content-Disposition has no parseable filename and writes raw bytes at that basename."
+      - "Run 33255729362 downloaded successfully in all four lanes, then failed immediately in packaged-contract verification with zero receipts; hosted artifact digest and size exactly match a fresh local candidate package that passes tar and host smoke."
+      - "The local validator constructs only `<root>/<producer-name>` before any digest/tar check, and a prior valid fallback-basename fixture reproduced downloaded_artifact_invalid before host smoke."
+    falsification_test: "If a valid singleton fallback-basename fixture does not reproduce RED before the fix, or a new hosted candidate still fails after accepting exactly that pinned fallback while preserving digest/member/tar checks, the hypothesis is false."
+    fix_rationale: "Resolve exactly one direct regular-file candidate whose basename is either the producer name or the pinned action's literal fallback; cryptographic and tar validation remain authoritative, while ambiguity and extra entries still fail closed."
+    blind_spots: "Only another immutable hosted run can prove the service currently uses the documented fallback; local and metadata evidence cannot inspect the response header because raw logs/URLs are intentionally out of scope."
+    candidate_causes:
+      - "code: `openDownloadedLease` hardcodes only the producer metadata basename"
+      - "integration/config: the pinned download action has a separate response-header/fallback naming contract"
+      - "environment/service: the hosted signed response does not surface the custom blob filename property as a parseable filename"
+      - "data: downloaded bytes, digest, size, or tar member count differ from the producer"
+    and_gate: "yes — failure requires both the downloader fallback selection and the consumer's single exact-name assumption; hosted digest/size equality eliminates corrupt artifact data as a co-cause."
 - reasoning_checkpoint:
     hypothesis: "The endpoint-bearing generated products are noncompliant because the declared canonical MCP source itself ends its pathname in `/mcp/`, and the generator correctly preserves/projects that configured value."
     confirming_evidence:
@@ -75,6 +89,41 @@ updated: 2026-08-29
   checked: Captured-output revert and reapply of only the canonical endpoint byte against the new repository-generation oracle.
   found: The Git-baseline canonical source made the test RED; the exact fixed bytes were restored; the same test returned GREEN, with no child output or config value emitted.
   implication: The regression is sensitive to the canonical trailing slash itself and the normalization is causally necessary, not a no-op generated diff.
+
+- timestamp: 2026-08-29
+  checked: Exact staged-set audit and normal-hook commit.
+  found: The staged set contained exactly eight intended repair/canonical/generated/test/debug paths; only the user's planning config remained unstaged; ordinary `git commit` succeeded as `cfc074c` without any hook bypass.
+  implication: The generated-product cleanliness checkpoint is resolved and the repair is now a committed immutable implementation subject ready for candidate freeze.
+
+- timestamp: 2026-08-29
+  checked: Candidate remote/auth/index/ancestry/object preflight and normal-hook allow-empty freeze.
+  found: The dedicated remote ref still equals retired `ed5557a`; GitHub authentication is available; the index is empty; required workflow/action/uploader/canonical objects exist; `db50cf873f242f7a4c729fe782b2ac3d4f339ca7` was created as a distinct strict descendant whose tree is identical to repair parent `cfc074c`.
+  implication: The new immutable candidate absorbs no dirty work and is eligible for the one authorized non-force dedicated-ref fast-forward.
+
+- timestamp: 2026-08-29
+  checked: Candidate source-only preflight over immutable Git/product identity and focused readiness contracts.
+  found: Build and zero-drift generation passed; whole-Git brand audit scanned 507 objects with zero findings; immutable 0.3.0 product snapshot is valid; uploader passed 13/13; readiness workflow 9/9; seal 5/5; dependency audit 8/8; index/diff checks remained clean.
+  implication: The candidate is ready for hosted Windows/Linux Node 22/24 verification without creating a local release, tag, registry lookup, or publish action.
+
+- timestamp: 2026-08-29
+  checked: Private hash-only dirty-work baseline, final remote/auth/ancestry preflight, dedicated-ref push, and unique run association.
+  found: Six baseline fields were stored outside the repository; the remote predecessor was exact and the update was a plain non-force fast-forward; remote now equals `db50cf873f242f7a4c729fe782b2ac3d4f339ca7`; unique push run is `33255729362` and began in progress.
+  implication: Hosted verification is bound to the exact candidate while local dirty work remains protected and no broader Git/release authority was exercised.
+
+- timestamp: 2026-08-29
+  checked: Hosted run/job/step metadata and run artifact inventory for candidate `db50cf873f242f7a4c729fe782b2ac3d4f339ca7` without raw logs or artifact downloads.
+  found: Run `33255729362` package/upload succeeded; all four Windows/Linux Node 22/24 jobs downloaded successfully then failed identically in packaged-contract verification; verify-lanes was skipped; exactly one non-empty, unexpired candidate artifact exists and zero receipt artifacts exist.
+  implication: The original hosted issue still reproduces cross-platform after the producer header change. Candidate/run are retired, no platform PASS exists, and the end-to-end filename hypothesis must be revised.
+
+- timestamp: 2026-08-29
+  checked: Official artifact upload/download source, Azure blob property contract, local validator stages, and hosted artifact metadata versus a fresh local candidate package.
+  found: Official raw download uses Content-Disposition or literal `artifact`; official raw upload binds artifact name to source basename rather than relying on the blob property; hosted artifact name is expected and its REST digest and size exactly equal locally generated candidate bytes with a positive member count; local validator still opens only the metadata name before all content checks.
+  implication: Corruption, SHA drift, size drift, tar count, OS, Node, and download acquisition are eliminated; the remaining cross-platform divergence is the response-derived local basename contract.
+
+- timestamp: 2026-08-29
+  checked: Agent-authored fallback-basename regression before and after the singleton-root resolver.
+  found: RED rejected valid locally generated candidate bytes under the exact pinned fallback with downloaded_artifact_invalid; GREEN accepts canonical-only and fallback-only roots with matching SHA/member count, while rejecting canonical-plus-fallback, canonical-plus-extra, and arbitrary singleton names.
+  implication: The consumer now handles the observed pinned naming boundary without weakening content identity or accepting ambiguous directory state.
 
 - timestamp: 2026-08-29
   checked: Plan 31 executor's read-only run/job/artifact metadata and private dirty-baseline verification.
@@ -153,20 +202,28 @@ updated: 2026-08-29
 
 ## Eliminated
 
+- hypothesis: Setting `x-ms-blob-content-disposition` on the Put Block List commit is sufficient for the pinned official downloader to materialize the exact expected basename in hosted Actions.
+  evidence: Candidate run `33255729362` contains the header fix, yet all four lanes still download successfully and fail identically in packaged-contract verification with zero receipts.
+
 - hypothesis: The new downloader still cannot retrieve raw artifacts.
   evidence: All four hosted jobs completed the official download step and entered the lane validator; the prior ZIP extraction failure occurred inside the action and is no longer the observed boundary.
 
 - hypothesis: A Windows/Linux or Node 22/24 runtime difference is sufficient.
   evidence: All four combinations reach the same validator failure before any platform-specific host smoke.
 
+- timestamp: 2026-08-29
+  checked: complete local CI after the bounded raw-download fallback repair
+  found: dependency audit passed, the complete suite passed 423/423, generation had zero drift, pack passed 17/17, and five-host packaged smoke passed 12/12.
+  implication: every applicable local guardrail signal is accepted; hosted reconfirmation is the remaining environment signal.
+
 ## Resolution
 
 - root_cause:
-  - "The custom raw uploader did not set the committed block blob's Content-Disposition filename."
-  - "The integration assumed the artifact service name would become the local raw filename, but the pinned official downloader instead uses response Content-Disposition and falls back to `artifact`."
+  - "The pinned official raw downloader can materialize the literal fallback basename `artifact`, independently of producer artifact metadata name."
+  - "The lane consumer opened only the producer metadata basename, so a valid singleton fallback file failed before existing SHA, tar, and host-smoke validation."
   - "The canonical MCP source retained a terminal pathname slash, so restoring the generated file to the tracked baseline left the required candidate state noncompliant; the prior ZCode-only projection fix did not correct the source of truth."
 - oracle_type: specified
-- fix: "Set the blob Content-Disposition filename only on the Azure Put Block List commit; normalize the terminal MCP pathname in the canonical source; regenerate the three endpoint-bearing products; and add a secret-safe repository-generation regression over canonical and projected pathnames."
+- fix: "Keep producer filename metadata, but make the lane resolve exactly one direct raw file whose basename is either the canonical producer name or the pinned downloader's literal fallback; retain all lstat/realpath/O_NOFOLLOW/SHA/tar/member/lease checks. Also normalize the terminal MCP pathname in the canonical source, regenerate its three products, and guard canonical/projected paths secret-safely."
 - verification:
     target_test: { result: pass }
     mutation_check: { result: skipped, reason_if_skipped: "Stryker is not configured or installed; the independent revert check directly killed omission of the fix-site header." }
@@ -175,14 +232,18 @@ updated: 2026-08-29
       result: pass
       suites_run:
         - "ci:local: dependency audit, 422/422 tests, zero generation drift"
+        - "post-fallback repair: readiness workflow 10/10, uploader 13/13, tar 4/4, release readiness 7/7, seal 5/5"
+        - "post-fallback ci:local: dependency audit, 423/423 tests, zero generation drift, pack 17/17, five-host packaged smoke 12/12"
         - "pack audit 17/17"
         - "five-host packaged smoke 12/12"
     revert_and_reconfirm: { result: pass, bug_returned_on_revert: true, fixed_on_reapply: true }
-    guardrail_verdict: accepted
-    hosted_environment: "awaiting a new immutable candidate run; failed run 33248323460 remains retired and supplies no PASS authority"
+    guardrail_verdict: "locally accepted; pending hosted reconfirmation"
+    hosted_environment: "candidate db50cf873f242f7a4c729fe782b2ac3d4f339ca7 and run 33255729362 are retired after package success plus four identical packaged-contract failures and zero receipts; failed run 33248323460 also remains retired"
 - files_changed:
   - src/maintainer/github-artifact-upload.cts
   - tests/maintainer/github-artifact-upload.test.cts
+  - src/maintainer/readiness-workflow.cts
+  - tests/maintainer/readiness-workflow.test.cts
   - plugin-src/environments/qa.mcp.json
   - kcoderag-qa/.mcp.json
   - kcoderag-qa/.codex.mcp.json
