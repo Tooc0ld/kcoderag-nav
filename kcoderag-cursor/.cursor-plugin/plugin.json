@@ -21,7 +21,7 @@
         "type": "string"
       },
       "KCODERAG_MCP_URL": {
-        "default": "http://10.11.184.71:8010/mcp/",
+        "default": "http://10.11.184.71:8010/mcp",
         "description": "Internal KCodeRag QA MCP endpoint.",
         "title": "KCodeRag MCP URL",
         "type": "string"

@@ -251,6 +251,7 @@ async function dataPlanePut(
   timeoutMs: number,
   maxAttempts: number,
   cleanupTimeoutMs: number,
+  blobContentDisposition?: string,
 ): Promise<void> {
   const init: RequestInit = {
     method: "PUT",
@@ -258,6 +259,9 @@ async function dataPlanePut(
       "content-length": String(body.length),
       "content-type": contentType,
       "x-ms-version": AZURE_STORAGE_VERSION,
+      ...(blobContentDisposition === undefined
+        ? {}
+        : { "x-ms-blob-content-disposition": blobContentDisposition }),
     },
     body: body as unknown as BodyInit,
   };
@@ -496,6 +500,7 @@ export async function uploadCandidateArtifactFromLease(
         timeoutMs,
         maxAttempts,
         cleanupTimeoutMs,
+        `attachment; filename="${name}"`,
       );
 
       const finalize = await artifactControlRequest(fetcher, origin, runtimeToken, "FinalizeArtifact", {

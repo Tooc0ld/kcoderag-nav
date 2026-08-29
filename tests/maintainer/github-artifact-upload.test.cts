@@ -203,6 +203,7 @@ test("block stage and block list commit preserve the exact private lease buffer"
   const events: string[] = [];
   const bodies: unknown[] = [];
   const stagedIds: string[] = [];
+  let blockListContentDisposition: string | null | undefined;
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -229,6 +230,7 @@ test("block stage and block list commit preserve the exact private lease buffer"
         assert.equal(Buffer.from(blockId as string, "base64").toString("ascii"), "00000000");
         assert.equal(headers.get("content-type"), "application/octet-stream");
         assert.equal(headers.get("content-length"), String(fixture.bytes.length));
+        assert.equal(headers.get("x-ms-blob-content-disposition"), null);
         assert.ok(Buffer.isBuffer(init?.body));
         assert.ok((init?.body as Buffer).equals(fixture.bytes));
         bodies.push(init?.body);
@@ -238,6 +240,7 @@ test("block stage and block list commit preserve the exact private lease buffer"
         events.push("commit_block_list");
         assert.equal(url.searchParams.has("blockid"), false);
         assert.equal(headers.get("content-type"), "application/xml; charset=utf-8");
+        blockListContentDisposition = headers.get("x-ms-blob-content-disposition");
         assert.ok(Buffer.isBuffer(init?.body));
         const body = (init?.body as Buffer).toString("utf8");
         assert.equal(headers.get("content-length"), String(Buffer.byteLength(body)));
@@ -262,6 +265,7 @@ test("block stage and block list commit preserve the exact private lease buffer"
       fetcher,
     });
     assert.deepEqual(events, ["create", "stage_block", "commit_block_list", "finalize"]);
+    assert.equal(blockListContentDisposition, 'attachment; filename="kcoderag-nav-0.3.0.tgz"');
     assert.deepEqual(bodies[0], {
       workflow_run_backend_id: "run-backend-id",
       workflow_job_run_backend_id: "job-backend-id",

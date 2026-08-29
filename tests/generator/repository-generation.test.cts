@@ -117,6 +117,23 @@ function sortedKeys(value: unknown): readonly string[] {
   return Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
 }
 
+function recordValue(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function assertSlashFreeMcpEndpoint(value: unknown, label: string): void {
+  let pathname: string | undefined;
+  if (typeof value === "string") {
+    try {
+      pathname = new URL(value).pathname;
+    } catch {
+      pathname = undefined;
+    }
+  }
+  assert.equal(pathname?.endsWith("/mcp"), true, label);
+}
+
 function normalizeText(bytes: Buffer): Buffer {
   return Buffer.from(`${bytes.toString("utf8").replace(/\r\n?/gu, "\n").replace(/\n*$/u, "")}\n`, "utf8");
 }
@@ -173,6 +190,11 @@ function assertQaStructure(root: string, version: string): void {
   assert.deepEqual(sortedKeys(codexMcp), [expectedName], "qa:codex-mcp-namespace");
   const claudeServers = claudeMcp.mcpServers;
   assert.deepEqual(sortedKeys(claudeServers), [expectedName], "qa:claude-mcp-namespace");
+  assertSlashFreeMcpEndpoint(recordValue(recordValue(codexMcp, expectedName), "url"), "qa:codex-mcp-path");
+  assertSlashFreeMcpEndpoint(
+    recordValue(recordValue(claudeServers, expectedName), "url"),
+    "qa:claude-mcp-path",
+  );
 
   for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
     assert.equal(
@@ -217,6 +239,13 @@ test("compiled repository gate proves all generated products canonical without r
   const packageDocument = readJson(repositoryRoot, "package.json");
   const version = packageDocument.version;
   assert.equal(typeof version === "string" && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(version), true);
+  const canonicalMcp = readJson(repositoryRoot, "plugin-src/environments/qa.mcp.json");
+  const canonicalServers = canonicalMcp.mcpServers;
+  assert.deepEqual(sortedKeys(canonicalServers), ["kcoderag-qa"], "canonical:mcp-namespace");
+  assertSlashFreeMcpEndpoint(
+    recordValue(recordValue(canonicalServers, "kcoderag-qa"), "url"),
+    "canonical:mcp-path",
+  );
   assert.deepEqual(expectedProductInventory.qa, generator.ASSET_GROUP_PATHS.qa.all);
   assert.deepEqual(expectedProductInventory.cursor, generator.ASSET_GROUP_PATHS.cursor.all);
 
@@ -245,14 +274,21 @@ test("compiled repository gate proves all generated products canonical without r
     assert.equal(fs.existsSync(path.join(outputRoot, "kcoderag-dev")), false, "retired Dev tree");
 
     const cursorManifest = readJson(outputRoot, "kcoderag-cursor/.cursor-plugin/plugin.json");
-  assert.equal(cursorManifest.name === "kcoderag-nav" && cursorManifest.version === version, true, "cursor:manifest");
+    assert.equal(cursorManifest.name === "kcoderag-nav" && cursorManifest.version === version, true, "cursor:manifest");
+    assertSlashFreeMcpEndpoint(
+      recordValue(
+        recordValue(recordValue(recordValue(cursorManifest, "variables"), "properties"), "KCODERAG_MCP_URL"),
+        "default",
+      ),
+      "cursor:default-mcp-path",
+    );
     const cursorMcp = readJson(outputRoot, "kcoderag-cursor/mcp.json");
-  assert.deepEqual(sortedKeys(cursorMcp.mcpServers), ["kcoderag"], "cursor:mcp-namespace");
-  for (const relativePath of [
-    "rules/kcoderag-navigation.mdc",
-    "skills/code-lookup-discipline/SKILL.md",
-    "README.md",
-  ]) {
+    assert.deepEqual(sortedKeys(cursorMcp.mcpServers), ["kcoderag"], "cursor:mcp-namespace");
+    for (const relativePath of [
+      "rules/kcoderag-navigation.mdc",
+      "skills/code-lookup-discipline/SKILL.md",
+      "README.md",
+    ]) {
       assert.equal(fs.statSync(productPath(outputRoot, "cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
     }
     assertNoTemplateTokens(outputRoot);
