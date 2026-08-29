@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 04.2
 current_phase_name: 公开版本去品牌化 (INSERTED)
 status: executing
-stopped_at: Completed 04.2-31-PLAN.md
-last_updated: "2026-08-29T15:16:13.984Z"
+stopped_at: Completed 04.2-32-PLAN.md
+last_updated: "2026-08-29T15:48:13.683Z"
 last_activity: 2026-08-29
 last_activity_desc: Completed Plan 04.2-31 hosted platform evidence; Plan 04.2-32 is ready
-state_head: 6ebdf8b5666102391f5efb1b44ba6c4447075b22
+state_head: 4e9c993f95a1f4a552128e6646471c6d6de77cc7
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 108
-  completed_plans: 107
+  completed_plans: 108
   percent: 45
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.2 (公开版本去品牌化 (INSERTED)) — EXECUTING
-Plan: 32 of 42
+Plan: 33 of 42
 Status: Ready to execute
 Last activity: 2026-08-29 — Completed Plan 04.2-31 hosted platform evidence; Plan 04.2-32 is ready
 
@@ -123,6 +123,7 @@ Progress: [█████░░░░░] 45%
 | Phase 04.2 P38 | 31m | 2 tasks | 5 files |
 | Phase 04.2 P40 | 21min | 2 tasks | 1 files |
 | Phase 04.2 P31 | 7min | 3 tasks | 4 files |
+| Phase 04.2 P32 | 21min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -315,6 +316,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.2]: Successful hosted readiness is reconciled from metadata-safe evidence without triggering a duplicate run or persisting raw logs or artifact bytes.
 - [Phase 04.2]: Platform PASS requires one digest-bound artifact, all four Windows/Linux Node 22/24 lanes, and the closed verify-lanes gate.
 - [Phase 04.2]: ZCode readiness remains packaged-only; true-host version, trust, and admission stay in Phase 06.
+- [Phase 04.2]: Bind final readiness only to candidate 0bf617b7becf65b3d336027d895183ced313ad4c and the accepted four-lane push evidence.
+- [Phase 04.2]: Require every lane to agree on candidate, exact readiness ref, head, workflow commit/blob, artifact digest, member count, and packaged-only host boundary.
+- [Phase 04.2]: Keep tag, publish, and registry refetch exactly NOT_RUN_BY_SCOPE; the candidate is ready but remains unpublished.
+- [Phase 04.2]: Use the committed strict readiness, workflow-lane, and seal APIs directly because the planned finalize wrapper is not present in the current tool surface.
 
 ### Pending Todos
 
@@ -382,6 +387,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-29T15:14:33.818Z
-Stopped at: Completed 04.2-31-PLAN.md
+Last session: 2026-08-29T15:48:12.987Z
+Stopped at: Completed 04.2-32-PLAN.md
 Resume file: None

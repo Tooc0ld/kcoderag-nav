@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 7
 waived_count: 0
-fixed_count: 16
-total_count: 23
-last_updated: 2026-08-29T15:13:44.849Z
+fixed_count: 17
+total_count: 24
+last_updated: 2026-08-29T15:47:45.126Z
 ---
 
 # Broken Windows Ledger
@@ -38,6 +38,7 @@ last_updated: 2026-08-29T15:13:44.849Z
 | 21 | 04.1 | deviation | src/cli/commands.cts |  | Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent. | open |  | 2026-08-26T14:22:00.840Z |  |
 | 22 | 04.1 | deviation | src/hooks/pre-tool-dispatcher.cts |  | Path-limited GREEN commits bypassed the shared pre-commit wrapper only after fresh scoped verification because unrelated canonical work was dirty. | fixed |  | 2026-08-26T14:53:18.023Z | 2026-08-26T14:53:46.373Z |
 | 23 | 04.2 | deviation | src/maintainer/readiness-workflow.cts |  | Hosted artifact presentation-name mismatch required the final singleton identity repair before successful Plan 31 evidence. | fixed |  | 2026-08-29T15:13:39.918Z | 2026-08-29T15:13:44.849Z |
+| 24 | 04.2 | deviation | .planning/phases/04.2-public-debranding/04.2-READINESS-RECEIPT.json |  | Existing strict readiness APIs were composed directly because the planned finalize wrapper is absent. | fixed |  | 2026-08-29T15:46:02.969Z | 2026-08-29T15:47:45.126Z |
 
 ````json
 [
@@ -316,6 +317,18 @@ last_updated: 2026-08-29T15:13:44.849Z
     "reason": "",
     "recorded_at": "2026-08-29T15:13:39.918Z",
     "resolved_at": "2026-08-29T15:13:44.849Z"
+  },
+  {
+    "id": 24,
+    "kind": "deviation",
+    "phase": "04.2",
+    "file": ".planning/phases/04.2-public-debranding/04.2-READINESS-RECEIPT.json",
+    "line": null,
+    "description": "Existing strict readiness APIs were composed directly because the planned finalize wrapper is absent.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-29T15:46:02.969Z",
+    "resolved_at": "2026-08-29T15:47:45.126Z"
   }
 ]
 ````
