@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 current_phase: 04.2
-current_phase_name: 公开版本去品牌化
+current_phase_name: 公开版本去品牌化 (INSERTED)
 status: executing
-stopped_at: Planned 04.2-42 raw-artifact-compatible readiness candidate
-last_updated: "2026-08-28T16:45:52.719Z"
+stopped_at: Completed 04.2-31-PLAN.md
+last_updated: "2026-08-29T15:16:13.984Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 04.2 raw-artifact download debug resolved and Plan 42 added for the next immutable candidate
-state_head: 3fcf47b15d5eac953a06b6ebacc8c2c4e8a0a35b
+last_activity_desc: Completed Plan 04.2-31 hosted platform evidence; Plan 04.2-32 is ready
+state_head: 6ebdf8b5666102391f5efb1b44ba6c4447075b22
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 108
-  completed_plans: 104
+  completed_plans: 107
   percent: 45
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 04.2 — 公开版本去品牌化
+**Current focus:** Phase 04.2 — 公开版本去品牌化 (INSERTED)
 
 ## Current Position
 
-Phase: 04.2 (公开版本去品牌化) — EXECUTING
-Plan: 40 of 42
+Phase: 04.2 (公开版本去品牌化 (INSERTED)) — EXECUTING
+Plan: 32 of 42
 Status: Ready to execute
-Last activity: 2026-08-29 — Resolved raw artifact download drift and retargeted Plans 31/32 through Plan 42
+Last activity: 2026-08-29 — Completed Plan 04.2-31 hosted platform evidence; Plan 04.2-32 is ready
 
 Progress: [█████░░░░░] 45%
 
@@ -122,6 +122,7 @@ Progress: [█████░░░░░] 45%
 | Phase 04.1 P12 | 26 min | 3 tasks | 14 files |
 | Phase 04.2 P38 | 31m | 2 tasks | 5 files |
 | Phase 04.2 P40 | 21min | 2 tasks | 1 files |
+| Phase 04.2 P31 | 7min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -310,6 +311,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.2]: Plan 38 uses deterministic equal-width index-derived block IDs and sequential Azure block staging.
 - [Phase 04.2]: Plan 38 retries only network, timeout, 408, 429, and 5xx data-plane outcomes; redirects are terminal.
 - [Phase 04.2]: Plan 38 cancels every data-plane response body without parsing under a fixed cleanup deadline.
+- [Phase 04.2]: Plan 31 binds platform evidence only to candidate 0bf617b7becf65b3d336027d895183ced313ad4c and successful push run 33257947461.
+- [Phase 04.2]: Successful hosted readiness is reconciled from metadata-safe evidence without triggering a duplicate run or persisting raw logs or artifact bytes.
+- [Phase 04.2]: Platform PASS requires one digest-bound artifact, all four Windows/Linux Node 22/24 lanes, and the closed verify-lanes gate.
+- [Phase 04.2]: ZCode readiness remains packaged-only; true-host version, trust, and admission stay in Phase 06.
 
 ### Pending Todos
 
@@ -377,6 +382,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-28T16:45:51.925Z
-Stopped at: Completed 04.2-40-PLAN.md
+Last session: 2026-08-29T15:14:33.818Z
+Stopped at: Completed 04.2-31-PLAN.md
 Resume file: None

@@ -111,9 +111,9 @@
 ### 公开版本去品牌化
 
 - [ ] **BRAND-01**: 从 `0.3.0` 起，当前 Git HEAD 的源码、测试、生成资产、Skill、README、AGENTS、receipt、规划文档和本仓库 `docs/MCP_QA_EXPERIENCE_GUIDE.md` 只使用 `code-style-nudge`、`$code-style-correction` 等中性名称，并通过游戏、公司及其常见大小写、Unicode、分隔变体的零命中门禁；兄弟仓库指南不再更新或绑定
-- [ ] **BRAND-02**: npm dry-run 与最终 pack 的文件名和内容（含编译 CJS、模板、生成资产）通过同一零命中门禁；门禁词表以不产生原始品牌词自命中的方式维护，发布流程不得绕过
-- [ ] **BRAND-03**: 去品牌化只改变名称与公开表述；R01–R19、S01–S08、E01–E15、首次相关写入提示、fail-open、能力组合、原子事务、回滚和 Codex/Claude Code/Cursor/OpenCode/ZCode 支持证据保持行为等价，且不保留旧 capability/Skill 兼容别名
-- [ ] **BRAND-04**: 版本按 pre-1.0 破坏性重命名前进到 `0.3.0`，对冻结 Git subject 和同一个实际 tgz 完成五宿主 readiness 证据；本阶段不创建 tag、不 publish、不 registry refetch，旧 Git 历史、tag、release 和已发布 npm 版本明确不在清理范围，不重写、不撤回、不 unpublish
+- [x] **BRAND-02**: npm dry-run 与最终 pack 的文件名和内容（含编译 CJS、模板、生成资产）通过同一零命中门禁；门禁词表以不产生原始品牌词自命中的方式维护，发布流程不得绕过
+- [x] **BRAND-03**: 去品牌化只改变名称与公开表述；R01–R19、S01–S08、E01–E15、首次相关写入提示、fail-open、能力组合、原子事务、回滚和 Codex/Claude Code/Cursor/OpenCode/ZCode 支持证据保持行为等价，且不保留旧 capability/Skill 兼容别名
+- [x] **BRAND-04**: 版本按 pre-1.0 破坏性重命名前进到 `0.3.0`，对冻结 Git subject 和同一个实际 tgz 完成五宿主 readiness 证据；本阶段不创建 tag、不 publish、不 registry refetch，旧 Git 历史、tag、release 和已发布 npm 版本明确不在清理范围，不重写、不撤回、不 unpublish
 
 ### Hook 精度与能力诚实性
 
@@ -210,9 +210,9 @@
 | STYLE-01 | Phase 04.1 | Complete |
 | TEST-10 | Phase 04.1 | Complete |
 | BRAND-01 | Phase 04.2 | Pending |
-| BRAND-02 | Phase 04.2 | Pending |
-| BRAND-03 | Phase 04.2 | Pending |
-| BRAND-04 | Phase 04.2 | Pending |
+| BRAND-02 | Phase 04.2 | Complete |
+| BRAND-03 | Phase 04.2 | Complete |
+| BRAND-04 | Phase 04.2 | Complete |
 | HOOK-06 | Phase 5 | Pending |
 | HOOK-07 | Phase 5 | Pending |
 | HOOK-08 | Phase 5 | Pending |
