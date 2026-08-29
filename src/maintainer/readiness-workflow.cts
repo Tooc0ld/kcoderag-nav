@@ -73,7 +73,6 @@ const WORKFLOW_PATH = ".github/workflows/readiness.yml";
 const OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const MAX_RECEIPT_BYTES = 16 * 1024;
-const RAW_DOWNLOAD_FALLBACK_NAME = "artifact";
 const MAX_ARTIFACT_BYTES = tarArchive.DEFAULT_TAR_ARCHIVE_LIMITS.maxArchiveBytes;
 const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
   "downloaded_artifact_environment_invalid",
@@ -408,12 +407,7 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
     failUnless(runnerTempInput.length > 0, "downloaded_artifact_environment_invalid");
     const rootMetadata = fs.lstatSync(artifactRoot);
     const rootEntries = fs.readdirSync(artifactRoot, { withFileTypes: true });
-    failUnless(
-      rootEntries.length === 1
-        && (rootEntries[0]?.name === input.artifactName
-          || rootEntries[0]?.name === RAW_DOWNLOAD_FALLBACK_NAME),
-      "downloaded_artifact_name_invalid",
-    );
+    failUnless(rootEntries.length === 1, "downloaded_artifact_root_invalid");
     const artifactPath = path.join(artifactRoot, rootEntries[0]?.name ?? "");
     const fileMetadata = fs.lstatSync(artifactPath);
     nativeFailureCode = "downloaded_artifact_path_invalid";

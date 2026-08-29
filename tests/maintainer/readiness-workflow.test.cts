@@ -385,7 +385,7 @@ test("workflow keeps one exact four-lane Windows/Linux Node 22/24 fan-out", () =
   }
 });
 
-test("downloaded lease accepts only one canonical or pinned fallback raw filename", () => {
+test("downloaded lease authenticates exactly one direct raw file independent of presentation basename", () => {
   const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as Record<string, any>;
   const sourceLease = releaseReadiness.createCandidatePackageArtifact({
     root: repositoryRoot,
@@ -414,9 +414,9 @@ test("downloaded lease accepts only one canonical or pinned fallback raw filenam
   const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-download-"));
   const previousRunnerTemp = process.env.RUNNER_TEMP;
   process.env.RUNNER_TEMP = runnerTemp;
-  const open = (names: readonly string[]) => {
+  const open = (names: readonly string[], bytes = candidateBytes) => {
     const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
-    for (const name of names) fs.writeFileSync(path.join(artifactRoot, name), candidateBytes);
+    for (const name of names) fs.writeFileSync(path.join(artifactRoot, name), bytes);
     return workflowContract.openDownloadedLease({
       laneId: "linux-node22",
       artifactRoot,
@@ -427,7 +427,7 @@ test("downloaded lease accepts only one canonical or pinned fallback raw filenam
   };
 
   try {
-    for (const acceptedName of ["kcoderag-nav-0.3.0.tgz", "artifact"]) {
+    for (const acceptedName of ["kcoderag-nav-0.3.0.tgz", "artifact", "service-derived-name"]) {
       const lease = open([acceptedName]);
       try {
         assert.equal(lease.artifact.sha256, artifactSha256);
@@ -437,12 +437,14 @@ test("downloaded lease accepts only one canonical or pinned fallback raw filenam
       }
     }
     for (const rejectedNames of [
+      [],
       ["kcoderag-nav-0.3.0.tgz", "artifact"],
       ["kcoderag-nav-0.3.0.tgz", "extra"],
-      ["unexpected"],
     ]) {
-      expectCode(() => open(rejectedNames), "downloaded_artifact_name_invalid");
+      expectCode(() => open(rejectedNames), "downloaded_artifact_root_invalid");
     }
+    expectCode(() => open(["service-derived-name"], Buffer.from("not-a-tarball", "utf8")),
+      "downloaded_artifact_archive_invalid");
   } finally {
     if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previousRunnerTemp;
@@ -452,10 +454,10 @@ test("downloaded lease accepts only one canonical or pinned fallback raw filenam
 
 test("hosted lane failure annotation exposes only a closed resolver stage", () => {
   assert.equal(
-    workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_name_invalid", true),
-    "::error title=readiness-lane::downloaded_artifact_name_invalid",
+    workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_root_invalid", true),
+    "::error title=readiness-lane::downloaded_artifact_root_invalid",
   );
-  assert.equal(workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_name_invalid", false), undefined);
+  assert.equal(workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_root_invalid", false), undefined);
   for (const untrusted of [
     "downloaded_artifact_invalid",
     "downloaded_artifact_name_invalid:private-path",

@@ -1,5 +1,5 @@
 ---
-status: investigating
+status: verifying
 trigger: "Phase 04.2 readiness run 33248323460 uploaded one candidate artifact, but all four Windows/Linux Node 22/24 lanes rejected the downloaded package as downloaded_artifact_invalid"
 created: 2026-08-29
 updated: 2026-08-29
@@ -18,16 +18,30 @@ updated: 2026-08-29
 ## Current Focus
 
 - bug_class: bohrbug
-- hypothesis: A deterministic pre-smoke resolver check still rejects the exact downloaded bytes; the highest-probability branch is a third service-derived direct-child basename, but root containment, identity, digest, and tar stages must be distinguished before another behavioral fix.
-- test: split the closed `downloaded_artifact_invalid` resolver boundary into safe stage-only codes and publish only that code as a hosted annotation; retain the existing normalized JSON and add tests proving annotations never include path/name/value material.
-- expecting: one immutable observability candidate yields the same safe stage code on all four lanes, directly confirming or eliminating the basename branch without raw logs or artifact download.
-- next_action: stage only the debug record plus readiness workflow source/test, commit the closed resolver telemetry through the normal hook, then freeze and run one tree-identical observability candidate.
+- hypothesis: CONFIRMED — the official action writes one exact authenticated raw file under the private download root, but its service-derived sanitized basename is neither the producer metadata name nor literal fallback; the consumer rejects that presentation detail before all authoritative identity checks.
+- test: accept any basename only when the root has exactly one direct regular non-link file, then require the existing realpath/O_NOFOLLOW/file-identity/SHA/tar/member/lease checks to prove the artifact; test canonical, fallback, and third names plus empty/ambiguous/invalid-content neighbors.
+- expecting: the third-name local oracle changes from RED to GREEN, while empty/multiple roots and invalid bytes still fail at closed root/archive stages; the next hosted candidate proceeds beyond name resolution into five-host smoke.
+- next_action: stage only the debug record plus readiness workflow source/test, commit through the normal hook, then freeze and preflight a final tree-identical descendant candidate.
 - candidate_causes:
     - "code: the lane resolver's accepted topology remains narrower than the exact pinned action contract"
     - "integration/config: `artifact-ids` plus a single result selects a distinct output-directory rule"
     - "environment/service: hosted Content-Disposition or MIME metadata selects another raw branch"
     - "data: downloaded digest, size, or tar membership differs from the producer"
-- and_gate: "unknown — exact hosted digest and size eliminate byte corruption, but the remaining failure may require both a service-selected filename and a consumer topology restriction."
+- and_gate: "yes — the service-derived third basename and the consumer's two-name restriction are both required; exact hosted/local SHA and size eliminate data corruption."
+- reasoning_checkpoint:
+    hypothesis: "All four hosted lanes fail before smoke because the service supplies a sanitized raw-file basename outside the consumer's two-name allowlist, even though the singleton file's bytes are the exact producer artifact."
+    confirming_evidence:
+      - "Run 33257364747 reports `downloaded_artifact_name_invalid` independently on all four Windows/Linux Node 22/24 lanes through a closed annotation."
+      - "The exact pinned official bundle writes one direct raw file using Content-Disposition's sanitized basename or literal `artifact`; every download step succeeds."
+      - "Hosted artifact SHA-256 and byte size equal a fresh local package whose tar parser finds 77 valid members and whose five-host smoke passes."
+    falsification_test: "If accepting an arbitrary singleton direct filename cannot make the local third-name oracle pass, or the next hosted candidate still reports the name stage, the hypothesis is false; a later distinct stage would establish an additional contributing defect."
+    fix_rationale: "A basename is presentation metadata, not artifact identity. Exact singleton ownership plus realpath containment, non-link regular-file checks, O_NOFOLLOW identity, SHA-256, tar parsing, and member count authenticate the only candidate without trusting a mutable response header."
+    blind_spots: "Only an immutable hosted rerun can prove no later environment-only stage also fails after the confirmed name gate is removed."
+    candidate_causes:
+      - "code: the consumer treats two presentation basenames as an ownership allowlist"
+      - "environment/service: hosted Content-Disposition supplies a third sanitized basename"
+      - "data: artifact bytes or tar membership differ from producer metadata"
+    and_gate: "yes — the observed failure requires both the service-derived third basename and the consumer's unnecessary two-name restriction; exact hosted/local SHA and size eliminate data corruption as a co-cause."
 - reasoning_checkpoint:
     hypothesis: "The endpoint-bearing generated products are noncompliant because the declared canonical MCP source itself ends its pathname in `/mcp/`, and the generator correctly preserves/projects that configured value."
     confirming_evidence:
@@ -206,6 +220,31 @@ updated: 2026-08-29
   found: build passed and focused readiness workflow tests passed 11/11; hosted annotations accept only seven fixed stage codes, reject arbitrary/value-bearing strings, and preserve the existing metadata-only JSON failure result.
   implication: one observability candidate can distinguish the remaining pre-smoke branches without exposing downloaded names, paths, URLs, config, or bytes.
 
+- timestamp: 2026-08-29
+  checked: exact telemetry staged set and normal commit hook
+  found: exactly the debug record, readiness workflow source, and readiness workflow test committed as 1eafdf3 through the normal hook; unrelated planning state remained unstaged.
+  implication: a tree-identical descendant can safely run the metadata-only localization experiment.
+
+- timestamp: 2026-08-29
+  checked: observability candidate freeze and source-only preflight
+  found: candidate ac67cf2 is tree-identical to telemetry commit 1eafdf3 and passes build, zero-drift generation, zero findings across 507 immutable Git objects, and dependency audit.
+  implication: the candidate may advance the dedicated readiness ref solely to surface a closed resolver-stage annotation.
+
+- timestamp: 2026-08-29
+  checked: observability candidate ac67cf2 and hosted run 33257364747
+  found: package/upload and all four downloads passed; all four lane check annotations independently reported only `downloaded_artifact_name_invalid`; the six-field private repository baseline remained identical.
+  implication: the filename allowlist is the directly observed pre-smoke root cause; no raw log, downloaded filename, path, or artifact byte was inspected.
+
+- timestamp: 2026-08-29
+  checked: presentation-name-independent singleton regression
+  found: before the production change, a valid candidate package under a third direct-child basename failed with downloaded_artifact_name_invalid; after replacing the two-name allowlist with exact singleton ownership, that oracle and the stage-annotation test pass 2/2 while empty/multiple roots and invalid tar bytes remain rejected.
+  implication: the minimal fix removes only unauthoritative name trust and preserves every direct-child, link, file identity, digest, tar, member, and lease boundary.
+
+- timestamp: 2026-08-29
+  checked: complete local CI after singleton identity repair
+  found: dependency audit passed, the complete suite passed 424/424, generation had zero drift, pack passed 17/17, and five-host packaged smoke passed 12/12.
+  implication: all applicable local fix-acceptance signals pass; one immutable hosted reconfirmation remains.
+
 ## Eliminated
 
 - hypothesis: The pinned action bundle differs from current toolkit source by using another fallback basename or nested raw output directory.
@@ -241,13 +280,13 @@ updated: 2026-08-29
 ## Resolution
 
 - root_cause:
-  - "Hosted lane root cause remains under investigation after the producer-name and current-toolkit-fallback hypotheses both failed immutable hosted reconfirmation."
+  - "The official downloader produced one exact raw artifact under a third service-derived sanitized basename, while the lane consumer incorrectly treated two presentation basenames as an ownership allowlist and rejected before authoritative SHA/tar/host checks."
   - "The canonical MCP source retained a terminal pathname slash, so restoring the generated file to the tracked baseline left the required candidate state noncompliant; the prior ZCode-only projection fix did not correct the source of truth."
 - oracle_type: specified
-- fix: "Keep producer filename metadata, but make the lane resolve exactly one direct raw file whose basename is either the canonical producer name or the pinned downloader's literal fallback; retain all lstat/realpath/O_NOFOLLOW/SHA/tar/member/lease checks. Also normalize the terminal MCP pathname in the canonical source, regenerate its three products, and guard canonical/projected paths secret-safely."
+- fix: "Treat the private download root's exact singleton as the candidate independently of presentation basename, while retaining lstat/realpath/direct-child/O_NOFOLLOW/file-identity/SHA/tar/member/lease checks and closed stage-only hosted annotations. Also normalize the terminal MCP pathname in the canonical source, regenerate its three products, and guard canonical/projected paths secret-safely."
 - verification:
     target_test: { result: pass }
-    mutation_check: { result: skipped, reason_if_skipped: "Stryker is not configured or installed; the independent revert check directly killed omission of the fix-site header." }
+    mutation_check: { result: skipped, reason_if_skipped: "Stryker is not configured or installed; the independent pre-fix third-name oracle directly killed omission of the singleton identity repair." }
     no_op_deletion: { result: pass, deletion_justified_by_rca: false }
     adjacent_tests:
       result: pass
@@ -255,11 +294,12 @@ updated: 2026-08-29
         - "ci:local: dependency audit, 422/422 tests, zero generation drift"
         - "post-fallback repair: readiness workflow 10/10, uploader 13/13, tar 4/4, release readiness 7/7, seal 5/5"
         - "post-fallback ci:local: dependency audit, 423/423 tests, zero generation drift, pack 17/17, five-host packaged smoke 12/12"
+        - "post-singleton ci:local: dependency audit, 424/424 tests, zero generation drift, pack 17/17, five-host packaged smoke 12/12"
         - "pack audit 17/17"
         - "five-host packaged smoke 12/12"
     revert_and_reconfirm: { result: pass, bug_returned_on_revert: true, fixed_on_reapply: true }
-    guardrail_verdict: "rejected by hosted reconfirmation; investigation resumed"
-    hosted_environment: "candidate 082c1f0d8c78808e1cfe239d057575edb8715ce5 and run 33256852041 are retired after package success plus four identical packaged-contract failures and zero receipts; prior failed candidates/runs remain retired"
+    guardrail_verdict: "locally accepted; pending hosted singleton reconfirmation"
+    hosted_environment: "observability candidate ac67cf24ebf489c0b255ffcf103fcf3f72aab82e and run 33257364747 are retired after safely localizing all four lanes to downloaded_artifact_name_invalid; prior failed candidates/runs remain retired"
 - files_changed:
   - src/maintainer/github-artifact-upload.cts
   - tests/maintainer/github-artifact-upload.test.cts
