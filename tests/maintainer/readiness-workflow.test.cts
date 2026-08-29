@@ -178,7 +178,7 @@ test("one package job uploads one lease artifact then four lanes consume that ar
   assert.equal(source.match(/persist-credentials:\s*false/gu)?.length, 6);
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length, 6);
   assert.equal(source.match(/uses:\s*actions\/download-artifact@[0-9a-f]{40}/gu)?.length, 4);
-  assert.equal(source.match(/uses:\s*actions\/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131/gu)?.length, 4);
+  assert.equal(source.match(/uses:\s*actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/gu)?.length, 4);
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 4);
   assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
   assert.equal(source.match(/npm run readiness:workflow-upload/gu)?.length ?? 0, 0);
