@@ -717,6 +717,39 @@ test("CLI writes and checks one requested product without touching repository pa
   }
 });
 
+test("CLI rejects contradictory MCP header aliases without exposing either value", () => {
+  const fixture = createFixture();
+  try {
+    write(fixture.outputRoot, "unrelated/keep.txt", "keep\n");
+    const before = snapshot(fixture.outputRoot);
+    const mcpPath = path.join(fixture.sourceRoot, "plugin-src", "environments", "qa.mcp.json");
+    const document = JSON.parse(fs.readFileSync(mcpPath, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
+    const entry = document.mcpServers["kcoderag-qa"]!;
+    const alternateSecret = "SENSITIVE-FIXTURE-HTTP-ALIAS-MARKER";
+    assert.equal(new URL(entry.url as string).pathname, "/mcp");
+    assert.equal((entry.url as string).endsWith("/mcp/"), false);
+    entry.http_headers = { Authorization: `Bearer ${alternateSecret}` };
+    fs.writeFileSync(mcpPath, canonicalJson(document));
+
+    const rejected = runGeneratorCli(fixture, ["--package", "all", "--group", "metadata-config"]);
+
+    assert.equal(rejected.status, 2);
+    assert.equal(rejected.stdout, "");
+    assert.deepEqual(JSON.parse(rejected.stderr), {
+      ok: false,
+      code: "environment_mismatch",
+      path: "plugin-src/environments/qa.mcp.json",
+    });
+    assert.equal(`${rejected.stdout}${rejected.stderr}`.includes(fixture.secret), false);
+    assert.equal(`${rejected.stdout}${rejected.stderr}`.includes(alternateSecret), false);
+    assert.deepEqual(snapshot(fixture.outputRoot), before);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
 test("CLI product scope materializes QA atomically and is a byte-stable no-op on repeat", () => {
   const fixture = createFixture();
   try {

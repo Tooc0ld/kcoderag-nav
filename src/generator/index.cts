@@ -507,6 +507,10 @@ interface ConnectionDetails {
   readonly headers: Readonly<Record<string, string>>;
 }
 
+function isHeaderMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
 function connectionDetails(inputs: LoadedInputs, environment: EnvironmentMetadata): ConnectionDetails {
   const bytes = readBytes(inputs.sourceRoot, environment.mcp_source);
   const document = parseJsonBytes(bytes, environment.mcp_source);
@@ -518,11 +522,18 @@ function connectionDetails(inputs: LoadedInputs, environment: EnvironmentMetadat
   if (keys.length !== 1 || keys[0] !== environment.server_name || !isRecord(entry) || typeof entry.url !== "string") {
     throw new GenerationError("environment_mismatch", environment.mcp_source);
   }
-  const rawHeaders = isRecord(entry.http_headers) ? entry.http_headers : entry.headers;
-  if (!isRecord(rawHeaders) || Object.values(rawHeaders).some((value) => typeof value !== "string")) {
+  const headers = entry.headers;
+  const httpHeaders = entry.http_headers;
+  if (
+    (headers !== undefined && !isHeaderMap(headers))
+    || (httpHeaders !== undefined && !isHeaderMap(httpHeaders))
+    || (headers === undefined && httpHeaders === undefined)
+    || (headers !== undefined && httpHeaders !== undefined && !canonicalJson(headers).equals(canonicalJson(httpHeaders)))
+  ) {
     throw new GenerationError("environment_mismatch", environment.mcp_source);
   }
-  return Object.freeze({ url: entry.url, headers: Object.freeze({ ...(rawHeaders as Record<string, string>) }) });
+  const rawHeaders = httpHeaders ?? headers;
+  return Object.freeze({ url: entry.url, headers: Object.freeze({ ...rawHeaders }) });
 }
 
 function codexManifest(environment: EnvironmentMetadata, version: string): unknown {
