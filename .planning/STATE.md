@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 current_phase: 04.2
 current_phase_name: 公开版本去品牌化
 status: executing
-stopped_at: Planned 04.2-41 response-compatible readiness candidate
+stopped_at: Planned 04.2-42 raw-artifact-compatible readiness candidate
 last_updated: "2026-08-28T16:45:52.719Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 04.2 response-alias debug resolved and Plan 41 added for the next immutable candidate
-state_head: f00a545497bdb4bea956ba91c3e8a37921779ca7
+last_activity_desc: Phase 04.2 raw-artifact download debug resolved and Plan 42 added for the next immutable candidate
+state_head: 3fcf47b15d5eac953a06b6ebacc8c2c4e8a0a35b
 progress:
   total_phases: 11
   completed_phases: 5
-  total_plans: 107
+  total_plans: 108
   completed_plans: 104
   percent: 45
 ---
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 04.2 (公开版本去品牌化) — EXECUTING
-Plan: 39 of 41
+Plan: 40 of 42
 Status: Ready to execute
-Last activity: 2026-08-29 — Resolved ProtoJSON response alias drift and retargeted Plans 31/32 through Plan 41
+Last activity: 2026-08-29 — Resolved raw artifact download drift and retargeted Plans 31/32 through Plan 42
 
 Progress: [█████░░░░░] 45%
 
