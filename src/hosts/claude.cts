@@ -374,7 +374,8 @@ function projectContributions(
   const contributions: ProjectedCapabilityContribution[] = [];
   if (projected.includes(NAVIGATION)) {
     const mcpCurrent = readRegular(target, MCP_PATH);
-    const mcp = mergeMcp(mcpCurrent, packageRoot, state !== undefined);
+    const mcpOwned = previousFile(state, MCP_PATH) !== undefined;
+    const mcp = mergeMcp(mcpCurrent, packageRoot, mcpOwned);
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, MCP_PATH, mcp.bytes, true, true),
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),

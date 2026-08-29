@@ -251,6 +251,38 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
   }
 });
 
+test("Claude additive navigation install refuses an unmanaged same-name project MCP entry without writes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-additive-conflict-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.241", evidenceRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    fs.writeFileSync(path.join(root, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        "kcoderag-qa": {
+          type: "http",
+          url: "https://unmanaged.example.invalid/mcp",
+          headers: { Authorization: "Bearer unmanaged-fixture" },
+        },
+      },
+    }, null, 2));
+    const before = projectSnapshot(root);
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+
+    assert.throws(
+      () => adapter.renderInstall(context(target, observation, [NAVIGATION])),
+      (error: any) => error?.code === "unmanaged_name_conflict" && error?.safePath === ".mcp.json",
+    );
+    assert.deepEqual(projectSnapshot(root), before);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Claude support is exact and managed code-style drift is capability_drift", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-drift-"));
   try {
