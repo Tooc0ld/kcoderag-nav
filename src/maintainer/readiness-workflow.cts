@@ -75,6 +75,15 @@ const SHA256_RE = /^[0-9a-f]{64}$/u;
 const MAX_RECEIPT_BYTES = 16 * 1024;
 const RAW_DOWNLOAD_FALLBACK_NAME = "artifact";
 const MAX_ARTIFACT_BYTES = tarArchive.DEFAULT_TAR_ARCHIVE_LIMITS.maxArchiveBytes;
+const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
+  "downloaded_artifact_environment_invalid",
+  "downloaded_artifact_root_invalid",
+  "downloaded_artifact_name_invalid",
+  "downloaded_artifact_path_invalid",
+  "downloaded_artifact_open_invalid",
+  "downloaded_artifact_archive_invalid",
+  "downloaded_artifact_identity_invalid",
+] as const);
 const SAFE_UPLOAD_STAGES = Object.freeze([
   "create_artifact", "stage_block", "commit_block_list", "finalize_artifact",
 ] as const);
@@ -94,6 +103,13 @@ export class ReadinessWorkflowError extends Error {
 
 function failUnless(condition: unknown, code: string): asserts condition {
   if (!condition) throw new ReadinessWorkflowError(code);
+}
+
+/** Render only a closed failure class as a GitHub annotation; untrusted values are never serialized. */
+export function hostedLaneFailureAnnotation(reason: string, enabled: boolean): string | undefined {
+  return enabled && SAFE_DOWNLOADED_ARTIFACT_CODES.some((code) => code === reason)
+    ? `::error title=readiness-lane::${reason}`
+    : undefined;
 }
 
 function isRecord(value: unknown): value is JsonMap {
@@ -386,19 +402,21 @@ function parseLaneArguments(argv: readonly string[]): {
 export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>): CandidatePackageArtifactLease {
   const artifactRoot = path.resolve(input.artifactRoot);
   let handle: number | undefined;
+  let nativeFailureCode = "downloaded_artifact_root_invalid";
   try {
     const runnerTempInput = process.env.RUNNER_TEMP ?? "";
-    failUnless(runnerTempInput.length > 0, "downloaded_artifact_invalid");
+    failUnless(runnerTempInput.length > 0, "downloaded_artifact_environment_invalid");
     const rootMetadata = fs.lstatSync(artifactRoot);
     const rootEntries = fs.readdirSync(artifactRoot, { withFileTypes: true });
     failUnless(
       rootEntries.length === 1
         && (rootEntries[0]?.name === input.artifactName
           || rootEntries[0]?.name === RAW_DOWNLOAD_FALLBACK_NAME),
-      "downloaded_artifact_invalid",
+      "downloaded_artifact_name_invalid",
     );
     const artifactPath = path.join(artifactRoot, rootEntries[0]?.name ?? "");
     const fileMetadata = fs.lstatSync(artifactPath);
+    nativeFailureCode = "downloaded_artifact_path_invalid";
     const runnerTemp = fs.realpathSync(path.resolve(runnerTempInput));
     const realRoot = fs.realpathSync(artifactRoot);
     const realFile = fs.realpathSync(artifactPath);
@@ -413,13 +431,15 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
         && fileMetadata.isFile()
         && !fileMetadata.isSymbolicLink()
         && path.dirname(realFile) === realRoot,
-      "downloaded_artifact_invalid",
+      "downloaded_artifact_path_invalid",
     );
     const noFollow = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
+    nativeFailureCode = "downloaded_artifact_open_invalid";
     handle = fs.openSync(realFile, fs.constants.O_RDONLY | noFollow);
     const opened = fs.fstatSync(handle);
     const bytes = fs.readFileSync(handle);
     const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+    nativeFailureCode = "downloaded_artifact_archive_invalid";
     const entries = tarArchive.readTarArchive(bytes);
     failUnless(
       opened.isFile()
@@ -430,7 +450,7 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
         && bytes.length <= MAX_ARTIFACT_BYTES
         && digest === input.artifactSha256
         && entries.length === input.memberCount,
-      "downloaded_artifact_invalid",
+      "downloaded_artifact_identity_invalid",
     );
     const lease = new releaseReadiness.CandidatePackageArtifactLease({
       artifact: Object.freeze({
@@ -455,7 +475,7 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
       try { fs.closeSync(handle); } catch { /* normalized below */ }
     }
     if (error instanceof ReadinessWorkflowError) throw error;
-    throw new ReadinessWorkflowError("downloaded_artifact_invalid");
+    throw new ReadinessWorkflowError(nativeFailureCode);
   }
 }
 
@@ -562,6 +582,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       && SAFE_UPLOAD_STATUS_CLASSES.includes(error.statusClass)
       ? { stage: error.stage, statusClass: error.statusClass }
       : {};
+    const annotation = hostedLaneFailureAnnotation(reason, process.env.GITHUB_ACTIONS === "true");
+    if (annotation !== undefined) process.stdout.write(`${annotation}\n`);
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: "FAIL", reason, ...metadata })}\n`);
     return 1;
   }

@@ -30,6 +30,7 @@ interface PlatformLaneReceipt {
 }
 
 interface ReadinessWorkflowModule {
+  hostedLaneFailureAnnotation(reason: string, enabled: boolean): string | undefined;
   openDownloadedLease(input: {
     readonly laneId: PlatformLaneId;
     readonly artifactRoot: string;
@@ -440,12 +441,28 @@ test("downloaded lease accepts only one canonical or pinned fallback raw filenam
       ["kcoderag-nav-0.3.0.tgz", "extra"],
       ["unexpected"],
     ]) {
-      expectCode(() => open(rejectedNames), "downloaded_artifact_invalid");
+      expectCode(() => open(rejectedNames), "downloaded_artifact_name_invalid");
     }
   } finally {
     if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previousRunnerTemp;
     fs.rmSync(runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test("hosted lane failure annotation exposes only a closed resolver stage", () => {
+  assert.equal(
+    workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_name_invalid", true),
+    "::error title=readiness-lane::downloaded_artifact_name_invalid",
+  );
+  assert.equal(workflowContract.hostedLaneFailureAnnotation("downloaded_artifact_name_invalid", false), undefined);
+  for (const untrusted of [
+    "downloaded_artifact_invalid",
+    "downloaded_artifact_name_invalid:private-path",
+    "private-path",
+    "",
+  ]) {
+    assert.equal(workflowContract.hostedLaneFailureAnnotation(untrusted, true), undefined);
   }
 });
 
