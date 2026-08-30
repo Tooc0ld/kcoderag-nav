@@ -21,6 +21,7 @@ export interface ProjectHookCommands {
 }
 
 export type ProjectHookLauncher = "advisory" | "mcp-call-marker";
+export type ProjectHookGenericShell = "posix" | "windows";
 
 /**
  * Keep this function self-contained: its compiled source is embedded in the fixed
@@ -387,14 +388,19 @@ function hostPaths(host: ProjectHookHost, launcher: ProjectHookLauncher): {
 export function renderProjectHookCommands(
   host: ProjectHookHost,
   launcher: ProjectHookLauncher = "advisory",
+  genericShell: ProjectHookGenericShell = "posix",
 ): ProjectHookCommands {
   const paths = hostPaths(host, launcher);
   const encoded = encodedBootstrap();
   const decoderWindows = "Function('require','process',Buffer.from(process.argv[1],'base64').toString('utf8'))(require,process)";
   const escapedDecoderWindows = decoderWindows.replaceAll("(", "^(").replaceAll(")", "^)");
   const decoderPosix = "Function(\"require\",\"process\",Buffer.from(process.argv[1],\"base64\").toString(\"utf8\"))(require,process)";
+  const decoderCrossShell = "eval(Buffer.from(process.argv[1],'base64').toString())";
+  const commandPosix = `node -e '${decoderPosix}' ${encoded} ${host} ${paths.state} ${paths.posixLauncher} posix 2>/dev/null || :`;
+  const commandWindowsGeneric = `node -e "${decoderCrossShell}" ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows || exit 0`;
+  const commandWindows = `cmd.exe /d /s /c "node -e ${escapedDecoderWindows} ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul & exit /b 0"`;
   return Object.freeze({
-    command: `node -e '${decoderPosix}' ${encoded} ${host} ${paths.state} ${paths.posixLauncher} posix 2>/dev/null || :`,
-    commandWindows: `cmd.exe /d /s /c "node -e ${escapedDecoderWindows} ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul & exit /b 0"`,
+    command: genericShell === "windows" ? commandWindowsGeneric : commandPosix,
+    commandWindows,
   });
 }

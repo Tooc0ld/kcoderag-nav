@@ -175,9 +175,10 @@ function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { 
     copy.hooks[0].commandWindows = commands.commandWindows;
     return copy;
   };
+  const genericShell = process.platform === "win32" ? "windows" : "posix";
   return Object.freeze({
-    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], renderProjectHookCommands("codex")) }),
-    ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse) ? {} : { post: render(hooks.PostToolUse[0], renderProjectHookCommands("codex", "mcp-call-marker")) }),
+    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], renderProjectHookCommands("codex", "advisory", genericShell)) }),
+    ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse) ? {} : { post: render(hooks.PostToolUse[0], renderProjectHookCommands("codex", "mcp-call-marker", genericShell)) }),
   });
 }
 function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: readonly CapabilityId[], owned: boolean) {

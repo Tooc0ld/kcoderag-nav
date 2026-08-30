@@ -19,6 +19,7 @@ const projectRoot = require("../../dist/core/project-root.cjs") as {
   renderProjectHookCommands(
     host: "codex" | "claude",
     launcher?: "advisory" | "mcp-call-marker",
+    genericShell?: "posix" | "windows",
   ): { readonly command: string; readonly commandWindows: string };
 };
 const targets = require("../../dist/core/project-target.cjs") as {
@@ -357,6 +358,13 @@ function assertSilentSuccess(result: ReturnType<typeof childProcess.spawnSync>):
   assert.equal(result.stderr, "");
 }
 
+function assertUnavailableRuntimeFailsOpen(result: ReturnType<typeof childProcess.spawnSync>): void {
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, String(result.stderr));
+  assert.equal(result.stdout, "");
+  assert.equal(typeof result.stderr, "string");
+}
+
 test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
   const registration = JSON.parse(fs.readFileSync(sourceRegistration, "utf8")) as {
     hooks: Record<string, readonly {
@@ -405,7 +413,12 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
 test("Windows project commands contain fail-open control flow inside one nested cmd boundary", () => {
   for (const host of ["codex", "claude"] as const) {
     for (const launcher of ["advisory", "mcp-call-marker"] as const) {
-      const command = projectRoot.renderProjectHookCommands(host, launcher).commandWindows;
+      const rendered = projectRoot.renderProjectHookCommands(host, launcher, "windows");
+      const command = rendered.commandWindows;
+      assert.match(rendered.command, /^node -e "eval\(Buffer\.from\(/u);
+      assert.match(rendered.command, / windows \|\| exit 0$/u);
+      assert.doesNotMatch(rendered.command, /\/dev\/null|\|\| :/u);
+      assert.ok(rendered.command.length < 8_192);
       assert.match(command, /^cmd\.exe \/d \/s \/c "node -e /u);
       assert.match(command, / 2>nul & exit \/b 0"$/u);
       assert.equal(command.match(/"/gu)?.length, 2);
@@ -550,13 +563,19 @@ test("complete project copies and renames keep root and deep registered commands
         assertSilentSuccess(runRenderedPosix(shellExecutable, installed.command.command, moved, "not-json"));
         const emptyPath = path.join(base, `${host}-empty-posix-path`);
         fs.mkdirSync(emptyPath);
-        assertSilentSuccess(runRenderedPosix(
+        const unavailableRuntime = runRenderedPosix(
           shellExecutable,
           installed.command.command,
           moved,
           structuralPayload,
           environment({ PATH: emptyPath }),
-        ));
+        );
+        if (host === "codex" && process.platform === "win32") {
+          assertUnavailableRuntimeFailsOpen(unavailableRuntime);
+          assert.deepEqual(fs.readdirSync(emptyPath), []);
+        } else {
+          assertSilentSuccess(unavailableRuntime);
+        }
       }
 
       const hostRoot = host === "codex" ? ".codex" : ".claude";
@@ -687,6 +706,38 @@ test("nearest-state traversal stops at the configured fixed bound", () => {
 });
 
 if (process.platform === "win32") {
+  test("Codex generic project command stays fail-open when cmd.exe selects it", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-codex-generic-command-"));
+    try {
+      const installed = installHost(base, "codex", adapterPackage(base));
+      const deep = path.join(installed.root, "workspace with spaces", "子目录", "src");
+      fs.mkdirSync(deep, { recursive: true });
+
+      assertProtocolResult(
+        runRenderedWindows(installed.command.command, deep),
+        "Codex Windows generic structural command",
+      );
+      assertSilentSuccess(runRenderedWindows(installed.command.command, deep, "not-json"));
+      assertSilentSuccess(runRenderedWindows(installed.command.command, deep, JSON.stringify({
+        tool_name: "Bash",
+        tool_input: { command: "rg TODO logs" },
+      })));
+      const emptyPath = path.join(base, "empty-path");
+      fs.mkdirSync(emptyPath);
+      const deepBefore = fs.readdirSync(deep);
+      assertUnavailableRuntimeFailsOpen(runRenderedWindows(
+        installed.command.command,
+        deep,
+        structuralPayload,
+        environment({ PATH: emptyPath }),
+      ));
+      assert.deepEqual(fs.readdirSync(deep), deepBefore);
+      assert.deepEqual(fs.readdirSync(emptyPath), []);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   test("Windows launcher is self-relative across Unicode paths and nested cwd", () => {
     const fixture = deployment();
     try {
