@@ -61,6 +61,9 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
   receipt 可用，其他宿主零写拒绝且保留 navigation — Phase 04.1 / Quick 260827-fch
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
+- ✓ 从 `0.3.0` 起，公共源码、生成资产、npm 候选包和本仓库体验指南统一采用中性代码规范身份；
+  当前候选通过确定性生成、五宿主 packaged smoke、Windows/Linux Node 22/24 readiness、零命中审计与
+  no-write seal，且本阶段未 tag、publish 或 registry refetch — Phase 04.2
 
 ### Active
 
@@ -137,7 +140,17 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 
 ## Key Decisions
 
-### Current Phase 04.1 decisions
+### Current Phase 04.2 decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| **Neutral public identity**：公共 capability、Skill、Hook、源码、生成资产与提示只保留中性名称，不提供旧别名 | 去除公共品牌暴露，同时保持规则与行为等价 | Validated in Phase 04.2 |
+| **Repository-owned experience guide**：本仓库独占维护 `docs/MCP_QA_EXPERIENCE_GUIDE.md`，兄弟仓库仅作为一次性只读迁入来源 | 让发布 readiness 绑定单一、项目内可审计的文档权威 | Validated in Phase 04.2 |
+| **Forward-only readiness**：候选失效时只创建新的 tree-identical 后继并普通快进专用 ref，不 amend、force-push 或重写历史 | 保留每次证据尝试并防止不可变身份被替换 | Validated in Phase 04.2 |
+| **One exact artifact and closed receipt**：本地与 Hosted 使用同一 tgz 字节，四平台 lane、artifact、member manifest 与 schema-v1 receipt 必须完全一致 | 防止跨 run、跨 artifact 或陈旧 receipt 拼接成虚假 PASS | Validated in Phase 04.2 |
+| **Readiness only**：`0.3.0` 已具备发布条件，但 tag、publish、registry refetch、dist-tag 与 Phase 05–08 声明保持未执行 | 严守本阶段授权与后续阶段边界 | Validated in Phase 04.2 |
+
+### Prior Phase 04.1 decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
@@ -167,7 +180,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 This document evolves at phase transitions and milestone boundaries. Phase 1–3/03.1 与 Phase 04 的
 QA/Dev migration、owned cleanup 和 exact Head 部署记录只保留为明确 historical facts；Phase 04.1
 以两个内置 capability、current schema v1、全 mutation source gate 和 receipt-bound support 取代其
-当前产品效力，不重写已经发生的不可变发布证据。
+当前产品效力。Phase 04.2 又以中性公共身份、仓库内体验指南权威和 forward-only readiness 证据固定
+`0.3.0` 候选边界，但不执行发布，也不重写已经发生的不可变历史。
 
 ---
-*Last updated: 2026-08-27 after Phase 04.1 capability-platform completion*
+*Last updated: 2026-08-30 after Phase 04.2 public-debranding completion*

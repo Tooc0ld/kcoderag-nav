@@ -492,7 +492,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 → 8
+Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -501,6 +501,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 5 → 6 → 7 
 | 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
 | 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
 | 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
+| 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
+| 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
 | 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
 | 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
 | 7. GSD 运行时与全局 Hook 整理 | 0/TBD | Not planned | - |
