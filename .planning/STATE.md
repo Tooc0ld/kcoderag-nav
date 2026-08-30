@@ -371,6 +371,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260827-fch | Add project-scoped ZCode host support for navigation MCP and Skill | 2026-08-27 | 903506f, KCodeRag:6891fd14 | [260827-fch-add-project-scoped-zcode-host-support-fo](./quick/260827-fch-add-project-scoped-zcode-host-support-fo/) |
 | 260827-nuo | Add advisory ZCode PreToolUse, successful-call marker, and offline update notice | 2026-08-27 | 8d380f6, KCodeRag:97049019 | [260827-nuo-zcode-hook-advisory-pretooluse-marker](./quick/260827-nuo-zcode-hook-advisory-pretooluse-marker/) |
 | 260827-onf | Unified packaged host runtime acceptance for install, Hook events, markers, and update awareness | 2026-08-27 | b462fb6, KCodeRag:c96726b7 | [260827-onf-codex-claude-code-opencode-zcode-hook](./quick/260827-onf-codex-claude-code-opencode-zcode-hook/) | Verified |
+| 260830-t09 | Guard generated Windows hooks against popup-capable and interactive launch paths | 2026-08-30 | d08f0d7 | [260830-t09-add-regression-guards-that-generated-win](./quick/260830-t09-add-regression-guards-that-generated-win/) | Verified |
 
 ### Roadmap Evolution
 
