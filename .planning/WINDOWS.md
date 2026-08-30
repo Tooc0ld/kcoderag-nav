@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 7
+open_count: 0
 waived_count: 0
-fixed_count: 17
+fixed_count: 24
 total_count: 24
-last_updated: 2026-08-29T15:47:45.126Z
+last_updated: 2026-08-30T16:32:21.583Z
 ---
 
 # Broken Windows Ledger
@@ -24,18 +24,18 @@ last_updated: 2026-08-29T15:47:45.126Z
 | 7 | 03.1 | deviation | .github/workflows/release.yml |  | Build precedes the compiled dependency audit so the clean-runner release gate is executable. | fixed |  | 2026-08-23T17:24:51.785Z | 2026-08-23T17:25:21.540Z |
 | 8 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Used a normal-hook temporary clone and exact fast-forward because the sibling dirty staged index rejected a path-only commit. | fixed |  | 2026-08-23T19:34:33.821Z | 2026-08-23T19:34:39.700Z |
 | 9 | 03.1 | deviation | .planning/phases/03.1-javascript-npx/03.1-21-SUMMARY.md |  | Retried the guide-only commit with an isolated temporary environment after shared virtual-environment reuse hit an in-use executable. | fixed |  | 2026-08-23T19:34:34.074Z | 2026-08-23T19:34:39.951Z |
-| 10 | 03.1 | lint-warning | .github/workflows/release.yml |  | Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins. | open |  | 2026-08-24T02:29:02.944Z |  |
+| 10 | 03.1 | lint-warning | .github/workflows/release.yml |  | Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins. | fixed |  | 2026-08-24T02:29:02.944Z | 2026-08-30T16:32:21.583Z |
 | 11 | 04 | deviation | package.json |  | Added the compiled project-root module to the public package inventory because host adapters import it. | fixed |  | 2026-08-25T07:30:31.828Z | 2026-08-25T07:31:16.938Z |
 | 12 | 04 | deviation | package.json |  | Added the shared source runtime module to the public archive contract | fixed |  | 2026-08-25T08:30:10.514Z | 2026-08-25T08:30:38.659Z |
 | 13 | 04 | deviation | src/hosts/codex.cts |  | Resolved Windows Codex execution without shell use and isolated source scans from real user state | fixed |  | 2026-08-25T08:30:10.765Z | 2026-08-25T08:30:38.905Z |
 | 14 | 04 | deviation | src/core/contracts.cts |  | Added manual_rule and the exact Cursor legacy migration exception required by the source gate | fixed |  | 2026-08-25T09:23:37.970Z | 2026-08-25T09:24:07.270Z |
 | 15 | 04 | deviation | src/smoke/stub-mcp-server.cts |  | Closed synthetic MCP responses to prevent stale keep-alive reuse across delayed host smoke lifecycles | fixed |  | 2026-08-25T09:23:38.259Z | 2026-08-25T09:24:07.521Z |
-| 16 | 04.1 | stub | src/hosts/codex.cts | 196 | Codex native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:21:59.470Z |  |
-| 17 | 04.1 | stub | src/hosts/claude.cts | 175 | Claude native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:21:59.741Z |  |
-| 18 | 04.1 | stub | src/hosts/cursor.cts | 171 | Cursor native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:22:00.013Z |  |
-| 19 | 04.1 | stub | src/hosts/opencode.cts | 171 | OpenCode native capability projection is intentionally deferred to Plan 04.1-06. | open |  | 2026-08-26T14:22:00.294Z |  |
-| 20 | 04.1 | deviation | dist/capabilities/compose.cjs |  | Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration. | open |  | 2026-08-26T14:22:00.572Z |  |
-| 21 | 04.1 | deviation | src/cli/commands.cts |  | Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent. | open |  | 2026-08-26T14:22:00.840Z |  |
+| 16 | 04.1 | stub | src/hosts/codex.cts | 196 | Codex native capability projection is intentionally deferred to Plan 04.1-06. | fixed |  | 2026-08-26T14:21:59.470Z | 2026-08-30T16:32:20.157Z |
+| 17 | 04.1 | stub | src/hosts/claude.cts | 175 | Claude native capability projection is intentionally deferred to Plan 04.1-06. | fixed |  | 2026-08-26T14:21:59.741Z | 2026-08-30T16:32:20.395Z |
+| 18 | 04.1 | stub | src/hosts/cursor.cts | 171 | Cursor native capability projection is intentionally deferred to Plan 04.1-06. | fixed |  | 2026-08-26T14:22:00.013Z | 2026-08-30T16:32:20.627Z |
+| 19 | 04.1 | stub | src/hosts/opencode.cts | 171 | OpenCode native capability projection is intentionally deferred to Plan 04.1-06. | fixed |  | 2026-08-26T14:22:00.294Z | 2026-08-30T16:32:20.873Z |
+| 20 | 04.1 | deviation | dist/capabilities/compose.cjs |  | Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration. | fixed |  | 2026-08-26T14:22:00.572Z | 2026-08-30T16:32:21.110Z |
+| 21 | 04.1 | deviation | src/cli/commands.cts |  | Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent. | fixed |  | 2026-08-26T14:22:00.840Z | 2026-08-30T16:32:21.344Z |
 | 22 | 04.1 | deviation | src/hooks/pre-tool-dispatcher.cts |  | Path-limited GREEN commits bypassed the shared pre-commit wrapper only after fresh scoped verification because unrelated canonical work was dirty. | fixed |  | 2026-08-26T14:53:18.023Z | 2026-08-26T14:53:46.373Z |
 | 23 | 04.2 | deviation | src/maintainer/readiness-workflow.cts |  | Hosted artifact presentation-name mismatch required the final singleton identity repair before successful Plan 31 evidence. | fixed |  | 2026-08-29T15:13:39.918Z | 2026-08-29T15:13:44.849Z |
 | 24 | 04.2 | deviation | .planning/phases/04.2-public-debranding/04.2-READINESS-RECEIPT.json |  | Existing strict readiness APIs were composed directly because the planned finalize wrapper is absent. | fixed |  | 2026-08-29T15:46:02.969Z | 2026-08-29T15:47:45.126Z |
@@ -157,10 +157,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": ".github/workflows/release.yml",
     "line": null,
     "description": "Pinned checkout/setup-node revisions trigger a Node.js 20 deprecation annotation while GitHub forces Node.js 24; re-audit immutable official action pins.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-24T02:29:02.944Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:21.583Z"
   },
   {
     "id": 11,
@@ -229,10 +229,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "src/hosts/codex.cts",
     "line": 196,
     "description": "Codex native capability projection is intentionally deferred to Plan 04.1-06.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:21:59.470Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:20.157Z"
   },
   {
     "id": 17,
@@ -241,10 +241,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "src/hosts/claude.cts",
     "line": 175,
     "description": "Claude native capability projection is intentionally deferred to Plan 04.1-06.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:21:59.741Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:20.395Z"
   },
   {
     "id": 18,
@@ -253,10 +253,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "src/hosts/cursor.cts",
     "line": 171,
     "description": "Cursor native capability projection is intentionally deferred to Plan 04.1-06.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:22:00.013Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:20.627Z"
   },
   {
     "id": 19,
@@ -265,10 +265,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "src/hosts/opencode.cts",
     "line": 171,
     "description": "OpenCode native capability projection is intentionally deferred to Plan 04.1-06.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:22:00.294Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:20.873Z"
   },
   {
     "id": 20,
@@ -277,10 +277,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "dist/capabilities/compose.cjs",
     "line": null,
     "description": "Pack inventory does not yet declare the compiled capability composer; repair belongs to Wave integration.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:22:00.572Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:21.110Z"
   },
   {
     "id": 21,
@@ -289,10 +289,10 @@ last_updated: 2026-08-29T15:47:45.126Z
     "file": "src/cli/commands.cts",
     "line": null,
     "description": "Plan 07-owned CLI still consumes compile-only legacy cleanup types; runtime authority is absent.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-26T14:22:00.840Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-30T16:32:21.344Z"
   },
   {
     "id": 22,
