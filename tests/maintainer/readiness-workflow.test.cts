@@ -185,8 +185,8 @@ test("one package job uploads one lease artifact then four lanes consume that ar
     "verify-lanes",
   ]);
   assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 6);
-  assert.equal(source.match(/uses:\s*actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/gu)?.length, 6);
-  assert.equal(source.match(/uses:\s*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/gu)?.length, 6);
+  assert.equal(source.match(/uses:\s*actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/gu)?.length, 6);
+  assert.equal(source.match(/uses:\s*actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/gu)?.length, 6);
   assert.equal(source.match(/persist-credentials:\s*false/gu)?.length, 6);
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length, 6);
   assert.equal(source.match(/uses:\s*actions\/download-artifact@[0-9a-f]{40}/gu)?.length, 4);
