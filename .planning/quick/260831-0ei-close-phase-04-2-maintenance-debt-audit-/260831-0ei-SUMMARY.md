@@ -151,7 +151,14 @@ The previously accepted hosted candidate, run, artifact, four lanes, receipt, an
 - **Verification:** `audit-uat --raw` reports `summary.total_items: 0`.
 - **Committed in:** `87878b5`
 
-**Total deviations:** 1 auto-fixed Rule 1 evidence-format bug. No product or workflow scope changed.
+**2. [Rule 1 - Bug] Removed a machine-local path from quick-task evidence**
+- **Found during:** Final post-commit brand audit.
+- **Issue:** The generated plan embedded an absolute maintainer-local GSD path, causing seven F002 findings in the otherwise clean final Git tree.
+- **Fix:** Replaced the absolute path with portable `@gsd-core/...` references and the resolved `$GSD_TOOLS` shim variable; recorded the correction in the quick verification.
+- **Files modified:** `260831-0ei-PLAN.md`, `260831-0ei-SUMMARY.md`, `260831-0ei-VERIFICATION.md`
+- **Verification:** The corrected synthetic commit tree and final committed child both pass the Git brand audit with zero findings.
+
+**Total deviations:** 2 auto-fixed Rule 1 evidence-format bugs. No product or workflow scope changed.
 
 ## Known Stubs
 

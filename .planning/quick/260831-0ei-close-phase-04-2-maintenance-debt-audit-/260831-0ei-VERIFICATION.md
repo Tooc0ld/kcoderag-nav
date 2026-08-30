@@ -126,6 +126,10 @@ N/A — this is CI/release-assurance infrastructure with no user-facing or subje
 
 No gaps remain. Official Action identity and Node 24 runtime were independently re-resolved, workflow topology and release authority are unchanged, all seven former windows and the duplicated deferred item are closed by current code/test evidence, Phase 04.2's local maintenance proof is green, prior hosted authority remains historical, and project state remains positioned at Phase 05.
 
+### Finalization Addendum
+
+The first post-commit Git brand audit found seven F002 matches caused only by an absolute maintainer-local GSD path in the generated quick plan. The plan now uses portable `@gsd-core/...` references and the resolved `$GSD_TOOLS` shim variable. The corrected synthetic commit tree and final committed child pass the Git brand audit with zero findings; no product, workflow, release authority, or Phase 04.2 verdict changed.
+
 ---
 
 _Verified: 2026-08-30T16:50:11Z_
