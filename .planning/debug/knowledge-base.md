@@ -23,3 +23,13 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Why not caught:** The readiness workflow test lacked a third presentation-basename neighbor and collapsed early resolver failures into one safe class; the generation gate checked canonical/product consistency without an independent slash-free endpoint assertion. Typecheck could not detect either semantic contract gap.
 - **Recurrence guard:** Regression tests `downloaded lease authenticates exactly one direct raw file independent of presentation basename` in tests/maintainer/readiness-workflow.test.cts, `compiled repository gate proves all generated products canonical without repository writes` in tests/generator/repository-generation.test.cts, and `block stage and block list commit preserve the exact private lease buffer` in tests/maintainer/github-artifact-upload.test.cts.
 ---
+
+## phase-04-2-final-regression — Nested review worktree broke pack and readiness snapshots
+- **Date:** 2026-08-30
+- **Error patterns:** files_policy_invalid, readiness_workflow_failed, repositorySnapshot, slash-terminated git ls-files entry, nested review worktree
+- **Root cause(s):** AND-gate: the review-fix workflow left its registered worktree inside `.claude/worktrees/` after integration; Git exposed that nested repository as a slash-terminated directory entry, which the intentionally file-only `repositorySnapshot()` normalization rejected before pack/readiness logic could proceed.
+- **Fix:** Removed the exact validated review-fix worktree and its obsolete recovery marker; preserved the review-fix branch and made no product-code change.
+- **Files changed:** `.planning/phases/04.2-public-debranding/.review-fix-recovery-pending.json` (removed review-owned residue); no product files changed
+- **Why not caught:** No post-review integration gate existed for repository-local worktree residue; the final pack/readiness regression gate caught the condition only after the clean code review completed.
+- **Recurrence guard:** Existing test `audits a real temporary npm tgz and preserves repository status and tree` in `dist-tests/maintainer/pack-audit.test.cjs`, plus this KB pattern requiring `git worktree list --porcelain` and slash-terminated `git ls-files -z` checks before proposing product-code changes.
+---
