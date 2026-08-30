@@ -8,6 +8,9 @@ const path = require("node:path") as typeof import("node:path");
 
 const sourceHooks = path.resolve("plugin-src/hooks");
 const sourceRegistration = path.resolve("plugin-src/hooks/hooks.json");
+const generatedRegistration = path.resolve("kcoderag-qa/hooks/hooks.json");
+const WINDOWS_POPUP_OR_INTERACTIVE_PATTERN =
+  /(?:\b(?:powershell|pwsh)(?:\.exe)?\b|\bcmd(?:\.exe)?(?:\s+\/[a-z]+)*\s+\/k\b|\bstart(?:\.exe)?(?:\s|$)|\bpause(?:\.exe)?(?:\s|$)|\bchoice(?:\.exe)?(?:\s|$)|\bset\s+\/p\b|\bread-host\b|\$repo\b|\bjoin-path\b|%cd%)/iu;
 const projectRoot = require("../../dist/core/project-root.cjs") as {
   findNearestProjectHook(options: {
     readonly cwd: string;
@@ -365,13 +368,34 @@ function assertUnavailableRuntimeFailsOpen(result: ReturnType<typeof childProces
   assert.equal(result.stderr, "");
 }
 
+interface HookRegistration {
+  readonly hooks: Record<string, readonly {
+    readonly matcher: string;
+    readonly hooks: readonly {
+      readonly type?: string;
+      readonly command: string;
+      readonly commandWindows: string;
+      readonly timeout?: number;
+      readonly async?: boolean;
+    }[];
+  }[]>;
+}
+
+function readHookRegistration(filePath: string): HookRegistration {
+  return JSON.parse(fs.readFileSync(filePath, "utf8")) as HookRegistration;
+}
+
+function decodeEmbeddedBootstrap(command: string): string {
+  const encodedTokens = [...command.matchAll(/(?:^|\s)([A-Za-z0-9+/]{100,}={0,2})(?=\s|$)/gu)];
+  const bootstrap = encodedTokens
+    .map((match) => Buffer.from(match[1] ?? "", "base64").toString("utf8"))
+    .find((candidate) => candidate.includes("spawnSync"));
+  assert.ok(bootstrap, "rendered command must contain the project hook bootstrap");
+  return bootstrap;
+}
+
 test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
-  const registration = JSON.parse(fs.readFileSync(sourceRegistration, "utf8")) as {
-    hooks: Record<string, readonly {
-      matcher: string;
-      hooks: readonly { command: string; commandWindows: string }[];
-    }[]>;
-  };
+  const registration = readHookRegistration(sourceRegistration);
   assert.deepEqual(Object.keys(registration.hooks), ["PreToolUse", "PostToolUse"]);
   assert.equal(registration.hooks.PreToolUse?.length, 1);
   assert.equal(
@@ -393,6 +417,13 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 
+  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+    const hook = registration.hooks[eventName]?.[0]?.hooks[0];
+    assert.equal(hook?.type, "command");
+    assert.equal(hook?.timeout, 5);
+    assert.notEqual(hook?.async, true);
+  }
+
   for (const launcher of ["run_hook.cmd", "run_hook.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
     assert.match(source, /pre-tool-dispatcher\.cjs/);
@@ -401,12 +432,14 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
     assert.doesNotMatch(source, /python|grep_nudge\.py|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/iu);
     assert.doesNotMatch(source, /%CD%|\$PWD/iu);
+    assert.doesNotMatch(source, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
   }
   for (const launcher of ["run_marker.cmd", "run_marker.sh"]) {
     const source = fs.readFileSync(path.join(sourceHooks, launcher), "utf8");
     assert.match(source, /mcp-call-marker\.cjs/);
     assert.doesNotMatch(source, /python|https?:|curl|wget/iu);
     assert.doesNotMatch(source, /%CD%|\$PWD/iu);
+    assert.doesNotMatch(source, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
   }
 });
 
@@ -418,12 +451,53 @@ test("Windows project commands contain fail-open control flow inside one nested 
       assert.match(rendered.command, /^node -e "eval\(Buffer\.from\(/u);
       assert.match(rendered.command, / windows 2>nul \|\| exit 0$/u);
       assert.doesNotMatch(rendered.command, /\/dev\/null|\|\| :/u);
+      assert.doesNotMatch(rendered.command, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
       assert.ok(rendered.command.length < 8_192);
       assert.match(command, /^cmd\.exe \/d \/s \/c "node -e /u);
       assert.match(command, / 2>nul & exit \/b 0"$/u);
       assert.equal(command.match(/"/gu)?.length, 2);
       assert.doesNotMatch(command, /node -e "/u);
+      assert.doesNotMatch(command, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
+
+      const bootstrap = decodeEmbeddedBootstrap(command);
+      assert.match(bootstrap, /\['\/d','\/c','call',x,H\]/u);
+      assert.match(bootstrap, /timeout:5000,windowsHide:true/u);
+      assert.doesNotMatch(bootstrap, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
     }
+  }
+});
+
+test("popup guard recognizes known interactive Windows hook launchers", () => {
+  for (const command of [
+    "powershell.exe -Command \"$repo = git rev-parse; Join-Path $repo '.codex/hooks/reindex.ps1'\"",
+    "pwsh.exe -Command Read-Host",
+    "cmd.exe /d /s /k node hook.cjs",
+    "start node hook.cjs",
+    "pause",
+    "choice /c YN",
+    "set /p answer=Continue?",
+    "node %CD%\\hook.cjs",
+  ]) {
+    assert.match(command, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
+  }
+});
+
+test("generated hook product rejects popup-capable or asynchronous Windows registrations", () => {
+  const registration = readHookRegistration(generatedRegistration);
+  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse"]);
+
+  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+    const hook = registration.hooks[eventName]?.[0]?.hooks[0];
+    assert.equal(hook?.type, "command");
+    assert.equal(hook?.timeout, 5);
+    assert.notEqual(hook?.async, true);
+    assert.match(hook?.commandWindows ?? "", /^cmd\.exe \/d \/s \/c "/u);
+    assert.doesNotMatch(hook?.commandWindows ?? "", WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
+
+    const bootstrap = decodeEmbeddedBootstrap(hook?.commandWindows ?? "");
+    assert.match(bootstrap, /\['\/d','\/c','call',x,H\]/u);
+    assert.match(bootstrap, /timeout:5000,windowsHide:true/u);
+    assert.doesNotMatch(bootstrap, WINDOWS_POPUP_OR_INTERACTIVE_PATTERN);
   }
 });
 
