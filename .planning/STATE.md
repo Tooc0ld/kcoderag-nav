@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 current_phase: 04.2
-current_phase_name: 公开版本去品牌化 (INSERTED)
+current_phase_name: public-debranding
 status: executing
-stopped_at: Completed 04.2-43-PLAN.md
-last_updated: "2026-08-30T07:04:09.512Z"
+stopped_at: Completed 04.2-44-PLAN.md
+last_updated: "2026-08-30T10:28:43.793Z"
 last_activity: 2026-08-30
-last_activity_desc: Planned three Phase 04.2 gap-closure plans; Plan 04.2-43 is ready
-state_head: 76a589f5984735497a3c17e5c39053c5b28bbf0f
+last_activity_desc: Phase 04.2 execution resumed (wave continue)
+state_head: fb23dd0275a506b0f7a4bdd8963c6b80cc04378d
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 111
-  completed_plans: 109
+  completed_plans: 110
   percent: 45
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** 用户安装任一环境插件后即可获得可靠、低打扰、环境选择明确的 KCodeRag 图优先导航体验。
-**Current focus:** Phase 04.2 — 公开版本去品牌化 (INSERTED)
+**Current focus:** Phase 04.2 — public-debranding
 
 ## Current Position
 
-Phase: 04.2 (公开版本去品牌化 (INSERTED)) — EXECUTING
-Plan: 44 of 45
+Phase: 04.2 (public-debranding) — EXECUTING
+Plan: 45 of 45
 Status: Ready to execute
-Last activity: 2026-08-30 — Planned three Phase 04.2 gap-closure plans; Plan 04.2-43 is ready
+Last activity: 2026-08-30 — Phase 04.2 execution resumed (wave continue)
 
 Progress: [█████░░░░░] 45%
 
@@ -125,6 +125,7 @@ Progress: [█████░░░░░] 45%
 | Phase 04.2 P31 | 7min | 3 tasks | 4 files |
 | Phase 04.2 P32 | 21min | 2 tasks | 5 files |
 | Phase 04.2 P43 | 13min | 2 tasks | 2 files |
+| Phase 04.2 P44 | 195min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -323,6 +324,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.2]: Use the committed strict readiness, workflow-lane, and seal APIs directly because the planned finalize wrapper is not present in the current tool surface.
 - [Phase 04.2]: Plan 43 preserves the 126-item review scope with four one-to-one neutral retirement evidence tokens.
 - [Phase 04.2]: Plan 43 requires immutable Git scanning after the Summary and normal tracking update enter HEAD.
+- [Phase 04.2]: Deterministic release candidates require LF-normalized TypeScript and generated JavaScript checkout bytes across Windows and Linux.
+- [Phase 04.2]: Readiness candidate recovery is forward-only: supersede unpublished attempts with new tree-identical candidate commits; never rewrite history or force-push.
+- [Phase 04.2]: Hosted readiness is accepted only after the downloaded producer artifact is byte-identical to the private candidate pack, in addition to the four-lane semantic gates.
 
 ### Pending Todos
 
@@ -390,6 +394,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-08-30T07:04:08.733Z
-Stopped at: Completed 04.2-43-PLAN.md
+Last session: 2026-08-30T10:27:06.112Z
+Stopped at: Completed 04.2-44-PLAN.md
 Resume file: None
