@@ -2,7 +2,7 @@
 status: resolved
 trigger: "Phase 04.2 final regression has five failures after review fixes; validate isolation residue before assuming a product defect."
 created: 2026-08-30
-updated: 2026-08-30T10:49:06.9961794+08:00
+updated: 2026-08-30T10:51:32.6401391+08:00
 ---
 
 # Debug Session: Phase 04.2 Final Regression
@@ -27,7 +27,7 @@ updated: 2026-08-30T10:49:06.9961794+08:00
   - repositorySnapshot rejects a legitimate porcelain path shape introduced by the review-fix marker
   - readiness child-process setup inherits repository state that masks the intended safe error
 - and_gate: Preserve all pre-existing user dirty files, clean only review-fix-owned temporary state when exact ownership is proven, and keep every canonical/generated MCP endpoint at `/mcp` with no trailing slash.
-- next_action: archive this resolved file, append the durable knowledge-base prevention entry, and commit only those planning artifacts per `commit_docs:true`
+- next_action: none — session archived, durable knowledge-base entry committed, and semantic indexing explicitly skipped because MemPalace is disabled/unavailable
 - reasoning_checkpoint:
     hypothesis: "The five failures require the leftover nested review-fix worktree plus repositorySnapshot's file-only path invariant: Git reports the nested worktree as a slash-terminated directory, normalizeRelative rejects it, and readiness catches that upstream pack error generically."
     confirming_evidence:
@@ -147,6 +147,10 @@ updated: 2026-08-30T10:49:06.9961794+08:00
   checked: final repository preservation after revert-and-reconfirm
   found: `master` and HEAD remain `2eba5babb8dbddea632dd1cd4b435cbc1cd05922`, exactly one worktree is registered, invalid ls-files entries are zero, the raw 35-entry porcelain SHA-256 remains `1caac967b0ab9cecc59e70ef7c6e12156eec5152a92f4c065922280fbe68e4b5`, and all old/temporary review worktree paths are absent.
   implication: every automated guardrail completed without altering master, branch history, product code, or pre-existing user-owned dirty paths.
+- timestamp: 2026-08-30
+  checked: durable archive and semantic-index availability
+  found: the resolved session was archived and the prevention entry appended under `commit_docs:true`; project configuration has `mempalace.enabled:false` and no `mempalace` CLI is installed.
+  implication: the plain-text knowledge base is the durable fallback and semantic indexing is explicitly skipped rather than silently assumed.
 
 ## Eliminated
 
