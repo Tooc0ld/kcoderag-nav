@@ -362,7 +362,7 @@ function assertUnavailableRuntimeFailsOpen(result: ReturnType<typeof childProces
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, String(result.stderr));
   assert.equal(result.stdout, "");
-  assert.equal(typeof result.stderr, "string");
+  assert.equal(result.stderr, "");
 }
 
 test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
@@ -416,7 +416,7 @@ test("Windows project commands contain fail-open control flow inside one nested 
       const rendered = projectRoot.renderProjectHookCommands(host, launcher, "windows");
       const command = rendered.commandWindows;
       assert.match(rendered.command, /^node -e "eval\(Buffer\.from\(/u);
-      assert.match(rendered.command, / windows \|\| exit 0$/u);
+      assert.match(rendered.command, / windows 2>nul \|\| exit 0$/u);
       assert.doesNotMatch(rendered.command, /\/dev\/null|\|\| :/u);
       assert.ok(rendered.command.length < 8_192);
       assert.match(command, /^cmd\.exe \/d \/s \/c "node -e /u);

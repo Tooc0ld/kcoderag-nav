@@ -397,7 +397,7 @@ export function renderProjectHookCommands(
   const decoderPosix = "Function(\"require\",\"process\",Buffer.from(process.argv[1],\"base64\").toString(\"utf8\"))(require,process)";
   const decoderCrossShell = "eval(Buffer.from(process.argv[1],'base64').toString())";
   const commandPosix = `node -e '${decoderPosix}' ${encoded} ${host} ${paths.state} ${paths.posixLauncher} posix 2>/dev/null || :`;
-  const commandWindowsGeneric = `node -e "${decoderCrossShell}" ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows || exit 0`;
+  const commandWindowsGeneric = `node -e "${decoderCrossShell}" ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul || exit 0`;
   const commandWindows = `cmd.exe /d /s /c "node -e ${escapedDecoderWindows} ${encoded} ${host} ${paths.state} ${paths.windowsLauncher} windows 2>nul & exit /b 0"`;
   return Object.freeze({
     command: genericShell === "windows" ? commandWindowsGeneric : commandPosix,
