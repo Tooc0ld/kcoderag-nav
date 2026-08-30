@@ -257,7 +257,6 @@ test("missing artifact runtime inputs fail before a request or workflow output i
 test("safe upload failure stdout exposes only commit stage and status class", () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-safe-upload-failure-"));
   const outputPath = path.join(temporaryRoot, "github-output.txt");
-  const preloadPath = path.join(temporaryRoot, "artifact-failure-fetch.cjs");
   const canaries = [
     "signed-query-secret-canary",
     "azure-response-secret-canary",
@@ -266,21 +265,26 @@ test("safe upload failure stdout exposes only commit stage and status class", ()
     "job-secret-canary",
   ];
   fs.writeFileSync(outputPath, "", "utf8");
-  fs.writeFileSync(preloadPath, [
-    '"use strict";',
-    "const originalFetch = globalThis.fetch;",
-    "globalThis.fetch = async (input, init) => {",
-    "  const target = String(input);",
-    "  if (!target.startsWith(\"https://\")) return originalFetch(input, init);",
-    "  const url = new URL(target);",
-    "  if (url.pathname.endsWith(\"/CreateArtifact\")) return new Response(JSON.stringify({ ok: true, signedUploadUrl: \"https://candidate.blob.core.windows.net/results/candidate?sv=trusted&sig=signed-query-secret-canary\" }), { status: 200, headers: { \"content-type\": \"application/json\" } });",
-    "  if (init?.method === \"PUT\" && url.searchParams.get(\"comp\") === \"block\") return new Response(null, { status: 201 });",
-    "  if (init?.method === \"PUT\" && url.searchParams.get(\"comp\") === \"blocklist\") return new Response(\"azure-response-secret-canary\", { status: 503, headers: { \"x-secret\": \"response-header-secret-canary\" } });",
-    "  if (url.pathname.endsWith(\"/DeleteArtifact\")) return new Response(JSON.stringify({ ok: true, artifactId: \"4242\" }), { status: 200, headers: { \"content-type\": \"application/json\" } });",
-    "  throw new Error(\"unexpected_request\");",
+  const workflowModulePath = path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs");
+  const uploadModulePath = path.join(repositoryRoot, "dist", "maintainer", "github-artifact-upload.cjs");
+  const injectedFailure = [
+    `const workflow = require(${JSON.stringify(workflowModulePath)});`,
+    `const upload = require(${JSON.stringify(uploadModulePath)});`,
+    `const secret = ${JSON.stringify(canaries.join("|"))};`,
+    'const hosts = ["codex", "claude", "cursor", "opencode", "zcode"];',
+    "const runHostSmoke = async ({ artifactLease }) => ({",
+    '  mode: "required-contract", status: "PASS",',
+    "  provenance: { lifecycleTarballSha256: artifactLease.artifact.sha256, artifactMemberCount: artifactLease.artifact.memberCount },",
+    '  hosts: hosts.map((host) => ({ host, status: "PASS" })),',
+    "});",
+    "const uploadCandidateArtifactFromLease = async () => {",
+    '  const error = new upload.GitHubArtifactUploadError("artifact_upload_failed", { stage: "commit_block_list", statusClass: "5xx" });',
+    "  error.privateDetail = secret;",
+    "  throw error;",
     "};",
-    "",
-  ].join("\n"), "utf8");
+    "void workflow.main([\"package-upload\"], { runHostSmoke, uploadCandidateArtifactFromLease })",
+    "  .then((code) => { process.exitCode = code; });",
+  ].join("\n");
   const env = {
     ...process.env,
     ACTIONS_RESULTS_URL: "https://results-receiver.actions.githubusercontent.com/",
@@ -293,12 +297,7 @@ test("safe upload failure stdout exposes only commit stage and status class", ()
   };
 
   try {
-    const result = childProcess.spawnSync(process.execPath, [
-      "--require",
-      preloadPath,
-      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
-      "package-upload",
-    ], {
+    const result = childProcess.spawnSync(process.execPath, ["-e", injectedFailure], {
       cwd: repositoryRoot,
       env,
       encoding: "utf8",

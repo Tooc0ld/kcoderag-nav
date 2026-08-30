@@ -105,6 +105,17 @@ function protoJsonString(value: JsonMap, localName: string, protoName: string): 
   return field;
 }
 
+/** Validate the job-scoped artifact service inputs before any expensive candidate work begins. */
+export function assertGitHubArtifactRuntime(
+  options: Pick<GitHubArtifactUploadOptions, "runtimeToken" | "resultsUrl" | "fetcher"> = {},
+): void {
+  const runtimeToken = options.runtimeToken ?? process.env.ACTIONS_RUNTIME_TOKEN ?? "";
+  resultsOrigin(options.resultsUrl ?? process.env.ACTIONS_RESULTS_URL ?? "");
+  decodeBackendIds(runtimeToken);
+  const fetcher = options.fetcher ?? globalThis.fetch;
+  failUnless(typeof fetcher === "function", "artifact_auth_invalid");
+}
+
 function decodeBackendIds(token: string): BackendIds {
   failUnless(token.length > 0 && Buffer.byteLength(token, "utf8") <= MAX_TOKEN_BYTES,
     "artifact_auth_invalid");
@@ -439,6 +450,7 @@ export async function uploadCandidateArtifactFromLease(
   lease: CandidatePackageArtifactLease,
   options: GitHubArtifactUploadOptions = {},
 ): Promise<GitHubArtifactUploadReceipt> {
+  assertGitHubArtifactRuntime(options);
   const runtimeToken = options.runtimeToken ?? process.env.ACTIONS_RUNTIME_TOKEN ?? "";
   const origin = resultsOrigin(options.resultsUrl ?? process.env.ACTIONS_RESULTS_URL ?? "");
   const ids = decodeBackendIds(runtimeToken);

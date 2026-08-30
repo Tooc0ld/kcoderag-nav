@@ -647,6 +647,8 @@ test("readiness artifact drives all five packaged hosts from the same injected S
   });
   const artifact = { ...lease.artifact };
   const observed: Buffer[] = [];
+  const invocationPaths = new Set<string>();
+  const npmCachePaths = new Set<string>();
   try {
     const packed = packAudit.auditPackArtifact(lease, { root: repositoryRoot }, {
       observeCandidateBytes: (bytes) => { observed.push(bytes); },
@@ -672,6 +674,18 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
     }, {
       observeCandidateBytes: (bytes) => { observed.push(bytes); },
+      runNpm: (args, cwd, env) => {
+        if (args[0] === "exec") {
+          const packageArgument = args.find((arg) => arg.startsWith("--package="));
+          assert.equal(typeof packageArgument, "string");
+          const invocationPath = (packageArgument as string).slice("--package=".length);
+          assert.match(path.basename(invocationPath), /^[a-f0-9]{64}\.tgz$/u);
+          invocationPaths.add(invocationPath);
+          assert.equal(typeof env.npm_config_cache, "string");
+          npmCachePaths.add(env.npm_config_cache as string);
+        }
+        return runNpmResult(args, cwd, env);
+      },
     });
     assert.equal(result.status, "PASS", JSON.stringify(result));
     assert.equal(observed.length, 3);
@@ -687,6 +701,8 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       artifactMemberCount: artifact.memberCount,
     });
     assert.equal(result.hosts.length, 5);
+    assert.equal(invocationPaths.size, 1);
+    assert.equal(npmCachePaths.size, 1);
     for (const host of result.hosts) {
       assert.equal(host.status, "PASS", host.host);
       assert.equal(host.provenance, result.provenance);

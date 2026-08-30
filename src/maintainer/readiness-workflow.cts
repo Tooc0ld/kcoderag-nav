@@ -18,6 +18,11 @@ import type { SmokeRunResult } from "../smoke/host-smoke.cjs";
 
 type JsonMap = Record<string, unknown>;
 
+export interface ReadinessWorkflowDependencies {
+  readonly runHostSmoke?: typeof hostSmoke.runHostSmoke;
+  readonly uploadCandidateArtifactFromLease?: typeof artifactUpload.uploadCandidateArtifactFromLease;
+}
+
 export type PlatformLaneId = "linux-node22" | "linux-node24" | "windows-node22" | "windows-node24";
 
 export interface PlatformLaneReceipt {
@@ -318,8 +323,12 @@ function assertSmokePass(result: SmokeRunResult, artifact: {
   return Object.freeze({ codex: "PASS", claude: "PASS", cursor: "PASS", opencode: "PASS", zcode: "PASS" });
 }
 
-async function packageAndUpload(): Promise<void> {
+async function packageAndUpload(dependencies: ReadinessWorkflowDependencies = {}): Promise<void> {
   const provenance = assertWorkflowProvenance();
+  artifactUpload.assertGitHubArtifactRuntime();
+  const runHostSmoke = dependencies.runHostSmoke ?? hostSmoke.runHostSmoke;
+  const uploadCandidateArtifactFromLease = dependencies.uploadCandidateArtifactFromLease
+    ?? artifactUpload.uploadCandidateArtifactFromLease;
   let lease: CandidatePackageArtifactLease | undefined;
   let smokeRoot: string | undefined;
   try {
@@ -331,14 +340,14 @@ async function packageAndUpload(): Promise<void> {
     packAudit.auditPackArtifact(lease, { root: provenance.root });
     releaseReadiness.scanCandidatePackageArtifact(lease);
     smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-package-smoke-"));
-    const smoke = await hostSmoke.runHostSmoke({
+    const smoke = await runHostSmoke({
       mode: "required-contract",
       artifactLease: lease,
       repositoryRoot: provenance.root,
       temporaryRoot: smokeRoot,
     });
     assertSmokePass(smoke, artifact);
-    const uploaded = await artifactUpload.uploadCandidateArtifactFromLease(lease);
+    const uploaded = await uploadCandidateArtifactFromLease(lease);
     failUnless(uploaded.sha256 === artifact.sha256 && uploaded.memberCount === artifact.memberCount,
       "artifact_metadata_drift");
     appendOutput("artifact-id", uploaded.artifactId);
@@ -555,10 +564,13 @@ function verifyLanes(): void {
 }
 
 /** Execute one workflow-only operation; no command publishes, tags, pushes, or reads a registry candidate. */
-export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+  argv: readonly string[] = process.argv.slice(2),
+  dependencies: ReadinessWorkflowDependencies = {},
+): Promise<number> {
   try {
     const [command, ...rest] = argv;
-    if (command === "package-upload" && rest.length === 0) await packageAndUpload();
+    if (command === "package-upload" && rest.length === 0) await packageAndUpload(dependencies);
     else if (command === "lane") await runLane(rest);
     else if (command === "verify" && rest.length === 0) verifyLanes();
     else throw new ReadinessWorkflowError("invalid_arguments");

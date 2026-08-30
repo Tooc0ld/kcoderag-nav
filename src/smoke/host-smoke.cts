@@ -412,17 +412,20 @@ function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
     value.markerSaturationSilent && value.sessionEndReceiptBound && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
 }
 
-function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessEnv {
+function safeEnvironment(
+  root: string,
+  syntheticNative = false,
+  npmCacheRoot: string = path.join(root, "npm-cache"),
+): NodeJS.ProcessEnv {
   const hostHome = path.join(root, "host-home");
   const localAppData = path.join(root, "local-app-data");
   const xdgCacheHome = path.join(root, "xdg-cache");
-  const npmCache = path.join(root, "npm-cache");
   const npmUserConfig = path.join(root, "user.npmrc");
   const npmGlobalConfig = path.join(root, "global.npmrc");
   fs.mkdirSync(hostHome, { recursive: true });
   fs.mkdirSync(localAppData, { recursive: true });
   fs.mkdirSync(xdgCacheHome, { recursive: true });
-  fs.mkdirSync(npmCache, { recursive: true });
+  fs.mkdirSync(npmCacheRoot, { recursive: true });
   if (!fs.existsSync(npmUserConfig)) fs.writeFileSync(npmUserConfig, "", "utf8");
   if (!fs.existsSync(npmGlobalConfig)) fs.writeFileSync(npmGlobalConfig, "", "utf8");
   const inheritedEnvironment = Object.fromEntries(
@@ -441,7 +444,7 @@ function safeEnvironment(root: string, syntheticNative = false): NodeJS.ProcessE
     KCODERAG_NAV_UPDATE_CHECK: "0",
     NO_COLOR: "1",
     npm_config_audit: "false",
-    npm_config_cache: npmCache,
+    npm_config_cache: npmCacheRoot,
     npm_config_fund: "false",
     npm_config_globalconfig: npmGlobalConfig,
     npm_config_loglevel: "silent",
@@ -723,7 +726,7 @@ async function acquirePackage(
     ], acquisitionRoot, env);
   const installed = publicInstallArtifact === undefined
     ? install(sourceSpec)
-    : withVerifiedInvocationTarball(publicInstallArtifact, acquisitionRuntime, "registry-install", install);
+    : withVerifiedInvocationTarball(publicInstallArtifact, install);
   if (installed.code !== 0) throw new Error("package_acquisition_failed");
   const packageRoot = path.join(installRoot, "node_modules", "kcoderag-nav");
   let resolvedVersion: string;
@@ -792,8 +795,6 @@ async function acquireCandidatePackage(
   const env = safeEnvironment(acquisitionRuntime);
   const installed = withVerifiedInvocationTarball(
     verifiedArtifact,
-    acquisitionRuntime,
-    "candidate-install",
     (packageSpec) => runNpm([
       "install",
       "--ignore-scripts",
@@ -947,17 +948,16 @@ function assertVerifiedArtifact(artifact: VerifiedTarballArtifact): void {
 
 function withVerifiedInvocationTarball<T>(
   artifact: VerifiedTarballArtifact,
-  runtimeRoot: string,
-  command: string,
   invoke: (packageSpec: string) => T,
 ): T {
   try {
     assertVerifiedArtifact(artifact);
-    const copiesRoot = path.join(runtimeRoot, "verified-artifacts");
-    fs.mkdirSync(copiesRoot, { recursive: true, mode: 0o700 });
-    const invocationRoot = fs.mkdtempSync(path.join(copiesRoot, `${command}-`));
+    const invocationRoot = path.join(path.dirname(path.dirname(artifact.originalPath)), "verified-artifacts");
+    fs.mkdirSync(invocationRoot, { recursive: true, mode: 0o700 });
     const invocationPath = path.join(invocationRoot, `${artifact.sha256}.tgz`);
-    fs.writeFileSync(invocationPath, artifact.bytes, { flag: "wx", mode: 0o600 });
+    if (!fs.existsSync(invocationPath)) {
+      fs.writeFileSync(invocationPath, artifact.bytes, { flag: "wx", mode: 0o600 });
+    }
     const invocationRealPath = fs.realpathSync(invocationPath);
     assertArtifactFile(invocationPath, invocationRealPath, artifact.sha256);
     const result = invoke(invocationPath);
@@ -1003,7 +1003,7 @@ function runPackageCliResult(
   runNpm: NpmRunner,
   options: PackageCliOptions = {},
 ): PackageCliResult {
-  return withVerifiedInvocationTarball(artifact, runtimeRoot, command, (packageSpec) => {
+  return withVerifiedInvocationTarball(artifact, (packageSpec) => {
     const args = [
       "exec",
       "--yes",
@@ -1022,7 +1022,8 @@ function runPackageCliResult(
     for (const capability of capabilities) args.push("--capability", capability);
     if (command === "uninstall" && (options.all ?? capabilities.length === 0)) args.push("--all");
     if (command !== "status" && command !== "doctor") args.push("--yes");
-    const result = runNpm(args, projectRoot, safeEnvironment(runtimeRoot, true));
+    const sharedNpmCache = path.join(path.dirname(path.dirname(artifact.originalPath)), "npm-exec-cache");
+    const result = runNpm(args, projectRoot, safeEnvironment(runtimeRoot, true, sharedNpmCache));
     const payload = parseCliDocument(result);
     return Object.freeze({ code: result.code, ...(payload === undefined ? {} : { payload }) });
   });
