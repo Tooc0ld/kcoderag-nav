@@ -68,33 +68,58 @@ test("release has only gate and publish jobs and every checkout binds the tag su
   assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 2);
 });
 
-test("release steps are immutable and execute every gate before one publish", () => {
+test("required lanes execute every gate before the dependent publish job finalizes the package", () => {
   const source = workflow();
   assert.match(source, /actions\/checkout@[0-9a-f]{40}/u);
   assert.match(source, /actions\/setup-node@[0-9a-f]{40}/u);
   assert.doesNotMatch(source, /uses:\s*[^\n]+@(main|master|v[0-9]+)(?:\s|$)/iu);
 
-  const ordered = [
+  const publishStart = position(source, "  publish:");
+  const requiredJob = source.slice(position(source, "  required-contracts:"), publishStart);
+  const publishJob = source.slice(publishStart);
+  const requiredGates = [
     "npm ci --ignore-scripts",
+    "Verify tag matches package version",
     "npm run build",
     "npm run deps:audit",
+    "npm run test:launcher",
     "npm test",
     "npm run generate:check",
     "npm run docs:check",
     "npm run audit:retirement",
     "npm run smoke:required",
     "npm run pack:audit",
-    "npm publish --access public --ignore-scripts",
   ];
   let previous = -1;
-  for (const command of ordered) {
-    const current = position(source, command);
+  for (const command of requiredGates) {
+    const current = position(requiredJob, command);
     assert.ok(current > previous, `${command} must follow the prior gate`);
     previous = current;
   }
+
+  const publishSteps = [
+    "npm ci --ignore-scripts",
+    "Verify tag matches package version",
+    "npm run build",
+    "npm run deps:audit",
+    "npm run pack:audit",
+    "npm publish --access public --ignore-scripts",
+  ];
+  previous = -1;
+  for (const command of publishSteps) {
+    const current = position(publishJob, command);
+    assert.ok(current > previous, `${command} must follow the prior publish step`);
+    previous = current;
+  }
+
+  assert.doesNotMatch(
+    publishJob,
+    /npm test|npm run (?:test:launcher|generate:check|docs:check|audit:retirement|smoke:required)/u,
+  );
   assert.equal(source.match(/npm publish/gu)?.length, 1);
-  assert.equal(source.match(/npm run docs:check/gu)?.length, 2);
-  assert.equal(source.match(/npm run audit:retirement/gu)?.length, 2);
+  assert.equal(source.match(/npm run docs:check/gu)?.length, 1);
+  assert.equal(source.match(/npm run audit:retirement/gu)?.length, 1);
+  assert.equal(source.match(/npm run smoke:required/gu)?.length, 1);
 });
 
 test("tag is checked against package version before any build or publication", () => {

@@ -168,8 +168,10 @@ npx kcoderag-nav@latest update --host zcode
 - required smoke 的 `runtimeContract.layer: packaged` 证明实际 tgz 中的注册处理器可运行，但不证明
   native host admission、workspace trust 或已认证真实 MCP 查询。
 
-Phase 04.2 只验证 exact `0.3.0` 的五宿主 packaged readiness，不执行 publish、tag、release 或
-dist-tag 变更。
+Phase 04.2 本身只验证 exact `0.3.0` 的五宿主 packaged readiness，不执行 publish、tag、release 或
+dist-tag 变更。其后经独立发布授权和全新候选门禁，annotated tag `v0.3.0` 已完成 Release workflow，
+`kcoderag-nav@0.3.0` 已发布到 npm，`latest` 当前指向 `0.3.0`。已发布版本仍只通过前进版本修复，
+不 unpublish 或回退 dist-tag。
 Phase 05 负责 Hook 精度，Phase 06 负责 authenticated real-host MCP 查询以及 OpenCode/ZCode 真机证据，
 Phase 07 负责全局 GSD Hook，Phase 08 负责身份、HTTPS、凭据轮换与发布自动化；本阶段不提前声明这些
 事项完成。

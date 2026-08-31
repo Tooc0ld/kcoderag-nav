@@ -102,16 +102,6 @@ jobs:
         run: npm run build
       - name: Audit exact dependency graph
         run: npm run deps:audit
-      - name: Run complete Node test suite
-        run: npm test
-      - name: Check deterministic generated products
-        run: npm run generate:check
-      - name: Validate canonical docs and secret scans
-        run: npm run docs:check
-      - name: Audit retired authority directly
-        run: npm run audit:retirement
-      - name: Run required five-host contract smoke
-        run: npm run smoke:required
       - name: Audit real npm tarball
         run: npm run pack:audit
       - name: Publish verified immutable package

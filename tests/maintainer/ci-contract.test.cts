@@ -94,14 +94,17 @@ test("optional live smoke is isolated behind an explicit self-hosted workflow-di
   assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer/iu);
 });
 
-test("workflow is test-only on push and pull request with minimal authority", () => {
+test("workflow is test-only on branch pushes and pull requests with minimal authority", () => {
   const source = workflow();
-  assert.match(source, /^on:\s*\r?\n\s+push:\s*\r?\n\s+pull_request:/mu);
+  assert.match(
+    source,
+    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+pull_request:/mu,
+  );
   assert.match(source, /permissions:\s*\r?\n\s+contents:\s*read/u);
   assert.match(source, /concurrency:\s*\r?\n\s+group:/u);
   assert.match(source, /cancel-in-progress:\s*true/u);
   assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/iu);
-  assert.doesNotMatch(source, /tags:\s*|release:|workflow_run:/iu);
+  assert.doesNotMatch(source, /tags(?:-ignore)?:\s*|release:|workflow_run:/iu);
 });
 
 test("third-party actions are immutable pins and no CI script can publish", () => {
