@@ -108,8 +108,30 @@ function completePublicContract(): string {
   ].join("\n");
 }
 
+function completeUserGuide(): string {
+  return [
+    "# KCodeRag Nav installation and use",
+    "Node.js 22+ users run npx kcoderag-nav@latest install in one project.",
+    "The built-ins are kcoderag-navigation and code-style-nudge.",
+    "Codex, Claude Code, Cursor, OpenCode, and ZCode are supported hosts.",
+    "install, status, doctor, update, and uninstall are the five lifecycle commands.",
+    "Run status and doctor, then reopen the host session.",
+    "Daily use calls search_code, context, get_call_chain, and list_indexes.",
+    "Claude Code 2.1.241 is supported for code-style-nudge; other hosts are not enabled and users should not select it.",
+    "",
+  ].join("\n");
+}
+
 function writeCanonicalContract(root: string): void {
-  for (const relativePath of CANONICAL_REPO_DOCS) write(root, relativePath, completePublicContract());
+  for (const relativePath of CANONICAL_REPO_DOCS) {
+    write(
+      root,
+      relativePath,
+      relativePath === "docs/MCP_QA_EXPERIENCE_GUIDE.md"
+        ? completeUserGuide()
+        : completePublicContract(),
+    );
+  }
 }
 
 test("accepts valid scoped user documentation and local Markdown links", () => {
@@ -220,6 +242,25 @@ test("canonical public contract requires capability lifecycle, support, integrit
       fs.writeFileSync(target, fs.readFileSync(target, "utf8").replace(before, after), "utf8");
       assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root })).includes(expectedCode));
     }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the user guide requires actionable onboarding without maintainer-only evidence topics", () => {
+  const root = temporaryDirectory("kcoderag-user-guide-contract-");
+  try {
+    writeCanonicalContract(root);
+    const guide = path.join(root, "docs", "MCP_QA_EXPERIENCE_GUIDE.md");
+    const source = fs.readFileSync(guide, "utf8");
+    assert.equal(/receipt|digest|runtimeContract|Phase\s+0/iu.test(source), false);
+    assert.deepEqual(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }).diagnostics, []);
+
+    fs.writeFileSync(guide, source.replace("search_code", "find_code"), "utf8");
+    assert.ok(
+      codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }))
+        .includes("missing_topic_daily_use"),
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

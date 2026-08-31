@@ -39,11 +39,11 @@ const CANONICAL_REPO_DOCS = Object.freeze([
   "kcoderag-cursor/README.md",
   "docs/MCP_QA_EXPERIENCE_GUIDE.md",
 ] as const);
+const USER_GUIDE = "docs/MCP_QA_EXPERIENCE_GUIDE.md";
 const OVERVIEW_DOCS = new Set([
   "README.md",
   "plugin-src/README.md.tmpl",
   "kcoderag-qa/README.md",
-  "docs/MCP_QA_EXPERIENCE_GUIDE.md",
 ]);
 const CURSOR_DOCS = new Set([
   "plugin-src/cursor/README.md.tmpl",
@@ -137,6 +137,37 @@ const CURSOR_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
     code: "missing_topic_cursor_boundary",
     pattern: /always-on\s+Rule[\s\S]{0,240}(?:does\s+not|doesn't|不使用|不声明)[\s\S]{0,120}PreToolUse/iu,
+  },
+]);
+
+const USER_GUIDE_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  {
+    code: "missing_topic_runtime_install",
+    pattern: /(?=[\s\S]*Node(?:\.js)?\s*22)(?=[\s\S]*npx\s+kcoderag-nav@latest\s+install)/iu,
+  },
+  {
+    code: "missing_topic_capabilities",
+    pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*code-style-nudge)/u,
+  },
+  {
+    code: "missing_topic_five_hosts",
+    pattern: /(?=[\s\S]*Codex)(?=[\s\S]*Claude\s+Code)(?=[\s\S]*Cursor)(?=[\s\S]*OpenCode)(?=[\s\S]*ZCode)/u,
+  },
+  {
+    code: "missing_topic_lifecycle",
+    pattern: /(?=[\s\S]*\binstall\b)(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*\bupdate\b)(?=[\s\S]*\buninstall\b)/iu,
+  },
+  {
+    code: "missing_topic_verify_restart",
+    pattern: /(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*(?:restart|reopen|重新打开)[^\n]{0,100}(?:host|session|宿主|会话))/iu,
+  },
+  {
+    code: "missing_topic_daily_use",
+    pattern: /(?=[\s\S]*search_code)(?=[\s\S]*context)(?=[\s\S]*get_call_chain)(?=[\s\S]*list_indexes)/u,
+  },
+  {
+    code: "missing_topic_code_style_support",
+    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:目前只支持|currently\s+only\s+supports?|is\s+supported\s+for)[^\n]{0,160}(?:code-style-nudge|Claude))(?=[\s\S]*(?:其他宿主|other hosts?)[^\n]{0,120}(?:不要选择|未启用|do not select|not enabled|should not select))/iu,
   },
 ]);
 
@@ -386,13 +417,14 @@ function requiredTopicDiagnostics(
   displayPath: string,
 ): readonly Diagnostic[] {
   const source = fs.readFileSync(absolutePath, "utf8");
-  const basename = path.basename(absolutePath);
   const normalized = displayPath.replace(/\\/g, "/");
-  const topics = [
-    ...COMMON_PUBLIC_TOPICS,
-    ...(OVERVIEW_DOCS.has(normalized) || basename === "MCP_QA_EXPERIENCE_GUIDE.md" ? OVERVIEW_PUBLIC_TOPICS : []),
-    ...(CURSOR_DOCS.has(normalized) ? CURSOR_PUBLIC_TOPICS : []),
-  ];
+  const topics = normalized === USER_GUIDE
+    ? USER_GUIDE_TOPICS
+    : [
+        ...COMMON_PUBLIC_TOPICS,
+        ...(OVERVIEW_DOCS.has(normalized) ? OVERVIEW_PUBLIC_TOPICS : []),
+        ...(CURSOR_DOCS.has(normalized) ? CURSOR_PUBLIC_TOPICS : []),
+      ];
   return topics
     .filter((topic) => !topic.pattern.test(source))
     .map((topic) => ({ code: topic.code, path: displayPath, line: 1 }));

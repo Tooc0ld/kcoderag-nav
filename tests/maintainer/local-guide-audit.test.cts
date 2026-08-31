@@ -29,21 +29,14 @@ function temporaryRoot(): string {
 
 function completeGuide(): string {
   return [
-    "# QA project integration guide",
-    "Node.js 22+ users run npx kcoderag-nav@latest install.",
+    "# KCodeRag Nav installation and use",
+    "Node.js 22+ users run npx kcoderag-nav@latest install in one project.",
     "The built-ins are kcoderag-navigation and code-style-nudge.",
-    "Codex, Claude Code, Cursor, OpenCode, and ZCode are project-scoped hosts.",
+    "Codex, Claude Code, Cursor, OpenCode, and ZCode are supported hosts.",
     "install, status, doctor, update, and uninstall are the five lifecycle commands.",
-    "source_conflict has ok: false and the same gate covers all mutations before zero writes.",
-    "The CLI does not migrate, adopt, or automatically clean manual sources.",
-    "Current schema v1 binds a composite digest and every managed file; drift reports capability_drift.",
-    "Close every related host session, remove kcoderag-nav/nudges, then reopen; status and doctor remain read-only and failures are fail-open.",
-    "Claude Code 2.1.241 is supported with exact PASS.",
-    "Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED; ZCode has no PASS receipt.",
-    "ZCode uses .zcode/config.json, hooks.enabled, PreToolUse and PostToolUse; users must trust the workspace Hook.",
-    "runtimeContract.layer: packaged does not prove native host admission or authenticated real-host MCP queries.",
-    "Phase 04.2 is readiness-only and performs no publish, tag, release, or dist-tag change.",
-    "Phase 05 owns Hook precision, Phase 06 real-host evidence, Phase 07 global Hook work, and Phase 08 production security.",
+    "Run status and doctor, then reopen the host session.",
+    "Daily use calls search_code, context, get_call_chain, and list_indexes.",
+    "Claude Code 2.1.241 is supported for code-style-nudge; other hosts are not enabled and users should not select it.",
     "",
   ].join("\n");
 }
@@ -69,7 +62,7 @@ test("audits only the exact repository-local regular guide and returns bounded m
     assert.deepEqual(Object.keys(result).sort(), ["pathToken", "sha256", "topicCount"]);
     assert.equal(result.pathToken, GUIDE);
     assert.equal(result.sha256, crypto.createHash("sha256").update(source).digest("hex"));
-    assert.equal(result.topicCount, 13);
+    assert.equal(result.topicCount, 7);
     assert.equal(JSON.stringify(result).includes(root), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -93,12 +86,12 @@ test("fails safely for absent, empty, oversized, and incomplete local guides", (
       () => audit.auditLocalGuide({ root }),
       (error: unknown) => errorCode(error) === "guide_too_large",
     );
-    writeGuide(root, completeGuide().replace("source_conflict", "source issue"));
+    writeGuide(root, completeGuide().replace("search_code", "find_code"));
     assert.throws(
       () => audit.auditLocalGuide({ root }),
       (error: unknown) =>
-        errorCode(error) === "missing_topic_source_gate" &&
-        !(error as Error).message.includes("source issue"),
+        errorCode(error) === "missing_topic_daily_use" &&
+        !(error as Error).message.includes("find_code"),
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

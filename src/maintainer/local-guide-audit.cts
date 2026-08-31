@@ -46,40 +46,16 @@ const REQUIRED_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     pattern: /(?=[\s\S]*\binstall\b)(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*\bupdate\b)(?=[\s\S]*\buninstall\b)/iu,
   },
   {
-    code: "missing_topic_source_gate",
-    pattern: /(?=[\s\S]*source_conflict)(?=[\s\S]*ok\s*[:：]?\s*`?false)(?=[\s\S]*(?:same\s+(?:source\s+)?gate|同一来源门禁)[\s\S]{0,300}(?:all\s+mutations|install[、,\s]+update[和、,\s]+uninstall|全部变更命令|覆盖[\s\S]{0,80}install))[\s\S]*(?:zero\s+writes?|零写|写入前)/iu,
+    code: "missing_topic_verify_restart",
+    pattern: /(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*(?:restart|reopen|重新打开)[^\n]{0,100}(?:host|session|宿主|会话))/iu,
   },
   {
-    code: "missing_topic_no_source_authority",
-    pattern: /(?:does\s+not|no|without|不|没有|无)[^\n]{0,120}(?:migrat|adopt|automatic(?:ally)?\s+clean|cleanup\s+(?:path|authority|command)|迁移|接管|自动清理)/iu,
+    code: "missing_topic_daily_use",
+    pattern: /(?=[\s\S]*search_code)(?=[\s\S]*context)(?=[\s\S]*get_call_chain)(?=[\s\S]*list_indexes)/u,
   },
   {
-    code: "missing_topic_integrity",
-    pattern: /(?=[\s\S]*(?:schema\s*v1|schema-v1))(?=[\s\S]*(?:composite\s+digest|复合摘要))(?=[\s\S]*(?:every|all|全部|每个)[^\n]{0,100}(?:managed\s+file|受管文件))(?=[\s\S]*capability_drift)/iu,
-  },
-  {
-    code: "missing_topic_marker_reset",
-    pattern: /(?=[\s\S]*(?:close|关闭)[\s\S]{0,180}(?:session|会话))(?=[\s\S]*kcoderag-nav[\\/]nudges)(?=[\s\S]*(?:status|doctor)[\s\S]{0,180}(?:read-only|只读))(?=[\s\S]*fail-open)/iu,
-  },
-  {
-    code: "missing_topic_exact_support",
-    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241[^\n]{0,120}(?:PASS|支持|supported))(?=[\s\S]*Codex[^\n]{0,100}0\.146\.1[^\n]{0,120}UNSUPPORTED)(?=[\s\S]*Cursor[^\n]{0,100}3\.17\.8[^\n]{0,120}UNSUPPORTED)(?=[\s\S]*OpenCode[^\n]{0,100}1\.18\.23[^\n]{0,120}UNSUPPORTED)(?=[\s\S]*ZCode[^\n]{0,160}(?:no\s+PASS|无\s*PASS))/iu,
-  },
-  {
-    code: "missing_topic_zcode_boundary",
-    pattern: /(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*hooks?\.enabled)(?=[\s\S]*PreToolUse)(?=[\s\S]*PostToolUse)(?=[\s\S]*(?:trust|信任|批准)[\s\S]{0,200}(?:workspace\s+Hook|工作区\s*Hook|Hook))/iu,
-  },
-  {
-    code: "missing_topic_packaged_native_boundary",
-    pattern: /(?=[\s\S]*runtimeContract\.layer\s*:\s*`?packaged`?)(?=[\s\S]*(?:does\s+not|not|不等于|不能证明)[^\n]{0,180}(?:native\s+host|host\s+admission|真宿主|宿主[^\n]{0,50}接纳|真实[^\n]{0,50}MCP))/iu,
-  },
-  {
-    code: "missing_topic_readiness_only",
-    pattern: /(?=[\s\S]*(?:readiness-only|只验证[^\n]{0,80}readiness))(?=[\s\S]*(?:no|不|不执行|不进行)[^\n]{0,120}(?:publish|tag|release|dist-tag))/iu,
-  },
-  {
-    code: "missing_topic_deferred_phases",
-    pattern: /(?=[\s\S]*Phase\s+05)(?=[\s\S]*Phase\s+06)(?=[\s\S]*Phase\s+07)(?=[\s\S]*Phase\s+08)/iu,
+    code: "missing_topic_code_style_support",
+    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:目前只支持|currently\s+only\s+supports?|is\s+supported\s+for)[^\n]{0,160}(?:code-style-nudge|Claude))(?=[\s\S]*(?:其他宿主|other hosts?)[^\n]{0,120}(?:不要选择|未启用|do not select|not enabled|should not select))/iu,
   },
 ]);
 
