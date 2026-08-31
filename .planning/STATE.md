@@ -4,10 +4,10 @@ current_phase: 05
 current_phase_name: 低误报 Hook 与诚实路由
 status: planning
 stopped_at: Phase 04.2 maintenance closure complete, ready to plan Phase 05
-last_updated: "2026-08-31T21:03:28+08:00"
+last_updated: "2026-08-31T21:15:52+08:00"
 last_activity: 2026-08-31
 last_activity_desc: Completed quick task 260831-s98 automated self-hosted acceptance
-state_head: c9e5f2926cadff4efbec4ed970767e0758037b70
+state_head: 2becfe29f564dd011b8a81ff91cedfb6769f1880
 progress:
   total_phases: 11
   completed_phases: 6
@@ -378,7 +378,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260831-nb1 | Update the authoritative v0.3.0 release guide and streamline duplicate CI verification | 2026-08-31 | dfeb55b | [260831-nb1-update-the-local-authoritative-mcp-qa-gu](./quick/260831-nb1-update-the-local-authoritative-mcp-qa-gu/) | Verified |
 | 260831-nxv | Route documentation-only changes to lightweight CI while preserving full product gates | 2026-08-31 | c74f404 | [260831-nxv-route-documentation-only-branch-and-pull](./quick/260831-nxv-route-documentation-only-branch-and-pull/) | Verified |
 | 260831-ooz | 精简 QA 项目集成体验指南，只保留安装、验证、使用、更新和卸载 | 2026-08-31 | 88c531d | [260831-ooz-qa](./quick/260831-ooz-qa/) | Verified |
-| 260831-s98 | Automate self-hosted live acceptance and remove legacy manual acceptance projects | 2026-08-31 | c9e5f29 | [260831-s98-automate-self-hosted-live-acceptance-and](./quick/260831-s98-automate-self-hosted-live-acceptance-and/) | Verified |
+| 260831-s98 | Automate self-hosted live acceptance and remove legacy manual acceptance projects | 2026-08-31 | c9e5f29, 2becfe2 | [260831-s98-automate-self-hosted-live-acceptance-and](./quick/260831-s98-automate-self-hosted-live-acceptance-and/) | Verified |
 
 ### Roadmap Evolution
 
