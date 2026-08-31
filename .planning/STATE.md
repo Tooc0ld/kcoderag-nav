@@ -4,10 +4,10 @@ current_phase: 05
 current_phase_name: 低误报 Hook 与诚实路由
 status: planning
 stopped_at: Phase 04.2 maintenance closure complete, ready to plan Phase 05
-last_updated: "2026-08-31T17:01:07+08:00"
+last_updated: "2026-08-31T17:34:42+08:00"
 last_activity: 2026-08-31
-last_activity_desc: Completed quick task 260831-nb1 release guide update and CI streamlining
-state_head: dfeb55b78f3513e06d33f75ed2a0efba11c63e01
+last_activity_desc: Completed quick task 260831-nxv documentation-only CI routing
+state_head: c74f4041dcdebc531852a95fd8f63415598b5d47
 progress:
   total_phases: 11
   completed_phases: 6
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 Phase: 05 — 低误报 Hook 与诚实路由
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-31 — Completed quick task 260831-nb1 release guide update and CI streamlining
+Last activity: 2026-08-31 — Completed quick task 260831-nxv documentation-only CI routing
 
 Progress: [████████████████████] 111/111 plans (100%)
 
@@ -376,6 +376,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260830-x2k | Optimize Phase 04.2 readiness CI latency without weakening five-host gates | 2026-08-31 | 7db76e8 | [260830-x2k-phase-04-2-readiness-ci-readiness-workfl](./quick/260830-x2k-phase-04-2-readiness-ci-readiness-workfl/) | Verified |
 | 260831-0ei | Close Phase 04.2 Action-pin and maintenance debt with fresh local evidence | 2026-08-31 | f7ef9c5, 87878b5, aef48d0 | [260831-0ei-close-phase-04-2-maintenance-debt-audit-](./quick/260831-0ei-close-phase-04-2-maintenance-debt-audit-/) | Verified |
 | 260831-nb1 | Update the authoritative v0.3.0 release guide and streamline duplicate CI verification | 2026-08-31 | dfeb55b | [260831-nb1-update-the-local-authoritative-mcp-qa-gu](./quick/260831-nb1-update-the-local-authoritative-mcp-qa-gu/) | Verified |
+| 260831-nxv | Route documentation-only changes to lightweight CI while preserving full product gates | 2026-08-31 | c74f404 | [260831-nxv-route-documentation-only-branch-and-pull](./quick/260831-nxv-route-documentation-only-branch-and-pull/) | Verified |
 
 ### Roadmap Evolution
 
