@@ -7,6 +7,8 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const util = require("node:util") as typeof import("node:util");
 
+import { isPathAtOrWithin } from "../core/project-target.cjs";
+
 export interface ScrubHunkRange {
   readonly oldStart: number;
   readonly oldCount: number;
@@ -251,7 +253,10 @@ function assertRepositoryRoot(root: string, maximumBytes: number): void {
   } catch {
     throw new ScrubBaselineError("scrub_root_unavailable");
   }
-  failUnless(actual === expected, "scrub_root_mismatch");
+  failUnless(
+    isPathAtOrWithin(actual, expected) && isPathAtOrWithin(expected, actual),
+    "scrub_root_mismatch",
+  );
 }
 
 function fieldEnd(value: string, spaces: number): number {

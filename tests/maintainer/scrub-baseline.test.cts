@@ -127,6 +127,23 @@ function unrelatedIndexBytes(root: string, excluded: ReadonlySet<string>): Buffe
   return Buffer.from(kept.join("\0"), "utf8");
 }
 
+test("Windows repository-root identity tolerates Git and Node path casing", {
+  skip: process.platform !== "win32",
+}, () => {
+  const root = createRepository({ "target.txt": "base\n" });
+  const caseVariant = root === root.toUpperCase() ? root.toLowerCase() : root.toUpperCase();
+  try {
+    assert.notEqual(caseVariant, root);
+    const baseline = scrub.captureScrubBaseline({
+      root: caseVariant,
+      explicitPaths: ["target.txt"],
+    });
+    assert.equal(baseline.code, "baseline_captured");
+  } finally {
+    remove(root);
+  }
+});
+
 test("capture keeps raw tracked diffs private and exposes only classified metadata", () => {
   const root = createRepository({
     "target.txt": "target\n",

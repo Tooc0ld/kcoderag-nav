@@ -25,20 +25,22 @@ updated: 2026-08-31
   - tests: success-path CLI tests do not provide a hermetic supported Claude version.
   - runtime: compiled CLI correctly rejects unavailable/unsupported host versions according to the frozen receipt policy.
 - and_gate: yes — the failure requires both a code-style capability success path and a runner without the exact supported Claude version.
-- next_action: Commit the resolved fix, promote the new exact candidate, wait for hosted readiness and ordinary CI, then create and push `v0.3.0`.
+- next_action: Commit and promote the repaired candidate, wait for all hosted gates, then create and push `v0.3.0` and verify npm publication.
 - reasoning_checkpoint:
-    hypothesis: Ambient host detection made ordinary CI non-hermetic, while the release smoke entrypoint called a lease-required API without constructing the lease.
+    hypothesis: Ambient host detection made ordinary CI non-hermetic, the release smoke entrypoint omitted its required lease, and scrub root identity used case-sensitive equality on Windows.
     confirming_evidence:
       - Restricting PATH reproduced the exact same six `host_version_unsupported` failures as all four hosted CI lanes.
       - A test-only preload supplying Claude 2.1.241 changed that exact regression from 20/26 to 26/26 without weakening runtime support checks.
       - Before the smoke entrypoint fix, `npm run smoke:required` returned `NOT_RUN/package_unavailable`; afterward it returned PASS for all five hosts from one 77-member candidate tgz.
-      - The full suite passes 430/430 and every locally reproducible release gate passes after the final code change.
+      - Hosted Windows reproduced `scrub_root_mismatch` while Ubuntu passed; a local casing-only root variant reproduced the comparison defect.
+      - The focused scrub suite passes 11/11, the full suite passes 431/431, and every locally reproducible release gate passes after the final code change.
     falsification_test: Either restricted-PATH CLI tests still fail, or required smoke returns NOT_RUN/FAIL without registry acquisition.
-    fix_rationale: Keep production support refusal strict; make success tests hermetic and make the maintainer-only required smoke CLI create the artifact lease its API requires.
+    fix_rationale: Keep production support refusal strict; make success tests hermetic, make the maintainer-only required smoke CLI create the artifact lease its API requires, and express exact repository identity through the existing platform-aware path semantics.
     blind_spots: Hosted Node 22/24 Windows/Linux verification and npm publication remain external evidence collected after this local fix commit.
     candidate_causes:
       - tests: ambient real-host dependency in public CLI success paths
       - maintainer CLI: missing current-checkout candidate lease for required smoke
+      - maintainer scrub: case-sensitive canonical path equality on Windows
     and_gate: no — either defect independently blocks the release workflow.
 - tdd_checkpoint:
 
@@ -69,6 +71,21 @@ updated: 2026-08-31
   found: Build succeeds; full suite passes 430/430; dependency audit, 17/17 launcher tests, deterministic generation, docs, retirement audit, five-host required smoke, and 77-entry pack audit all pass.
   implication: The repair is ready for hosted candidate promotion and release execution.
 
+- timestamp: 2026-08-31
+  checked: Hosted ordinary CI runs `33355185125` and `33355185303` for candidate `d58a79c8766bcc7136b7e6f36503a5d9fda2c362`.
+  found: Ubuntu Node 22/24 passed and exact candidate readiness passed all lanes, but both ordinary CI runs failed the same nine scrub-baseline tests on Windows Node 22/24 with `scrub_root_mismatch`.
+  implication: A Windows-only repository-root identity comparison remains before release; tag creation must stay blocked.
+
+- timestamp: 2026-08-31
+  checked: Scrub root validation and the project-wide path-boundary helper.
+  found: Scrub canonicalizes both paths with `fs.realpathSync` and then compares with case-sensitive `===`; the existing `isPathAtOrWithin` helper intentionally normalizes Windows paths case-insensitively and is already covered for Windows-case and POSIX-sibling behavior.
+  implication: Exact identity should be expressed as mutual containment under the project's platform-aware canonical path semantics.
+
+- timestamp: 2026-08-31
+  checked: Final local verification after replacing exact string equality with mutual platform-aware containment.
+  found: The Windows casing regression and focused scrub suite pass 11/11; the full suite passes 431/431; build, dependency audit, 17/17 launcher tests, deterministic generation, docs, retirement audit, five-host required smoke, and 77-entry pack audit all pass.
+  implication: All known release blockers are repaired locally and the candidate is ready for hosted promotion.
+
 ## Eliminated
 
 - hypothesis: The candidate or master points to the wrong commit.
@@ -81,7 +98,7 @@ updated: 2026-08-31
 
 ## Resolution
 
-- root_cause: Six public CLI success tests inherited the developer machine's real Claude executable instead of controlling the exact supported version, so hostless CI runners rejected code-style capability setup. Independently, the release workflow's `smoke:required` command invoked `runHostSmoke` without the candidate artifact lease that required-contract mode deliberately demands, guaranteeing `NOT_RUN` before publication.
-- fix: Added a test-only Node preload that answers only the exact `claude --version` probe with frozen version 2.1.241; updated the required smoke CLI to create and dispose one current-checkout candidate lease; added a fast injected regression proving lease creation and forwarding.
-- verification: Restricted-PATH CLI tests pass 26/26; full suite passes 430/430; required packaged smoke passes all five hosts; every locally reproducible release gate passes, including pack audit with 77 entries.
-- files_changed: [.planning/debug/release-ci-host-version.md, src/smoke/host-smoke.cts, tests/cli/commands.test.cts, tests/smoke/host-smoke.test.cts]
+- root_cause: Six public CLI success tests inherited the developer machine's real Claude executable instead of controlling the exact supported version, so hostless CI runners rejected code-style capability setup. Independently, the release workflow's `smoke:required` command invoked `runHostSmoke` without the candidate artifact lease that required-contract mode deliberately demands. Finally, scrub baseline validation compared canonical Windows roots with case-sensitive string equality even though Git and Node may preserve different casing for the same directory.
+- fix: Added a test-only Node preload for the exact frozen Claude version probe; updated required smoke to create and dispose one current-checkout candidate lease; replaced scrub root string equality with mutual containment under the existing platform-aware helper; added focused regressions for lease forwarding and Windows path casing.
+- verification: Restricted-PATH CLI tests pass 26/26; focused scrub tests pass 11/11; full suite passes 431/431; required packaged smoke passes all five hosts; every locally reproducible release gate passes, including pack audit with 77 entries.
+- files_changed: [.planning/debug/release-ci-host-version.md, src/smoke/host-smoke.cts, tests/cli/commands.test.cts, tests/smoke/host-smoke.test.cts, src/maintainer/scrub-baseline.cts, tests/maintainer/scrub-baseline.test.cts]
