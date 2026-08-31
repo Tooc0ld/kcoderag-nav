@@ -57,6 +57,10 @@ navigation 保持健康。
 安装或更新后，运行所选宿主的 `status` 与 `doctor`，然后重新打开宿主会话。`healthy` 只证明项目
 集成完整，不等于 live QA 服务或真宿主接纳已经验收。
 
+需要验收 live QA 时，还应通过已认证连接完成 `initialize`、`tools/list` 和至少一次
+`search_code`。协议 revision、工具集合和成功响应结构必须同时符合下文合同；HTTP 200、MCP
+connected 或仅列出工具都不能单独替代 live 验收。
+
 ## 五个生命周期命令
 
 ```powershell
@@ -170,6 +174,33 @@ Phase 05 负责 Hook 精度，Phase 06 负责 authenticated real-host MCP 查询
 Phase 07 负责全局 GSD Hook，Phase 08 负责身份、HTTPS、凭据轮换与发布自动化；本阶段不提前声明这些
 事项完成。
 
+## 正式 MCP 服务合同
+
+KCodeRag 当前正式工具面固定为六个：
+
+| 工具 | 用途 |
+| --- | --- |
+| `search_code` | 按关键词、语义或混合模式搜索代码实体 |
+| `list_indexes` | 查看全文与向量索引及其覆盖状态 |
+| `get_call_chain` | 追踪 callers/callees 和跨语言调用关系 |
+| `context` | 查看符号概览、关系、执行流和按需源码 |
+| `cypher` | 执行受限的只读图查询 |
+| `submit_feedback` | 提交严格脱敏、等待人工复核的观察 |
+
+`get_entity_context` 与 `get_knowledge_bundle` 已退役，调用必须返回 `unknown tool`，不会转发到
+`context`。`cypher` 会拒绝写入语句和存储过程调用，其他查询工具也不会修改图数据。
+
+服务只接受 MCP protocol revision `2025-11-25`。成功的 `tools/call` 必须同时返回 `content`、
+`structuredContent` 和 `isError`；机器事实只从 `structuredContent` 获取，Text `content` 只是有界
+摘要。通用结构包含 `completeness`，`meta` 中的 `requested`、`effective` 及 changes 用于表达请求
+语义与实际语义的差异。revision 不符或成功响应缺少这些字段时，应判定部署漂移并停止验收。
+
+两个正式只读 Resource 是 `krag://graph/status` 和 `krag://graph/schema`。它们提供有界状态和 schema
+快照，不是可参数化的图查询工具。
+
+只需要原生 MCP 时，可以直接在客户端设置中注册 KCodeRag Streamable HTTP server；这种接入不包含
+nav 的 Hook、Rule、Skill、更新提示或受管生命周期。服务地址与认证材料由部署约定单独维护。
+
 ## MCP 查询工作流
 
 正式工具面包括 `search_code`、`context`、`get_call_chain`、`list_indexes`、`cypher` 和
@@ -193,6 +224,8 @@ search_code   context      get_call_chain    context          grep/rg
 - `ambiguous_project_config`：人工确认 OpenCode 的两个项目配置，安装器不会替用户删除。
 - QA 不可达：明确报告网络、服务或鉴权问题，不切换到其他环境。
 - 语义搜索不可用：调用 `list_indexes`，再使用 keyword 继续按名查询。
+- `initialize` revision 或成功响应结构不符：按部署漂移处理，更新 QA 服务后重新验收。
+- 同名实体过多：从 candidates 中选择完全限定实体，再调用 `context`。
 
 本文件由本仓库独立维护，并参与 docs、打包、Git 与 tgz 审计。它不依赖其他仓库的文件、状态、
 提交或摘要。
