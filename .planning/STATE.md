@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 Phase: 05 — 低误报 Hook 与诚实路由
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-31 — Completed quick task 260831-nxv documentation-only CI routing
+Last activity: 2026-08-31 — Completed quick task 260831-ooz user-facing installation guide simplification
 
 Progress: [████████████████████] 111/111 plans (100%)
 
@@ -377,6 +377,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260831-0ei | Close Phase 04.2 Action-pin and maintenance debt with fresh local evidence | 2026-08-31 | f7ef9c5, 87878b5, aef48d0 | [260831-0ei-close-phase-04-2-maintenance-debt-audit-](./quick/260831-0ei-close-phase-04-2-maintenance-debt-audit-/) | Verified |
 | 260831-nb1 | Update the authoritative v0.3.0 release guide and streamline duplicate CI verification | 2026-08-31 | dfeb55b | [260831-nb1-update-the-local-authoritative-mcp-qa-gu](./quick/260831-nb1-update-the-local-authoritative-mcp-qa-gu/) | Verified |
 | 260831-nxv | Route documentation-only changes to lightweight CI while preserving full product gates | 2026-08-31 | c74f404 | [260831-nxv-route-documentation-only-branch-and-pull](./quick/260831-nxv-route-documentation-only-branch-and-pull/) | Verified |
+| 260831-ooz | 精简 QA 项目集成体验指南，只保留安装、验证、使用、更新和卸载 | 2026-08-31 | 88c531d | [260831-ooz-qa](./quick/260831-ooz-qa/) | Verified |
 
 ### Roadmap Evolution
 
