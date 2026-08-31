@@ -152,7 +152,11 @@ test("workflow is test-only on branch pushes and pull requests with minimal auth
     /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+pull_request:/mu,
   );
   assert.match(source, /permissions:\s*\r?\n\s+contents:\s*read/u);
-  assert.match(source, /concurrency:\s*\r?\n\s+group:/u);
+  assert.match(
+    source,
+    /concurrency:\s*\r?\n\s+group:\s*required-ci-\$\{\{ github\.workflow \}\}-\$\{\{ github\.sha \}\}/u,
+  );
+  assert.doesNotMatch(source, /required-ci-[^\r\n]*github\.ref/u);
   assert.match(source, /cancel-in-progress:\s*true/u);
   assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/iu);
   assert.doesNotMatch(source, /tags(?:-ignore)?:\s*|release:|workflow_run:/iu);
