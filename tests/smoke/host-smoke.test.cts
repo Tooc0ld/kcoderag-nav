@@ -165,6 +165,7 @@ interface AcquiredPackage extends PackageProvenance {
 
 interface SmokeModule {
   readonly EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[];
+  readonly LIVE_PROMPT: string;
   completeEvidence(overrides?: Partial<SmokeEvidence>): SmokeEvidence;
   evaluateHostEvidence(input: {
     readonly host: HostId;
@@ -177,6 +178,11 @@ interface SmokeModule {
     readonly mode: SmokeMode;
     readonly status: SmokeStatus;
   }): number;
+  liveCommandSpec(host: HostId, projectRoot: string): {
+    readonly executable: "codex" | "claude" | "opencode";
+    readonly args: readonly string[];
+  };
+  projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean;
   runHostSmoke(options: {
     readonly mode: SmokeMode;
     readonly packageSpec?: string;
@@ -490,6 +496,54 @@ test("optional live keeps NOT_RUN honest and never converts a failure into succe
   });
   assert.equal(liveScope.status, "PASS");
   assert.equal(liveScope.evidence.sourceConflict, false);
+});
+
+test("live command specs support disposable non-git projects and require the MCP tool call", () => {
+  const projectRoot = path.join("C:", "acceptance", "project");
+  const codex = smoke.liveCommandSpec("codex", projectRoot);
+  assert.equal(codex.executable, "codex");
+  assert.ok(codex.args.includes("--skip-git-repo-check"));
+  assert.ok(codex.args.includes("--ignore-user-config"));
+  assert.equal(codex.args.at(-1), smoke.LIVE_PROMPT);
+
+  const claude = smoke.liveCommandSpec("claude", projectRoot);
+  assert.equal(claude.executable, "claude");
+  assert.ok(claude.args.includes("--strict-mcp-config"));
+  assert.ok(claude.args.includes("--no-session-persistence"));
+  assert.ok(claude.args.includes(smoke.LIVE_PROMPT));
+
+  const opencode = smoke.liveCommandSpec("opencode", projectRoot);
+  assert.equal(opencode.executable, "opencode");
+  assert.ok(opencode.args.includes(smoke.LIVE_PROMPT));
+  assert.match(smoke.LIVE_PROMPT, /must call[\s\S]*search_code[\s\S]*exactly once/iu);
+  assert.throws(() => smoke.liveCommandSpec("cursor", projectRoot), /headless_host_unsupported/u);
+});
+
+test("live credential projection copies only one bounded credential into the disposable home", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-credential-"));
+  try {
+    const sourceRoot = path.join(root, "source");
+    const runtimeRoot = path.join(root, "runtime");
+    fs.mkdirSync(sourceRoot, { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "auth.json"), "synthetic-auth", "utf8");
+    fs.writeFileSync(path.join(sourceRoot, "config.toml"), "must-not-copy", "utf8");
+
+    assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), true);
+    assert.equal(
+      fs.readFileSync(path.join(runtimeRoot, "host-home", "auth.json"), "utf8"),
+      "synthetic-auth",
+    );
+    assert.equal(fs.existsSync(path.join(runtimeRoot, "host-home", "config.toml")), false);
+    assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), false);
+    assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), false);
+
+    const oversizedRoot = path.join(root, "oversized");
+    fs.mkdirSync(oversizedRoot, { recursive: true });
+    fs.writeFileSync(path.join(oversizedRoot, ".credentials.json"), Buffer.alloc(64 * 1024 + 1));
+    assert.equal(smoke.projectLiveCredential("claude", path.join(root, "claude-runtime"), oversizedRoot), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("loopback stub performs initialize, list, and call with metadata-only receipts", async () => {

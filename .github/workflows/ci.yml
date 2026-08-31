@@ -109,28 +109,3 @@ jobs:
         run: npm run test:pack
       - name: Test five-host smoke contract
         run: npm run test:smoke
-
-  authenticated-live:
-    name: Optional authenticated host smoke
-    if: ${{ github.event_name == 'workflow_dispatch' && vars.KCODERAG_LIVE_SMOKE == 'enabled' }}
-    runs-on: [self-hosted, kcoderag-live]
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-          cache: npm
-      - name: Install audited dependency graph
-        run: npm ci --ignore-scripts
-      - name: Build CommonJS products and tests
-        run: npm run build
-      - name: Audit exact dependency graph
-        run: npm run deps:audit
-      - name: Run optional authenticated host smoke
-        run: npm run smoke:live

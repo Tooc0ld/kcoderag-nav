@@ -267,6 +267,8 @@ const PACKAGE_NAME = "kcoderag-nav";
 const SYNTHETIC_AUTHORIZATION = "Bearer synthetic-contract-only";
 const COMMAND_TIMEOUT_MS = 120_000;
 const LIVE_TIMEOUT_MS = 120_000;
+const MAX_LIVE_CREDENTIAL_BYTES = 64 * 1024;
+export const LIVE_PROMPT = "You must call the available KCodeRag MCP search_code tool exactly once with query SyntheticSymbol. Do not answer until the tool call completes.";
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -2477,23 +2479,69 @@ function structuredLiveEvidence(output: string): { readonly hook: boolean; reado
   return { hook, tool };
 }
 
-function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): CommandResult {
-  const prompt = "Use structural code search for SyntheticSymbol, then call search_code exactly once.";
+export interface LiveCommandSpec {
+  readonly executable: "codex" | "claude" | "opencode";
+  readonly args: readonly string[];
+}
+
+/** Build the exact headless command separately so version-sensitive flags remain regression tested. */
+export function liveCommandSpec(host: HostId, projectRoot: string): LiveCommandSpec {
   if (host === "codex") {
-    return runProcess("codex", [
+    return Object.freeze({ executable: "codex", args: Object.freeze([
       "exec", "--ephemeral", "--ignore-user-config", "--dangerously-bypass-hook-trust",
-      "--json", "--sandbox", "read-only", "--cd", projectRoot, prompt,
-    ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
+      "--skip-git-repo-check", "--json", "--sandbox", "read-only", "--cd", projectRoot, LIVE_PROMPT,
+    ]) });
   }
   if (host === "opencode") {
-    return runProcess("opencode", [
-      "run", "--format", "json", "--dir", projectRoot, prompt,
-    ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
+    return Object.freeze({ executable: "opencode", args: Object.freeze([
+      "run", "--format", "json", "--dir", projectRoot, LIVE_PROMPT,
+    ]) });
   }
-  return runProcess("claude", [
-    "-p", prompt, "--mcp-config", path.join(projectRoot, ".mcp.json"), "--strict-mcp-config",
-    "--output-format", "stream-json", "--verbose",
-  ], { cwd: projectRoot, env: safeEnvironment(runtimeRoot), timeout: LIVE_TIMEOUT_MS, commandShim: true });
+  if (host !== "claude") throw new Error("headless_host_unsupported");
+  return Object.freeze({ executable: "claude", args: Object.freeze([
+    "-p", LIVE_PROMPT, "--mcp-config", path.join(projectRoot, ".mcp.json"), "--strict-mcp-config",
+    "--no-session-persistence", "--output-format", "stream-json", "--verbose",
+  ]) });
+}
+
+/** Copy only the host login token into the disposable runtime; never import user settings or history. */
+export function projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean {
+  const credentialName = host === "codex"
+    ? "auth.json"
+    : host === "claude"
+      ? ".credentials.json"
+      : undefined;
+  if (credentialName === undefined) return false;
+  const selectedSourceRoot = sourceRoot ?? (host === "codex"
+    ? (process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"))
+    : (process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude")));
+  const sourcePath = path.join(selectedSourceRoot, credentialName);
+  const targetRoot = path.join(runtimeRoot, "host-home");
+  const targetPath = path.join(targetRoot, credentialName);
+  try {
+    const sourceStat = fs.lstatSync(sourcePath);
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.size <= 0 ||
+        sourceStat.size > MAX_LIVE_CREDENTIAL_BYTES) return false;
+    if (path.resolve(sourcePath) === path.resolve(targetPath)) return true;
+    const bytes = fs.readFileSync(sourcePath);
+    if (bytes.length !== sourceStat.size) return false;
+    fs.mkdirSync(targetRoot, { recursive: true });
+    fs.writeFileSync(targetPath, bytes, { flag: "wx", mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): CommandResult {
+  projectLiveCredential(host, runtimeRoot);
+  const command = liveCommandSpec(host, projectRoot);
+  return runProcess(command.executable, command.args, {
+    cwd: projectRoot,
+    env: safeEnvironment(runtimeRoot),
+    timeout: LIVE_TIMEOUT_MS,
+    commandShim: true,
+  });
 }
 
 function hasMcpCallMarker(host: HostId, runtimeRoot: string): boolean {
@@ -2920,6 +2968,9 @@ exports.EVIDENCE_KEYS = EVIDENCE_KEYS;
 exports.completeEvidence = completeEvidence;
 exports.evaluateHostEvidence = evaluateHostEvidence;
 exports.smokeExitCode = smokeExitCode;
+exports.LIVE_PROMPT = LIVE_PROMPT;
+exports.liveCommandSpec = liveCommandSpec;
+exports.projectLiveCredential = projectLiveCredential;
 exports.runHostSmoke = runHostSmoke;
 exports.main = main;
 

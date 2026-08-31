@@ -5,9 +5,14 @@ const path = require("node:path") as typeof import("node:path");
 
 const repositoryRoot = path.resolve(__dirname, "../..");
 const workflowPath = path.join(repositoryRoot, ".github", "workflows", "ci.yml");
+const acceptanceWorkflowPath = path.join(repositoryRoot, ".github", "workflows", "acceptance.yml");
 
 function workflow(): string {
   return fs.readFileSync(workflowPath, "utf8");
+}
+
+function acceptanceWorkflow(): string {
+  return fs.readFileSync(acceptanceWorkflowPath, "utf8");
 }
 
 function job(source: string, name: string, next?: string): string {
@@ -26,7 +31,7 @@ function lanes(source: string): readonly string[] {
 
 test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () => {
   const source = workflow();
-  const required = job(source, "required-contracts", "authenticated-live");
+  const required = job(source, "required-contracts");
   assert.deepEqual(
     lanes(required),
     [
@@ -44,12 +49,12 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   const jobsSource = source.slice(source.indexOf("\njobs:"));
   assert.deepEqual(
     [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["change-scope", "required-contracts", "authenticated-live"],
+    ["change-scope", "required-contracts"],
   );
 });
 
-test("every CI checkout is pinned to the workflow head without retaining credentials", () => {
-  const source = workflow();
+test("every CI and acceptance checkout is pinned to the workflow head without retaining credentials", () => {
+  const source = `${workflow()}\n${acceptanceWorkflow()}`;
   assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 3);
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
   assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 3);
@@ -57,7 +62,7 @@ test("every CI checkout is pinned to the workflow head without retaining credent
 
 test("every required lane installs the lock without scripts and runs all gates", () => {
   const source = workflow();
-  const required = job(source, "required-contracts", "authenticated-live");
+  const required = job(source, "required-contracts");
   const commands = [
     "npm ci --ignore-scripts",
     "npm run build",
@@ -87,7 +92,7 @@ test("every required lane installs the lock without scripts and runs all gates",
 test("documentation-only scope runs one bounded lightweight gate and skips the full matrix", () => {
   const source = workflow();
   const scopeJob = job(source, "change-scope", "required-contracts");
-  const required = job(source, "required-contracts", "authenticated-live");
+  const required = job(source, "required-contracts");
   assert.match(scopeJob, /outputs:\s*\r?\n\s+scope:\s*\$\{\{ steps\.scope\.outputs\.scope \}\}/u);
   assert.match(scopeJob, /fetch-depth:\s*0/u);
   assert.match(scopeJob, /node-version:\s*["']24["']/u);
@@ -115,15 +120,29 @@ test("documentation-only scope runs one bounded lightweight gate and skips the f
   assert.match(required, /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' \}\}/u);
 });
 
-test("optional live smoke is isolated behind an explicit self-hosted workflow-dispatch gate", () => {
-  const source = workflow();
+test("candidate and manual acceptance use the dedicated Windows runner and isolated R-drive temp", () => {
+  const source = acceptanceWorkflow();
   assert.match(
     source,
-    /authenticated-live:[\s\S]*?if:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && vars\.KCODERAG_LIVE_SMOKE == 'enabled' \}\}/u,
+    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']readiness\/\*\*-candidate["']\s*\r?\n\s+workflow_dispatch:/mu,
   );
-  assert.match(source, /runs-on:\s*\[self-hosted, kcoderag-live\]/u);
-  assert.match(source, /authenticated-live:[\s\S]*?run:\s*npm run smoke:live/u);
-  assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer/iu);
+  assert.match(source, /if:\s*\$\{\{ vars\.KCODERAG_LIVE_SMOKE == 'enabled' \}\}/u);
+  assert.match(source, /runs-on:\s*\[self-hosted, Windows, X64, kcoderag-live\]/u);
+  assert.match(source, /R:\\actions-runner\\kcoderag-nav\\_temp/u);
+  assert.match(source, /KCODERAG_ACCEPTANCE_TEMP=\$jobRoot/u);
+  assert.match(source, /TEMP=\$jobRoot/u);
+  assert.match(source, /TMP=\$jobRoot/u);
+  assert.match(source, /if:\s*\$\{\{ always\(\) \}\}[\s\S]*?Remove-Item -LiteralPath \$jobRoot -Recurse -Force/u);
+  const required = source.indexOf("npm run smoke:required");
+  const live = source.indexOf("npm run smoke:live");
+  assert.ok(required >= 0 && live > required);
+  assert.match(
+    source,
+    /id:\s*live_smoke\s*\r?\n\s+run:\s*npm run smoke:live\s*\r?\n(?:\s*#.*\r?\n)?\s+continue-on-error:\s*true/u,
+  );
+  assert.doesNotMatch(source.slice(required, live), /continue-on-error/u);
+  assert.doesNotMatch(workflow(), /authenticated-live|kcoderag-live|smoke:live/u);
+  assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer|npm\s+publish/iu);
 });
 
 test("workflow is test-only on branch pushes and pull requests with minimal authority", () => {
@@ -138,10 +157,11 @@ test("workflow is test-only on branch pushes and pull requests with minimal auth
   assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/iu);
   assert.doesNotMatch(source, /tags(?:-ignore)?:\s*|release:|workflow_run:/iu);
   assert.doesNotMatch(source, /paths(?:-ignore)?:/iu);
+  assert.doesNotMatch(source, /self-hosted|kcoderag-live|smoke:live/u);
 });
 
 test("third-party actions are immutable pins and no CI script can publish", () => {
-  const source = workflow();
+  const source = `${workflow()}\n${acceptanceWorkflow()}`;
   const uses = [...source.matchAll(/uses:\s*([^\s#]+)(?:\s+#.*)?$/gmu)].map((match) => match[1]);
   assert.ok(uses.length >= 2);
   for (const action of uses) assert.match(action ?? "", /^[^@\s]+@[0-9a-f]{40}$/u);

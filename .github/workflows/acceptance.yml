@@ -1,0 +1,87 @@
+name: Automated host acceptance
+
+on:
+  push:
+    branches:
+      - "readiness/**-candidate"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-acceptance:
+    name: Five-host package and available live hosts
+    if: ${{ vars.KCODERAG_LIVE_SMOKE == 'enabled' }}
+    runs-on: [self-hosted, Windows, X64, kcoderag-live]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact acceptance subject
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare isolated R-drive temporary root
+        shell: pwsh
+        run: |
+          $expectedRoot = [System.IO.Path]::GetFullPath('R:\actions-runner\kcoderag-nav\_temp')
+          $jobRoot = [System.IO.Path]::GetFullPath((Join-Path $expectedRoot '${{ github.run_id }}-${{ github.run_attempt }}'))
+          if ([System.IO.Directory]::GetParent($jobRoot).FullName -ne $expectedRoot.TrimEnd('\')) {
+            throw 'acceptance_temp_outside_runner_root'
+          }
+          if (Test-Path -LiteralPath $jobRoot) {
+            throw 'acceptance_temp_already_exists'
+          }
+          New-Item -ItemType Directory -Path $jobRoot -Force | Out-Null
+          "KCODERAG_ACCEPTANCE_TEMP=$jobRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TEMP=$jobRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TMP=$jobRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install audited dependency graph
+        run: npm ci --ignore-scripts
+      - name: Build CommonJS products and tests
+        run: npm run build
+      - name: Audit exact dependency graph
+        run: npm run deps:audit
+      - name: Run required five-host packaged lifecycle
+        id: required_smoke
+        run: npm run smoke:required
+      - name: Run available real-host smoke
+        id: live_smoke
+        run: npm run smoke:live
+        # Phase 06 promotes authenticated real-host evidence; until then this remains an explicit observation.
+        continue-on-error: true
+      - name: Record acceptance summary
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          "## Host acceptance" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| Check | Outcome |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "|---|---|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| Five-host packaged lifecycle | ${{ steps.required_smoke.outcome }} |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| Available real-host smoke | ${{ steps.live_smoke.outcome }} |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+      - name: Clean isolated R-drive temporary root
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:KCODERAG_ACCEPTANCE_TEMP)) {
+            exit 0
+          }
+          $expectedRoot = [System.IO.Path]::GetFullPath('R:\actions-runner\kcoderag-nav\_temp')
+          $jobRoot = [System.IO.Path]::GetFullPath($env:KCODERAG_ACCEPTANCE_TEMP)
+          $parent = [System.IO.Directory]::GetParent($jobRoot)
+          if ($null -eq $parent -or $parent.FullName -ne $expectedRoot.TrimEnd('\') -or
+              [System.IO.Path]::GetFileName($jobRoot) -notmatch '^\d+-\d+$') {
+            throw 'acceptance_cleanup_target_invalid'
+          }
+          if (Test-Path -LiteralPath $jobRoot) {
+            Remove-Item -LiteralPath $jobRoot -Recurse -Force
+          }
