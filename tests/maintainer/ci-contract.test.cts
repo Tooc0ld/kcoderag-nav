@@ -73,7 +73,6 @@ test("every required lane installs the lock without scripts and runs all gates",
     "npm run docs:check",
     "npm run audit:retirement",
     "npm run test:pack",
-    "npm run test:smoke",
   ];
   let previous = -1;
   for (const command of commands) {
@@ -82,7 +81,7 @@ test("every required lane installs the lock without scripts and runs all gates",
     previous = index;
   }
   assert.doesNotMatch(required, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.equal(required.match(/run:\s*npm run test:smoke/gu)?.length, 1);
+  assert.doesNotMatch(required, /run:\s*npm run test:smoke/u);
   assert.doesNotMatch(
     required,
     /npm run (?:audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2)/u,
@@ -180,7 +179,7 @@ test("third-party actions are immutable pins and no CI script can publish", () =
   };
   assert.equal(
     packageJson.scripts["ci:local"],
-    "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack && npm run test:smoke",
+    "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack",
   );
   assert.equal(
     packageJson.scripts["smoke:required"],
@@ -191,6 +190,7 @@ test("third-party actions are immutable pins and no CI script can publish", () =
     "node dist/smoke/host-smoke.cjs --mode optional-live",
   );
   assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
+  assert.match(packageJson.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
   assert.doesNotMatch(
     packageJson.scripts["ci:local"] ?? "",
     /publish|release|audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2/iu,

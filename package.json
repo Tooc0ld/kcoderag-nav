@@ -117,7 +117,7 @@
     "pack:audit": "node dist/maintainer/pack-audit.cjs",
     "test:ci-change-scope": "node --test dist-tests/maintainer/ci-change-scope.test.cjs",
     "test:ci-contract": "node --test dist-tests/maintainer/ci-contract.test.cjs",
-    "ci:local": "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack && npm run test:smoke",
+    "ci:local": "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack",
     "test:smoke": "node --test dist-tests/smoke/host-smoke.test.cjs",
     "smoke:required": "node dist/smoke/host-smoke.cjs --mode required-contract",
     "smoke:live": "node dist/smoke/host-smoke.cjs --mode optional-live",
