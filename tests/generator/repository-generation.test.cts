@@ -222,7 +222,7 @@ function assertQaStructure(root: string, version: string): void {
   assert.equal(Array.isArray(preToolUse) && preToolUse.length === 1, true, "qa:pre-tool-use");
   const postToolUse = (hooks as Record<string, unknown>).PostToolUse;
   assert.equal(Array.isArray(postToolUse) && postToolUse.length === 1, true, "qa:post-tool-use");
-  assert.match(JSON.stringify(postToolUse), /mcp__kcoderag-qa__/u);
+  assert.match(JSON.stringify(postToolUse), /mcp__kcoderag\[-_\]qa__/u);
   assert.equal(fs.statSync(productPath(root, "qa", "opencode/kcoderag-nav.js")).size > 0, true);
 
   for (const relativePath of [

@@ -6,7 +6,7 @@ const path = require("node:path") as typeof import("node:path");
 
 export const MCP_PATH = "/mcp";
 export const SYNTHETIC_TOOL = "search_code";
-const LOOPBACK_HOST = "127.0.0.1";
+const LOOPBACK_HOST = "localhost";
 const MAX_BODY_BYTES = 65_536;
 
 export interface StubReceipt {
@@ -167,7 +167,10 @@ export async function startStubMcpServer(
   host: string = LOOPBACK_HOST,
 ): Promise<StubMcpServer> {
   if (host !== LOOPBACK_HOST) throw new Error("stub_mcp_requires_loopback");
-  const server = http.createServer((request, response) => {
+  const requestHandler = (
+    request: import("node:http").IncomingMessage,
+    response: import("node:http").ServerResponse,
+  ): void => {
     if (request.method !== "POST" || request.url !== MCP_PATH) {
       sendJson(response, 404, { error: "not_found" });
       return;
@@ -205,27 +208,55 @@ export async function startStubMcpServer(
     request.on("error", () => {
       if (!response.headersSent) sendJson(response, 400, { error: "invalid_request" });
     });
-  });
-  server.requestTimeout = 5_000;
-  server.headersTimeout = 5_000;
-  await new Promise<void>((resolve, reject) => {
+  };
+  const createServer = (): import("node:http").Server => {
+    const value = http.createServer(requestHandler);
+    value.requestTimeout = 5_000;
+    value.headersTimeout = 5_000;
+    return value;
+  };
+  const listen = (
+    server: import("node:http").Server,
+    selectedPort: number,
+    selectedHost: string,
+  ): Promise<void> => new Promise<void>((resolve, reject) => {
     const onError = (error: Error): void => reject(error);
     server.once("error", onError);
-    server.listen(0, LOOPBACK_HOST, () => {
+    server.listen(selectedPort, selectedHost, () => {
       server.off("error", onError);
       resolve();
     });
   });
-  const address = server.address();
+  const close = (server: import("node:http").Server): Promise<void> => new Promise<void>((resolve, reject) => {
+    if (!server.listening) {
+      resolve();
+      return;
+    }
+    server.close((error) => error === undefined ? resolve() : reject(error));
+  });
+
+  const ipv4Server = createServer();
+  await listen(ipv4Server, 0, "127.0.0.1");
+  const address = ipv4Server.address();
   if (address === null || typeof address === "string") {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await close(ipv4Server);
     throw new Error("stub_mcp_start_failed");
   }
+  const ipv6Server = createServer();
+  let ipv6Listening = false;
+  try {
+    await listen(ipv6Server, address.port, "::1");
+    ipv6Listening = true;
+  } catch {
+    await close(ipv6Server);
+  }
   return Object.freeze({
+    // Windows system proxies commonly bypass localhost but not the numeric loopback address.
     url: `http://${LOOPBACK_HOST}:${address.port}${MCP_PATH}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error === undefined ? resolve() : reject(error));
-    }),
+    close: async () => {
+      if (ipv6Listening) await close(ipv6Server);
+      await close(ipv4Server);
+    },
   });
 }
 

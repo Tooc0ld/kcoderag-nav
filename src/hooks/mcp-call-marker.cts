@@ -108,11 +108,11 @@ function isKCodeRagTool(payload: Record<string, unknown>, host: MarkerHost): boo
   if (host === "zcode") {
     const toolName = boundedString(payload.tool_name);
     return toolName !== undefined &&
-      /^(?:mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$/u.test(toolName) &&
+      /^(?:mcp__kcoderag[-_]qa__.+|kcoderag[-_]qa[._/].+|krag[._/].+)$/u.test(toolName) &&
       (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
   }
   const toolName = boundedString(payload.tool_name);
-  return toolName !== undefined && /^mcp__kcoderag-qa__.+/u.test(toolName) &&
+  return toolName !== undefined && /^mcp__kcoderag[-_]qa__.+/u.test(toolName) &&
     (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
 }
 

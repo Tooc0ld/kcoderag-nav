@@ -61,7 +61,7 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
       timeoutMs: 5_000,
     }]);
     const post = rendered.hooks.events.PostToolUse[0];
-    assert.equal(post.matcher, "^(mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$");
+    assert.equal(post.matcher, "^(mcp__kcoderag[-_]qa__.+|kcoderag[-_]qa[._/].+|krag[._/].+)$");
     assert.deepEqual(post.hooks, [{
       type: "process",
       command: "node",

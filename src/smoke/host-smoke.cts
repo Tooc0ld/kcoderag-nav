@@ -193,7 +193,7 @@ interface RunHostSmokeDependencies {
   readonly observeCandidateBytes?: (bytes: Buffer) => void;
 }
 
-interface CommandResult {
+export interface CommandResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
@@ -268,7 +268,10 @@ const SYNTHETIC_AUTHORIZATION = "Bearer synthetic-contract-only";
 const COMMAND_TIMEOUT_MS = 120_000;
 const LIVE_TIMEOUT_MS = 120_000;
 const MAX_LIVE_CREDENTIAL_BYTES = 64 * 1024;
-export const LIVE_PROMPT = "You must call the available KCodeRag MCP search_code tool exactly once with query SyntheticSymbol. Do not answer until the tool call completes.";
+const MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024;
+const CODEX_TOML_BEGIN = "# BEGIN kcoderag-nav:kcoderag-navigation";
+const CODEX_TOML_END = "# END kcoderag-nav:kcoderag-navigation";
+export const LIVE_PROMPT = "Immediately call the kcoderag-qa MCP server tool search_code exactly once with arguments {\"query\":\"SyntheticSymbol\"}. Do not inspect files or run shell commands. Do not answer until that tool call completes.";
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -414,7 +417,7 @@ function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
     value.markerSaturationSilent && value.sessionEndReceiptBound && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
 }
 
-function safeEnvironment(
+export function safeEnvironment(
   root: string,
   syntheticNative = false,
   npmCacheRoot: string = path.join(root, "npm-cache"),
@@ -445,6 +448,8 @@ function safeEnvironment(
     ...(preload === undefined ? {} : { NODE_OPTIONS: `--require=${JSON.stringify(preload)}` }),
     KCODERAG_NAV_UPDATE_CHECK: "0",
     NO_COLOR: "1",
+    NO_PROXY: "127.0.0.1,localhost",
+    no_proxy: "127.0.0.1,localhost",
     npm_config_audit: "false",
     npm_config_cache: npmCacheRoot,
     npm_config_fund: "false",
@@ -479,7 +484,7 @@ function runProcess(
     encoding: "utf8",
     input: options.input,
     timeout: options.timeout ?? COMMAND_TIMEOUT_MS,
-    maxBuffer: 2 * 1024 * 1024,
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
     windowsHide: true,
   });
   return {
@@ -487,6 +492,96 @@ function runProcess(
     stdout: typeof completed.stdout === "string" ? completed.stdout : "",
     stderr: typeof completed.stderr === "string" ? completed.stderr : "",
   };
+}
+
+/** Keep KSCC's native home lookup intact while isolating its Claude config and all smoke caches. */
+export function liveEnvironment(host: HostId, root: string): NodeJS.ProcessEnv {
+  const environment = safeEnvironment(root);
+  if (host !== "claude") return environment;
+  for (const key of ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"] as const) {
+    const value = process.env[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  return environment;
+}
+
+function terminateProcessTree(processId: number | undefined): void {
+  if (processId === undefined) return;
+  try {
+    if (process.platform === "win32") {
+      childProcess.spawnSync("taskkill.exe", ["/pid", String(processId), "/t", "/f"], {
+        stdio: "ignore",
+        timeout: 5_000,
+        windowsHide: true,
+      });
+      return;
+    }
+    process.kill(processId, "SIGKILL");
+  } catch {
+    // Timeout/overflow cleanup is best effort; the bounded result still fails closed.
+  }
+}
+
+/** Run live hosts without blocking the loopback MCP server owned by this process. */
+export function runProcessAsync(
+  executable: string,
+  args: readonly string[],
+  options: {
+    readonly cwd: string;
+    readonly env?: NodeJS.ProcessEnv;
+    readonly timeout?: number;
+    readonly commandShim?: boolean;
+  },
+): Promise<CommandResult> {
+  const useCommandShim = options.commandShim === true && process.platform === "win32";
+  const selectedExecutable = useCommandShim ? (process.env.ComSpec ?? "cmd.exe") : executable;
+  const selectedArgs = useCommandShim ? ["/d", "/s", "/c", executable, ...args] : [...args];
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let forcedFailure = false;
+    let completed = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let terminationFallback: NodeJS.Timeout | undefined;
+    const child = childProcess.spawn(selectedExecutable, selectedArgs, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    const finish = (code: number): void => {
+      if (completed) return;
+      completed = true;
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (terminationFallback !== undefined) clearTimeout(terminationFallback);
+      resolve(Object.freeze({ code: forcedFailure ? 1 : code, stdout, stderr }));
+    };
+    const stop = (): void => {
+      if (forcedFailure) return;
+      forcedFailure = true;
+      terminateProcessTree(child.pid);
+      terminationFallback = setTimeout(() => finish(1), 5_000);
+      terminationFallback.unref();
+    };
+    const append = (stream: "stdout" | "stderr", chunk: string): void => {
+      const current = stream === "stdout" ? stdout : stderr;
+      if (Buffer.byteLength(current, "utf8") + Buffer.byteLength(chunk, "utf8") > MAX_COMMAND_OUTPUT_BYTES) {
+        stop();
+        return;
+      }
+      if (stream === "stdout") stdout += chunk;
+      else stderr += chunk;
+    };
+    child.stdout.on("data", (chunk: string) => append("stdout", chunk));
+    child.stderr.on("data", (chunk: string) => append("stderr", chunk));
+    child.once("error", () => finish(1));
+    child.once("close", (code) => finish(code ?? 1));
+    timeout = setTimeout(stop, options.timeout ?? COMMAND_TIMEOUT_MS);
+    timeout.unref();
+  });
 }
 
 function runNpmProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
@@ -2480,7 +2575,7 @@ function structuredLiveEvidence(output: string): { readonly hook: boolean; reado
 }
 
 export interface LiveCommandSpec {
-  readonly executable: "codex" | "claude" | "opencode";
+  readonly executable: "codex" | "kscc" | "opencode";
   readonly args: readonly string[];
 }
 
@@ -2488,8 +2583,9 @@ export interface LiveCommandSpec {
 export function liveCommandSpec(host: HostId, projectRoot: string): LiveCommandSpec {
   if (host === "codex") {
     return Object.freeze({ executable: "codex", args: Object.freeze([
-      "exec", "--ephemeral", "--ignore-user-config", "--dangerously-bypass-hook-trust",
-      "--skip-git-repo-check", "--json", "--sandbox", "read-only", "--cd", projectRoot, LIVE_PROMPT,
+      "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
+      "--approve-for-me", "--skip-git-repo-check", "--json",
+      "--cd", projectRoot, LIVE_PROMPT,
     ]) });
   }
   if (host === "opencode") {
@@ -2498,18 +2594,86 @@ export function liveCommandSpec(host: HostId, projectRoot: string): LiveCommandS
     ]) });
   }
   if (host !== "claude") throw new Error("headless_host_unsupported");
-  return Object.freeze({ executable: "claude", args: Object.freeze([
+  return Object.freeze({ executable: "kscc", args: Object.freeze([
     "-p", LIVE_PROMPT, "--mcp-config", path.join(projectRoot, ".mcp.json"), "--strict-mcp-config",
-    "--no-session-persistence", "--output-format", "stream-json", "--verbose",
+    "--allowedTools", "mcp__kcoderag-qa__search_code,mcp__kcoderag_qa__search_code",
+    "--include-hook-events", "--no-session-persistence", "--output-format", "stream-json", "--verbose",
   ]) });
 }
 
-/** Copy only the host login token into the disposable runtime; never import user settings or history. */
+function readBoundedRegularFile(sourcePath: string): Buffer | undefined {
+  try {
+    const sourceStat = fs.lstatSync(sourcePath);
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.size <= 0 ||
+        sourceStat.size > MAX_LIVE_CREDENTIAL_BYTES) return undefined;
+    const bytes = fs.readFileSync(sourcePath);
+    return bytes.length === sourceStat.size ? bytes : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeExclusivePrivateFile(targetPath: string, bytes: Buffer): boolean {
+  try {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, bytes, { flag: "wx", mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Project only the freshly installed Codex MCP and hook files into isolated CODEX_HOME. */
+export function projectCodexLiveConfig(projectRoot: string, runtimeRoot: string): boolean {
+  const sourcePath = path.join(projectRoot, ".codex", "config.toml");
+  const hooksSourcePath = path.join(projectRoot, ".codex", "hooks.json");
+  const targetPath = path.join(runtimeRoot, "host-home", "config.toml");
+  const hooksTargetPath = path.join(runtimeRoot, "host-home", "hooks.json");
+  const bytes = readBoundedRegularFile(sourcePath);
+  const hooksBytes = readBoundedRegularFile(hooksSourcePath);
+  if (bytes === undefined || hooksBytes === undefined) return false;
+  const text = bytes.toString("utf8").trim();
+  if (!text.startsWith(`${CODEX_TOML_BEGIN}\n`) || !text.endsWith(`\n${CODEX_TOML_END}`) ||
+      !text.includes("[mcp_servers.kcoderag-qa]")) return false;
+  try {
+    const hooks: unknown = JSON.parse(hooksBytes.toString("utf8"));
+    if (!isRecord(hooks) || !isRecord(hooks.hooks)) return false;
+  } catch {
+    return false;
+  }
+  if (!writeExclusivePrivateFile(targetPath, Buffer.from(`${text}\n`, "utf8"))) return false;
+  if (writeExclusivePrivateFile(hooksTargetPath, hooksBytes)) return true;
+  try { fs.rmSync(targetPath, { force: true }); } catch { /* disposable projection only */ }
+  return false;
+}
+
+function safeKsccSettings(bytes: Buffer): Buffer | undefined {
+  try {
+    const source: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!isRecord(source) || !isRecord(source.env)) return undefined;
+    const baseApi = source.BASE_API;
+    const model = source.ksccModel;
+    const authToken = source.env.KSCC_AUTH_TOKEN;
+    if (typeof baseApi !== "string" || baseApi.length === 0 || baseApi.length > 2_048 ||
+        typeof model !== "string" || model.length === 0 || model.length > 128 ||
+        !/^[A-Za-z0-9._:/-]+$/u.test(model) ||
+        typeof authToken !== "string" || authToken.length === 0 || authToken.length > 8_192) return undefined;
+    const parsedApi = new URL(baseApi);
+    if (!new Set(["http:", "https:"]).has(parsedApi.protocol) ||
+        parsedApi.username !== "" || parsedApi.password !== "" ||
+        parsedApi.search !== "" || parsedApi.hash !== "") return undefined;
+    return Buffer.from(`${JSON.stringify({ BASE_API: baseApi, ksccModel: model, env: { KSCC_AUTH_TOKEN: authToken } }, null, 2)}\n`, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Copy only the credential material needed by the disposable host; never import hooks, plugins, or history. */
 export function projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean {
   const credentialName = host === "codex"
     ? "auth.json"
     : host === "claude"
-      ? ".credentials.json"
+      ? "settings.json"
       : undefined;
   if (credentialName === undefined) return false;
   const selectedSourceRoot = sourceRoot ?? (host === "codex"
@@ -2518,27 +2682,22 @@ export function projectLiveCredential(host: HostId, runtimeRoot: string, sourceR
   const sourcePath = path.join(selectedSourceRoot, credentialName);
   const targetRoot = path.join(runtimeRoot, "host-home");
   const targetPath = path.join(targetRoot, credentialName);
-  try {
-    const sourceStat = fs.lstatSync(sourcePath);
-    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.size <= 0 ||
-        sourceStat.size > MAX_LIVE_CREDENTIAL_BYTES) return false;
-    if (path.resolve(sourcePath) === path.resolve(targetPath)) return true;
-    const bytes = fs.readFileSync(sourcePath);
-    if (bytes.length !== sourceStat.size) return false;
-    fs.mkdirSync(targetRoot, { recursive: true });
-    fs.writeFileSync(targetPath, bytes, { flag: "wx", mode: 0o600 });
-    return true;
-  } catch {
-    return false;
-  }
+  const bytes = readBoundedRegularFile(sourcePath);
+  if (bytes === undefined) return false;
+  if (path.resolve(sourcePath) === path.resolve(targetPath)) return true;
+  const projected = host === "claude" ? safeKsccSettings(bytes) : bytes;
+  return projected !== undefined && writeExclusivePrivateFile(targetPath, projected);
 }
 
-function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): CommandResult {
+async function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): Promise<CommandResult> {
   projectLiveCredential(host, runtimeRoot);
+  if (host === "codex" && !projectCodexLiveConfig(projectRoot, runtimeRoot)) {
+    return Object.freeze({ code: 1, stdout: "", stderr: "" });
+  }
   const command = liveCommandSpec(host, projectRoot);
-  return runProcess(command.executable, command.args, {
+  return runProcessAsync(command.executable, command.args, {
     cwd: projectRoot,
-    env: safeEnvironment(runtimeRoot),
+    env: liveEnvironment(host, runtimeRoot),
     timeout: LIVE_TIMEOUT_MS,
     commandShim: true,
   });
@@ -2580,7 +2739,7 @@ async function runOptionalHost(
       provenance,
     });
   }
-  const command = host === "codex" ? "codex" : host === "opencode" ? "opencode" : "claude";
+  const command = host === "codex" ? "codex" : host === "opencode" ? "opencode" : "kscc";
   if (!commandAvailable(command, projectsRoot)) {
     return evaluateHostEvidence({
       host,
@@ -2612,13 +2771,15 @@ async function runOptionalHost(
     const connection = readConnection(host, projectRoot);
     evidence.toolRegistration = connection?.serverName === expectedServerName(host) && connection.url === stubUrl;
     const before = readReceipts(receiptPath).length;
-    const live = runLiveCommand(host, projectRoot, runtimeRoot);
+    const live = await runLiveCommand(host, projectRoot, runtimeRoot);
     const structured = structuredLiveEvidence(live.stdout);
     const markerRecorded = hasMcpCallMarker(host, runtimeRoot);
     const receipts = readReceipts(receiptPath).slice(before);
     const has = (method: string, toolName: string = ""): boolean =>
       receipts.some((receipt: StubReceipt) => receipt.method === method && receipt.toolName === toolName);
-    evidence.navigation = host === "opencode" ? markerRecorded : structured.hook && markerRecorded;
+    // A marker is the durable proof that the host executed our post-call integration.
+    // Codex JSON mode reports the MCP tool item but intentionally omits hook events.
+    evidence.navigation = markerRecorded;
     evidence.mcpInitialize = has("initialize");
     evidence.mcpList = has("tools/list");
     evidence.mcpCall = structured.tool && has("tools/call", SYNTHETIC_TOOL);
@@ -2840,7 +3001,7 @@ export async function runHostSmoke(
         unavailableReason: "package_unavailable",
       })));
     }
-    return executeAcquiredSmoke(
+    return await executeAcquiredSmoke(
       options.mode,
       hosts,
       acquiredPackage,

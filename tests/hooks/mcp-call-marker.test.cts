@@ -35,6 +35,7 @@ test("records only successful KCodeRag calls for all five hook-capable host payl
   try {
     const cases: readonly [HostId, Record<string, unknown>][] = [
       ["codex", { hook_event_name: "PostToolUse", session_id: "codex-s", turn_id: "t", tool_name: "mcp__kcoderag-qa__search_code" }],
+      ["codex", { hook_event_name: "PostToolUse", session_id: "codex-new-s", turn_id: "t", tool_name: "mcp__kcoderag_qa__search_code" }],
       ["claude", { hook_event_name: "PostToolUse", session_id: "claude-s", tool_name: "mcp__kcoderag-qa__context" }],
       ["cursor", { hook_event_name: "afterMCPExecution", conversation_id: "cursor-s", generation_id: "g", mcp_server_name: "kcoderag", tool_name: "search_code" }],
       ["opencode", { sessionID: "open-s", callID: "c", tool: "kcoderag-qa_get_call_chain" }],
@@ -45,10 +46,10 @@ test("records only successful KCodeRag calls for all five hook-capable host payl
       assert.equal(result.recorded, true, host);
       assert.match(result.key ?? "", /^[0-9a-f]{64}$/u, host);
     }
-    assert.equal(markerFiles(root).length, 5);
+    assert.equal(markerFiles(root).length, 6);
     const records = markerFiles(root).map((name) =>
       JSON.parse(fs.readFileSync(path.join(root, "mcp-calls", name), "utf8")) as Record<string, unknown>);
-    assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "cursor", "opencode", "zcode"]);
+    assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "codex", "cursor", "opencode", "zcode"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

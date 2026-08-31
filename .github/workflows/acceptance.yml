@@ -56,7 +56,19 @@ jobs:
         run: npm run smoke:required
       - name: Run available real-host smoke
         id: live_smoke
-        run: npm run smoke:live
+        shell: pwsh
+        run: |
+          $lines = @(& npm run smoke:live 2>&1 | ForEach-Object { [string]$_ })
+          $exitCode = $LASTEXITCODE
+          $lines | Write-Output
+          $jsonLine = $lines |
+            Where-Object { $_.TrimStart().StartsWith('{"schemaVersion":') } |
+            Select-Object -Last 1
+          if (-not [string]::IsNullOrWhiteSpace($jsonLine)) {
+            $resultPath = Join-Path $env:KCODERAG_ACCEPTANCE_TEMP 'live-smoke.json'
+            Set-Content -LiteralPath $resultPath -Value $jsonLine -Encoding utf8 -NoNewline
+          }
+          exit $exitCode
         # Phase 06 promotes authenticated real-host evidence; until then this remains an explicit observation.
         continue-on-error: true
       - name: Record acceptance summary
@@ -68,6 +80,24 @@ jobs:
           "|---|---|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           "| Five-host packaged lifecycle | ${{ steps.required_smoke.outcome }} |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           "| Available real-host smoke | ${{ steps.live_smoke.outcome }} |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "### Real-host detail" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "| Host | Status | Reason |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "|---|---|---|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          $resultPath = Join-Path $env:KCODERAG_ACCEPTANCE_TEMP 'live-smoke.json'
+          $result = if (Test-Path -LiteralPath $resultPath) {
+            try { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } catch { $null }
+          } else { $null }
+          foreach ($hostName in @('codex', 'claude', 'cursor', 'opencode', 'zcode')) {
+            $hostResult = @($result.hosts) | Where-Object { $_.host -eq $hostName } | Select-Object -First 1
+            $status = if ($null -ne $hostResult -and [string]$hostResult.status -match '^(PASS|FAIL|NOT_RUN)$') {
+              [string]$hostResult.status
+            } else { 'UNKNOWN' }
+            $reason = if ($null -ne $hostResult -and [string]$hostResult.reason -match '^[a-z0-9_]{1,64}$') {
+              [string]$hostResult.reason
+            } else { 'result_unavailable' }
+            "| $hostName | $status | $reason |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
       - name: Clean isolated R-drive temporary root
         if: ${{ always() }}
         shell: pwsh

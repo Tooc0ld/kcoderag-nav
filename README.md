@@ -161,12 +161,18 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 
 这里的“自动更新”仅表示自动感知新版本：后台 worker 只刷新版本 cache，绝不运行 install/update。
 required smoke 的 `runtimeContract.layer: packaged` 会从实际 tgz 安装后执行注册处理器，验证提示、
-marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任这些注册。真机接纳与真实 MCP 查询
-必须由独立的 optional-live 或人工 UAT receipt 证明。
+marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任这些注册。Windows self-hosted acceptance
+还会运行 optional-live：Codex、KSCC 驱动的 Claude Code 和 OpenCode 各自在临时项目里连接仅监听
+loopback 的合成 MCP，真实执行 initialize、tools/list、search_code、成功 marker、update 和 uninstall。
+只复制运行所需的最小登录材料，输出和 receipt 不包含密钥、URL、参数或工具结果。
+
+Cursor 与 ZCode 暂无稳定的无界面命令入口，因此 optional-live 明确报告
+`NOT_RUN / headless_host_unsupported`，由人工 UAT 补充真机接纳证据。这里的 PASS 证明真实宿主调用了
+本机合成 MCP，不等于已访问生产 KCodeRag 服务；生产身份、HTTPS 和真实服务查询仍属于后续阶段。
 
 Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
-保留与代码规范能力零写拒绝，以及 metadata-only receipt。它不声称已完成 authenticated real-host MCP
-query evidence；真实查询和 OpenCode 公共 exact/latest 证据属于 Phase 06。
+保留与代码规范能力零写拒绝，以及 metadata-only receipt。optional-live 补充真实宿主对 loopback stub 的
+调用证据，但不声称已完成 authenticated production MCP query evidence。
 
 维护源码是 strict TypeScript `.cts`，构建为 Node.js 22+ 可直接执行的 CJS，生产依赖为零。生成
 QA/Cursor trees 不能手改：

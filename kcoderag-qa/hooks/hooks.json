@@ -10,7 +10,7 @@
             "type": "command"
           }
         ],
-        "matcher": "^mcp__kcoderag-qa__.*$"
+        "matcher": "^mcp__kcoderag[-_]qa__.*$"
       }
     ],
     "PreToolUse": [

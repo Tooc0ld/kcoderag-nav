@@ -138,8 +138,13 @@ test("candidate and manual acceptance use the dedicated Windows runner and isola
   assert.ok(required >= 0 && live > required);
   assert.match(
     source,
-    /id:\s*live_smoke\s*\r?\n\s+run:\s*npm run smoke:live\s*\r?\n(?:\s*#.*\r?\n)?\s+continue-on-error:\s*true/u,
+    /id:\s*live_smoke[\s\S]*?run:\s*\|[\s\S]*?npm run smoke:live[\s\S]*?live-smoke\.json[\s\S]*?exit \$exitCode[\s\S]*?continue-on-error:\s*true/u,
   );
+  assert.match(source, /\$exitCode = \$LASTEXITCODE/u);
+  assert.match(source, /ConvertFrom-Json/u);
+  assert.match(source, /foreach \(\$hostName in @\('codex', 'claude', 'cursor', 'opencode', 'zcode'\)\)/u);
+  assert.match(source, /\^\(PASS\|FAIL\|NOT_RUN\)\$/u);
+  assert.match(source, /\^\[a-z0-9_\]\{1,64\}\$/u);
   assert.doesNotMatch(source.slice(required, live), /continue-on-error/u);
   assert.doesNotMatch(workflow(), /authenticated-live|kcoderag-live|smoke:live/u);
   assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer|npm\s+publish/iu);

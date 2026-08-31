@@ -77,7 +77,7 @@ const MANAGED_ROOTS = Object.freeze([".zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
 const CODE_STYLE = "code-style-nudge" as const;
 const PRE_TOOL_MATCHER = "^(Grep|Glob|Bash)$";
-const POST_TOOL_MATCHER = "^(mcp__kcoderag-qa__.+|kcoderag-qa[._/].+|krag[._/].+)$";
+const POST_TOOL_MATCHER = "^(mcp__kcoderag[-_]qa__.+|kcoderag[-_]qa[._/].+|krag[._/].+)$";
 const MANAGED_HOOK_ARGUMENT_PREFIX = "${ZCODE_PROJECT_DIR}/.zcode/kcoderag-nav/hooks/";
 
 function isRecord(value: unknown): value is JsonMap {

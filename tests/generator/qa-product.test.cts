@@ -157,7 +157,7 @@ test("QA Hook manifest retains one bounded advisory lane and one success-marker 
   assert.equal(typeof marker?.command, "string");
   assert.equal(typeof marker?.commandWindows, "string");
   assert.equal(registration.hooks?.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$");
-  assert.equal(registration.hooks?.PostToolUse?.[0]?.matcher, "^mcp__kcoderag-qa__.*$");
+  assert.equal(registration.hooks?.PostToolUse?.[0]?.matcher, "^mcp__kcoderag[-_]qa__.*$");
 });
 
 test("QA guidance and registration expose only the current QA product", () => {

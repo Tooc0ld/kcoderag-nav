@@ -413,7 +413,7 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
   assert.doesNotMatch(JSON.stringify(registration), /CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT/);
   assert.ok((registration.hooks.PreToolUse?.[0]?.hooks[0]?.commandWindows.length ?? 8_192) < 8_192);
   assert.equal(registration.hooks.PostToolUse?.length, 1);
-  assert.equal(registration.hooks.PostToolUse?.[0]?.matcher, "^mcp__kcoderag-qa__.*$");
+  assert.equal(registration.hooks.PostToolUse?.[0]?.matcher, "^mcp__kcoderag[-_]qa__.*$");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 

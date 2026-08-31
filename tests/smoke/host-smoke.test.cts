@@ -179,10 +179,19 @@ interface SmokeModule {
     readonly status: SmokeStatus;
   }): number;
   liveCommandSpec(host: HostId, projectRoot: string): {
-    readonly executable: "codex" | "claude" | "opencode";
+    readonly executable: "codex" | "kscc" | "opencode";
     readonly args: readonly string[];
   };
   projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean;
+  projectCodexLiveConfig(projectRoot: string, runtimeRoot: string): boolean;
+  safeEnvironment(root: string): NodeJS.ProcessEnv;
+  liveEnvironment(host: HostId, root: string): NodeJS.ProcessEnv;
+  runProcessAsync(executable: string, args: readonly string[], options: {
+    readonly cwd: string;
+    readonly env?: NodeJS.ProcessEnv;
+    readonly timeout?: number;
+    readonly commandShim?: boolean;
+  }): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }>;
   runHostSmoke(options: {
     readonly mode: SmokeMode;
     readonly packageSpec?: string;
@@ -503,23 +512,58 @@ test("live command specs support disposable non-git projects and require the MCP
   const codex = smoke.liveCommandSpec("codex", projectRoot);
   assert.equal(codex.executable, "codex");
   assert.ok(codex.args.includes("--skip-git-repo-check"));
-  assert.ok(codex.args.includes("--ignore-user-config"));
+  assert.ok(codex.args.includes("hooks"));
+  assert.ok(!codex.args.includes("--ignore-user-config"));
+  assert.ok(codex.args.includes("--dangerously-bypass-hook-trust"));
+  assert.ok(codex.args.includes("--approve-for-me"));
+  assert.ok(!codex.args.includes("--dangerously-bypass-approvals-and-sandbox"));
+  assert.ok(!codex.args.includes("--sandbox"));
   assert.equal(codex.args.at(-1), smoke.LIVE_PROMPT);
 
   const claude = smoke.liveCommandSpec("claude", projectRoot);
-  assert.equal(claude.executable, "claude");
+  assert.equal(claude.executable, "kscc");
   assert.ok(claude.args.includes("--strict-mcp-config"));
+  assert.ok(claude.args.includes("--include-hook-events"));
   assert.ok(claude.args.includes("--no-session-persistence"));
+  assert.ok(claude.args.includes("--allowedTools"));
+  assert.ok(claude.args.includes("mcp__kcoderag-qa__search_code,mcp__kcoderag_qa__search_code"));
   assert.ok(claude.args.includes(smoke.LIVE_PROMPT));
 
   const opencode = smoke.liveCommandSpec("opencode", projectRoot);
   assert.equal(opencode.executable, "opencode");
   assert.ok(opencode.args.includes(smoke.LIVE_PROMPT));
-  assert.match(smoke.LIVE_PROMPT, /must call[\s\S]*search_code[\s\S]*exactly once/iu);
+  assert.match(smoke.LIVE_PROMPT, /call[\s\S]*search_code[\s\S]*exactly once/iu);
+  assert.match(smoke.LIVE_PROMPT, /do not inspect files or run shell commands/iu);
   assert.throws(() => smoke.liveCommandSpec("cursor", projectRoot), /headless_host_unsupported/u);
 });
 
-test("live credential projection copies only one bounded credential into the disposable home", () => {
+test("live smoke bypasses machine proxies for its loopback-only MCP transport", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-no-proxy-"));
+  try {
+    const environment = smoke.safeEnvironment(root);
+    assert.equal(environment.NO_PROXY, "127.0.0.1,localhost");
+    assert.equal(environment.no_proxy, "127.0.0.1,localhost");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("KSCC keeps the native home while its Claude config and caches remain isolated", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-kscc-env-"));
+  try {
+    const environment = smoke.liveEnvironment("claude", root);
+    assert.equal(environment.CLAUDE_CONFIG_DIR, path.join(root, "host-home"));
+    assert.equal(environment.LOCALAPPDATA, path.join(root, "local-app-data"));
+    if (process.env.USERPROFILE !== undefined) assert.equal(environment.USERPROFILE, process.env.USERPROFILE);
+    if (process.env.HOME !== undefined) assert.equal(environment.HOME, process.env.HOME);
+    const codexEnvironment = smoke.liveEnvironment("codex", root);
+    if (process.platform === "win32") assert.equal(codexEnvironment.USERPROFILE, path.join(root, "host-home"));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live credential projection copies only bounded host material into the disposable home", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-credential-"));
   try {
     const sourceRoot = path.join(root, "source");
@@ -537,13 +581,105 @@ test("live credential projection copies only one bounded credential into the dis
     assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), false);
     assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), false);
 
+    const claudeSourceRoot = path.join(root, "claude-source");
+    const claudeRuntimeRoot = path.join(root, "claude-runtime");
+    fs.mkdirSync(claudeSourceRoot, { recursive: true });
+    fs.writeFileSync(path.join(claudeSourceRoot, "settings.json"), JSON.stringify({
+      BASE_API: "http://kscc.example.test/api",
+      ksccModel: "claude-sonnet-4-5",
+      env: { KSCC_AUTH_TOKEN: "synthetic-token", KSCC_AUTH_TOKEN_WORK: "must-not-copy" },
+      hooks: { PreToolUse: [{ command: "must-not-copy" }] },
+      plugins: { sentinel: true },
+      permissions: { allow: ["must-not-copy"] },
+    }), "utf8");
+    assert.equal(smoke.projectLiveCredential("claude", claudeRuntimeRoot, claudeSourceRoot), true);
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(claudeRuntimeRoot, "host-home", "settings.json"), "utf8")),
+      {
+        BASE_API: "http://kscc.example.test/api",
+        ksccModel: "claude-sonnet-4-5",
+        env: { KSCC_AUTH_TOKEN: "synthetic-token" },
+      },
+    );
+    assert.equal(smoke.projectLiveCredential("claude", claudeRuntimeRoot, claudeSourceRoot), false);
+
+    const unsafeClaudeRoot = path.join(root, "unsafe-claude-source");
+    fs.mkdirSync(unsafeClaudeRoot, { recursive: true });
+    fs.writeFileSync(path.join(unsafeClaudeRoot, "settings.json"), JSON.stringify({
+      BASE_API: "ftp://user:password@kscc.example.test/api?token=secret",
+      ksccModel: "claude-sonnet-4-5",
+      env: { KSCC_AUTH_TOKEN: "synthetic-token" },
+    }), "utf8");
+    assert.equal(smoke.projectLiveCredential("claude", path.join(root, "unsafe-runtime"), unsafeClaudeRoot), false);
+
     const oversizedRoot = path.join(root, "oversized");
     fs.mkdirSync(oversizedRoot, { recursive: true });
-    fs.writeFileSync(path.join(oversizedRoot, ".credentials.json"), Buffer.alloc(64 * 1024 + 1));
-    assert.equal(smoke.projectLiveCredential("claude", path.join(root, "claude-runtime"), oversizedRoot), false);
+    fs.writeFileSync(path.join(oversizedRoot, "settings.json"), Buffer.alloc(64 * 1024 + 1));
+    assert.equal(smoke.projectLiveCredential("claude", path.join(root, "oversized-runtime"), oversizedRoot), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Codex live config projection imports only the freshly installed managed MCP block", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-codex-config-"));
+  try {
+    const projectRoot = path.join(root, "project");
+    const runtimeRoot = path.join(root, "runtime");
+    fs.mkdirSync(path.join(projectRoot, ".codex"), { recursive: true });
+    const managed = [
+      "# BEGIN kcoderag-nav:kcoderag-navigation",
+      "[mcp_servers.kcoderag-qa]",
+      'url = "http://127.0.0.1:12345/mcp"',
+      "# END kcoderag-nav:kcoderag-navigation",
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(projectRoot, ".codex", "config.toml"), managed, "utf8");
+    const managedHooks = `${JSON.stringify({ hooks: { PreToolUse: [], PostToolUse: [] } }, null, 2)}\n`;
+    fs.writeFileSync(path.join(projectRoot, ".codex", "hooks.json"), managedHooks, "utf8");
+
+    assert.equal(smoke.projectCodexLiveConfig(projectRoot, runtimeRoot), true);
+    assert.equal(fs.readFileSync(path.join(runtimeRoot, "host-home", "config.toml"), "utf8"), managed);
+    assert.equal(fs.readFileSync(path.join(runtimeRoot, "host-home", "hooks.json"), "utf8"), managedHooks);
+    assert.equal(smoke.projectCodexLiveConfig(projectRoot, runtimeRoot), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("async live subprocess leaves the in-process loopback MCP server responsive", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-async-loopback-"));
+  const receiptPath = path.join(root, "receipts.jsonl");
+  const server = await stub.startStubMcpServer(receiptPath);
+  try {
+    const script = `
+const url = ${JSON.stringify(server.url)};
+const calls = [
+  { id: 1, method: "initialize", params: { clientInfo: { name: "async-regression", version: "1" } } },
+  { id: 2, method: "tools/list", params: {} },
+  { id: 3, method: "tools/call", params: { name: "search_code", arguments: { query: "SyntheticSymbol" } } },
+];
+(async () => {
+  for (const call of calls) {
+    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", ...call }) });
+    if (!response.ok) process.exit(1);
+    await response.json();
+  }
+})().catch(() => process.exit(1));
+`;
+    const result = await smoke.runProcessAsync(process.execPath, ["-e", script], {
+      cwd: root,
+      timeout: 10_000,
+    });
+    assert.equal(result.code, 0);
+  } finally {
+    await server.close();
+  }
+  assert.deepEqual(
+    stub.readReceipts(receiptPath).map((receipt) => receipt.method),
+    ["initialize", "tools/list", "tools/call"],
+  );
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test("loopback stub performs initialize, list, and call with metadata-only receipts", async () => {
@@ -551,7 +687,7 @@ test("loopback stub performs initialize, list, and call with metadata-only recei
   const receiptPath = path.join(root, "receipts.jsonl");
   const server = await stub.startStubMcpServer(receiptPath);
   try {
-    assert.match(server.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/u);
+    assert.match(server.url, /^http:\/\/localhost:\d+\/mcp$/u);
     const initialized = await postJson(server.url, {
       jsonrpc: "2.0",
       id: 1,
