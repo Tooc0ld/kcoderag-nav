@@ -25,7 +25,7 @@ updated: 2026-08-31
   - tests: success-path CLI tests do not provide a hermetic supported Claude version.
   - runtime: compiled CLI correctly rejects unavailable/unsupported host versions according to the frozen receipt policy.
 - and_gate: yes — the failure requires both a code-style capability success path and a runner without the exact supported Claude version.
-- next_action: Commit and promote the repaired candidate, wait for all hosted gates, then create and push `v0.3.0` and verify npm publication.
+- next_action: Commit and promote the filesystem-identity repair, wait for all hosted gates, then tag and publish only after all gates succeed.
 - reasoning_checkpoint:
     hypothesis: Ambient host detection made ordinary CI non-hermetic, the release smoke entrypoint omitted its required lease, and scrub root identity used case-sensitive equality on Windows.
     confirming_evidence:
@@ -86,6 +86,16 @@ updated: 2026-08-31
   found: The Windows casing regression and focused scrub suite pass 11/11; the full suite passes 431/431; build, dependency audit, 17/17 launcher tests, deterministic generation, docs, retirement audit, five-host required smoke, and 77-entry pack audit all pass.
   implication: All known release blockers are repaired locally and the candidate is ready for hosted promotion.
 
+- timestamp: 2026-08-31
+  checked: Candidate CI Windows Node 22 job `99379383962` on run `33356427746` after path-case repair.
+  found: Exact readiness passed Windows Node 22, but all ten scrub-baseline tests in the ordinary suite still received `scrub_root_mismatch`; hosted Node 22 can retain distinct path aliases for the same temporary directory even after `realpathSync`.
+  implication: Repository identity must compare filesystem objects rather than their path spellings; exact path-name comparison remains insufficient on Windows hosted runners.
+
+- timestamp: 2026-08-31
+  checked: Filesystem-identity repair with positive alias coverage and negative nested-repository coverage.
+  found: Scrub compares nonzero `device + inode` identity; focused tests pass 12/12, full tests pass 432/432, and every local release-equivalent gate passes including five-host smoke and the 77-entry pack audit.
+  implication: The check accepts alternate names for the same directory without accepting a distinct directory inside the same repository.
+
 ## Eliminated
 
 - hypothesis: The candidate or master points to the wrong commit.
@@ -98,7 +108,7 @@ updated: 2026-08-31
 
 ## Resolution
 
-- root_cause: Six public CLI success tests inherited the developer machine's real Claude executable instead of controlling the exact supported version, so hostless CI runners rejected code-style capability setup. Independently, the release workflow's `smoke:required` command invoked `runHostSmoke` without the candidate artifact lease that required-contract mode deliberately demands. Finally, scrub baseline validation compared canonical Windows roots with case-sensitive string equality even though Git and Node may preserve different casing for the same directory.
-- fix: Added a test-only Node preload for the exact frozen Claude version probe; updated required smoke to create and dispose one current-checkout candidate lease; replaced scrub root string equality with mutual containment under the existing platform-aware helper; added focused regressions for lease forwarding and Windows path casing.
-- verification: Restricted-PATH CLI tests pass 26/26; focused scrub tests pass 11/11; full suite passes 431/431; required packaged smoke passes all five hosts; every locally reproducible release gate passes, including pack audit with 77 entries.
+- root_cause: Six public CLI success tests inherited the developer machine's real Claude executable instead of controlling the exact supported version, so hostless CI runners rejected code-style capability setup. Independently, the release workflow's `smoke:required` command invoked `runHostSmoke` without the candidate artifact lease that required-contract mode deliberately demands. Finally, scrub baseline validation treated path spelling as repository identity even though Windows runners can expose different case or aliases for the same directory.
+- fix: Added a test-only Node preload for the exact frozen Claude version probe; updated required smoke to create and dispose one current-checkout candidate lease; changed scrub root validation to compare nonzero filesystem `device + inode` identity; added focused regressions for lease forwarding, Windows path casing, and rejection of a distinct nested directory.
+- verification: Restricted-PATH CLI tests pass 26/26; focused scrub tests pass 12/12; full suite passes 432/432; required packaged smoke passes all five hosts; every locally reproducible release gate passes, including pack audit with 77 entries.
 - files_changed: [.planning/debug/release-ci-host-version.md, src/smoke/host-smoke.cts, tests/cli/commands.test.cts, tests/smoke/host-smoke.test.cts, src/maintainer/scrub-baseline.cts, tests/maintainer/scrub-baseline.test.cts]

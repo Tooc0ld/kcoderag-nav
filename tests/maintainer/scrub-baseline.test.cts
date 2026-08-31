@@ -144,6 +144,18 @@ test("Windows repository-root identity tolerates Git and Node path casing", {
   }
 });
 
+test("repository-root identity rejects a nested directory of the same repository", () => {
+  const root = createRepository({ "nested/target.txt": "base\n" });
+  try {
+    expectCode(() => scrub.captureScrubBaseline({
+      root: path.join(root, "nested"),
+      explicitPaths: ["target.txt"],
+    }), "scrub_root_mismatch");
+  } finally {
+    remove(root);
+  }
+});
+
 test("capture keeps raw tracked diffs private and exposes only classified metadata", () => {
   const root = createRepository({
     "target.txt": "target\n",

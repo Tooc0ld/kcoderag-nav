@@ -7,8 +7,6 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 const util = require("node:util") as typeof import("node:util");
 
-import { isPathAtOrWithin } from "../core/project-target.cjs";
-
 export interface ScrubHunkRange {
   readonly oldStart: number;
   readonly oldCount: number;
@@ -245,16 +243,18 @@ function assertRepositoryRoot(root: string, maximumBytes: number): void {
   const output = runGit(root, ["rev-parse", "--show-toplevel"], maximumBytes, "scrub_status_too_large");
   const reported = decodeUtf8(output, "scrub_ambiguous_status").trim();
   failUnless(reported.length > 0, "scrub_git_inspection_failed");
-  let actual: string;
-  let expected: string;
+  let actual: import("node:fs").BigIntStats;
+  let expected: import("node:fs").BigIntStats;
   try {
-    actual = fs.realpathSync(reported);
-    expected = fs.realpathSync(root);
+    actual = fs.statSync(reported, { bigint: true });
+    expected = fs.statSync(root, { bigint: true });
   } catch {
     throw new ScrubBaselineError("scrub_root_unavailable");
   }
+  // Hosted Windows can spell one directory through distinct aliases; require
+  // a nonzero filesystem object identity so ambiguous filesystems fail closed.
   failUnless(
-    isPathAtOrWithin(actual, expected) && isPathAtOrWithin(expected, actual),
+    actual.dev === expected.dev && actual.ino !== 0n && actual.ino === expected.ino,
     "scrub_root_mismatch",
   );
 }
