@@ -40,11 +40,29 @@ const PUBLIC_CLI = path.resolve("dist/bin/kcoderag-nav.cjs");
 const NAVIGATION = "kcoderag-navigation";
 const CODE_STYLE = "code-style-nudge";
 
+function supportedClaudeVersionPreload(homeDirectory: string): string {
+  const preloadPath = path.join(homeDirectory, "supported-claude-version.cjs");
+  if (fs.existsSync(preloadPath)) return preloadPath;
+  fs.writeFileSync(preloadPath, `"use strict";
+const childProcess = require("node:child_process");
+const originalSpawnSync = childProcess.spawnSync;
+childProcess.spawnSync = function(command, args, options) {
+  if (command === "claude" && Array.isArray(args) && args.length === 1 && args[0] === "--version") {
+    const stdout = "2.1.241 (Claude Code)\\n";
+    return { pid: 0, output: [null, stdout, ""], stdout, stderr: "", status: 0, signal: null };
+  }
+  return Reflect.apply(originalSpawnSync, this, arguments);
+};
+`, "utf8");
+  return preloadPath;
+}
+
 function runPublicCli(
   target: string,
   homeDirectory: string,
   args: readonly string[],
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+  const versionPreload = supportedClaudeVersionPreload(homeDirectory);
   const result = childProcess.spawnSync(
     process.execPath,
     [PUBLIC_CLI, ...args, "--target", target, "--yes", "--json"],
@@ -56,6 +74,7 @@ function runPublicCli(
         HOME: homeDirectory,
         USERPROFILE: homeDirectory,
         XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+        NODE_OPTIONS: `--require=${JSON.stringify(versionPreload)}`,
       },
       timeout: 20_000,
       windowsHide: true,

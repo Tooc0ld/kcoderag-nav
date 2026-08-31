@@ -205,6 +205,25 @@ interface SmokeModule {
     readonly provenance?: PackageProvenance;
     readonly hosts: readonly HostSmokeResult[];
   }>;
+  main(argv: readonly string[], dependencies?: {
+    readonly createCandidatePackageArtifact?: (options: {
+      readonly root: string;
+      readonly consumers: readonly string[];
+    }) => CandidatePackageArtifactLease;
+    readonly runHostSmoke?: (options: {
+      readonly mode: SmokeMode;
+      readonly artifactLease?: CandidatePackageArtifactLease;
+      readonly temporaryRoot: string;
+      readonly repositoryRoot: string;
+      readonly hosts?: readonly HostId[];
+    }) => Promise<{
+      readonly schemaVersion: 1;
+      readonly mode: SmokeMode;
+      readonly status: SmokeStatus;
+      readonly hosts: readonly HostSmokeResult[];
+    }>;
+    readonly stdout?: (text: string) => void;
+  }): Promise<number>;
 }
 
 interface StubModule {
@@ -385,6 +404,48 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
   });
   assert.equal(unavailable.status, "NOT_RUN");
   assert.equal(smoke.smokeExitCode(unavailable), 1);
+});
+
+test("required CLI creates one local candidate lease before host smoke", async () => {
+  let created = 0;
+  let disposed = 0;
+  const output: string[] = [];
+  const lease: CandidatePackageArtifactLease = {
+    artifact: {
+      name: "kcoderag-nav",
+      version: "0.3.0",
+      sha256: "a".repeat(64),
+      memberCount: 77,
+      dryRunCount: 1,
+      actualPackCount: 1,
+    },
+    dispose: () => { disposed += 1; },
+  };
+  const exitCode = await smoke.main(["--mode", "required-contract", "--host", "codex"], {
+    createCandidatePackageArtifact: (options) => {
+      created += 1;
+      assert.equal(options.root, repositoryRoot);
+      assert.deepEqual(options.consumers, ["host-smoke"]);
+      return lease;
+    },
+    runHostSmoke: async (options) => {
+      assert.equal(options.artifactLease, lease);
+      assert.equal(options.repositoryRoot, repositoryRoot);
+      assert.deepEqual(options.hosts, ["codex"]);
+      return { schemaVersion: 1, mode: "required-contract", status: "PASS", hosts: [] };
+    },
+    stdout: (text) => output.push(text),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(created, 1);
+  assert.equal(disposed, 1);
+  assert.deepEqual(JSON.parse(output.join("")), {
+    schemaVersion: 1,
+    mode: "required-contract",
+    status: "PASS",
+    hosts: [],
+  });
 });
 
 test("optional live keeps NOT_RUN honest and never converts a failure into success", () => {

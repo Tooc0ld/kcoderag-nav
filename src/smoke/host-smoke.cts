@@ -2814,6 +2814,12 @@ interface ParsedArguments {
   readonly hosts?: readonly HostId[];
 }
 
+interface SmokeMainDependencies {
+  readonly createCandidatePackageArtifact?: typeof releaseReadiness.createCandidatePackageArtifact;
+  readonly runHostSmoke?: typeof runHostSmoke;
+  readonly stdout?: (text: string) => void;
+}
+
 function parseArguments(argv: readonly string[]): ParsedArguments {
   let mode: SmokeMode | undefined;
   let packageSpec: string | undefined;
@@ -2855,26 +2861,51 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   return result;
 }
 
-export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+  argv: readonly string[] = process.argv.slice(2),
+  dependencies: SmokeMainDependencies = {},
+): Promise<number> {
   let temporaryRoot: string | undefined;
+  let candidateLease: CandidatePackageArtifactLease | undefined;
+  const stdout = dependencies.stdout ?? ((text: string) => process.stdout.write(text));
   try {
     const args = parseArguments(argv);
     temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-host-smoke-"));
+    const repositoryRoot = path.resolve(__dirname, "../..");
+    if (
+      args.mode === "required-contract"
+      && args.packageSpec === undefined
+      && args.expectedVersion === undefined
+    ) {
+      candidateLease = (dependencies.createCandidatePackageArtifact
+        ?? releaseReadiness.createCandidatePackageArtifact)({
+        root: repositoryRoot,
+        consumers: ["host-smoke"],
+      });
+    }
     const options: RunHostSmokeOptions = {
       mode: args.mode,
       temporaryRoot,
-      repositoryRoot: path.resolve(__dirname, "../.."),
+      repositoryRoot,
+      ...(candidateLease === undefined ? {} : { artifactLease: candidateLease }),
       ...(args.packageSpec === undefined ? {} : { packageSpec: args.packageSpec }),
       ...(args.expectedVersion === undefined ? {} : { expectedVersion: args.expectedVersion }),
       ...(args.hosts === undefined ? {} : { hosts: args.hosts }),
     };
-    const result = await runHostSmoke(options);
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    const result = await (dependencies.runHostSmoke ?? runHostSmoke)(options);
+    stdout(`${JSON.stringify(result)}\n`);
     return smokeExitCode(result);
   } catch {
-    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: "FAIL", reason: "smoke_runner_failed" })}\n`);
+    stdout(`${JSON.stringify({ schemaVersion: 1, status: "FAIL", reason: "smoke_runner_failed" })}\n`);
     return 1;
   } finally {
+    if (candidateLease !== undefined) {
+      try {
+        candidateLease.dispose();
+      } catch {
+        // The smoke verdict remains authoritative and lease details stay private.
+      }
+    }
     if (temporaryRoot !== undefined) {
       try {
         fs.rmSync(temporaryRoot, { recursive: true, force: true });
