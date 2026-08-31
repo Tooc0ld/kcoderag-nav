@@ -115,6 +115,7 @@
     "test:tar-archive": "node --test dist-tests/maintainer/tar-archive.test.cjs",
     "test:pack": "node --test dist-tests/maintainer/pack-audit.test.cjs",
     "pack:audit": "node dist/maintainer/pack-audit.cjs",
+    "test:ci-change-scope": "node --test dist-tests/maintainer/ci-change-scope.test.cjs",
     "test:ci-contract": "node --test dist-tests/maintainer/ci-contract.test.cjs",
     "ci:local": "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack && npm run test:smoke",
     "test:smoke": "node --test dist-tests/smoke/host-smoke.test.cjs",

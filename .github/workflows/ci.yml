@@ -15,8 +15,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-scope:
+    name: Change scope / documentation contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - name: Checkout complete change history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up classifier runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install audited dependency graph
+        run: npm ci --ignore-scripts
+      - name: Build classifier and documentation checks
+        run: npm run build
+      - name: Audit exact dependency graph
+        run: npm run deps:audit
+      - name: Classify bounded changed paths
+        id: scope
+        run: node dist/maintainer/ci-change-scope.cjs
+      - name: Validate canonical docs and secret scans
+        if: ${{ steps.scope.outputs.scope == 'documentation' }}
+        run: npm run docs:check
+      - name: Validate the repository-owned experience guide
+        if: ${{ steps.scope.outputs.scope == 'documentation' }}
+        run: npm run guide:check
+      - name: Audit documentation-only npm tarball
+        if: ${{ steps.scope.outputs.scope == 'documentation' }}
+        run: npm run pack:audit
+
   required-contracts:
     name: Required contracts / ${{ matrix.lane }}
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.scope == 'full' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:

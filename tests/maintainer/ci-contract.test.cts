@@ -44,19 +44,20 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   const jobsSource = source.slice(source.indexOf("\njobs:"));
   assert.deepEqual(
     [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["required-contracts", "authenticated-live"],
+    ["change-scope", "required-contracts", "authenticated-live"],
   );
 });
 
 test("every CI checkout is pinned to the workflow head without retaining credentials", () => {
   const source = workflow();
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 2);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 2);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 2);
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 3);
+  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 3);
 });
 
 test("every required lane installs the lock without scripts and runs all gates", () => {
   const source = workflow();
+  const required = job(source, "required-contracts", "authenticated-live");
   const commands = [
     "npm ci --ignore-scripts",
     "npm run build",
@@ -71,16 +72,47 @@ test("every required lane installs the lock without scripts and runs all gates",
   ];
   let previous = -1;
   for (const command of commands) {
-    const index = source.indexOf(command);
+    const index = required.indexOf(command);
     assert.ok(index > previous, `${command} must be present in required order`);
     previous = index;
   }
-  assert.doesNotMatch(source, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.equal(source.match(/run:\s*npm run test:smoke/gu)?.length, 1);
+  assert.doesNotMatch(required, /continue-on-error|\|\|\s*true|allow_failure/iu);
+  assert.equal(required.match(/run:\s*npm run test:smoke/gu)?.length, 1);
   assert.doesNotMatch(
-    job(source, "required-contracts", "authenticated-live"),
+    required,
     /npm run (?:audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2)/u,
   );
+});
+
+test("documentation-only scope runs one bounded lightweight gate and skips the full matrix", () => {
+  const source = workflow();
+  const scopeJob = job(source, "change-scope", "required-contracts");
+  const required = job(source, "required-contracts", "authenticated-live");
+  assert.match(scopeJob, /outputs:\s*\r?\n\s+scope:\s*\$\{\{ steps\.scope\.outputs\.scope \}\}/u);
+  assert.match(scopeJob, /fetch-depth:\s*0/u);
+  assert.match(scopeJob, /node-version:\s*["']24["']/u);
+  const ordered = [
+    "npm ci --ignore-scripts",
+    "npm run build",
+    "npm run deps:audit",
+    "node dist/maintainer/ci-change-scope.cjs",
+    "npm run docs:check",
+    "npm run guide:check",
+    "npm run pack:audit",
+  ];
+  let previous = -1;
+  for (const command of ordered) {
+    const index = scopeJob.indexOf(command);
+    assert.ok(index > previous, `${command} must be present in lightweight order`);
+    previous = index;
+  }
+  assert.equal(
+    scopeJob.match(/if:\s*\$\{\{ steps\.scope\.outputs\.scope == 'documentation' \}\}/gu)?.length,
+    3,
+  );
+  assert.doesNotMatch(scopeJob, /npm test|test:launcher|generate:check|audit:retirement|test:smoke/u);
+  assert.match(required, /needs:\s*change-scope/u);
+  assert.match(required, /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' \}\}/u);
 });
 
 test("optional live smoke is isolated behind an explicit self-hosted workflow-dispatch gate", () => {
@@ -105,6 +137,7 @@ test("workflow is test-only on branch pushes and pull requests with minimal auth
   assert.match(source, /cancel-in-progress:\s*true/u);
   assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/iu);
   assert.doesNotMatch(source, /tags(?:-ignore)?:\s*|release:|workflow_run:/iu);
+  assert.doesNotMatch(source, /paths(?:-ignore)?:/iu);
 });
 
 test("third-party actions are immutable pins and no CI script can publish", () => {
