@@ -186,10 +186,9 @@ npm run generate:check
 npm run pack:audit
 ```
 
-Phase 04.2 本身只验证 exact `0.3.0` 候选对冻结 Git subject 和同一个实际 tgz 的五宿主 readiness，
-未创建 tag、publish 或执行 registry refetch。其后经独立授权和全新候选门禁，annotated tag
-`v0.3.0` 已完成 Release workflow，`kcoderag-nav@0.3.0` 已发布到 npm，`latest` 当前指向 `0.3.0`。
-已发布版本只通过前进版本修复，不 unpublish 或回退 dist-tag。
+Phase 04.2 最初验证并发布了 `0.3.0`。当前前进修复版本为 annotated tag `v0.3.1`；
+它已通过 Release workflow 并发布为 `kcoderag-nav@0.3.1`，npm `latest` 指向 `0.3.1`。
+已发布版本不 unpublish 或回退 dist-tag，只通过新版本继续修复。
 
 当前内部 QA profile 的连接材料视为不透明敏感输入。生成、CLI、状态、测试、receipt 与文档只处理
 必要元数据；生产身份、HTTPS 与轮换属于 Phase 08。
