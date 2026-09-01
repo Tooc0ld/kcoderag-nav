@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "candidateSha": "bb92400437f49d0f0e43f1553e930b7a215c759f",
+  "candidateTreeSha": "e73c21d20599f247d574a35761ba40cde3a92e03",
+  "packageVersion": "0.3.1",
+  "packageSha256": "6170a6fc0acd1bbe82ad2fe921f37d3fb5d92ccd96fb00a38dcf08ca83cb0ecc",
+  "packageMemberDigest": "59bb03d0cfafe022d8a21376b41ae0baba6ec549324ad6a0e2946b8681e63af2",
+  "workflowBlobSha": "2552f12eb034ae0d71987462902c69cf9bba301a",
+  "packageContractDigest": "6c3c35d07360873413705cf54d9ff7e17005ada59fb6ccab318797c7b5ceb08e",
+  "preparedAt": "2026-09-01T19:58:12.828Z"
+}
