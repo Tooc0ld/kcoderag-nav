@@ -75,6 +75,10 @@ const RECEIPT_KEYS = Object.freeze([
 ] as const);
 const CANDIDATE_REF = "refs/heads/readiness/04.2-candidate" as const;
 const WORKFLOW_PATH = ".github/workflows/readiness.yml";
+const ACCEPTANCE_WORKFLOW_PATH = ".github/workflows/acceptance.yml";
+const ACCEPTANCE_PROFILE = "acceptance" as const;
+const PHASE05_REF_PREFIX = "refs/heads/phase05-live-candidate-";
+const BRANCH_REF_RE = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,239}$/u;
 const OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const MAX_RECEIPT_BYTES = 16 * 1024;
@@ -279,20 +283,63 @@ export function verifyPlatformLaneSet(
   return Object.freeze(ordered);
 }
 
+function acceptanceDispatchRefMatches(triggerRef: string, candidateSubject: string): boolean {
+  if (!triggerRef.startsWith(PHASE05_REF_PREFIX)) return false;
+  const suffix = triggerRef.slice(PHASE05_REF_PREFIX.length);
+  return /^[0-9a-f]{7,40}$/u.test(suffix) && candidateSubject.startsWith(suffix);
+}
+
+function acceptanceWorkflowBlobMatches(
+  root: string,
+  candidateSubject: string,
+  expectedBlob: string,
+  requireExplicitBlob: boolean,
+): boolean {
+  if (requireExplicitBlob && !OBJECT_ID_RE.test(expectedBlob)) return false;
+  if (!requireExplicitBlob && expectedBlob.length > 0 && !OBJECT_ID_RE.test(expectedBlob)) return false;
+  try {
+    const actualBlob = gitObject(root, candidateSubject, ACCEPTANCE_WORKFLOW_PATH);
+    return expectedBlob.length === 0 || expectedBlob === actualBlob;
+  } catch {
+    return false;
+  }
+}
+
 function assertWorkflowProvenance(): { readonly root: string; readonly candidateSubject: string } {
   const root = path.resolve(__dirname, "../..");
   const eventName = process.env.GITHUB_EVENT_NAME ?? "";
   const triggerRef = process.env.GITHUB_REF ?? "";
   const headSha = process.env.GITHUB_SHA ?? "";
   const workflowCommit = process.env.READINESS_WORKFLOW_COMMIT ?? "";
-  failUnless(
+  const legacyReadiness =
     eventName === "push"
       && triggerRef === CANDIDATE_REF
       && OBJECT_ID_RE.test(headSha)
-      && workflowCommit === headSha,
-    "workflow_provenance_invalid",
-  );
-  return Object.freeze({ root, candidateSubject: headSha });
+      && workflowCommit === headSha;
+  if (legacyReadiness) return Object.freeze({ root, candidateSubject: headSha });
+
+  const candidateSubject = process.env.READINESS_CANDIDATE_SHA ?? "";
+  const expectedRef = process.env.READINESS_CANDIDATE_REF ?? "";
+  const expectedWorkflowBlob = process.env.READINESS_WORKFLOW_BLOB_SHA ?? "";
+  const acceptanceEvent = eventName === "push" || eventName === "workflow_dispatch";
+  const dispatchRefValid = eventName !== "workflow_dispatch"
+    || acceptanceDispatchRefMatches(triggerRef, candidateSubject);
+  const acceptance = process.env.READINESS_PROVENANCE_PROFILE === ACCEPTANCE_PROFILE
+    && acceptanceEvent
+    && BRANCH_REF_RE.test(triggerRef)
+    && expectedRef === triggerRef
+    && dispatchRefValid
+    && OBJECT_ID_RE.test(headSha)
+    && candidateSubject === headSha
+    && workflowCommit === headSha
+    && acceptanceWorkflowBlobMatches(
+      root,
+      candidateSubject,
+      expectedWorkflowBlob,
+      eventName === "workflow_dispatch",
+    );
+  failUnless(acceptance, "workflow_provenance_invalid");
+  return Object.freeze({ root, candidateSubject });
 }
 
 function appendOutput(key: string, value: string | number): void {
