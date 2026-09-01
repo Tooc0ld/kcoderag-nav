@@ -172,7 +172,11 @@ test("actual tgz Codex SessionStart is bounded, epoch-scoped, and PACKAGED only"
     const first = runHookCommand(command, projectRoot, cacheRoot, payload);
     assert.equal(first.status, 0, first.stderr);
     const firstContext = parseContext(first);
-    assert.equal(typeof firstContext, "string");
+    assert.equal(typeof firstContext, "string", JSON.stringify({
+      stdout: first.stdout,
+      stderr: first.stderr,
+      markerFiles: markerFiles(cacheRoot),
+    }));
     assert.match(firstContext ?? "", new RegExp(NAVIGATION_BASELINE.replaceAll(".", "\\."), "u"));
     assert.ok((firstContext?.length ?? 0) <= 600);
 
@@ -214,7 +218,17 @@ test("actual tgz Codex SessionStart is bounded, epoch-scoped, and PACKAGED only"
     const claims = markerFiles(cacheRoot);
     assert.equal(claims.length, 6);
     for (const name of claims) {
-      assert.equal(fs.readFileSync(path.join(cacheRoot, "kcoderag-nav", "nudges", name)).length, 0);
+      const raw = fs.readFileSync(path.join(cacheRoot, "kcoderag-nav", "nudges", name), "utf8");
+      const marker: unknown = JSON.parse(raw);
+      assert.deepEqual(Object.keys(marker as Record<string, unknown>).sort(), [
+        "capability",
+        "host",
+        "recordedAt",
+        "reminderKind",
+        "schemaVersion",
+        "scope",
+      ]);
+      assert.doesNotMatch(raw, /opaque-session|project-a|project-b|caf/u);
     }
 
     const directLauncherObservation = Object.freeze({

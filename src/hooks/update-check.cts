@@ -204,7 +204,19 @@ function isFresh(cache: UpdateCache | undefined, now: number): cache is UpdateCa
 }
 
 function relevantPayload(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
+  if (!isRecord(value)) return false;
+  if (
+    value.hook_event_name === "SessionStart" &&
+    (value.source === "startup" || value.source === "resume" || value.source === "clear" ||
+      value.source === "compact")
+  ) {
+    return ["session_id", "thread_id", "conversation_id"].some((field) => {
+      const identity = value[field];
+      return typeof identity === "string" && identity.length > 0 && identity.length <= 512 &&
+        identity.trim().length > 0;
+    });
+  }
+  return typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
     isRecord(value.tool_input);
 }
 
@@ -216,9 +228,9 @@ function sessionMarker(payload: Record<string, unknown>): {
   for (const field of ["session_id", "thread_id", "conversation_id"] as const) {
     const candidate = payload[field];
     if ((typeof candidate === "string" || typeof candidate === "number") && typeof candidate !== "boolean") {
-      const normalized = String(candidate).trim().slice(0, 512);
-      if (normalized.length > 0) {
-        material = `${field}\0${normalized}`;
+      const exact = String(candidate);
+      if (exact.length > 0 && exact.length <= 512 && exact.trim().length > 0) {
+        material = `${field}\0${exact}`;
         break;
       }
     }

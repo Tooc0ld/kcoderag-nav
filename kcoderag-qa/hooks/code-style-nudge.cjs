@@ -364,10 +364,21 @@ function codeStyleContribution(payload, options) {
         }
         if (!evaluateCodeStyleIntegrity(options).ok)
             return undefined;
-        const claim = (0, once_marker_cjs_1.claimNudgeOnce)(payload, {
+        const contextEpoch = (0, once_marker_cjs_1.contextEpochForSession)(payload, {
             host: options.host,
             managedRoot: options.managedRoot,
             capability: "code-style-nudge",
+            source: "resume",
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+        });
+        if (contextEpoch === undefined)
+            return undefined;
+        const claim = (0, once_marker_cjs_1.claimReminder)(payload, {
+            host: options.host,
+            managedRoot: options.managedRoot,
+            capability: "code-style-nudge",
+            reminderKind: "code-style",
+            contextEpoch,
             ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
         });
         return claim.claimed ? exports.CODE_STYLE_NUDGE : undefined;

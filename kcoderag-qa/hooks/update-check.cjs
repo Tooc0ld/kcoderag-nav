@@ -197,7 +197,18 @@ function isFresh(cache, now) {
     return cache !== undefined && now >= cache.checkedAt && now - cache.checkedAt < exports.CACHE_TTL_MS;
 }
 function relevantPayload(value) {
-    return isRecord(value) && typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
+    if (!isRecord(value))
+        return false;
+    if (value.hook_event_name === "SessionStart" &&
+        (value.source === "startup" || value.source === "resume" || value.source === "clear" ||
+            value.source === "compact")) {
+        return ["session_id", "thread_id", "conversation_id"].some((field) => {
+            const identity = value[field];
+            return typeof identity === "string" && identity.length > 0 && identity.length <= 512 &&
+                identity.trim().length > 0;
+        });
+    }
+    return typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
         isRecord(value.tool_input);
 }
 function sessionMarker(payload) {
@@ -205,9 +216,9 @@ function sessionMarker(payload) {
     for (const field of ["session_id", "thread_id", "conversation_id"]) {
         const candidate = payload[field];
         if ((typeof candidate === "string" || typeof candidate === "number") && typeof candidate !== "boolean") {
-            const normalized = String(candidate).trim().slice(0, 512);
-            if (normalized.length > 0) {
-                material = `${field}\0${normalized}`;
+            const exact = String(candidate);
+            if (exact.length > 0 && exact.length <= 512 && exact.trim().length > 0) {
+                material = `${field}\0${exact}`;
                 break;
             }
         }

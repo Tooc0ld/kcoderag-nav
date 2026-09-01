@@ -2,7 +2,7 @@
 /** Bounded structured-write classifier for the nav-managed code-style Skill reminder. */
 
 import type { HostId } from "../core/contracts.cjs";
-import { claimNudgeOnce } from "./once-marker.cjs";
+import { claimReminder, contextEpochForSession } from "./once-marker.cjs";
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
@@ -400,10 +400,20 @@ export function codeStyleContribution(
       return undefined;
     }
     if (!evaluateCodeStyleIntegrity(options).ok) return undefined;
-    const claim = claimNudgeOnce(payload, {
+    const contextEpoch = contextEpochForSession(payload, {
       host: options.host,
       managedRoot: options.managedRoot,
       capability: "code-style-nudge",
+      source: "resume",
+      ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+    });
+    if (contextEpoch === undefined) return undefined;
+    const claim = claimReminder(payload, {
+      host: options.host,
+      managedRoot: options.managedRoot,
+      capability: "code-style-nudge",
+      reminderKind: "code-style",
+      contextEpoch,
       ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
     });
     return claim.claimed ? CODE_STYLE_NUDGE : undefined;

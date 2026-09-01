@@ -69,6 +69,11 @@ interface CleanupModule {
 const marker = require("../../dist/hooks/once-marker.cjs") as OnceMarkerModule;
 const dispatcher = require("../../dist/hooks/pre-tool-dispatcher.cjs") as DispatcherModule;
 const cleanup = require("../../dist/hooks/session-cleanup.cjs") as CleanupModule;
+const claude = require("../../dist/hosts/claude.cjs") as Record<string, any>;
+const projectTarget = require("../../dist/core/project-target.cjs") as Record<string, any>;
+const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
+
+const PACKAGE_ROOT = path.resolve(".");
 
 function fixture(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -218,6 +223,77 @@ test("SessionStart update fragment is fresh-cache only and stale cache detaches 
     dispatcher.dispatchRawInput(JSON.stringify(payload("resume", "stale")), undefined, JSON.parse, staleRuntime);
     assert.equal(spawnCalls, 1);
     assert.equal(unrefCalls, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("SessionStart code-style summary requires the frozen receipt and complete integrity before claim", async () => {
+  const root = fixture("kcoderag-session-code-style-");
+  const projectRoot = path.join(root, "project");
+  const cacheRoot = path.join(root, "cache");
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  try {
+    const target = projectTarget.resolveProjectTarget(projectRoot);
+    const adapter = claude.createClaudeAdapter({
+      hostVersion: "2.1.241",
+      evidenceRoot: PACKAGE_ROOT,
+      readUserSources: () => ({}),
+    });
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall({
+      target,
+      packageRoot: PACKAGE_ROOT,
+      command: "install",
+      environment: "qa",
+      observation,
+      selectedCapabilities: ["kcoderag-navigation", "code-style-nudge"],
+    }));
+    const statePath = path.join(projectRoot, ".claude", "kcoderag-nav", "install-state.json");
+    const runtime = {
+      host: "claude",
+      managedRoot: projectRoot,
+      statePath,
+      cacheRoot,
+      installedVersion: "0.3.1",
+      hostVersion: "2.1.241",
+      now: () => 2_000_000_000_000,
+    };
+    fs.writeFileSync(path.join(cacheRoot, "remote-cache.json"), JSON.stringify({
+      schemaVersion: 1,
+      checkedAt: 2_000_000_000_000,
+      latest: "0.3.1",
+    }));
+
+    const eligible = dispatcher.dispatchRawInput(
+      JSON.stringify(payload("startup", "style-eligible")), undefined, JSON.parse, runtime,
+    );
+    assert.match(context(eligible) ?? "", /Code-style guidance is installed and integrity-verified/u);
+
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
+    const skillRecord = state.files.find((record: Record<string, unknown>) =>
+      record.path === ".claude/skills/code-style-correction/SKILL.md");
+    assert.equal(typeof skillRecord?.path, "string");
+    const skillPath = path.join(projectRoot, ...skillRecord.path.split("/"));
+    const originalSkill = fs.readFileSync(skillPath);
+    fs.appendFileSync(skillPath, "\nmanaged drift\n");
+    const drifted = dispatcher.dispatchRawInput(
+      JSON.stringify(payload("startup", "style-after-drift")), undefined, JSON.parse, runtime,
+    );
+    assert.doesNotMatch(context(drifted) ?? "", /Code-style guidance/u);
+
+    fs.writeFileSync(skillPath, originalSkill);
+    const rechecked = dispatcher.dispatchRawInput(
+      JSON.stringify(payload("resume", "style-after-drift")), undefined, JSON.parse, runtime,
+    );
+    assert.match(context(rechecked) ?? "", /Code-style guidance/u);
+
+    const unsupported = dispatcher.dispatchRawInput(
+      JSON.stringify(payload("startup", "style-wrong-version")), undefined, JSON.parse,
+      { ...runtime, hostVersion: "2.1.242" },
+    );
+    assert.doesNotMatch(context(unsupported) ?? "", /Code-style guidance/u);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 /** One bounded hook-event dispatcher; every contributor and output boundary fails open. */
 
-const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 import type { CapabilityId } from "../capabilities/contracts.cjs";
 import type { HostId } from "../core/contracts.cjs";
-import { codeStyleContribution } from "./code-style-nudge.cjs";
 import {
-  claimNudgeOnce,
+  codeStyleContribution,
+  evaluateCodeStyleIntegrity,
+} from "./code-style-nudge.cjs";
+import {
+  claimReminder,
+  contextEpochForSession,
   stableSessionIdentity,
   type StableSessionIdentity,
 } from "./once-marker.cjs";
 
 export const MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
-const MAX_EPOCH_CHARS = 128;
 const SESSION_START_SOURCES = new Set(["startup", "resume", "clear", "compact"]);
 const NAVIGATION_CAPABILITY: CapabilityId = "kcoderag-navigation";
+const RECEIPT_PROVEN_CODE_STYLE_VERSION = "2.1.241";
 const SESSION_START_BASELINE =
   "Use KCodeRag for structural code navigation before broad local search. " +
   "Prefer search_code, context, and get_call_chain; use local tools for exact verification.";
@@ -51,6 +54,16 @@ export interface DispatcherRuntimeOptions {
   readonly managedRoot?: string;
   readonly statePath?: string;
   readonly cacheRoot?: string;
+  readonly installedVersion?: string;
+  readonly hostVersion?: string;
+  readonly now?: () => number;
+  readonly updateSpawn?: (...args: readonly unknown[]) => { unref?(): void };
+}
+
+interface UpdateCheckModule {
+  readInstalledVersion(statePath?: string): string | undefined;
+  readUpdateHint(installedVersion: string | undefined, options?: Readonly<Record<string, unknown>>): string | undefined;
+  scheduleRefresh(payload: unknown, options?: Readonly<Record<string, unknown>>): boolean;
 }
 
 interface UpdateNoticeModule {
@@ -86,6 +99,14 @@ const updateNotice: UpdateNoticeModule | undefined = (() => {
   }
 })();
 
+const updateCheck: UpdateCheckModule | undefined = (() => {
+  try {
+    return require("./update-check.cjs") as UpdateCheckModule;
+  } catch {
+    return undefined;
+  }
+})();
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -108,16 +129,6 @@ function eventName(payload: Readonly<Record<string, unknown>>): NormalizedHookEv
     : undefined;
 }
 
-function boundedEpoch(value: unknown): string | undefined {
-  if (typeof value === "string" && value.length > 0 && value.length <= MAX_EPOCH_CHARS) {
-    return value;
-  }
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return String(value);
-  }
-  return undefined;
-}
-
 /** Normalize only documented, bounded lifecycle fields; opaque identities remain byte-distinct. */
 export function normalizeHookEvent(
   payload: unknown,
@@ -135,7 +146,15 @@ export function normalizeHookEvent(
     const rawSource = payload.source;
     if (typeof rawSource !== "string" || !SESSION_START_SOURCES.has(rawSource)) return undefined;
     const source = rawSource as "startup" | "resume" | "clear" | "compact";
-    const contextEpoch = boundedEpoch(payload.context_epoch) ?? source;
+    const contextEpoch = host === undefined || managedRoot === undefined || identity === undefined
+      ? undefined
+      : contextEpochForSession(payload, {
+          host,
+          managedRoot,
+          capability: NAVIGATION_CAPABILITY,
+          source,
+          ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+        });
     return Object.freeze({
       eventName: normalizedName,
       payload,
@@ -143,7 +162,7 @@ export function normalizeHookEvent(
       ...(managedRoot === undefined ? {} : { managedRoot }),
       ...(identity === undefined ? {} : { stableSession: identity }),
       source,
-      contextEpoch,
+      ...(contextEpoch === undefined ? {} : { contextEpoch }),
     });
   }
   return Object.freeze({
@@ -161,54 +180,77 @@ function defaultStatePath(host: HostId, managedRoot: string): string {
   return path.join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 
-function normalizedManagedRoot(value: string): string | undefined {
-  if (value.length === 0 || value.length > 4_096 || value.includes("\0") || !path.isAbsolute(value)) {
-    return undefined;
-  }
-  const normalized = path.normalize(value);
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function sessionStartReminderKey(event: NormalizedHookEvent): string | undefined {
-  if (
-    event.eventName !== "SessionStart" || event.host === undefined ||
-    event.managedRoot === undefined || event.stableSession === undefined ||
-    event.contextEpoch === undefined
-  ) {
-    return undefined;
-  }
-  const root = normalizedManagedRoot(event.managedRoot);
-  if (root === undefined) return undefined;
-  const material = [
-    "kcoderag-nav-reminder-v2",
-    event.host,
-    root,
-    NAVIGATION_CAPABILITY,
-    event.stableSession.field,
-    event.stableSession.value,
-    event.contextEpoch,
-    "navigation",
-  ].join("\0");
-  return crypto.createHash("sha256").update(material, "utf8").digest("hex");
-}
-
-function claimSessionStart(
+function sessionStartNavigation(
   event: NormalizedHookEvent,
   runtime: DispatcherRuntimeOptions,
-): boolean {
-  const key = sessionStartReminderKey(event);
-  if (key === undefined || event.host === undefined || event.managedRoot === undefined) return false;
-  // The reusable governor lands in Task 2. Until then, feed the already-secret
-  // tuple digest into the existing exclusive, bounded once-claim primitive.
-  return claimNudgeOnce(
-    { session_id: key },
-    {
+): string | undefined {
+  if (
+    event.eventName !== "SessionStart" || event.host === undefined ||
+    event.managedRoot === undefined || event.contextEpoch === undefined
+  ) return undefined;
+  const claim = claimReminder(event.payload, {
       host: event.host,
       managedRoot: event.managedRoot,
-      capability: "code-style-nudge",
+      capability: NAVIGATION_CAPABILITY,
+      reminderKind: "navigation",
+      contextEpoch: event.contextEpoch,
       ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
-    },
-  ).claimed;
+      ...(runtime.now === undefined ? {} : { now: runtime.now }),
+    });
+  return claim.claimed ? SESSION_START_BASELINE : undefined;
+}
+
+function sessionStartCodeStyle(
+  event: NormalizedHookEvent,
+  runtime: DispatcherRuntimeOptions,
+  statePath: string | undefined,
+): string | undefined {
+  if (
+    event.eventName !== "SessionStart" || event.host === undefined ||
+    event.managedRoot === undefined || event.contextEpoch === undefined
+  ) return undefined;
+  if (
+    runtime.hostVersion !== undefined &&
+    (event.host !== "claude" || runtime.hostVersion !== RECEIPT_PROVEN_CODE_STYLE_VERSION)
+  ) return undefined;
+  if (!evaluateCodeStyleIntegrity({
+    host: event.host,
+    managedRoot: event.managedRoot,
+    ...(statePath === undefined ? {} : { statePath }),
+  }).ok) return undefined;
+  const claim = claimReminder(event.payload, {
+    host: event.host,
+    managedRoot: event.managedRoot,
+    capability: "code-style-nudge",
+    reminderKind: "code-style",
+    contextEpoch: event.contextEpoch,
+    ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+    ...(runtime.now === undefined ? {} : { now: runtime.now }),
+  });
+  return claim.claimed
+    ? "Code-style guidance is installed and integrity-verified; load $code-style-correction before C/C++ or Lua edits."
+    : undefined;
+}
+
+function sessionStartUpdate(
+  event: NormalizedHookEvent,
+  runtime: DispatcherRuntimeOptions,
+  statePath: string | undefined,
+): string | undefined {
+  if (event.eventName !== "SessionStart" || event.host === undefined || updateCheck === undefined) {
+    return undefined;
+  }
+  const installedVersion = runtime.installedVersion ?? updateCheck.readInstalledVersion(statePath);
+  const options = {
+    host: event.host,
+    hookPayload: event.payload,
+    ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+    ...(runtime.now === undefined ? {} : { now: runtime.now }),
+    ...(runtime.updateSpawn === undefined ? {} : { spawn: runtime.updateSpawn }),
+  };
+  const notice = updateCheck.readUpdateHint(installedVersion, options);
+  updateCheck.scheduleRefresh(event.payload, options);
+  return notice;
 }
 
 function createDefaultEventContributors(
@@ -224,7 +266,13 @@ function createDefaultEventContributors(
   return Object.freeze([
     (event: NormalizedHookEvent): string | undefined => {
       if (event.eventName !== "SessionStart") return undefined;
-      return claimSessionStart(event, runtime) ? SESSION_START_BASELINE : undefined;
+      return sessionStartNavigation(event, runtime);
+    },
+    (event: NormalizedHookEvent): string | undefined => {
+      return sessionStartCodeStyle(event, runtime, statePath);
+    },
+    (event: NormalizedHookEvent): string | undefined => {
+      return sessionStartUpdate(event, runtime, statePath);
     },
     (event: NormalizedHookEvent): string | undefined => {
       if (event.eventName !== "PreToolUse") return undefined;

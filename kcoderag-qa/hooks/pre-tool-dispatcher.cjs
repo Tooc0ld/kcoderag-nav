@@ -9,16 +9,15 @@ exports.dispatchHookEvent = dispatchHookEvent;
 exports.dispatchPayload = dispatchPayload;
 exports.dispatchRawInput = dispatchRawInput;
 exports.main = main;
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const code_style_nudge_cjs_1 = require("./code-style-nudge.cjs");
 const once_marker_cjs_1 = require("./once-marker.cjs");
 exports.MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
-const MAX_EPOCH_CHARS = 128;
 const SESSION_START_SOURCES = new Set(["startup", "resume", "clear", "compact"]);
 const NAVIGATION_CAPABILITY = "kcoderag-navigation";
+const RECEIPT_PROVEN_CODE_STYLE_VERSION = "2.1.241";
 const SESSION_START_BASELINE = "Use KCodeRag for structural code navigation before broad local search. " +
     "Prefer search_code, context, and get_call_chain; use local tools for exact verification.";
 const navigation = (() => {
@@ -32,6 +31,14 @@ const navigation = (() => {
 const updateNotice = (() => {
     try {
         return require("./update-notice.cjs");
+    }
+    catch {
+        return undefined;
+    }
+})();
+const updateCheck = (() => {
+    try {
+        return require("./update-check.cjs");
     }
     catch {
         return undefined;
@@ -54,15 +61,6 @@ function eventName(payload) {
         ? "PreToolUse"
         : undefined;
 }
-function boundedEpoch(value) {
-    if (typeof value === "string" && value.length > 0 && value.length <= MAX_EPOCH_CHARS) {
-        return value;
-    }
-    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-        return String(value);
-    }
-    return undefined;
-}
 /** Normalize only documented, bounded lifecycle fields; opaque identities remain byte-distinct. */
 function normalizeHookEvent(payload, runtime = {}) {
     if (!isRecord(payload))
@@ -80,7 +78,15 @@ function normalizeHookEvent(payload, runtime = {}) {
         if (typeof rawSource !== "string" || !SESSION_START_SOURCES.has(rawSource))
             return undefined;
         const source = rawSource;
-        const contextEpoch = boundedEpoch(payload.context_epoch) ?? source;
+        const contextEpoch = host === undefined || managedRoot === undefined || identity === undefined
+            ? undefined
+            : (0, once_marker_cjs_1.contextEpochForSession)(payload, {
+                host,
+                managedRoot,
+                capability: NAVIGATION_CAPABILITY,
+                source,
+                ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+            });
         return Object.freeze({
             eventName: normalizedName,
             payload,
@@ -88,7 +94,7 @@ function normalizeHookEvent(payload, runtime = {}) {
             ...(managedRoot === undefined ? {} : { managedRoot }),
             ...(identity === undefined ? {} : { stableSession: identity }),
             source,
-            contextEpoch,
+            ...(contextEpoch === undefined ? {} : { contextEpoch }),
         });
     }
     return Object.freeze({
@@ -104,46 +110,62 @@ function defaultStatePath(host, managedRoot) {
         host === "cursor" ? ".cursor" : host === "opencode" ? ".opencode" : ".zcode";
     return path.join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
-function normalizedManagedRoot(value) {
-    if (value.length === 0 || value.length > 4_096 || value.includes("\0") || !path.isAbsolute(value)) {
-        return undefined;
-    }
-    const normalized = path.normalize(value);
-    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function sessionStartReminderKey(event) {
+function sessionStartNavigation(event, runtime) {
     if (event.eventName !== "SessionStart" || event.host === undefined ||
-        event.managedRoot === undefined || event.stableSession === undefined ||
-        event.contextEpoch === undefined) {
+        event.managedRoot === undefined || event.contextEpoch === undefined)
         return undefined;
-    }
-    const root = normalizedManagedRoot(event.managedRoot);
-    if (root === undefined)
-        return undefined;
-    const material = [
-        "kcoderag-nav-reminder-v2",
-        event.host,
-        root,
-        NAVIGATION_CAPABILITY,
-        event.stableSession.field,
-        event.stableSession.value,
-        event.contextEpoch,
-        "navigation",
-    ].join("\0");
-    return crypto.createHash("sha256").update(material, "utf8").digest("hex");
+    const claim = (0, once_marker_cjs_1.claimReminder)(event.payload, {
+        host: event.host,
+        managedRoot: event.managedRoot,
+        capability: NAVIGATION_CAPABILITY,
+        reminderKind: "navigation",
+        contextEpoch: event.contextEpoch,
+        ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+        ...(runtime.now === undefined ? {} : { now: runtime.now }),
+    });
+    return claim.claimed ? SESSION_START_BASELINE : undefined;
 }
-function claimSessionStart(event, runtime) {
-    const key = sessionStartReminderKey(event);
-    if (key === undefined || event.host === undefined || event.managedRoot === undefined)
-        return false;
-    // The reusable governor lands in Task 2. Until then, feed the already-secret
-    // tuple digest into the existing exclusive, bounded once-claim primitive.
-    return (0, once_marker_cjs_1.claimNudgeOnce)({ session_id: key }, {
+function sessionStartCodeStyle(event, runtime, statePath) {
+    if (event.eventName !== "SessionStart" || event.host === undefined ||
+        event.managedRoot === undefined || event.contextEpoch === undefined)
+        return undefined;
+    if (runtime.hostVersion !== undefined &&
+        (event.host !== "claude" || runtime.hostVersion !== RECEIPT_PROVEN_CODE_STYLE_VERSION))
+        return undefined;
+    if (!(0, code_style_nudge_cjs_1.evaluateCodeStyleIntegrity)({
+        host: event.host,
+        managedRoot: event.managedRoot,
+        ...(statePath === undefined ? {} : { statePath }),
+    }).ok)
+        return undefined;
+    const claim = (0, once_marker_cjs_1.claimReminder)(event.payload, {
         host: event.host,
         managedRoot: event.managedRoot,
         capability: "code-style-nudge",
+        reminderKind: "code-style",
+        contextEpoch: event.contextEpoch,
         ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
-    }).claimed;
+        ...(runtime.now === undefined ? {} : { now: runtime.now }),
+    });
+    return claim.claimed
+        ? "Code-style guidance is installed and integrity-verified; load $code-style-correction before C/C++ or Lua edits."
+        : undefined;
+}
+function sessionStartUpdate(event, runtime, statePath) {
+    if (event.eventName !== "SessionStart" || event.host === undefined || updateCheck === undefined) {
+        return undefined;
+    }
+    const installedVersion = runtime.installedVersion ?? updateCheck.readInstalledVersion(statePath);
+    const options = {
+        host: event.host,
+        hookPayload: event.payload,
+        ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+        ...(runtime.now === undefined ? {} : { now: runtime.now }),
+        ...(runtime.updateSpawn === undefined ? {} : { spawn: runtime.updateSpawn }),
+    };
+    const notice = updateCheck.readUpdateHint(installedVersion, options);
+    updateCheck.scheduleRefresh(event.payload, options);
+    return notice;
 }
 function createDefaultEventContributors(runtime = {}) {
     const runtimeHost = isHost(runtime.host) ? runtime.host : undefined;
@@ -157,7 +179,13 @@ function createDefaultEventContributors(runtime = {}) {
         (event) => {
             if (event.eventName !== "SessionStart")
                 return undefined;
-            return claimSessionStart(event, runtime) ? SESSION_START_BASELINE : undefined;
+            return sessionStartNavigation(event, runtime);
+        },
+        (event) => {
+            return sessionStartCodeStyle(event, runtime, statePath);
+        },
+        (event) => {
+            return sessionStartUpdate(event, runtime, statePath);
         },
         (event) => {
             if (event.eventName !== "PreToolUse")
