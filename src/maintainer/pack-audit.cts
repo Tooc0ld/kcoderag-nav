@@ -103,6 +103,9 @@ const FORBIDDEN_PREFIXES = Object.freeze([
 
 export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/fixtures/host-delivery.cjs",
+  "dist/maintainer/acceptance-candidate.cjs",
+  "dist/maintainer/acceptance-evidence.cjs",
+  "dist/maintainer/acceptance-workflow.cjs",
   "dist/maintainer/ci-change-scope.cjs",
   "dist/maintainer/head-acceptance.cjs",
   "dist/maintainer/github-artifact-upload.cjs",
