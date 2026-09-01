@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "candidateSha": "02e773ffa86aef23b1c5eb02c5d437c63c5b505c",
-  "candidateTreeSha": "82aeca2fd22b6b241d41397b6468628b6a9e36ac",
+  "candidateSha": "36942caa844749c434bd1e7a7ddc9c134bb38169",
+  "candidateTreeSha": "61347734dfb4eb262034e53dd2c00ae8bc993067",
   "packageVersion": "0.3.1",
   "packageSha256": "6170a6fc0acd1bbe82ad2fe921f37d3fb5d92ccd96fb00a38dcf08ca83cb0ecc",
   "packageMemberDigest": "59bb03d0cfafe022d8a21376b41ae0baba6ec549324ad6a0e2946b8681e63af2",
   "workflowBlobSha": "92cf30de4bbe763f042022772511fa1fc141933f",
   "packageContractDigest": "6c3c35d07360873413705cf54d9ff7e17005ada59fb6ccab318797c7b5ceb08e",
-  "preparedAt": "2026-09-01T20:26:02.521Z"
+  "preparedAt": "2026-09-01T20:45:23.267Z"
 }
