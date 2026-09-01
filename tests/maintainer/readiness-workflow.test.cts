@@ -673,13 +673,13 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
   const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-download-"));
   const previousRunnerTemp = process.env.RUNNER_TEMP;
   process.env.RUNNER_TEMP = runnerTemp;
-  const open = (bytes: Buffer) => {
+  const open = (bytes: Buffer, artifactName = "kcoderag-nav-0.3.1.tgz") => {
     const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
     fs.writeFileSync(path.join(artifactRoot, "downloaded"), bytes);
     return workflowContract.openDownloadedLease({
       laneId: "linux-node22",
       artifactRoot,
-      artifactName: "kcoderag-nav-0.3.1.tgz",
+      artifactName,
       artifactSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
       memberCount,
     });
@@ -713,6 +713,14 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
       () => open(rewritePackageManifest(candidateBytes, "0.3.1", "0.3.x")),
       "downloaded_artifact_package_invalid",
     );
+    let mismatchedNameLease: ReturnType<typeof open> | undefined;
+    try {
+      expectCode(() => {
+        mismatchedNameLease = open(candidateBytes, "kcoderag-nav-0.3.0.tgz");
+      }, "downloaded_artifact_name_invalid");
+    } finally {
+      mismatchedNameLease?.dispose();
+    }
   } finally {
     if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previousRunnerTemp;
