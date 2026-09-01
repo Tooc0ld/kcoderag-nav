@@ -97,6 +97,10 @@ interface HostSmokeResult {
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
   readonly reason: string;
+  readonly evidenceLevel: "PACKAGED" | "LIVE";
+  readonly stage: string;
+  readonly reasonCode: string;
+  readonly receipt: Readonly<Record<string, unknown>>;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
   readonly runtimeContract?: HostRuntimeContract;
@@ -398,6 +402,12 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
   });
   assert.equal(passing.status, "PASS");
   assert.equal(passing.reason, "verified");
+  assert.equal(passing.evidenceLevel, "PACKAGED");
+  assert.equal(passing.stage, "evidence_integrity");
+  assert.equal(passing.reasonCode, "none");
+  assert.equal(passing.receipt.status, "PASS");
+  assert.equal(passing.receipt.evidenceLevel, "PACKAGED");
+  assert.equal((passing.receipt.observations as any).common.nativeHostProcess, false);
   assert.equal(smoke.smokeExitCode(passing), 0);
 
   for (const key of smoke.EVIDENCE_KEYS) {
@@ -418,6 +428,8 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
     unavailableReason: "package_unavailable",
   });
   assert.equal(unavailable.status, "NOT_RUN");
+  assert.equal(unavailable.stage, "environment");
+  assert.equal(unavailable.reasonCode, "runner_unavailable");
   assert.equal(smoke.smokeExitCode(unavailable), 1);
 });
 
