@@ -117,29 +117,16 @@ function runHookCommand(
     LOCALAPPDATA: cacheRoot,
     XDG_CACHE_HOME: cacheRoot,
   };
-  const result = process.platform === "win32"
-    ? childProcess.spawnSync(process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe", [
-        "/d",
-        "/s",
-        "/c",
-        command,
-      ], {
-        cwd: projectRoot,
-        env: environment,
-        input,
-        encoding: "utf8",
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      })
-    : childProcess.spawnSync("sh", ["-c", command], {
-        cwd: projectRoot,
-        env: environment,
-        input,
-        encoding: "utf8",
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024,
-      });
+  const result = childProcess.spawnSync(command, {
+    cwd: projectRoot,
+    env: environment,
+    input,
+    encoding: "utf8",
+    timeout: 15_000,
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+    shell: true,
+  });
   return Object.freeze({
     status: result.status,
     stdout: result.stdout,

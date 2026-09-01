@@ -1,12 +1,46 @@
 #!/usr/bin/env node
-/** Single bounded PreToolUse dispatcher; every contributor and output boundary fails open. */
+/** One bounded hook-event dispatcher; every contributor and output boundary fails open. */
 
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
+const path = require("node:path") as typeof import("node:path");
+import type { CapabilityId } from "../capabilities/contracts.cjs";
 import type { HostId } from "../core/contracts.cjs";
 import { codeStyleContribution } from "./code-style-nudge.cjs";
+import {
+  claimNudgeOnce,
+  stableSessionIdentity,
+  type StableSessionIdentity,
+} from "./once-marker.cjs";
 
 export const MAX_ADDITIONAL_CONTEXT_CHARS = 600;
 const MAX_INPUT_CHARS = 131_072;
+const MAX_EPOCH_CHARS = 128;
+const SESSION_START_SOURCES = new Set(["startup", "resume", "clear", "compact"]);
+const NAVIGATION_CAPABILITY: CapabilityId = "kcoderag-navigation";
+const SESSION_START_BASELINE =
+  "Use KCodeRag for structural code navigation before broad local search. " +
+  "Prefer search_code, context, and get_call_chain; use local tools for exact verification.";
+
+export type NormalizedHookEventName =
+  | "SessionStart"
+  | "SessionEnd"
+  | "PreToolUse"
+  | "PostToolUse";
+
+export interface NormalizedHookEvent {
+  readonly eventName: NormalizedHookEventName;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly host?: HostId;
+  readonly managedRoot?: string;
+  readonly stableSession?: StableSessionIdentity;
+  readonly source?: "startup" | "resume" | "clear" | "compact";
+  readonly contextEpoch?: string;
+}
+
+export type HookEventContributor = (
+  event: NormalizedHookEvent,
+) => string | undefined;
 
 export type PreToolContributor = (
   payload: Readonly<Record<string, unknown>>,
@@ -57,19 +91,129 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isHost(value: unknown): value is HostId {
-  return value === "codex" || value === "claude" || value === "cursor" || value === "opencode" ||
-    value === "zcode";
+  return value === "codex" || value === "claude" || value === "cursor" ||
+    value === "opencode" || value === "zcode";
+}
+
+function eventName(payload: Readonly<Record<string, unknown>>): NormalizedHookEventName | undefined {
+  const explicit = payload.hook_event_name;
+  if (
+    explicit === "SessionStart" || explicit === "SessionEnd" ||
+    explicit === "PreToolUse" || explicit === "PostToolUse"
+  ) {
+    return explicit;
+  }
+  return typeof payload.tool_name === "string" || typeof payload.tool === "string"
+    ? "PreToolUse"
+    : undefined;
+}
+
+function boundedEpoch(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0 && value.length <= MAX_EPOCH_CHARS) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+  return undefined;
+}
+
+/** Normalize only documented, bounded lifecycle fields; opaque identities remain byte-distinct. */
+export function normalizeHookEvent(
+  payload: unknown,
+  runtime: DispatcherRuntimeOptions = {},
+): NormalizedHookEvent | undefined {
+  if (!isRecord(payload)) return undefined;
+  const normalizedName = eventName(payload);
+  if (normalizedName === undefined) return undefined;
+  const host = isHost(runtime.host) ? runtime.host : undefined;
+  const managedRoot = typeof runtime.managedRoot === "string" && runtime.managedRoot.length > 0
+    ? runtime.managedRoot
+    : undefined;
+  const identity = stableSessionIdentity(payload);
+  if (normalizedName === "SessionStart") {
+    const rawSource = payload.source;
+    if (typeof rawSource !== "string" || !SESSION_START_SOURCES.has(rawSource)) return undefined;
+    const source = rawSource as "startup" | "resume" | "clear" | "compact";
+    const contextEpoch = boundedEpoch(payload.context_epoch) ?? source;
+    return Object.freeze({
+      eventName: normalizedName,
+      payload,
+      ...(host === undefined ? {} : { host }),
+      ...(managedRoot === undefined ? {} : { managedRoot }),
+      ...(identity === undefined ? {} : { stableSession: identity }),
+      source,
+      contextEpoch,
+    });
+  }
+  return Object.freeze({
+    eventName: normalizedName,
+    payload,
+    ...(host === undefined ? {} : { host }),
+    ...(managedRoot === undefined ? {} : { managedRoot }),
+    ...(identity === undefined ? {} : { stableSession: identity }),
+  });
 }
 
 function defaultStatePath(host: HostId, managedRoot: string): string {
   const hostRoot = host === "codex" ? ".codex" : host === "claude" ? ".claude" :
     host === "cursor" ? ".cursor" : host === "opencode" ? ".opencode" : ".zcode";
-  return require("node:path").join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json") as string;
+  return path.join(managedRoot, hostRoot, "kcoderag-nav", "install-state.json");
 }
 
-export function createDefaultContributors(
+function normalizedManagedRoot(value: string): string | undefined {
+  if (value.length === 0 || value.length > 4_096 || value.includes("\0") || !path.isAbsolute(value)) {
+    return undefined;
+  }
+  const normalized = path.normalize(value);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function sessionStartReminderKey(event: NormalizedHookEvent): string | undefined {
+  if (
+    event.eventName !== "SessionStart" || event.host === undefined ||
+    event.managedRoot === undefined || event.stableSession === undefined ||
+    event.contextEpoch === undefined
+  ) {
+    return undefined;
+  }
+  const root = normalizedManagedRoot(event.managedRoot);
+  if (root === undefined) return undefined;
+  const material = [
+    "kcoderag-nav-reminder-v2",
+    event.host,
+    root,
+    NAVIGATION_CAPABILITY,
+    event.stableSession.field,
+    event.stableSession.value,
+    event.contextEpoch,
+    "navigation",
+  ].join("\0");
+  return crypto.createHash("sha256").update(material, "utf8").digest("hex");
+}
+
+function claimSessionStart(
+  event: NormalizedHookEvent,
+  runtime: DispatcherRuntimeOptions,
+): boolean {
+  const key = sessionStartReminderKey(event);
+  if (key === undefined || event.host === undefined || event.managedRoot === undefined) return false;
+  // The reusable governor lands in Task 2. Until then, feed the already-secret
+  // tuple digest into the existing exclusive, bounded once-claim primitive.
+  return claimNudgeOnce(
+    { session_id: key },
+    {
+      host: event.host,
+      managedRoot: event.managedRoot,
+      capability: "code-style-nudge",
+      ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+    },
+  ).claimed;
+}
+
+function createDefaultEventContributors(
   runtime: DispatcherRuntimeOptions = {},
-): readonly PreToolContributor[] {
+): readonly HookEventContributor[] {
   const runtimeHost = isHost(runtime.host) ? runtime.host : undefined;
   const managedRoot = typeof runtime.managedRoot === "string" && runtime.managedRoot.length > 0
     ? runtime.managedRoot
@@ -78,23 +222,30 @@ export function createDefaultContributors(
     ? runtime.statePath ?? defaultStatePath(runtimeHost, managedRoot)
     : undefined;
   return Object.freeze([
-    (payload: Readonly<Record<string, unknown>>): string | undefined => {
+    (event: NormalizedHookEvent): string | undefined => {
+      if (event.eventName !== "SessionStart") return undefined;
+      return claimSessionStart(event, runtime) ? SESSION_START_BASELINE : undefined;
+    },
+    (event: NormalizedHookEvent): string | undefined => {
+      if (event.eventName !== "PreToolUse") return undefined;
       const noticeOptions = {
         ...(managedRoot === undefined ? {} : { cwd: managedRoot }),
         ...(statePath === undefined ? {} : { statePath }),
       };
       const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
         ? undefined
-        : updateNotice.readHostUpdateNotice(runtimeHost, payload, noticeOptions);
-      const contribution = navigation?.navigationContribution(payload, notice);
+        : updateNotice.readHostUpdateNotice(runtimeHost, event.payload, noticeOptions);
+      const contribution = navigation?.navigationContribution(event.payload, notice);
       if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
-        updateNotice.scheduleHostUpdateRefresh(runtimeHost, payload, noticeOptions);
+        updateNotice.scheduleHostUpdateRefresh(runtimeHost, event.payload, noticeOptions);
       }
       return contribution;
     },
-    (payload: Readonly<Record<string, unknown>>): string | undefined => {
-      if (runtimeHost === undefined || managedRoot === undefined) return undefined;
-      return codeStyleContribution(payload, {
+    (event: NormalizedHookEvent): string | undefined => {
+      if (event.eventName !== "PreToolUse" || runtimeHost === undefined || managedRoot === undefined) {
+        return undefined;
+      }
+      return codeStyleContribution(event.payload, {
         host: runtimeHost,
         managedRoot,
         ...(statePath === undefined ? {} : { statePath }),
@@ -104,16 +255,50 @@ export function createDefaultContributors(
   ]);
 }
 
-function responseForContexts(contexts: readonly string[]): Readonly<Record<string, unknown>> | undefined {
+export function createDefaultContributors(
+  runtime: DispatcherRuntimeOptions = {},
+): readonly PreToolContributor[] {
+  const contributors = createDefaultEventContributors(runtime);
+  return Object.freeze(contributors.map((contributor) => (
+    payload: Readonly<Record<string, unknown>>,
+  ): string | undefined => {
+    const event = normalizeHookEvent({ ...payload, hook_event_name: "PreToolUse" }, runtime);
+    return event === undefined ? undefined : contributor(event);
+  }));
+}
+
+function responseForContexts(
+  contexts: readonly string[],
+  hookEventName: NormalizedHookEventName,
+): Readonly<Record<string, unknown>> | undefined {
   if (contexts.length === 0) return undefined;
   const additionalContext = contexts.join("\n\n").slice(0, MAX_ADDITIONAL_CONTEXT_CHARS);
   if (additionalContext.length === 0) return undefined;
   return Object.freeze({
     hookSpecificOutput: Object.freeze({
-      hookEventName: "PreToolUse",
+      hookEventName,
       additionalContext,
     }),
   });
+}
+
+export function dispatchHookEvent(
+  event: NormalizedHookEvent,
+  contributors: readonly HookEventContributor[] = createDefaultEventContributors({
+    ...(event.host === undefined ? {} : { host: event.host }),
+    ...(event.managedRoot === undefined ? {} : { managedRoot: event.managedRoot }),
+  }),
+): Readonly<Record<string, unknown>> | undefined {
+  const contexts: string[] = [];
+  for (const contributor of contributors) {
+    try {
+      const context = contributor(event);
+      if (typeof context === "string" && context.length > 0) contexts.push(context);
+    } catch {
+      continue;
+    }
+  }
+  return responseForContexts(contexts, event.eventName);
 }
 
 export function dispatchPayload(
@@ -129,7 +314,7 @@ export function dispatchPayload(
       continue;
     }
   }
-  return responseForContexts(contexts);
+  return responseForContexts(contexts, "PreToolUse");
 }
 
 export function dispatchRawInput(
@@ -141,9 +326,12 @@ export function dispatchRawInput(
   if (rawInput.length === 0 || rawInput.length > MAX_INPUT_CHARS) return undefined;
   try {
     const payload = parseInput(rawInput);
-    return isRecord(payload)
-      ? dispatchPayload(payload, contributors ?? createDefaultContributors(runtime))
-      : undefined;
+    if (!isRecord(payload)) return undefined;
+    if (contributors !== undefined) return dispatchPayload(payload, contributors);
+    const event = normalizeHookEvent(payload, runtime);
+    return event === undefined
+      ? undefined
+      : dispatchHookEvent(event, createDefaultEventContributors(runtime));
   } catch {
     return undefined;
   }

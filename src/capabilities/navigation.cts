@@ -92,6 +92,7 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
     ],
     sections: [
       { id: "navigation:mcp", kind: "mcp", shared: true },
+      { id: "navigation:session-start", kind: "session-start", shared: true },
       { id: "navigation:pre-tool", kind: "pre-tool", shared: true },
       { id: "navigation:post-tool", kind: "post-tool", shared: true },
     ],

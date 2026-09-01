@@ -165,7 +165,11 @@ function assertSupport(selected: readonly CapabilityId[], context: HostInstallCo
   if (!decision.eligible) throw new InstallError(decision.code);
 }
 
-function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { readonly pre?: unknown; readonly post?: unknown } {
+function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): {
+  readonly start?: unknown;
+  readonly pre?: unknown;
+  readonly post?: unknown;
+} {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const hooks = isRecord(template.hooks) ? template.hooks : {};
   const render = (value: unknown, commands: { readonly command: string; readonly commandWindows: string }): unknown => {
@@ -176,8 +180,17 @@ function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { 
     return copy;
   };
   const genericShell = process.platform === "win32" ? "windows" : "posix";
+  const advisoryCommands = renderProjectHookCommands("codex", "advisory", genericShell);
+  const startTemplate = Array.isArray(hooks.SessionStart)
+    ? hooks.SessionStart[0]
+    : Array.isArray(hooks.PreToolUse)
+      ? hooks.PreToolUse[0]
+      : undefined;
+  const start = startTemplate === undefined ? undefined : render(startTemplate, advisoryCommands);
+  if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
-    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], renderProjectHookCommands("codex", "advisory", genericShell)) }),
+    ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
+    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], advisoryCommands) }),
     ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse) ? {} : { post: render(hooks.PostToolUse[0], renderProjectHookCommands("codex", "mcp-call-marker", genericShell)) }),
   });
 }
@@ -186,12 +199,16 @@ function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: 
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const managed = hookEntries(packageRoot, selected);
-  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", HOOKS_PATH);
     const unrelated = currentEntries.filter((entry) => !JSON.stringify(entry).includes("kcoderag-nav"));
     if (!owned && unrelated.length !== currentEntries.length) throw new InstallError("unmanaged_name_conflict", HOOKS_PATH);
-    const entry = event === "PreToolUse" ? managed.pre : managed.post;
+    const entry = event === "SessionStart"
+      ? managed.start
+      : event === "PreToolUse"
+        ? managed.pre
+        : managed.post;
     if (entry === undefined) { if (unrelated.length === 0) delete hooks[event]; else hooks[event] = unrelated; }
     else hooks[event] = [...unrelated, entry];
   }
@@ -246,7 +263,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ]), sections: Object.freeze([
-      section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
+      section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:session-start", hooks.start, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
     ]) }));
   }
   if (projected.includes(CODE_STYLE)) {

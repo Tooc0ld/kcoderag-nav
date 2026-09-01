@@ -14,7 +14,12 @@ export type CapabilityFileKind =
   | "rule"
   | "plugin";
 
-export type CapabilitySectionKind = "mcp" | "pre-tool" | "post-tool";
+export type CapabilitySectionKind =
+  | "mcp"
+  | "session-start"
+  | "session-end"
+  | "pre-tool"
+  | "post-tool";
 
 /** One package-relative canonical asset requirement. Host adapters choose its target path. */
 export interface CapabilityFileRequirement {
