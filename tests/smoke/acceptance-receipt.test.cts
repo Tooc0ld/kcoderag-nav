@@ -14,6 +14,8 @@ interface ReceiptModule {
   readonly HOST_OBSERVATION_KEYS: Readonly<Record<HostId, readonly string[]>>;
   completeCommonObservations(overrides?: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>>;
   completeHostObservations(host: HostId, overrides?: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>>;
+  emptyCommonObservations(overrides?: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>>;
+  emptyHostObservations(host: HostId, overrides?: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>>;
   createHostReceipt(input: Readonly<Record<string, unknown>>): Readonly<Record<string, any>>;
   parseHostReceipt(input: unknown): Readonly<Record<string, any>>;
   aggregateHostReceipts(
@@ -103,10 +105,15 @@ test("every reasonCode has one exact stage and accepted status combination", () 
         stage,
         reasonCode,
         attempted: status === "FAIL",
-        observations: {
-          common: receipt.completeCommonObservations({ packageInstalled: false }),
-          host: receipt.completeHostObservations("codex", { directMcpRegistrationObserved: false }),
-        },
+        observations: status === "NOT_RUN"
+          ? {
+              common: receipt.emptyCommonObservations(),
+              host: receipt.emptyHostObservations("codex"),
+            }
+          : {
+              common: receipt.completeCommonObservations({ packageInstalled: false }),
+              host: receipt.completeHostObservations("codex", { directMcpRegistrationObserved: false }),
+            },
       }));
       assert.equal(parsed.reasonCode, reasonCode);
 
@@ -150,8 +157,8 @@ test("PASS, FAIL and NOT_RUN enforce attempted and observation implications", ()
     reasonCode: "runner_unavailable",
     attempted: false,
     observations: {
-      common: receipt.completeCommonObservations({ packageInstalled: false }),
-      host: receipt.completeHostObservations("codex", { directMcpRegistrationObserved: false }),
+      common: receipt.emptyCommonObservations(),
+      host: receipt.emptyHostObservations("codex"),
     },
   })).status, "NOT_RUN");
   assert.throws(() => receipt.createHostReceipt(baseReceipt({
@@ -289,8 +296,8 @@ test("aggregate verdict never serializes INCOMPLETE into a host receipt", () => 
     reasonCode: "workspace_trust_missing",
     attempted: false,
     observations: {
-      common: receipt.completeCommonObservations({ packageInstalled: false }),
-      host: receipt.completeHostObservations("codex", { nativeHostProcessObserved: false }),
+      common: receipt.emptyCommonObservations(),
+      host: receipt.emptyHostObservations("codex"),
     },
   }));
   assert.equal(receipt.aggregateHostReceipts([notRun], { requiredHosts: ["codex"] }), "INCOMPLETE");
