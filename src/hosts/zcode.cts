@@ -272,6 +272,13 @@ function preToolEntry(): JsonMap {
   });
 }
 
+function sessionStartEntry(): JsonMap {
+  return Object.freeze({
+    matcher: "^(startup|resume|clear|compact)$",
+    hooks: Object.freeze([processHook("pre-tool-dispatcher.cjs", ["zcode"])]),
+  });
+}
+
 function postToolEntry(): JsonMap {
   return Object.freeze({
     matcher: POST_TOOL_MATCHER,
@@ -312,14 +319,17 @@ function mergeConfig(current: Buffer | undefined, packageRoot: string, state: In
   }
   const events = hooks.events === undefined ? {} : hooks.events;
   if (!isRecord(events)) throw new InstallError("invalid_json", CONFIG_PATH);
+  const existingStart = hookEntries(events.SessionStart);
   const existingPre = hookEntries(events.PreToolUse);
   const existingPost = hookEntries(events.PostToolUse);
   const owned = state !== undefined;
   if (!owned && (servers["kcoderag-qa"] !== undefined ||
-    existingPre.some(isManagedHookEntry) || existingPost.some(isManagedHookEntry))) {
+    existingStart.some(isManagedHookEntry) || existingPre.some(isManagedHookEntry) ||
+    existingPost.some(isManagedHookEntry))) {
     throw new InstallError("unmanaged_name_conflict", CONFIG_PATH);
   }
   const entry = remoteEntry(packageRoot);
+  const start = sessionStartEntry();
   const pre = preToolEntry();
   const post = postToolEntry();
   const enabledPreviouslyManaged = state?.sections.some((record) =>
@@ -331,6 +341,7 @@ function mergeConfig(current: Buffer | undefined, packageRoot: string, state: In
     enabled: true,
     events: Object.freeze({
       ...events,
+      SessionStart: Object.freeze([...existingStart.filter((item) => !isManagedHookEntry(item)), start]),
       PreToolUse: Object.freeze([...existingPre.filter((item) => !isManagedHookEntry(item)), pre]),
       PostToolUse: Object.freeze([...existingPost.filter((item) => !isManagedHookEntry(item)), post]),
     }),
@@ -345,6 +356,7 @@ function mergeConfig(current: Buffer | undefined, packageRoot: string, state: In
   return Object.freeze({
     bytes: Buffer.from(text.endsWith("\n") ? text : `${text}\n`, "utf8"),
     entry,
+    start,
     pre,
     post,
     enabledManaged,
@@ -428,6 +440,7 @@ function contributions(
       ]),
       sections: Object.freeze([
         section(CONFIG_PATH, "navigation:mcp", config.entry, currentConfig !== undefined),
+        section(CONFIG_PATH, "navigation:session-start", config.start, currentConfig !== undefined),
         section(CONFIG_PATH, "navigation:pre-tool", config.pre, currentConfig !== undefined),
         section(CONFIG_PATH, "navigation:post-tool", config.post, currentConfig !== undefined),
         ...(config.enabledManaged

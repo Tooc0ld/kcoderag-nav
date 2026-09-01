@@ -97,6 +97,7 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
       "navigation:mcp",
       "navigation:post-tool",
       "navigation:pre-tool",
+      "navigation:session-start",
     ]);
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
@@ -191,7 +192,10 @@ test("ZCode preserves existing workspace Hooks without claiming the enabled flag
     await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
     const rendered = JSON.parse(fs.readFileSync(configPath, "utf8"));
     assert.equal(rendered.hooks.timeoutMs, 7_000);
-    assert.deepEqual(rendered.hooks.events.SessionStart, [existingSession]);
+    assert.deepEqual(rendered.hooks.events.SessionStart[0], existingSession);
+    assert.equal(rendered.hooks.events.SessionStart.length, 2);
+    assert.equal(rendered.hooks.events.SessionStart[1].matcher, "^(startup|resume|clear|compact)$");
+    assert.equal(rendered.hooks.events.SessionEnd, undefined);
     assert.deepEqual(rendered.hooks.events.PreToolUse[0], existingPre);
     const state = JSON.parse(fs.readFileSync(path.join(root, ".zcode/kcoderag-nav/install-state.json"), "utf8"));
     assert.equal(state.sections.some((entry: any) => entry.id === "navigation:hooks-enabled"), false);

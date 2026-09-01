@@ -253,7 +253,10 @@ function assertSupport(
   if (!decision.eligible) throw new InstallError(decision.code);
 }
 
-function managedHookEntry(packageRoot: string, selected: readonly CapabilityId[]): { readonly pre?: unknown; readonly post?: unknown } {
+function managedHookEntry(
+  packageRoot: string,
+  selected: readonly CapabilityId[],
+): { readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const commands = renderProjectHookCommands("claude");
   const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
@@ -267,7 +270,15 @@ function managedHookEntry(packageRoot: string, selected: readonly CapabilityId[]
     copy.hooks[0].commandWindows = renderedCommands.commandWindows;
     return copy;
   };
+  const startTemplate = Array.isArray(hooks.SessionStart)
+    ? hooks.SessionStart[0]
+    : Array.isArray(hooks.PreToolUse)
+      ? hooks.PreToolUse[0]
+      : undefined;
+  const start = startTemplate === undefined ? undefined : renderEntry(startTemplate, commands);
+  if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
+    ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
     ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse)
       ? {}
       : { pre: renderEntry(hooks.PreToolUse[0], commands) }),
@@ -282,18 +293,22 @@ function mergeHookSettings(
   packageRoot: string,
   selected: readonly CapabilityId[],
   owned: boolean,
-): { readonly bytes: Buffer; readonly pre?: unknown; readonly post?: unknown } {
+): { readonly bytes: Buffer; readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
   const document = current === undefined ? {} : parseJson(current, "invalid_json", SETTINGS_PATH);
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
   const entries = managedHookEntry(packageRoot, selected);
-  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", SETTINGS_PATH);
     const unrelated = currentEntries.filter((entry) => !JSON.stringify(entry).includes("kcoderag-nav"));
     const hadManaged = unrelated.length !== currentEntries.length;
     if (!owned && hadManaged) throw new InstallError("unmanaged_name_conflict", SETTINGS_PATH);
-    const managed = event === "PreToolUse" ? entries.pre : entries.post;
+    const managed = event === "SessionStart"
+      ? entries.start
+      : event === "PreToolUse"
+        ? entries.pre
+        : entries.post;
     if (managed === undefined) {
       if (unrelated.length === 0) delete hooks[event];
       else hooks[event] = unrelated;
@@ -303,7 +318,12 @@ function mergeHookSettings(
   }
   if (Object.keys(hooks).length === 0) delete document.hooks;
   else document.hooks = hooks;
-  return Object.freeze({ bytes: canonicalJson(document), ...(entries.pre === undefined ? {} : { pre: entries.pre }), ...(entries.post === undefined ? {} : { post: entries.post }) });
+  return Object.freeze({
+    bytes: canonicalJson(document),
+    ...(entries.start === undefined ? {} : { start: entries.start }),
+    ...(entries.pre === undefined ? {} : { pre: entries.pre }),
+    ...(entries.post === undefined ? {} : { post: entries.post }),
+  });
 }
 
 function mergeMcp(current: Buffer | undefined, packageRoot: string, owned: boolean): { readonly bytes: Buffer; readonly entry: JsonMap } {
@@ -388,6 +408,7 @@ function projectContributions(
       files: Object.freeze(files),
       sections: Object.freeze([
         section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined, true),
+        section(SETTINGS_PATH, "navigation:session-start", settings.start, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:pre-tool", settings.pre, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:post-tool", settings.post, settingsCurrent !== undefined, true),
       ]),

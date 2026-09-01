@@ -1,5 +1,20 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{project_hook_command_posix}}",
+            "commandWindows": "{{project_hook_command_windows}}",
+            "timeout": 5,
+            "statusMessage": "Loading project guidance",
+            "additionalContextLimit": 600
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$",
