@@ -81,7 +81,10 @@ const PHASE05_REF_PREFIX = "refs/heads/phase05-live-candidate-";
 const BRANCH_REF_RE = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,239}$/u;
 const OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
+const PACKAGE_VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const PACKAGE_NAME = "kcoderag-nav" as const;
 const MAX_RECEIPT_BYTES = 16 * 1024;
+const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = tarArchive.DEFAULT_TAR_ARCHIVE_LIMITS.maxArchiveBytes;
 const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
   "downloaded_artifact_environment_invalid",
@@ -91,6 +94,7 @@ const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
   "downloaded_artifact_open_invalid",
   "downloaded_artifact_archive_invalid",
   "downloaded_artifact_identity_invalid",
+  "downloaded_artifact_package_invalid",
 ] as const);
 const SAFE_UPLOAD_STAGES = Object.freeze([
   "create_artifact", "stage_block", "commit_block_list", "finalize_artifact",
@@ -122,6 +126,37 @@ export function hostedLaneFailureAnnotation(reason: string, enabled: boolean): s
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function downloadedPackageIdentity(entries: readonly import("./tar-archive.cjs").TarArchiveEntry[]): {
+  readonly name: typeof PACKAGE_NAME;
+  readonly version: string;
+} {
+  const manifests = entries.filter((entry) => entry.path === "package.json");
+  failUnless(
+    manifests.length === 1
+      && manifests[0]?.type === "file"
+      && manifests[0].body.length > 0
+      && manifests[0].body.length <= MAX_PACKAGE_MANIFEST_BYTES,
+    "downloaded_artifact_package_invalid",
+  );
+  let parsed: unknown;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(manifests[0].body);
+    failUnless(!text.includes("\ufeff"), "downloaded_artifact_package_invalid");
+    parsed = JSON.parse(text);
+  } catch (error) {
+    if (error instanceof ReadinessWorkflowError) throw error;
+    throw new ReadinessWorkflowError("downloaded_artifact_package_invalid");
+  }
+  failUnless(
+    isRecord(parsed)
+      && parsed.name === PACKAGE_NAME
+      && typeof parsed.version === "string"
+      && PACKAGE_VERSION_RE.test(parsed.version),
+    "downloaded_artifact_package_invalid",
+  );
+  return Object.freeze({ name: PACKAGE_NAME, version: parsed.version });
 }
 
 function hasExactKeys(value: unknown, keys: readonly string[]): value is JsonMap {
@@ -502,10 +537,11 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
         && entries.length === input.memberCount,
       "downloaded_artifact_identity_invalid",
     );
+    const packageIdentity = downloadedPackageIdentity(entries);
     const lease = new releaseReadiness.CandidatePackageArtifactLease({
       artifact: Object.freeze({
-        name: "kcoderag-nav" as const,
-        version: "0.3.0",
+        name: packageIdentity.name,
+        version: packageIdentity.version,
         sha256: digest,
         memberCount: entries.length,
         dryRunCount: 1 as const,
