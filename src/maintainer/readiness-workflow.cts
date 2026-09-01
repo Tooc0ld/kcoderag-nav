@@ -538,6 +538,11 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
       "downloaded_artifact_identity_invalid",
     );
     const packageIdentity = downloadedPackageIdentity(entries);
+    failUnless(
+      input.artifactName === path.basename(input.artifactName)
+        && input.artifactName === `${packageIdentity.name}-${packageIdentity.version}.tgz`,
+      "downloaded_artifact_name_invalid",
+    );
     const lease = new releaseReadiness.CandidatePackageArtifactLease({
       artifact: Object.freeze({
         name: packageIdentity.name,

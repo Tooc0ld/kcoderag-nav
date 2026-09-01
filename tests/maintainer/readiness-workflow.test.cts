@@ -615,7 +615,7 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
     return workflowContract.openDownloadedLease({
       laneId: "linux-node22",
       artifactRoot,
-      artifactName: "kcoderag-nav-0.3.0.tgz",
+      artifactName: "kcoderag-nav-0.3.1.tgz",
       artifactSha256,
       memberCount,
     });
