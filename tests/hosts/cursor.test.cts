@@ -15,7 +15,7 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("Cursor rejects instruction-only code-style nudge and keeps native navigation update projection", async () => {
+test("Cursor rejects instruction-only code-style nudge and keeps honest native navigation projection", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-cursor-"));
   try {
     fs.mkdirSync(path.join(root, ".cursor"), { recursive: true });
@@ -39,14 +39,14 @@ test("Cursor rejects instruction-only code-style nudge and keeps native navigati
     const hooks = JSON.parse(fs.readFileSync(path.join(root, ".cursor/hooks.json"), "utf8"));
     assert.deepEqual(hooks.hooks.beforeSubmitPrompt, [{ command: "keep" }]);
     assert.match(JSON.stringify(hooks.hooks.afterMCPExecution), /mcp-call-marker\.cjs cursor/u);
-    assert.match(JSON.stringify(hooks.hooks.postToolUse), /update-notice\.cjs cursor/u);
+    assert.equal(hooks.hooks.postToolUse, undefined);
+    assert.equal(hooks.hooks.preToolUse, undefined);
     for (const relativePath of [
       ".cursor/rules/kcoderag-navigation.mdc",
       ".cursor/skills/kcoderag-nav/SKILL.md",
+      ".cursor/kcoderag-nav/hooks/feedback-nudge.cjs",
       ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs",
-      ".cursor/kcoderag-nav/hooks/update-check.cjs",
-      ".cursor/kcoderag-nav/hooks/update-notice.cjs",
-      ".cursor/kcoderag-nav/hooks/update-worker.cjs",
+      ".cursor/kcoderag-nav/hooks/once-marker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
     assert.equal(fs.existsSync(path.join(root, ".cursor/skills/code-style-correction/SKILL.md")), false);
   } finally {

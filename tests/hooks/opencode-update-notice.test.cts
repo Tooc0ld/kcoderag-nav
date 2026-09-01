@@ -21,7 +21,7 @@ function fixtureGlobal(): GlobalFixture {
   return (globalThis as unknown as { __kcoderagOpenCodeFixture: GlobalFixture }).__kcoderagOpenCodeFixture;
 }
 
-test("OpenCode after-event records success and shows one fail-open cached update toast", async () => {
+test("OpenCode after-event forwards closed facts and shows one fail-open cached update toast", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "kcoderag-opencode-update-"));
   try {
     const pluginPath = path.join(root, ".opencode", "plugins", "kcoderag-nav.mjs");
@@ -69,13 +69,14 @@ test("OpenCode after-event records success and shows one fail-open cached update
     assert.equal(typeof after, "function");
     if (after === undefined) throw new Error("missing tool.execute.after hook");
     const input = { tool: "read", sessionID: "session-a", args: { token: "must-not-leak" } };
+    const fact = { conversation_id: "session-a", tool: "read", success: true };
     await after(input);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(fixtureGlobal().calls, [
-      ["marker", input, { host: "opencode" }],
-      ["notice", "opencode", input, { cwd: root }],
-      ["refresh", "opencode", input, { cwd: root, runtimePath: "node" }],
+      ["marker", fact, { host: "opencode", cwd: root }],
+      ["notice", "opencode", fact, { cwd: root }],
+      ["refresh", "opencode", fact, { cwd: root, runtimePath: "node" }],
       ["toast", { body: { message: "KCodeRag Nav update available", variant: "warning" } }],
     ]);
 
@@ -83,8 +84,9 @@ test("OpenCode after-event records success and shows one fail-open cached update
     fixtureGlobal().fail = true;
     await assert.doesNotReject(after(input));
     assert.deepEqual(fixtureGlobal().calls, [
-      ["marker", input, { host: "opencode" }],
-      ["notice", "opencode", input, { cwd: root }],
+      ["marker", fact, { host: "opencode", cwd: root }],
+      ["notice", "opencode", fact, { cwd: root }],
+      ["refresh", "opencode", fact, { cwd: root, runtimePath: "node" }],
     ]);
   } finally {
     delete (globalThis as unknown as { __kcoderagOpenCodeFixture?: GlobalFixture }).__kcoderagOpenCodeFixture;
