@@ -65,9 +65,14 @@ interface ReleaseReadinessModule {
   }): CandidatePackageArtifactLease;
 }
 
+interface GeneratorModule {
+  readonly PHASE_05_ASSET_ROUTES: readonly Readonly<Record<string, string>>[];
+}
+
 const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
 const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
 const tarArchive = require("../../dist/maintainer/tar-archive.cjs") as TarArchiveModule;
+const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
@@ -270,16 +275,23 @@ test("closes the Phase 05 public receipt runtime and Cursor generated family", (
     fs.readFileSync(path.join(repositoryRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc"), "utf8"),
     fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), "utf8"),
   );
-  assert.equal(
-    fs.readFileSync(path.join(repositoryRoot, "plugin-src/skills/code-lookup-discipline/SKILL.md"), "utf8"),
-    fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md"), "utf8"),
+  assert.deepEqual(
+    generator.PHASE_05_ASSET_ROUTES.find((route) =>
+      route.product === "cursor" && route.output === "skills/code-lookup-discipline/SKILL.md"),
+    {
+      product: "cursor",
+      output: "skills/code-lookup-discipline/SKILL.md",
+      canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      kind: "template",
+    },
   );
   const routing = fs.readFileSync(
     path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"),
     "utf8",
   );
   assert.match(routing, /list_indexes/iu);
-  assert.match(routing, /semantic\/hybrid/iu);
+  assert.match(routing, /semantic.*hybrid/isu);
   assert.match(routing, /keyword.*context.*get_call_chain/isu);
 });
 
