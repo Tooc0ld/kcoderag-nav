@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 05
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-09-01T17:47:22.225Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-09-01T18:18:45.481Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 05 execution started
-state_head: 520ac6d6021ec6a8118116963c72c72f7e5e5d45
+state_head: 0d363b8462a9e7eda37c34927217c2e07c1e7759
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 117
-  completed_plans: 112
+  completed_plans: 113
   percent: 75
 ---
 
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 05 (统一 Hook 策略与真实宿主验证) — EXECUTING
-Plan: 2 of 6
-Status: Executing Phase 05
+Plan: 3 of 6
+Status: Ready to execute
 Last activity: 2026-09-02 — Phase 05 execution started
 
-Progress: [████████░░] 112/117 plans (75%)
+Progress: [████████░░] 113/117 plans (75%)
 
 ## Performance Metrics
 
@@ -131,6 +131,7 @@ Progress: [████████░░] 112/117 plans (75%)
 | Phase 04.2 P44 | 195min | 3 tasks | 4 files |
 | Phase 04.2 P45 | 1h | 3 tasks | 5 files |
 | Phase 05 P01 | 45min | 3 tasks | 35 files |
+| Phase 05 P02 | 21min | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -336,6 +337,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 05]: SessionStart 以稳定 session epoch 治理：resume 保持，clear/compact 递增；身份只作为 SHA-256 材料。
 - [Phase 05]: semantic/hybrid 仅在当前稳定会话的可靠 list_indexes 成功证明可用索引后提示，否则保持 keyword/context/call-chain。
 - [Phase 05]: exact-tgz 与 launcher 直跑只形成 PACKAGED 证据；没有真实宿主原生观察不得记录 LIVE。
+- [Phase 05]: Claude Code and ZCode share one bounded startup/resume/clear/compact SessionStart projection; unproved SessionEnd cleanup remains absent.
+- [Phase 05]: Cursor stays Rule/Skill/MCP plus afterMCPExecution only; packaged evidence records unsupported update hook lanes as false.
+- [Phase 05]: OpenCode callbacks reduce native payloads to bounded session/tool/success facts before isolated fail-open marker, feedback, and update handling.
 
 ### Pending Todos
 
@@ -411,6 +415,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-09-01T17:47:21.870Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-09-01T18:18:45.104Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
