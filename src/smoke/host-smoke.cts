@@ -1359,25 +1359,29 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag-nav", "SKILL.md"));
       const mcpBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "mcp.json"));
       const hooksBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "hooks.json"));
-      const updateNoticeBytes = fs.readFileSync(path.join(
-        projectRoot, ".cursor", "kcoderag-nav", "hooks", "update-notice.cjs",
+      const markerBytes = fs.readFileSync(path.join(
+        projectRoot, ".cursor", "kcoderag-nav", "hooks", "mcp-call-marker.cjs",
       ));
       const rule = ruleBytes.toString("utf8");
       const skill = skillBytes.toString("utf8");
       const hooks: unknown = JSON.parse(hooksBytes.toString("utf8"));
-      const postToolUse = isRecord(hooks) && isRecord(hooks.hooks) && Array.isArray(hooks.hooks.postToolUse)
-        ? hooks.hooks.postToolUse
+      const afterMcpExecution = isRecord(hooks) && isRecord(hooks.hooks) &&
+        Array.isArray(hooks.hooks.afterMCPExecution)
+        ? hooks.hooks.afterMCPExecution
         : [];
-      const updateCommand = "node .cursor/kcoderag-nav/hooks/update-notice.cjs cursor";
+      const markerCommand = "node .cursor/kcoderag-nav/hooks/mcp-call-marker.cjs cursor";
+      const unsupportedEventsAbsent = isRecord(hooks) && isRecord(hooks.hooks) &&
+        !Object.hasOwn(hooks.hooks, "SessionStart") && !Object.hasOwn(hooks.hooks, "PreToolUse") &&
+        !Object.hasOwn(hooks.hooks, "postToolUse");
       const valid = /alwaysApply:\s*true/u.test(rule) && rule.includes("search_code") && skill.includes("KCodeRag") &&
-        postToolUse.some((entry) => isRecord(entry) && entry.command === updateCommand) &&
-        updateNoticeBytes.includes(Buffer.from("additional_context", "utf8"));
+        afterMcpExecution.some((entry) => isRecord(entry) && entry.command === markerCommand) &&
+        markerBytes.includes(Buffer.from("mcp-calls", "utf8")) && unsupportedEventsAbsent;
       return Object.freeze({
         kind: "rule_skill_mcp" as const,
         root: valid,
         deep: valid,
         sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
-        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes, hooksBytes, updateNoticeBytes]),
+        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes, hooksBytes, markerBytes]),
       });
     } catch {
       return undefined;
@@ -1642,17 +1646,16 @@ async function withProcessEnvironmentAsync<T>(environment: NodeJS.ProcessEnv, ac
 
 function readCursorHookCommand(
   projectRoot: string,
-  event: "afterMCPExecution" | "postToolUse",
 ): string | undefined {
   try {
     const hooksPath = path.join(projectRoot, ".cursor", "hooks.json");
     const metadata = fs.lstatSync(hooksPath);
     if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
     const document: unknown = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
-    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks[event])) {
+    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks.afterMCPExecution)) {
       return undefined;
     }
-    const commands = document.hooks[event].flatMap((entry: unknown) =>
+    const commands = document.hooks.afterMCPExecution.flatMap((entry: unknown) =>
       isRecord(entry) && typeof entry.command === "string" && entry.command.length <= 64 * 1024
         ? [entry.command]
         : []);
@@ -1706,7 +1709,7 @@ function updateRefreshEvidence(
 }
 
 function commandRuntimeContract(
-  host: "codex" | "claude" | "cursor" | "zcode",
+  host: "codex" | "claude" | "zcode",
   projectRoot: string,
   runtimeRoot: string,
 ): HostRuntimeContract | undefined {
@@ -1734,14 +1737,7 @@ function commandRuntimeContract(
       session_id: `${host}-notice-contract`,
       cwd: projectRoot,
     });
-    const markerPayload = JSON.stringify(host === "cursor" ? {
-      hook_event_name: "afterMCPExecution",
-      mcp_server_name: "kcoderag-qa",
-      tool_name: "search_code",
-      success: true,
-      conversation_id: `${host}-marker-contract`,
-      cwd: projectRoot,
-    } : {
+    const markerPayload = JSON.stringify({
       hook_event_name: "PostToolUse",
       tool_name: host === "zcode" ? "krag.search_code/1" : "mcp__kcoderag-qa__search_code",
       tool_input: { query: "SyntheticSymbol" },
@@ -1763,15 +1759,6 @@ function commandRuntimeContract(
       markerResult = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, markerPayload, update.environment);
       malformedNotice = runZCodeProcessHook(pre, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
       malformedMarker = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
-    } else if (host === "cursor") {
-      const notice = readCursorHookCommand(projectRoot, "postToolUse");
-      const marker = readCursorHookCommand(projectRoot, "afterMCPExecution");
-      if (notice === undefined || marker === undefined) return undefined;
-      registration = true;
-      noticeResult = runCommandHook(notice, projectRoot, runtimeRoot, prePayload, update.environment);
-      markerResult = runCommandHook(marker, projectRoot, runtimeRoot, markerPayload, update.environment);
-      malformedNotice = runCommandHook(notice, projectRoot, runtimeRoot, "{", update.environment);
-      malformedMarker = runCommandHook(marker, projectRoot, runtimeRoot, "{", update.environment);
     } else {
       const pre = readRegisteredHookCommand(host, projectRoot, "PreToolUse");
       const post = readRegisteredHookCommand(host, projectRoot, "PostToolUse");
@@ -1782,14 +1769,14 @@ function commandRuntimeContract(
       malformedNotice = runCommandHook(pre, projectRoot, runtimeRoot, "{", update.environment);
       malformedMarker = runCommandHook(post, projectRoot, runtimeRoot, "{", update.environment);
     }
-    const context = additionalContext(noticeResult, host === "cursor");
+    const context = additionalContext(noticeResult);
     const hookEvent = context !== undefined;
     const updateNotice = context?.includes(`npx kcoderag-nav@latest update --host ${host}`) === true;
     const successMarker = silentSuccess(markerResult) && markerEvidence(update.cacheRoot);
     const failOpen = silentSuccess(malformedNotice) && silentSuccess(malformedMarker);
     const installedAssets = registration && skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
     const updateRefresh = updateRefreshEvidence(host, paths, runtimeRoot, update.environment);
-    const kind = host === "cursor" ? "cursor_events" as const : "advisory_hooks" as const;
+    const kind = "advisory_hooks" as const;
     return Object.freeze({
       schemaVersion: 1 as const,
       layer: "packaged" as const,
@@ -1806,6 +1793,66 @@ function commandRuntimeContract(
         markerBytes as Buffer,
         updateBytes as Buffer,
         workerBytes as Buffer,
+        skillBytes as Buffer,
+        stateBytes as Buffer,
+        String(installedAssets),
+        String(hookEvent),
+        String(successMarker),
+        String(updateNotice),
+        String(updateRefresh),
+        String(failOpen),
+      ]),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function cursorRuntimeContract(
+  projectRoot: string,
+  runtimeRoot: string,
+): HostRuntimeContract | undefined {
+  const host = "cursor" as const;
+  const paths = runtimePaths(host, projectRoot);
+  const markerBytes = readSmallRegular(paths.marker);
+  const skillBytes = readSmallRegular(paths.skill);
+  const stateBytes = readSmallRegular(paths.state);
+  if ([markerBytes, skillBytes, stateBytes].some((bytes) => bytes === undefined)) return undefined;
+  try {
+    const marker = readCursorHookCommand(projectRoot);
+    if (marker === undefined) return undefined;
+    const update = updateEnvironment(runtimeRoot, projectRoot);
+    const markerPayload = JSON.stringify({
+      hook_event_name: "afterMCPExecution",
+      mcp_server_name: "kcoderag-qa",
+      tool_name: "search_code",
+      success: true,
+      conversation_id: `${host}-marker-contract`,
+      cwd: projectRoot,
+    });
+    const markerResult = runCommandHook(marker, projectRoot, runtimeRoot, markerPayload, update.environment);
+    const malformedMarker = runCommandHook(marker, projectRoot, runtimeRoot, "{", update.environment);
+    const installedAssets = skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
+    const hookEvent = true;
+    const successMarker = silentSuccess(markerResult) && markerEvidence(update.cacheRoot);
+    const updateNotice = false;
+    const updateRefresh = false;
+    const failOpen = silentSuccess(malformedMarker);
+    const kind = "cursor_events" as const;
+    return Object.freeze({
+      schemaVersion: 1 as const,
+      layer: "packaged" as const,
+      kind,
+      installedAssets,
+      hookEvent,
+      successMarker,
+      updateNotice,
+      updateRefresh,
+      failOpen,
+      fingerprint: sha256Parts([
+        kind,
+        host,
+        markerBytes as Buffer,
         skillBytes as Buffer,
         stateBytes as Buffer,
         String(installedAssets),
@@ -1925,9 +1972,13 @@ async function openCodeRuntimeContract(
 }
 
 function completeRuntimeContract(contract: HostRuntimeContract | undefined): boolean {
-  return contract !== undefined && contract.installedAssets && contract.hookEvent &&
-    contract.successMarker && contract.updateNotice && contract.updateRefresh && contract.failOpen &&
-    /^[a-f0-9]{64}$/u.test(contract.fingerprint);
+  if (contract === undefined || !contract.installedAssets || !contract.hookEvent ||
+    !contract.successMarker || !contract.failOpen || !/^[a-f0-9]{64}$/u.test(contract.fingerprint)) {
+    return false;
+  }
+  return contract.kind === "cursor_events"
+    ? !contract.updateNotice && !contract.updateRefresh
+    : contract.updateNotice && contract.updateRefresh;
 }
 
 async function hostRuntimeEvidence(
@@ -1937,6 +1988,8 @@ async function hostRuntimeEvidence(
 ): Promise<HostRuntimeContract | undefined> {
   return host === "opencode"
     ? await openCodeRuntimeContract(projectRoot, runtimeRoot)
+    : host === "cursor"
+      ? cursorRuntimeContract(projectRoot, runtimeRoot)
     : commandRuntimeContract(host, projectRoot, runtimeRoot);
 }
 

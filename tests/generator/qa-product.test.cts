@@ -124,11 +124,19 @@ test("QA style handler and five Markdown assets are byte-identical to canonical 
   }
 });
 
-test("QA Hook manifest retains one bounded advisory lane and one success-marker lane", () => {
+test("QA Hook manifest retains bounded lifecycle, advisory, and success-marker lanes", () => {
   const registration = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", "hooks", "hooks.json"), "utf8"),
   ) as {
     hooks?: {
+      SessionStart?: readonly {
+        hooks?: readonly {
+          additionalContextLimit?: unknown;
+          command?: unknown;
+          commandWindows?: unknown;
+        }[];
+        matcher?: unknown;
+      }[];
       PreToolUse?: readonly {
         hooks?: readonly {
           additionalContextLimit?: unknown;
@@ -147,16 +155,22 @@ test("QA Hook manifest retains one bounded advisory lane and one success-marker 
     };
   };
   assert.deepEqual(Object.keys(registration), ["hooks"]);
-  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse", "SessionStart"]);
+  assert.equal(registration.hooks?.SessionStart?.length, 1);
   assert.equal(registration.hooks?.PreToolUse?.length, 1);
   assert.equal(registration.hooks?.PostToolUse?.length, 1);
+  const lifecycle = registration.hooks?.SessionStart?.[0]?.hooks?.[0];
   const advisory = registration.hooks?.PreToolUse?.[0]?.hooks?.[0];
   const marker = registration.hooks?.PostToolUse?.[0]?.hooks?.[0];
+  assert.equal(lifecycle?.additionalContextLimit, 600);
+  assert.equal(typeof lifecycle?.command, "string");
+  assert.equal(typeof lifecycle?.commandWindows, "string");
   assert.equal(advisory?.additionalContextLimit, 600);
   assert.equal(typeof advisory?.command, "string");
   assert.equal(typeof advisory?.commandWindows, "string");
   assert.equal(typeof marker?.command, "string");
   assert.equal(typeof marker?.commandWindows, "string");
+  assert.equal(registration.hooks?.SessionStart?.[0]?.matcher, "^(startup|resume|clear|compact)$");
   assert.equal(registration.hooks?.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$");
   assert.equal(registration.hooks?.PostToolUse?.[0]?.matcher, "^mcp__kcoderag[-_]qa__.*$");
 });

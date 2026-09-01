@@ -398,9 +398,19 @@ function decodeEmbeddedBootstrap(command: string): string {
   return bootstrap;
 }
 
-test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
+test("hook registration keeps bounded SessionStart, advisory PreToolUse, and exact KCodeRag PostToolUse", () => {
   const registration = readHookRegistration(sourceRegistration);
-  assert.deepEqual(Object.keys(registration.hooks), ["PreToolUse", "PostToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks), ["SessionStart", "PreToolUse", "PostToolUse"]);
+  assert.equal(registration.hooks.SessionStart?.length, 1);
+  assert.equal(registration.hooks.SessionStart?.[0]?.matcher, "^(startup|resume|clear|compact)$");
+  assert.equal(
+    registration.hooks.SessionStart?.[0]?.hooks[0]?.command,
+    "{{project_hook_command_posix}}",
+  );
+  assert.equal(
+    registration.hooks.SessionStart?.[0]?.hooks[0]?.commandWindows,
+    "{{project_hook_command_windows}}",
+  );
   assert.equal(registration.hooks.PreToolUse?.length, 1);
   assert.equal(
     registration.hooks.PreToolUse?.[0]?.matcher,
@@ -421,7 +431,7 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 
-  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);
@@ -488,9 +498,9 @@ test("popup guard recognizes known interactive Windows hook launchers", () => {
 
 test("generated hook product rejects popup-capable or asynchronous Windows registrations", () => {
   const registration = readHookRegistration(generatedRegistration);
-  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart"]);
 
-  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);

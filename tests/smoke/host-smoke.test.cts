@@ -958,6 +958,13 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       assert.equal(host.status, "PASS", host.host);
       assert.equal(host.provenance, result.provenance);
       assert.equal(host.runtimeContract?.layer, "packaged");
+      if (host.host === "cursor") {
+        assert.equal(host.runtimeContract?.kind, "cursor_events");
+        assert.equal(host.runtimeContract?.hookEvent, true);
+        assert.equal(host.runtimeContract?.successMarker, true);
+        assert.equal(host.runtimeContract?.updateNotice, false);
+        assert.equal(host.runtimeContract?.updateRefresh, false);
+      }
       if (host.host === "claude") {
         assert.equal(host.capabilityLifecycle?.branch, "supported");
         assert.equal(host.capabilityLifecycle?.hostVersion, "2.1.241");
