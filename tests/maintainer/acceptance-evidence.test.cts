@@ -48,10 +48,16 @@ function sha256(bytes: string | Buffer): string {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function packagedCodexReceipt(packageSha256: string): Record<string, unknown> {
+function collectKeys(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(collectKeys);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, item]) => [key, ...collectKeys(item)]);
+}
+
+function packagedReceipt(packageSha256: string, host = "codex"): Record<string, unknown> {
   return {
     schemaVersion: 1,
-    host: "codex",
+    host,
     hostVersion: "0.146.1",
     os: "windows",
     nodeVersion: "22.22.0",
@@ -74,7 +80,7 @@ function packagedCodexReceipt(packageSha256: string): Record<string, unknown> {
         nativeHostProcess: false,
         sessionBaselineObserved: false,
       }),
-      host: receipt.emptyHostObservations("codex"),
+      host: receipt.emptyHostObservations(host),
     },
   };
 }
@@ -102,7 +108,7 @@ test("consumes one actual-tgz PACKAGED Codex receipt without native promotion", 
   const packageSha256 = sha256(packageBytes);
 
   const document = buildAcceptanceEvidence(
-    evidenceInput(packagePath, packageSha256, packagedCodexReceipt(packageSha256)),
+    evidenceInput(packagePath, packageSha256, packagedReceipt(packageSha256)),
   );
 
   assert.equal(document.aggregateVerdict, "PASS");
@@ -117,12 +123,47 @@ test("consumes one actual-tgz PACKAGED Codex receipt without native promotion", 
   });
 });
 
+test("validates the exact closed five-host PACKAGED receipt set", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-five-host-"));
+  const packagePath = path.join(root, "candidate.tgz");
+  fs.writeFileSync(packagePath, "candidate");
+  const packageSha256 = sha256("candidate");
+  const hosts = ["codex", "claude", "cursor", "opencode", "zcode"] as const;
+  const document = buildAcceptanceEvidence({
+    ...evidenceInput(packagePath, packageSha256, packagedReceipt(packageSha256)),
+    requiredHosts: hosts,
+    receipts: hosts.map((host) => packagedReceipt(packageSha256, host)),
+  });
+
+  assert.equal(document.aggregateVerdict, "PASS");
+  assert.deepEqual(document.receipts.map((item: { readonly host: string }) => item.host).sort(), [...hosts].sort());
+
+  const unknownHostObservation = packagedReceipt(packageSha256, "cursor");
+  const observations = unknownHostObservation.observations as Record<string, unknown>;
+  unknownHostObservation.observations = {
+    ...observations,
+    host: {
+      ...(observations.host as Record<string, unknown>),
+      syntheticNativeEvent: true,
+    },
+  };
+  assert.throws(
+    () => buildAcceptanceEvidence({
+      ...evidenceInput(packagePath, packageSha256, unknownHostObservation),
+      requiredHosts: ["cursor"],
+    }),
+    (error: unknown) => error instanceof AcceptanceEvidenceError
+      && error.stage === "evidence_integrity"
+      && error.reasonCode === "receipt_invalid",
+  );
+});
+
 test("LIVE consumption rejects direct-launcher and missing Codex native observations", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-live-"));
   const packagePath = path.join(root, "candidate.tgz");
   fs.writeFileSync(packagePath, "candidate");
   const packageSha256 = sha256("candidate");
-  const packaged = packagedCodexReceipt(packageSha256);
+  const packaged = packagedReceipt(packageSha256);
 
   assert.equal(classifyEvidenceSource("direct_launcher"), "PACKAGED");
   assert.throws(
@@ -155,7 +196,7 @@ test("fails closed on candidate, package and workflow-run identity mismatch", ()
   const packagePath = path.join(root, "candidate.tgz");
   fs.writeFileSync(packagePath, "candidate");
   const packageSha256 = sha256("candidate");
-  const base = packagedCodexReceipt(packageSha256);
+  const base = packagedReceipt(packageSha256);
 
   for (const [mutate, stage, reasonCode] of [
     [(value: Record<string, unknown>) => { value.candidateSha = "e".repeat(40); }, "evidence_integrity", "candidate_mismatch"],
@@ -179,7 +220,7 @@ test("rejects missing, unknown and secret-shaped receipt content before serializ
   const packagePath = path.join(root, "candidate.tgz");
   fs.writeFileSync(packagePath, "candidate");
   const packageSha256 = sha256("candidate");
-  const base = packagedCodexReceipt(packageSha256);
+  const base = packagedReceipt(packageSha256);
   const forbiddenKeys = ["query", "result", "url", "authorization", "header", "bearer", "token", "config"];
 
   for (const forbidden of forbiddenKeys) {
@@ -209,7 +250,7 @@ test("opens an explicit workflow-run artifact and writes metadata atomically", a
   const outputPath = path.join(root, "evidence.json");
   fs.writeFileSync(packagePath, "candidate");
   const packageSha256 = sha256("candidate");
-  const receipt = packagedCodexReceipt(packageSha256);
+  const receipt = packagedReceipt(packageSha256);
   const calls: string[] = [];
   const reader: AcceptanceArtifactReader = {
     async readWorkflowRun(runId, artifactName) {
@@ -226,9 +267,13 @@ test("opens an explicit workflow-run artifact and writes metadata atomically", a
   }, reader);
 
   assert.deepEqual(calls, [`${WORKFLOW_RUN_ID}:packaged-codex`]);
-  assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), document);
+  const serialized = JSON.parse(fs.readFileSync(outputPath, "utf8")) as unknown;
+  assert.deepEqual(serialized, document);
   assert.equal(fs.readdirSync(root).some((name) => name.includes(".tmp-")), false);
-  assert.doesNotMatch(fs.readFileSync(outputPath, "utf8"), /query|result|authorization|bearer|token|config/iu);
+  assert.deepEqual(
+    collectKeys(serialized).filter((key) => /^(?:query|result|url|authorization|headers?|bearer|token|config)$/iu.test(key)),
+    [],
+  );
 
   const secondOutput = path.join(root, "direct-write.json");
   writeAcceptanceEvidence(secondOutput, document);
