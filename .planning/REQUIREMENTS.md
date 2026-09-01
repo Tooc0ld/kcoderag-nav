@@ -117,10 +117,10 @@
 
 ### Hook 精度与能力诚实性
 
-- [ ] **HOOK-06**: fixed-string、多明确文件、单文件、日志和生成文本等本地核对保持静默
-- [ ] **HOOK-07**: 深层窄目录与常见 Lua 全局处理器在明确 scope 下保留限定本地搜索，唯一 C++ 符号和限定 Lua 方法仍获得图优先建议
-- [ ] **HOOK-08**: 已使用 KCodeRag 后的同轮本地精确复核不会重复收到结构提醒；任何去重状态有界且 fail-open
-- [ ] **ROUT-05**: nudge、skill 和指南仅在索引真实可用时推荐 semantic/hybrid，否则默认 keyword/context/call-chain 并明确降级
+- [x] **HOOK-06**: fixed-string、多明确文件、单文件、日志和生成文本等本地核对保持静默
+- [x] **HOOK-07**: 深层窄目录与常见 Lua 全局处理器在明确 scope 下保留限定本地搜索，唯一 C++ 符号和限定 Lua 方法仍获得图优先建议
+- [x] **HOOK-08**: 已使用 KCodeRag 后的同轮本地精确复核不会重复收到结构提醒；任何去重状态有界且 fail-open
+- [x] **ROUT-05**: nudge、skill 和指南仅在索引真实可用时推荐 semantic/hybrid，否则默认 keyword/context/call-chain 并明确降级
 
 ### 真实宿主验证
 
@@ -217,10 +217,10 @@
 | BRAND-02 | Phase 04.2 | Complete |
 | BRAND-03 | Phase 04.2 | Complete |
 | BRAND-04 | Phase 04.2 | Complete |
-| HOOK-06 | Phase 5 | Pending |
-| HOOK-07 | Phase 5 | Pending |
-| HOOK-08 | Phase 5 | Pending |
-| ROUT-05 | Phase 5 | Pending |
+| HOOK-06 | Phase 5 | Complete |
+| HOOK-07 | Phase 5 | Complete |
+| HOOK-08 | Phase 5 | Complete |
+| ROUT-05 | Phase 5 | Complete |
 | TEST-07 | Phase 5 | Pending |
 | TEST-08 | Phase 5 | Pending |
 | TEST-09 | Phase 5 | Pending |

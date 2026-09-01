@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 05
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: executing
-stopped_at: Phase 05 context gathered
-last_updated: "2026-09-01T17:05:40.633Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-09-01T17:47:22.225Z"
 last_activity: 2026-09-02
-last_activity_desc: Phase 05 planning complete
-state_head: acdf5bf0d7ad10a33aadb9834c38ed13171319b3
+last_activity_desc: Phase 05 execution started
+state_head: 520ac6d6021ec6a8118116963c72c72f7e5e5d45
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 117
-  completed_plans: 111
+  completed_plans: 112
   percent: 75
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 ## Current Position
 
-Phase: 05 (统一 Hook 策略与真实宿主验证) — READY TO EXECUTE
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-09-02 — Phase 05 planning complete
+Phase: 05 (统一 Hook 策略与真实宿主验证) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 05
+Last activity: 2026-09-02 — Phase 05 execution started
 
-Progress: [████████████████████] 111/111 plans (100%)
+Progress: [████████░░] 112/117 plans (75%)
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ Progress: [████████████████████] 111/111
 | Phase 04.2 P43 | 13min | 2 tasks | 2 files |
 | Phase 04.2 P44 | 195min | 3 tasks | 4 files |
 | Phase 04.2 P45 | 1h | 3 tasks | 5 files |
+| Phase 05 P01 | 45min | 3 tasks | 35 files |
 
 ## Accumulated Context
 
@@ -332,6 +333,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 04.2]: Preserve the exact existing schema-v1 receipt key set and replace stale authorities without inventing unvalidated run or artifact fields.
 - [Phase 04.2]: Keep independently reconciled run, artifact, member-manifest, producer, and job identities in Plan 45 Summary while the receipt retains its validated closed shape.
 - [Phase 04.2]: Commit every Plan 45 output before the private baseline and report the live final seal only from the executor response.
+- [Phase 05]: SessionStart 以稳定 session epoch 治理：resume 保持，clear/compact 递增；身份只作为 SHA-256 材料。
+- [Phase 05]: semantic/hybrid 仅在当前稳定会话的可靠 list_indexes 成功证明可用索引后提示，否则保持 keyword/context/call-chain。
+- [Phase 05]: exact-tgz 与 launcher 直跑只形成 PACKAGED 证据；没有真实宿主原生观察不得记录 LIVE。
 
 ### Pending Todos
 
@@ -407,6 +411,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-09-01T15:49:57.869Z
-Stopped at: Phase 05 context gathered
-Resume file: .planning/phases/05-hook-precision/05-CONTEXT.md
+Last session: 2026-09-01T17:47:21.870Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
