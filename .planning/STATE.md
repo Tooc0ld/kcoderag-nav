@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 05
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: executing
-stopped_at: Completed 05-04-PLAN.md
-last_updated: "2026-09-01T19:16:30.094Z"
+stopped_at: Completed 05-05-PLAN.md
+last_updated: "2026-09-01T20:04:50.732Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 05 execution started
-state_head: 9f4b0156de86637720f0af7b2c329f69d53381bc
+state_head: 1e946b6693a3c20380baf0405b92b47c25449eee
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 117
-  completed_plans: 115
+  completed_plans: 116
   percent: 75
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 05 (统一 Hook 策略与真实宿主验证) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-09-02 — Phase 05 execution started
 
@@ -134,6 +134,7 @@ Progress: [████████░░] 113/117 plans ([███████
 | Phase 05 P02 | 21min | 2 tasks | 16 files |
 | Phase 05 P03 | 7min | 3 tasks | 7 files |
 | Phase 05 P04 | 25min | 3 tasks | 9 files |
+| Phase 05 P05 | 39min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -348,6 +349,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 05]: Host receipts contain only PASS, FAIL, or NOT_RUN; INCOMPLETE is aggregate-only.
 - [Phase 05]: Only environment or admission absence may be NOT_RUN; attempted package and execution failures are stage-specific FAIL.
 - [Phase 05]: Phase 05 public package closes at 81 members with PACKAGED-only five-host evidence; later plans consume it without member mutation.
+- [Phase 05]: PACKAGED 与 LIVE 共用闭合 receipt schema，但 PACKAGED 不能提升 native-host 观察或制造 LIVE PASS。
+- [Phase 05]: Phase 05 可执行产品候选固定为 bb92400437f49d0f0e43f1553e930b7a215c759f；候选记录及后续证据提交只能是独立后代。
+- [Phase 05]: Windows candidate gate 通过当前 Node 执行 bundled npm-cli.js，不经过 command shell。
 
 ### Pending Todos
 
@@ -423,6 +427,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-09-01T19:16:29.738Z
-Stopped at: Completed 05-04-PLAN.md
+Last session: 2026-09-01T20:04:50.367Z
+Stopped at: Completed 05-05-PLAN.md
 Resume file: None
