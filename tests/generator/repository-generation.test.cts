@@ -33,6 +33,13 @@ interface GeneratorModule {
     readonly safePath?: string;
   };
   readonly ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>>;
+  readonly PHASE_05_ASSET_ROUTES: readonly {
+    readonly product: Product;
+    readonly output: string;
+    readonly canonicalSource: string;
+    readonly renderSource: string;
+    readonly kind: "compiled-copy" | "normalized-copy" | "template" | "hook-registration";
+  }[];
   checkGenerated(options: {
     readonly package: Product | "all";
     readonly group: AssetGroup;
@@ -57,6 +64,21 @@ interface FileEvidence {
 const repositoryRoot = path.resolve(__dirname, "..", "..");
 const generator = require(path.join(repositoryRoot, "dist", "generator", "index.cjs")) as GeneratorModule;
 const products = ["qa", "cursor"] as const;
+const expectedPhase05AssetRoutes = Object.freeze([
+  { product: "cursor", output: "rules/kcoderag-navigation.mdc", canonicalSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", renderSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", kind: "normalized-copy" },
+  { product: "cursor", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" },
+  { product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/hooks.json", canonicalSource: "plugin-src/hooks/hooks.json", renderSource: "plugin-src/hooks/hooks.json", kind: "hook-registration" },
+  { product: "qa", output: "hooks/mcp-call-marker.cjs", canonicalSource: "src/hooks/mcp-call-marker.cts", renderSource: "dist/hooks/mcp-call-marker.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/once-marker.cjs", canonicalSource: "src/hooks/once-marker.cts", renderSource: "dist/hooks/once-marker.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/pre-tool-dispatcher.cjs", canonicalSource: "src/hooks/pre-tool-dispatcher.cts", renderSource: "dist/hooks/pre-tool-dispatcher.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/session-cleanup.cjs", canonicalSource: "src/hooks/session-cleanup.cts", renderSource: "dist/hooks/session-cleanup.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "hooks/update-check.cjs", canonicalSource: "src/hooks/update-check.cts", renderSource: "dist/hooks/update-check.cjs", kind: "compiled-copy" },
+  { product: "qa", output: "opencode/kcoderag-nav.js", canonicalSource: "plugin-src/opencode/kcoderag-nav.js", renderSource: "plugin-src/opencode/kcoderag-nav.js", kind: "normalized-copy" },
+  { product: "qa", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" },
+] as const);
 const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = Object.freeze({
   qa: Object.freeze([
     ".claude-plugin/plugin.json",
@@ -249,6 +271,17 @@ test("compiled repository gate proves all generated products canonical without r
   );
   assert.deepEqual(expectedProductInventory.qa, generator.ASSET_GROUP_PATHS.qa.all);
   assert.deepEqual(expectedProductInventory.cursor, generator.ASSET_GROUP_PATHS.cursor.all);
+  assert.deepEqual(generator.PHASE_05_ASSET_ROUTES, expectedPhase05AssetRoutes);
+  assert.equal(
+    new Set(generator.PHASE_05_ASSET_ROUTES.map((route) => `${route.product}/${route.output}`)).size,
+    generator.PHASE_05_ASSET_ROUTES.length,
+    "one route per generated output",
+  );
+  for (const route of generator.PHASE_05_ASSET_ROUTES) {
+    assert.equal(fs.statSync(path.join(repositoryRoot, ...route.canonicalSource.split("/"))).isFile(), true);
+    assert.equal(fs.statSync(path.join(repositoryRoot, ...route.renderSource.split("/"))).isFile(), true);
+    assert.equal(generator.ASSET_GROUP_PATHS[route.product].all.includes(route.output), true);
+  }
 
   const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-repository-projection-"));
   const before = evidenceForSelectedAssets();
@@ -270,6 +303,15 @@ test("compiled repository gate proves all generated products canonical without r
     assert.deepEqual(checked.changedPaths, []);
     assert.deepEqual(checked.writtenPaths, []);
     assert.deepEqual(evidenceForSelectedAssets(), before);
+
+    const generatedAgain = generator.generatePackage({
+      package: "all",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot,
+    });
+    assert.deepEqual(generatedAgain.changedPaths, []);
+    assert.deepEqual(generatedAgain.writtenPaths, []);
 
     assertQaStructure(outputRoot, version as string);
     assert.equal(fs.existsSync(path.join(outputRoot, "kcoderag-dev")), false, "retired Dev tree");
@@ -299,6 +341,20 @@ test("compiled repository gate proves all generated products canonical without r
     assert.deepEqual(evidenceForSelectedAssets(), before);
   } finally {
     fs.rmSync(outputRoot, { recursive: true, force: true });
+  }
+});
+
+test("ROUT-05 guidance gates semantic modes on reliable list_indexes evidence", () => {
+  const gate = "Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.";
+  const fallback = "Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.";
+  for (const relativePath of [
+    "plugin-src/skills/code-lookup-discipline/SKILL.md",
+    "kcoderag-qa/skills/code-lookup-discipline/SKILL.md",
+    "plugin-src/cursor/rules/kcoderag-navigation.mdc",
+  ] as const) {
+    const text = fs.readFileSync(path.join(repositoryRoot, ...relativePath.split("/")), "utf8");
+    assert.equal(text.includes(gate), true, `${relativePath}: reliable index gate`);
+    assert.equal(text.includes(fallback), true, `${relativePath}: explicit fallback`);
   }
 });
 
@@ -375,6 +431,36 @@ test("missing and stale generated asset fixtures fail closed while check mode re
     assert.equal(fs.readFileSync(stalePath).equals(staleBefore), true);
     assert.equal(fs.statSync(stalePath).mtimeMs, staleMtime);
     assert.deepEqual(evidenceForSelectedAssets(), missingBefore);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("orphan generated assets fail check mode without mutation", () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-repository-orphan-"));
+  try {
+    generator.generatePackage({
+      package: "all",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot: fixtureRoot,
+    });
+    const orphanPath = productPath(fixtureRoot, "qa", "hooks/orphan.cjs");
+    fs.writeFileSync(orphanPath, "orphan\n", { mode: 0o600 });
+    const before = fs.readFileSync(orphanPath);
+    const beforeMtime = fs.statSync(orphanPath).mtimeMs;
+
+    const checked = generator.checkGenerated({
+      package: "all",
+      group: "all",
+      sourceRoot: repositoryRoot,
+      outputRoot: fixtureRoot,
+    });
+    assert.equal(checked.ok, false);
+    assert.equal(checked.changedPaths.includes("kcoderag-qa/hooks/orphan.cjs"), true);
+    assert.deepEqual(checked.writtenPaths, []);
+    assert.equal(fs.readFileSync(orphanPath).equals(before), true);
+    assert.equal(fs.statSync(orphanPath).mtimeMs, beforeMtime);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
