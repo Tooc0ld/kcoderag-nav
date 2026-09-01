@@ -134,10 +134,10 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
 test("workflow validator fails closed for trust, identity, bypass and LIVE rebuild drift", () => {
   const source = workflow();
   const cases = [
-    [source.replace(/\n\s+candidateSha:[\s\S]*?\n\s+packageSha256:/u, "\n      packageSha256:"), "candidate_input_missing"],
+    [source.replaceAll("candidateSha:", "candidateDigest:"), "candidate_input_missing"],
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],
     [source.replace("github.event.repository.fork == false", "github.event.repository.fork == true"), "untrusted_ref_guard_missing"],
-    [source.replace("node-version: \"22\"", "node-version: \"24\""), "live_runner_invalid"],
+    [source.replaceAll("node-version: \"22\"", "node-version: \"24\""), "live_runner_invalid"],
     [source.replace("npm run acceptance:live", "npm pack && npm run acceptance:live"), "live_rebuild_forbidden"],
     [`${source}\n# continue-on-error: true\n`, "acceptance_bypass_forbidden"],
   ] as const;

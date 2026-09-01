@@ -53,11 +53,14 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   );
 });
 
-test("every CI and acceptance checkout is pinned to the workflow head without retaining credentials", () => {
+test("every CI checkout is pinned and acceptance checkouts bind the exact producer subject", () => {
   const source = `${workflow()}\n${acceptanceWorkflow()}`;
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 3);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 3);
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 5);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 5);
+  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 2);
+  assert.equal(source.match(/ref:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/gu)?.length ?? 0, 1);
+  assert.equal(source.match(/ref:\s*\$\{\{ needs\.package\.outputs\.candidate-sha \}\}/gu)?.length ?? 0, 1);
+  assert.equal(source.match(/ref:\s*\$\{\{ inputs\.candidateSha \}\}/gu)?.length ?? 0, 1);
 });
 
 test("every required lane installs the lock without scripts and runs all gates", () => {
@@ -119,34 +122,23 @@ test("documentation-only scope runs one bounded lightweight gate and skips the f
   assert.match(required, /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' \}\}/u);
 });
 
-test("candidate and manual acceptance use the dedicated Windows runner and isolated R-drive temp", () => {
+test("acceptance uses one hosted producer, four packaged lanes and a protected exact-candidate Windows LIVE lane", () => {
   const source = acceptanceWorkflow();
-  assert.match(
-    source,
-    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']readiness\/\*\*-candidate["']\s*\r?\n\s+workflow_dispatch:/mu,
-  );
-  assert.match(source, /if:\s*\$\{\{ vars\.KCODERAG_LIVE_SMOKE == 'enabled' \}\}/u);
+  assert.match(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?packageSha256:[\s\S]*?packageMemberDigest:[\s\S]*?workflowBlobSha:/u);
+  assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
+  assert.equal(source.match(/- lane:\s*(?:ubuntu|windows)-node(?:22|24)/gu)?.length, 4);
+  assert.match(source, /github\.event_name == 'workflow_dispatch'/u);
+  assert.match(source, /github\.event\.repository\.fork == false/u);
+  assert.match(source, /environment:\s*\r?\n\s+name:\s*kcoderag-live/u);
   assert.match(source, /runs-on:\s*\[self-hosted, Windows, X64, kcoderag-live\]/u);
-  assert.match(source, /R:\\actions-runner\\kcoderag-nav\\_temp/u);
-  assert.match(source, /KCODERAG_ACCEPTANCE_TEMP=\$jobRoot/u);
-  assert.match(source, /TEMP=\$jobRoot/u);
-  assert.match(source, /TMP=\$jobRoot/u);
-  assert.match(source, /if:\s*\$\{\{ always\(\) \}\}[\s\S]*?Remove-Item -LiteralPath \$jobRoot -Recurse -Force/u);
-  const required = source.indexOf("npm run smoke:required");
-  const live = source.indexOf("npm run smoke:live");
-  assert.ok(required >= 0 && live > required);
-  assert.match(
-    source,
-    /id:\s*live_smoke[\s\S]*?run:\s*\|[\s\S]*?npm run smoke:live[\s\S]*?live-smoke\.json[\s\S]*?exit \$exitCode[\s\S]*?continue-on-error:\s*true/u,
-  );
-  assert.match(source, /\$exitCode = \$LASTEXITCODE/u);
-  assert.match(source, /ConvertFrom-Json/u);
-  assert.match(source, /foreach \(\$hostName in @\('codex', 'claude', 'cursor', 'opencode', 'zcode'\)\)/u);
-  assert.match(source, /\^\(PASS\|FAIL\|NOT_RUN\)\$/u);
-  assert.match(source, /\^\[a-z0-9_\]\{1,64\}\$/u);
-  assert.doesNotMatch(source.slice(required, live), /continue-on-error/u);
+  assert.match(source, /concurrency:[\s\S]*?group:\s*kcoderag-live-windows[\s\S]*?cancel-in-progress:\s*false/u);
+  assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 2);
+  const live = source.slice(source.indexOf("  live:"), source.indexOf("  verify:"));
+  assert.match(live, /npm run acceptance:live/u);
+  assert.doesNotMatch(live, /npm\s+(?:pack|publish|view)|pack:audit|smoke:required|dist-tag|@latest/iu);
   assert.doesNotMatch(workflow(), /authenticated-live|kcoderag-live|smoke:live/u);
-  assert.doesNotMatch(source, /upload-artifact|MCP_CONFIG|Authorization|Bearer|npm\s+publish/iu);
+  assert.doesNotMatch(source, /MCP_CONFIG|Authorization|Bearer|npm\s+publish/iu);
+  assert.doesNotMatch(source, /continue-on-error|allow_failure|\|\|\s*true/iu);
 });
 
 test("workflow is test-only on branch pushes and pull requests with minimal authority", () => {
@@ -172,7 +164,10 @@ test("third-party actions are immutable pins and no CI script can publish", () =
   const source = `${workflow()}\n${acceptanceWorkflow()}`;
   const uses = [...source.matchAll(/uses:\s*([^\s#]+)(?:\s+#.*)?$/gmu)].map((match) => match[1]);
   assert.ok(uses.length >= 2);
-  for (const action of uses) assert.match(action ?? "", /^[^@\s]+@[0-9a-f]{40}$/u);
+  for (const action of uses) {
+    if (action?.startsWith("./")) continue;
+    assert.match(action ?? "", /^[^@\s]+@[0-9a-f]{40}$/u);
+  }
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
     scripts: Record<string, string>;
@@ -188,6 +183,10 @@ test("third-party actions are immutable pins and no CI script can publish", () =
   assert.equal(
     packageJson.scripts["smoke:live"],
     "node dist/smoke/host-smoke.cjs --mode optional-live",
+  );
+  assert.equal(
+    packageJson.scripts["check:acceptance-workflow"],
+    "node dist/maintainer/acceptance-workflow.cjs check .github/workflows/acceptance.yml",
   );
   assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
   assert.match(packageJson.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
