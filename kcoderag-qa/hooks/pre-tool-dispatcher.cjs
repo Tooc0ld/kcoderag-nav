@@ -197,7 +197,13 @@ function createDefaultEventContributors(runtime = {}) {
             const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
                 ? undefined
                 : updateNotice.readHostUpdateNotice(runtimeHost, event.payload, noticeOptions);
-            const contribution = navigation?.navigationContribution(event.payload, notice);
+            const contribution = navigation?.navigationContribution(event.payload, notice, runtimeHost === undefined || managedRoot === undefined
+                ? undefined
+                : {
+                    host: runtimeHost,
+                    managedRoot,
+                    ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+                });
             if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
                 updateNotice.scheduleHostUpdateRefresh(runtimeHost, event.payload, noticeOptions);
             }

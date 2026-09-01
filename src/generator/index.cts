@@ -187,8 +187,10 @@ function canonicalGroups(input: CanonicalGroupsInput): Readonly<Record<Canonical
 
 const NAVIGATION_QA_GROUPS = canonicalGroups({
   runtime: [
+    "hooks/feedback-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/mcp-call-marker.cjs",
+    "hooks/once-marker.cjs",
     "hooks/pre-tool-dispatcher.cjs",
     "hooks/update-check.cjs",
     "hooks/update-notice.cjs",
@@ -641,6 +643,7 @@ function renderQaAsset(
 ): Buffer {
   if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
   if (relativePath === "hooks/code-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/code-style-nudge.cjs");
+  if (relativePath === "hooks/feedback-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/feedback-nudge.cjs");
   if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
   if (relativePath === "hooks/once-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/once-marker.cjs");
   if (relativePath === "hooks/pre-tool-dispatcher.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs");

@@ -9,6 +9,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const feedback_nudge_cjs_1 = require("./feedback-nudge.cjs");
 exports.MCP_CALL_MARKER_SCHEMA_VERSION = 1;
 exports.MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
 exports.MAX_MCP_CALL_MARKERS = 128;
@@ -84,25 +85,6 @@ const nodeFiles = {
         }
     },
 };
-function isKCodeRagTool(payload, host) {
-    if (host === "cursor") {
-        return (payload.mcp_server_name === "kcoderag" || payload.mcp_server_name === "kcoderag-qa") &&
-            (payload.hook_event_name === undefined || payload.hook_event_name === "afterMCPExecution");
-    }
-    if (host === "opencode") {
-        const tool = boundedString(payload.tool);
-        return tool !== undefined && /^kcoderag-qa_/u.test(tool);
-    }
-    if (host === "zcode") {
-        const toolName = boundedString(payload.tool_name);
-        return toolName !== undefined &&
-            /^(?:mcp__kcoderag[-_]qa__.+|kcoderag[-_]qa[._/].+|krag[._/].+)$/u.test(toolName) &&
-            (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
-    }
-    const toolName = boundedString(payload.tool_name);
-    return toolName !== undefined && /^mcp__kcoderag[-_]qa__.+/u.test(toolName) &&
-        (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
-}
 function identity(payload, host, cwd) {
     const session = boundedString(payload.session_id) ??
         boundedString(payload.conversation_id) ??
@@ -132,8 +114,9 @@ function prune(files, directoryPath, keepName, now) {
 /** Record only metadata required to recognize a same-session/turn local verification. */
 function recordKCodeRagCall(payload, options) {
     try {
-        if (!isRecord(payload) || !isKCodeRagTool(payload, options.host))
+        if (!isRecord(payload) || (0, feedback_nudge_cjs_1.normalizeKCodeRagOutcome)(payload, { host: options.host })?.success !== true) {
             return Object.freeze({ recorded: false });
+        }
         const now = options.now?.() ?? Date.now();
         if (!Number.isFinite(now) || now < 0)
             return Object.freeze({ recorded: false });

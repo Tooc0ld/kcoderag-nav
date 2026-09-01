@@ -66,6 +66,7 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "README.md",
     "agents/kcode-explorer.md",
     "hooks/code-style-nudge.cjs",
+    "hooks/feedback-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/hooks.json",
     "hooks/mcp-call-marker.cjs",
@@ -196,7 +197,7 @@ function assertQaStructure(root: string, version: string): void {
     "qa:claude-mcp-path",
   );
 
-  for (const runtime of ["grep-nudge.cjs", "mcp-call-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
+  for (const runtime of ["feedback-nudge.cjs", "grep-nudge.cjs", "mcp-call-marker.cjs", "once-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
     assert.equal(
       fs.readFileSync(productPath(root, "qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
@@ -258,7 +259,7 @@ test("compiled repository gate proves all generated products canonical without r
       sourceRoot: repositoryRoot,
       outputRoot,
     });
-    assert.equal(generated.writtenPaths.length, 37);
+    assert.equal(generated.writtenPaths.length, 38);
     const checked = generator.checkGenerated({
       package: "all",
       group: "all",

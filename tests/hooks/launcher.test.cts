@@ -40,11 +40,14 @@ const codex = require("../../dist/hosts/codex.cjs") as {
 const claude = require("../../dist/hosts/claude.cjs") as {
   claudeAdapter: Record<string, any>;
 };
-const structuralPayload = JSON.stringify({
-  hook_event_name: "PreToolUse",
-  tool_name: "Bash",
-  tool_input: { command: "rg KPlayer::GetLevel src" },
-});
+function structuralPayload(): string {
+  return JSON.stringify({
+    hook_event_name: "PreToolUse",
+    session_id: `launcher-${crypto.randomUUID()}`,
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer::GetLevel src" },
+  });
+}
 
 interface Deployment {
   readonly root: string;
@@ -210,7 +213,7 @@ function assertMarkerResult(
 function runRenderedWindows(
   command: string,
   cwd: string,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -228,7 +231,7 @@ function runRenderedPosix(
   shellExecutable: string,
   command: string,
   cwd: string,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   return childProcess.spawnSync(shellExecutable, ["-c", command], {
@@ -252,6 +255,7 @@ function deployment(): Deployment {
   for (const name of [
     "grep-nudge.cjs",
     "code-style-nudge.cjs",
+    "feedback-nudge.cjs",
     "once-marker.cjs",
     "pre-tool-dispatcher.cjs",
   ]) {
@@ -270,7 +274,7 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 function runWindows(
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -289,7 +293,7 @@ interface AsyncLauncherResult {
 
 function runWindowsAsync(
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): Promise<AsyncLauncherResult> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -327,7 +331,7 @@ function posixShell(): string | undefined {
 function runPosix(
   shell: string,
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   return childProcess.spawnSync(shell, [path.join(fixture.hooks, "run_hook.sh")], {
@@ -620,7 +624,7 @@ test("complete project copies and renames keep root and deep registered commands
         assertSilentSuccess(runRenderedWindows(
           installed.command.commandWindows,
           moved,
-          structuralPayload,
+          structuralPayload(),
           environment({ PATH: commandProcessorDirectory }),
         ));
       }
@@ -641,7 +645,7 @@ test("complete project copies and renames keep root and deep registered commands
           shellExecutable,
           installed.command.command,
           moved,
-          structuralPayload,
+          structuralPayload(),
           environment({ PATH: emptyPath }),
         );
         if (host === "codex" && process.platform === "win32") {
@@ -802,7 +806,7 @@ if (process.platform === "win32") {
       assertUnavailableRuntimeFailsOpen(runRenderedWindows(
         installed.command.command,
         deep,
-        structuralPayload,
+        structuralPayload(),
         environment({ PATH: emptyPath }),
       ));
       assert.deepEqual(fs.readdirSync(deep), deepBefore);
@@ -831,7 +835,7 @@ if (process.platform === "win32") {
     try {
       const emptyPath = path.join(fixture.root, "empty-path");
       fs.mkdirSync(emptyPath);
-      assertSilentSuccess(runWindows(fixture, structuralPayload, environment({ PATH: emptyPath })));
+      assertSilentSuccess(runWindows(fixture, structuralPayload(), environment({ PATH: emptyPath })));
 
       fs.writeFileSync(path.join(fixture.hooks, "grep-nudge.cjs"), "process.stdout.write('must-not-leak'); process.exit(7);\n");
       assertSilentSuccess(runWindows(fixture));
@@ -884,7 +888,7 @@ if (shell !== undefined) {
     try {
       const emptyPath = path.join(fixture.root, "empty-path");
       fs.mkdirSync(emptyPath);
-      assertSilentSuccess(runPosix(shell, fixture, structuralPayload, environment({ PATH: emptyPath })));
+      assertSilentSuccess(runPosix(shell, fixture, structuralPayload(), environment({ PATH: emptyPath })));
 
       fs.writeFileSync(path.join(fixture.hooks, "grep-nudge.cjs"), "process.stdout.write('must-not-leak'); process.exit(7);\n");
       assertSilentSuccess(runPosix(shell, fixture));

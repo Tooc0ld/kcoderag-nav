@@ -62,6 +62,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
     "runtime-cjs": [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -75,6 +76,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -90,6 +92,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
     runtime: [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -142,6 +145,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "README.md",
       "agents/kcode-explorer.md",
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
       "hooks/mcp-call-marker.cjs",
@@ -285,6 +289,7 @@ function createFixture(): Fixture {
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
   write(sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs", "module.exports={name:'dispatcher'};\n");
   write(sourceRoot, "dist/hooks/code-style-nudge.cjs", "module.exports={name:'style'};\n");
+  write(sourceRoot, "dist/hooks/feedback-nudge.cjs", "module.exports={name:'feedback'};\n");
   write(sourceRoot, "dist/hooks/once-marker.cjs", "module.exports={name:'once'};\n");
   write(sourceRoot, "dist/hooks/session-cleanup.cjs", "module.exports={name:'cleanup'};\n");
   write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
@@ -509,7 +514,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 37);
+    assert.equal(first.writtenPaths.length, 38);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({

@@ -341,6 +341,7 @@ function section(relativePath: string, id: string, value: unknown, fileExisted: 
 }
 
 const NAV_RUNTIME = Object.freeze([
+  ["dist/hooks/feedback-nudge.cjs", "feedback-nudge.cjs"],
   ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"],
   ["dist/hooks/update-check.cjs", "update-check.cjs"],
   ["dist/hooks/update-notice.cjs", "update-notice.cjs"],

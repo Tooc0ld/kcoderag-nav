@@ -67,6 +67,10 @@ export interface ReminderOptions extends ReminderScope {
   readonly now?: () => number;
 }
 
+export interface ReminderLookupOptions extends ReminderScope {
+  readonly cacheRoot?: string;
+}
+
 export interface ContextEpochOptions extends OnceMarkerScope {
   readonly source: SessionStartSource;
   readonly cacheRoot?: string;
@@ -289,6 +293,38 @@ export function claimReminder(payload: unknown, options: ReminderOptions): OnceM
   if (key === undefined) return suppressed();
   const record = markerRecord(options, options.now?.() ?? Date.now());
   return record === undefined ? suppressed(key) : claimKey(key, record, options);
+}
+
+/** Read only one exact hash-addressed claim and reject malformed or tampered metadata. */
+export function reminderClaimExists(payload: unknown, options: ReminderLookupOptions): boolean {
+  const key = reminderMarkerKey(payload, options);
+  if (key === undefined) return false;
+  try {
+    const filePath = path.join(
+      path.resolve(options.cacheRoot ?? defaultCacheRoot()),
+      NUDGE_DIRECTORY,
+      `${key}.claim`,
+    );
+    const metadata = fs.lstatSync(filePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > 512) {
+      return false;
+    }
+    const raw = fs.readFileSync(filePath, "utf8");
+    const record: unknown = JSON.parse(raw);
+    const expectedScope = sessionScoped(options.reminderKind) ? "session" : "epoch";
+    return isRecord(record) &&
+      Object.keys(record).sort().join("\0") ===
+        "capability\0host\0recordedAt\0reminderKind\0schemaVersion\0scope" &&
+      record.schemaVersion === 1 &&
+      record.host === options.host &&
+      record.capability === options.capability &&
+      record.reminderKind === options.reminderKind &&
+      record.scope === expectedScope &&
+      typeof record.recordedAt === "number" && Number.isFinite(record.recordedAt) &&
+      record.recordedAt >= 0;
+  } catch {
+    return false;
+  }
 }
 
 function epochStateKey(payload: unknown, options: OnceMarkerScope): string | undefined {

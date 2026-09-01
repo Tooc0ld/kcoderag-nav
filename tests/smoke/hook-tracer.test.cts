@@ -134,11 +134,11 @@ function runHookCommand(
   });
 }
 
-function parseContext(run: HookRun): string | undefined {
+function parseContext(run: HookRun, hookEventName = "SessionStart"): string | undefined {
   if (run.stdout.length === 0) return undefined;
   const output: unknown = JSON.parse(run.stdout);
   const record = output as Record<string, any>;
-  assert.equal(record.hookSpecificOutput?.hookEventName, "SessionStart");
+  assert.equal(record.hookSpecificOutput?.hookEventName, hookEventName);
   return record.hookSpecificOutput?.additionalContext;
 }
 
@@ -215,8 +215,16 @@ test("actual tgz Codex SessionStart is bounded, epoch-scoped, and PACKAGED only"
     assert.equal(typeof parseContext(nfc), "string");
     assert.equal(typeof parseContext(nfd), "string");
 
+    const structural = runHookCommand(command, projectRoot, cacheRoot, JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: "tool-only-session",
+      tool_name: "Bash",
+      tool_input: { command: "rg SyntheticSymbol src" },
+    }));
+    assert.match(parseContext(structural, "PreToolUse") ?? "", /keyword search_code/u);
+
     const claims = markerFiles(cacheRoot);
-    assert.equal(claims.length, 6);
+    assert.equal(claims.length, 7);
     for (const name of claims) {
       const raw = fs.readFileSync(path.join(cacheRoot, "kcoderag-nav", "nudges", name), "utf8");
       const marker: unknown = JSON.parse(raw);

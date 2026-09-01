@@ -7,6 +7,7 @@ exports.stableSessionIdentity = stableSessionIdentity;
 exports.nudgeMarkerKey = nudgeMarkerKey;
 exports.reminderMarkerKey = reminderMarkerKey;
 exports.claimReminder = claimReminder;
+exports.reminderClaimExists = reminderClaimExists;
 exports.contextEpochForSession = contextEpochForSession;
 exports.reminderMarkerKeysForSession = reminderMarkerKeysForSession;
 exports.claimNudgeOnce = claimNudgeOnce;
@@ -232,6 +233,35 @@ function claimReminder(payload, options) {
         return suppressed();
     const record = markerRecord(options, options.now?.() ?? Date.now());
     return record === undefined ? suppressed(key) : claimKey(key, record, options);
+}
+/** Read only one exact hash-addressed claim and reject malformed or tampered metadata. */
+function reminderClaimExists(payload, options) {
+    const key = reminderMarkerKey(payload, options);
+    if (key === undefined)
+        return false;
+    try {
+        const filePath = path.join(path.resolve(options.cacheRoot ?? defaultCacheRoot()), NUDGE_DIRECTORY, `${key}.claim`);
+        const metadata = fs.lstatSync(filePath);
+        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > 512) {
+            return false;
+        }
+        const raw = fs.readFileSync(filePath, "utf8");
+        const record = JSON.parse(raw);
+        const expectedScope = sessionScoped(options.reminderKind) ? "session" : "epoch";
+        return isRecord(record) &&
+            Object.keys(record).sort().join("\0") ===
+                "capability\0host\0recordedAt\0reminderKind\0schemaVersion\0scope" &&
+            record.schemaVersion === 1 &&
+            record.host === options.host &&
+            record.capability === options.capability &&
+            record.reminderKind === options.reminderKind &&
+            record.scope === expectedScope &&
+            typeof record.recordedAt === "number" && Number.isFinite(record.recordedAt) &&
+            record.recordedAt >= 0;
+    }
+    catch {
+        return false;
+    }
 }
 function epochStateKey(payload, options) {
     const identity = stableSessionIdentity(payload);

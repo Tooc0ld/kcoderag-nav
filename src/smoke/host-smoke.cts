@@ -1276,9 +1276,15 @@ function runCommandHook(
   });
 }
 
-function runRegisteredHook(command: string, cwd: string, runtimeRoot: string): CommandResult {
+function runRegisteredHook(
+  command: string,
+  cwd: string,
+  runtimeRoot: string,
+  sessionId: string,
+): CommandResult {
   return runCommandHook(command, cwd, runtimeRoot, JSON.stringify({
     hook_event_name: "PreToolUse",
+    session_id: sessionId,
     tool_name: "Bash",
     tool_input: { command: "rg -n SyntheticSymbol src" },
   }));
@@ -1411,13 +1417,20 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const document: unknown = JSON.parse(configBytes.toString("utf8"));
       const hook = readZCodeProcessHook(projectRoot);
       if (hook === undefined) return undefined;
-      const payload = JSON.stringify({
+      const rootPayload = JSON.stringify({
         hook_event_name: "PreToolUse",
+        session_id: `${host}-navigation-root`,
         tool_name: "Bash",
         tool_input: { command: "rg -n SyntheticSymbol src" },
       });
-      const rootResult = runZCodeProcessHook(hook, projectRoot, projectRoot, runtimeRoot, payload);
-      const deepResult = runZCodeProcessHook(hook, projectRoot, deepRoot, runtimeRoot, payload);
+      const deepPayload = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: `${host}-navigation-deep`,
+        tool_name: "Bash",
+        tool_input: { command: "rg -n SyntheticSymbol src" },
+      });
+      const rootResult = runZCodeProcessHook(hook, projectRoot, projectRoot, runtimeRoot, rootPayload);
+      const deepResult = runZCodeProcessHook(hook, projectRoot, deepRoot, runtimeRoot, deepPayload);
       const root = validHookOutput(rootResult);
       const deep = validHookOutput(deepResult);
       const valid = isRecord(document) && isRecord(document.mcp) && isRecord(document.mcp.servers) &&
@@ -1438,8 +1451,8 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (command === undefined) return undefined;
   try {
     const stateBytes = fs.readFileSync(statePath(host, projectRoot));
-    const rootResult = runRegisteredHook(command, projectRoot, runtimeRoot);
-    const deepResult = runRegisteredHook(command, deepRoot, runtimeRoot);
+    const rootResult = runRegisteredHook(command, projectRoot, runtimeRoot, `${host}-navigation-root`);
+    const deepResult = runRegisteredHook(command, deepRoot, runtimeRoot, `${host}-navigation-deep`);
     const root = validHookOutput(rootResult);
     const deep = validHookOutput(deepResult);
     const rootDigest = sha256Parts([rootResult.stdout]);
@@ -1724,6 +1737,8 @@ function commandRuntimeContract(
     const markerPayload = JSON.stringify(host === "cursor" ? {
       hook_event_name: "afterMCPExecution",
       mcp_server_name: "kcoderag-qa",
+      tool_name: "search_code",
+      success: true,
       conversation_id: `${host}-marker-contract`,
       cwd: projectRoot,
     } : {

@@ -30,6 +30,7 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".mcp.json",
   "agents/kcode-explorer.md",
   "hooks/code-style-nudge.cjs",
+  "hooks/feedback-nudge.cjs",
   "hooks/grep-nudge.cjs",
   "hooks/hooks.json",
   "hooks/mcp-call-marker.cjs",
@@ -73,11 +74,11 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-test("QA non-document product is a closed deterministic twenty-six-file inventory", () => {
+test("QA non-document product is a closed deterministic twenty-seven-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
   assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
-  assert.equal(actualNonDocument.length, 26);
+  assert.equal(actualNonDocument.length, 27);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));

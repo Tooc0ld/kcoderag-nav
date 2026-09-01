@@ -30,6 +30,18 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         shared: true,
       },
       {
+        id: "navigation:feedback-handler",
+        sourcePath: "dist/hooks/feedback-nudge.cjs",
+        kind: "handler",
+        shared: true,
+      },
+      {
+        id: "navigation:reminder-governor",
+        sourcePath: "dist/hooks/once-marker.cjs",
+        kind: "marker",
+        shared: true,
+      },
+      {
         id: "navigation:update-check",
         sourcePath: "dist/hooks/update-check.cjs",
         kind: "handler",

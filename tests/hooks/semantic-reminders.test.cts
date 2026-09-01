@@ -220,6 +220,36 @@ test("successful results prompt once per epoch and submitted feedback suppresses
   }
 });
 
+test("failures, cancellations, timeouts, and ambiguous results consume no success state", () => {
+  const current = fixture("kcoderag-semantic-failures-");
+  const runtime = options(current);
+  try {
+    const excluded = [
+      { ...codexOutcome("search_code", "failed"), success: false },
+      { ...codexOutcome("context", "cancelled"), status: "cancelled" },
+      { ...codexOutcome("get_call_chain", "timeout"), timed_out: true },
+      { ...codexOutcome("search_code", "error"), error: "redacted" },
+      { ...codexOutcome("search_code", "ambiguous"), status: "mystery" },
+      { ...codexOutcome("submit_feedback", "feedback-failed"), success: false },
+    ];
+    for (const event of excluded) {
+      assert.equal(feedback.feedbackNudgeContribution(event, runtime), undefined);
+      assert.equal(marker.recordKCodeRagCall(event, {
+        host: "codex",
+        cwd: current.project,
+        cacheRoot: current.cache,
+      }).recorded, false);
+    }
+    assert.deepEqual(reminderFiles(current.cache), []);
+    assert.equal(
+      feedback.feedbackNudgeContribution(codexOutcome("search_code", "feedback-failed"), runtime),
+      feedback.FEEDBACK_NUDGE,
+    );
+  } finally {
+    fs.rmSync(current.root, { recursive: true, force: true });
+  }
+});
+
 test("index availability is session-scoped and gates semantic or hybrid routing", () => {
   const current = fixture("kcoderag-semantic-index-");
   const runtime = options(current);

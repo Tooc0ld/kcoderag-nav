@@ -80,7 +80,15 @@ interface UpdateNoticeModule {
 }
 
 interface NavigationModule {
-  navigationContribution(payload: unknown, updateNotice?: string): string | undefined;
+  navigationContribution(
+    payload: unknown,
+    updateNotice?: string,
+    options?: {
+      readonly host: HostId;
+      readonly managedRoot: string;
+      readonly cacheRoot?: string;
+    },
+  ): string | undefined;
 }
 
 const navigation: NavigationModule | undefined = (() => {
@@ -283,7 +291,17 @@ function createDefaultEventContributors(
       const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
         ? undefined
         : updateNotice.readHostUpdateNotice(runtimeHost, event.payload, noticeOptions);
-      const contribution = navigation?.navigationContribution(event.payload, notice);
+      const contribution = navigation?.navigationContribution(
+        event.payload,
+        notice,
+        runtimeHost === undefined || managedRoot === undefined
+          ? undefined
+          : {
+              host: runtimeHost,
+              managedRoot,
+              ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
+            },
+      );
       if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
         updateNotice.scheduleHostUpdateRefresh(runtimeHost, event.payload, noticeOptions);
       }

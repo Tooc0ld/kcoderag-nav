@@ -7,6 +7,7 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 import type { HostId } from "../core/contracts.cjs";
+import { normalizeKCodeRagOutcome } from "./feedback-nudge.cjs";
 
 export type MarkerHost = HostId;
 
@@ -96,26 +97,6 @@ const nodeFiles: MarkerFiles = {
   },
 };
 
-function isKCodeRagTool(payload: Record<string, unknown>, host: MarkerHost): boolean {
-  if (host === "cursor") {
-    return (payload.mcp_server_name === "kcoderag" || payload.mcp_server_name === "kcoderag-qa") &&
-      (payload.hook_event_name === undefined || payload.hook_event_name === "afterMCPExecution");
-  }
-  if (host === "opencode") {
-    const tool = boundedString(payload.tool);
-    return tool !== undefined && /^kcoderag-qa_/u.test(tool);
-  }
-  if (host === "zcode") {
-    const toolName = boundedString(payload.tool_name);
-    return toolName !== undefined &&
-      /^(?:mcp__kcoderag[-_]qa__.+|kcoderag[-_]qa[._/].+|krag[._/].+)$/u.test(toolName) &&
-      (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
-  }
-  const toolName = boundedString(payload.tool_name);
-  return toolName !== undefined && /^mcp__kcoderag[-_]qa__.+/u.test(toolName) &&
-    (payload.hook_event_name === undefined || payload.hook_event_name === "PostToolUse");
-}
-
 function identity(payload: Record<string, unknown>, host: MarkerHost, cwd: string): {
   readonly raw: string;
   readonly scope: "turn" | "session";
@@ -150,7 +131,9 @@ function prune(files: MarkerFiles, directoryPath: string, keepName: string, now:
 /** Record only metadata required to recognize a same-session/turn local verification. */
 export function recordKCodeRagCall(payload: unknown, options: MarkerOptions): MarkerResult {
   try {
-    if (!isRecord(payload) || !isKCodeRagTool(payload, options.host)) return Object.freeze({ recorded: false });
+    if (!isRecord(payload) || normalizeKCodeRagOutcome(payload, { host: options.host })?.success !== true) {
+      return Object.freeze({ recorded: false });
+    }
     const now = options.now?.() ?? Date.now();
     if (!Number.isFinite(now) || now < 0) return Object.freeze({ recorded: false });
     const markerIdentity = identity(payload, options.host, options.cwd ?? process.cwd());
