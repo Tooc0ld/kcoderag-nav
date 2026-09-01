@@ -5,6 +5,7 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const zlib = require("node:zlib") as typeof import("node:zlib");
 
 type PlatformLaneId = "linux-node22" | "linux-node24" | "windows-node22" | "windows-node24";
 
@@ -38,7 +39,12 @@ interface ReadinessWorkflowModule {
     readonly artifactSha256: string;
     readonly memberCount: number;
   }): {
-    readonly artifact: { readonly sha256: string; readonly memberCount: number };
+    readonly artifact: {
+      readonly name: "kcoderag-nav";
+      readonly version: string;
+      readonly sha256: string;
+      readonly memberCount: number;
+    };
     dispose(): void;
   };
   parsePlatformLaneReceipt(value: unknown): PlatformLaneReceipt;
@@ -54,6 +60,7 @@ interface ReadinessWorkflowModule {
 }
 
 const workflowContract = require("../../dist/maintainer/readiness-workflow.cjs") as ReadinessWorkflowModule;
+const hostSmoke = require("../../dist/smoke/host-smoke.cjs") as Record<string, any>;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const workflowPath = path.join(repositoryRoot, ".github", "workflows", "readiness.yml");
 const actionRoot = path.join(repositoryRoot, ".github", "actions", "readiness-upload");
@@ -142,6 +149,31 @@ function receiptSet(candidateSubject: string, workflowBlobOid: string): readonly
 function expectCode(call: () => unknown, code: string): void {
   assert.throws(call, (error: unknown) =>
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
+}
+
+function rewritePackageManifest(bytes: Buffer, needle: string, replacement: string): Buffer {
+  assert.equal(Buffer.byteLength(needle), Buffer.byteLength(replacement));
+  const tar = zlib.gunzipSync(bytes);
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const zero = header.indexOf(0);
+    const name = header.subarray(0, zero < 0 ? 100 : zero).toString("utf8");
+    const sizeText = header.subarray(124, 136).toString("ascii").replace(/\0.*$/u, "").trim();
+    const size = Number.parseInt(sizeText, 8);
+    assert.ok(Number.isSafeInteger(size) && size >= 0);
+    const bodyStart = offset + 512;
+    const body = tar.subarray(bodyStart, bodyStart + size);
+    if (name === "package/package.json") {
+      const found = body.indexOf(Buffer.from(needle, "utf8"));
+      assert.notEqual(found, -1);
+      Buffer.from(replacement, "utf8").copy(body, found);
+      return zlib.gzipSync(tar);
+    }
+    offset = bodyStart + Math.ceil(size / 512) * 512;
+  }
+  assert.fail("package/package.json not found");
 }
 
 function jobNames(source: string): readonly string[] {
@@ -608,6 +640,79 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
     }
     expectCode(() => open(["service-derived-name"], Buffer.from("not-a-tarball", "utf8")),
       "downloaded_artifact_archive_invalid");
+  } finally {
+    if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+    else process.env.RUNNER_TEMP = previousRunnerTemp;
+    fs.rmSync(runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test("downloaded 0.3.1 lease derives and validates package identity before PACKAGED smoke", async () => {
+  const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as Record<string, any>;
+  const sourceLease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["workflow-upload"],
+  });
+  let candidateBytes: Buffer;
+  let memberCount: number;
+  try {
+    const fixtureArtifact = releaseReadiness.withCandidatePackageBytes(
+      sourceLease,
+      "workflow-upload",
+      (bytes: Buffer, artifact: { readonly memberCount: number }) => ({
+        bytes: Buffer.from(bytes),
+        memberCount: artifact.memberCount,
+      }),
+    );
+    candidateBytes = fixtureArtifact.bytes;
+    memberCount = fixtureArtifact.memberCount;
+  } finally {
+    sourceLease.dispose();
+  }
+
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-download-"));
+  const previousRunnerTemp = process.env.RUNNER_TEMP;
+  process.env.RUNNER_TEMP = runnerTemp;
+  const open = (bytes: Buffer) => {
+    const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
+    fs.writeFileSync(path.join(artifactRoot, "downloaded"), bytes);
+    return workflowContract.openDownloadedLease({
+      laneId: "linux-node22",
+      artifactRoot,
+      artifactName: "kcoderag-nav-0.3.1.tgz",
+      artifactSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      memberCount,
+    });
+  };
+
+  try {
+    const lease = open(candidateBytes);
+    const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-smoke-"));
+    try {
+      assert.equal(lease.artifact.name, "kcoderag-nav");
+      assert.equal(lease.artifact.version, "0.3.1");
+      const smoke = await hostSmoke.runHostSmoke({
+        mode: "required-contract",
+        artifactLease: lease,
+        repositoryRoot,
+        temporaryRoot: smokeRoot,
+        hosts: ["codex"],
+      });
+      assert.equal(smoke.status, "PASS");
+      assert.equal(smoke.provenance?.resolvedVersion, "0.3.1");
+    } finally {
+      lease.dispose();
+      fs.rmSync(smokeRoot, { recursive: true, force: true });
+    }
+
+    expectCode(
+      () => open(rewritePackageManifest(candidateBytes, "kcoderag-nav", "kcoderag-naz")),
+      "downloaded_artifact_package_invalid",
+    );
+    expectCode(
+      () => open(rewritePackageManifest(candidateBytes, "0.3.1", "0.3.x")),
+      "downloaded_artifact_package_invalid",
+    );
   } finally {
     if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previousRunnerTemp;
