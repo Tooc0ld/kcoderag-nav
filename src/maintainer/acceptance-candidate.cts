@@ -149,11 +149,20 @@ const GATE_COMMANDS = Object.freeze({
   "candidate-tests": ["node", ["--test", "dist-tests/maintainer/acceptance-candidate.test.cjs"]],
 } as const satisfies Readonly<Record<CandidateGateName, readonly [string, readonly string[]]>>);
 
-function defaultRunGate(root: string, gate: CandidateGateName): boolean {
+function gateInvocation(gate: CandidateGateName): readonly [string, readonly string[]] {
   const command = GATE_COMMANDS[gate];
-  const executable = process.platform === "win32" && command[0] === "npm" ? "npm.cmd" : command[0];
+  if (process.platform !== "win32" || command[0] !== "npm") return command;
+  const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  const metadata = fs.lstatSync(npmCli);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new AcceptanceCandidateError("npm_runtime_invalid");
+  return Object.freeze([process.execPath, Object.freeze([npmCli, ...command[1]])]);
+}
+
+/** Execute one fixed candidate gate without a command shell or caller-controlled arguments. */
+export function runCandidateGate(root: string, gate: CandidateGateName): boolean {
   try {
-    const result = childProcess.spawnSync(executable, command[1], {
+    const [executable, args] = gateInvocation(gate);
+    const result = childProcess.spawnSync(executable, args, {
       cwd: root,
       stdio: "inherit",
       windowsHide: true,
@@ -276,7 +285,7 @@ export function prepareAcceptanceCandidate(
   const runGit = dependencies.runGit ?? defaultRunGit;
   const status = runGit(root, ["status", "--porcelain=v1", "--untracked-files=all", "--", ...PRODUCT_PATHS]);
   if (status !== "") throw new AcceptanceCandidateError("product_tree_dirty");
-  const runGate = dependencies.runGate ?? defaultRunGate;
+  const runGate = dependencies.runGate ?? runCandidateGate;
   for (const gate of CANDIDATE_GATE_NAMES) {
     if (!runGate(root, gate)) throw new AcceptanceCandidateError(gateFailure(gate));
   }
@@ -366,6 +375,7 @@ exports.CANDIDATE_GATE_NAMES = CANDIDATE_GATE_NAMES;
 exports.AcceptanceCandidateError = AcceptanceCandidateError;
 exports.parseAcceptanceCandidate = parseAcceptanceCandidate;
 exports.prepareAcceptanceCandidate = prepareAcceptanceCandidate;
+exports.runCandidateGate = runCandidateGate;
 exports.writeAcceptanceCandidate = writeAcceptanceCandidate;
 exports.verifyRemoteCandidate = verifyRemoteCandidate;
 exports.main = main;

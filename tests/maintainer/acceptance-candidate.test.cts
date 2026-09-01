@@ -35,6 +35,7 @@ interface CandidateModule {
     },
   ): AcceptanceCandidate;
   parseAcceptanceCandidate(value: unknown): AcceptanceCandidate;
+  runCandidateGate(root: string, gate: GateName): boolean;
   writeAcceptanceCandidate(outputPath: string, candidate: AcceptanceCandidate): void;
   verifyRemoteCandidate(candidate: AcceptanceCandidate, remoteSha: string): boolean;
 }
@@ -58,6 +59,7 @@ function fixture(): string {
     name: "fixture",
     version: "1.2.3",
     files: ["dist/runtime.cjs"],
+    scripts: { build: "node -e \"process.exit(0)\"" },
   }, null, 2)}\n`, "utf8");
   git(root, ["init", "--quiet", "--initial-branch=master"]);
   git(root, ["config", "user.email", "tests@example.invalid"]);
@@ -109,6 +111,15 @@ test("prepares one exact product commit, tree, workflow and actual package ident
     assert.deepEqual(candidateModule.parseAcceptanceCandidate(value), value);
     assert.equal(candidateModule.verifyRemoteCandidate(value, candidateSha), true);
     assert.equal(candidateModule.verifyRemoteCandidate(value, "f".repeat(40)), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("default gate runner executes npm without a platform command shell", () => {
+  const root = fixture();
+  try {
+    assert.equal(candidateModule.runCandidateGate(root, "build"), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
