@@ -98,6 +98,8 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
     throw new AcceptanceWorkflowError("acceptance_bypass_forbidden");
   }
   requireMatch(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?required:\s*true/u, "candidate_input_missing");
+  requireMatch(source, /workflow_dispatch:[\s\S]*?candidateRef:[\s\S]*?required:\s*true/u,
+    "candidate_ref_input_missing");
   requireMatch(source, /workflow_dispatch:[\s\S]*?packageSha256:[\s\S]*?required:\s*true/u, "package_input_missing");
   requireMatch(source, /workflow_dispatch:[\s\S]*?packageMemberDigest:[\s\S]*?required:\s*true/u,
     "package_input_missing");
@@ -115,6 +117,16 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   if (count(source, /uses:\s*\.\/\.github\/actions\/readiness-upload/gu) !== 1) {
     throw new AcceptanceWorkflowError("producer_count_invalid");
   }
+  const packageJob = jobBody(source, "package", "packaged");
+  requireMatch(packageJob, /READINESS_PROVENANCE_PROFILE:\s*acceptance/u, "producer_provenance_missing");
+  requireMatch(packageJob, /READINESS_CANDIDATE_SHA:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/u,
+    "producer_provenance_missing");
+  requireMatch(packageJob, /READINESS_CANDIDATE_REF:\s*\$\{\{ inputs\.candidateRef \|\| github\.ref \}\}/u,
+    "producer_provenance_missing");
+  requireMatch(packageJob, /READINESS_WORKFLOW_COMMIT:\s*\$\{\{ github\.workflow_sha \}\}/u,
+    "producer_provenance_missing");
+  requireMatch(packageJob, /READINESS_WORKFLOW_BLOB_SHA:\s*\$\{\{ inputs\.workflowBlobSha \}\}/u,
+    "producer_provenance_missing");
   const packaged = jobBody(source, "packaged", "live");
   for (const [lane, os, runner, node] of [
     ["ubuntu-node22", "linux", "ubuntu-latest", "22"],
@@ -136,6 +148,7 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   requireMatch(live, /github\.event\.repository\.fork == false/u, "untrusted_ref_guard_missing");
   requireMatch(live, /inputs\.candidateSha == needs\.package\.outputs\.candidate-sha/u,
     "candidate_binding_missing");
+  requireMatch(live, /inputs\.candidateRef == github\.ref/u, "candidate_binding_missing");
   requireMatch(live, /inputs\.packageSha256 == needs\.package\.outputs\.artifact-sha256/u,
     "package_binding_missing");
   requireMatch(live, /inputs\.packageMemberDigest == needs\.package\.outputs\.package-member-digest/u,

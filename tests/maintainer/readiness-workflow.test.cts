@@ -306,6 +306,118 @@ test("exact Phase 05 workflow_dispatch provenance reaches artifact authenticatio
   }
 });
 
+test("acceptance push provenance binds the branch head and committed workflow", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-push-provenance-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const candidateSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const candidateRef = "refs/heads/feature/acceptance-provenance";
+  fs.writeFileSync(outputPath, "", "utf8");
+  const env = { ...process.env };
+  delete env.ACTIONS_RESULTS_URL;
+  delete env.ACTIONS_RUNTIME_TOKEN;
+  Object.assign(env, {
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: candidateRef,
+    GITHUB_SHA: candidateSha,
+    READINESS_PROVENANCE_PROFILE: "acceptance",
+    READINESS_CANDIDATE_SHA: candidateSha,
+    READINESS_CANDIDATE_REF: candidateRef,
+    READINESS_WORKFLOW_COMMIT: candidateSha,
+    GITHUB_OUTPUT: outputPath,
+  });
+
+  try {
+    const result = childProcess.spawnSync(process.execPath, [
+      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+      "package-upload",
+    ], {
+      cwd: repositoryRoot,
+      env,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      schemaVersion: 1,
+      status: "FAIL",
+      reason: "artifact_auth_invalid",
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(fs.statSync(outputPath).size, 0);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("acceptance dispatch provenance rejects every candidate ref and workflow identity mismatch", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-provenance-drift-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const candidateSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const candidateRef = `refs/heads/phase05-live-candidate-${candidateSha.slice(0, 7)}`;
+  const workflowBlobSha = git(repositoryRoot, [
+    "rev-parse",
+    `${candidateSha}:.github/workflows/acceptance.yml`,
+  ]);
+  const base: NodeJS.ProcessEnv = {
+    ...process.env,
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: candidateRef,
+    GITHUB_SHA: candidateSha,
+    READINESS_PROVENANCE_PROFILE: "acceptance",
+    READINESS_CANDIDATE_SHA: candidateSha,
+    READINESS_CANDIDATE_REF: candidateRef,
+    READINESS_WORKFLOW_COMMIT: candidateSha,
+    READINESS_WORKFLOW_BLOB_SHA: workflowBlobSha,
+    GITHUB_OUTPUT: outputPath,
+  };
+  delete base.ACTIONS_RESULTS_URL;
+  delete base.ACTIONS_RUNTIME_TOKEN;
+  const cases = [
+    { READINESS_PROVENANCE_PROFILE: "" },
+    { READINESS_CANDIDATE_SHA: "b".repeat(40) },
+    { READINESS_CANDIDATE_REF: "refs/heads/phase05-live-candidate-deadbee" },
+    { READINESS_WORKFLOW_COMMIT: "b".repeat(40) },
+    { READINESS_WORKFLOW_BLOB_SHA: "b".repeat(40) },
+    {
+      GITHUB_REF: "refs/heads/feature/not-a-dedicated-candidate",
+      READINESS_CANDIDATE_REF: "refs/heads/feature/not-a-dedicated-candidate",
+    },
+  ] as const;
+
+  try {
+    for (const patch of cases) {
+      fs.writeFileSync(outputPath, "", "utf8");
+      const result = childProcess.spawnSync(process.execPath, [
+        path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+        "package-upload",
+      ], {
+        cwd: repositoryRoot,
+        env: { ...base, ...patch },
+        encoding: "utf8",
+        timeout: 300_000,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.signal, null);
+      assert.equal(result.status, 1);
+      assert.deepEqual(JSON.parse(result.stdout.trim()), {
+        schemaVersion: 1,
+        status: "FAIL",
+        reason: "workflow_provenance_invalid",
+      });
+      assert.equal(result.stderr, "");
+      assert.equal(fs.statSync(outputPath).size, 0);
+    }
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("safe upload failure stdout exposes only commit stage and status class", () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-safe-upload-failure-"));
   const outputPath = path.join(temporaryRoot, "github-output.txt");

@@ -11,6 +11,10 @@ on:
         description: Exact product commit to package
         required: true
         type: string
+      candidateRef:
+        description: Exact branch ref that resolves to the product commit
+        required: true
+        type: string
       packageSha256:
         description: Expected actual tgz SHA-256 for an authorized LIVE run
         required: true
@@ -27,6 +31,10 @@ on:
     inputs:
       candidateSha:
         description: Exact product commit to package and run
+        required: true
+        type: string
+      candidateRef:
+        description: Exact dedicated Phase 05 branch ref
         required: true
         type: string
       packageSha256:
@@ -77,6 +85,12 @@ jobs:
         run: npm run build
       - name: Produce and upload the only actual tgz
         id: package
+        env:
+          READINESS_PROVENANCE_PROFILE: acceptance
+          READINESS_CANDIDATE_SHA: ${{ env.ACCEPTANCE_SUBJECT }}
+          READINESS_CANDIDATE_REF: ${{ inputs.candidateRef || github.ref }}
+          READINESS_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+          READINESS_WORKFLOW_BLOB_SHA: ${{ inputs.workflowBlobSha }}
         uses: ./.github/actions/readiness-upload
       - name: Close package member identity
         id: member-digest
@@ -162,6 +176,7 @@ jobs:
         github.event.repository.fork == false &&
         vars.KCODERAG_LIVE_SMOKE == 'enabled' &&
         inputs.candidateSha == needs.package.outputs.candidate-sha &&
+        inputs.candidateRef == github.ref &&
         inputs.packageSha256 == needs.package.outputs.artifact-sha256 &&
         inputs.packageMemberDigest == needs.package.outputs.package-member-digest
       }}
