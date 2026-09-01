@@ -21,6 +21,19 @@ import {
   SYNTHETIC_TOOL,
   type StubReceipt,
 } from "./stub-mcp-server.cjs";
+import {
+  aggregateHostReceipts,
+  completeCommonObservations,
+  completeHostObservations,
+  createHostReceipt,
+  emptyCommonObservations,
+  emptyHostObservations,
+  type AggregateVerdict,
+  type EvidenceLevel,
+  type HostReceipt,
+  type ReceiptReasonCode,
+  type ReceiptStage,
+} from "./acceptance-receipt.cjs";
 
 export type SmokeMode = "required-contract" | "optional-live";
 export type SmokeStatus = "PASS" | "FAIL" | "NOT_RUN";
@@ -112,6 +125,10 @@ export interface HostSmokeResult {
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
   readonly reason: string;
+  readonly evidenceLevel: EvidenceLevel;
+  readonly stage: ReceiptStage;
+  readonly reasonCode: ReceiptReasonCode;
+  readonly receipt: HostReceipt;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
   readonly runtimeContract?: HostRuntimeContract;
@@ -141,6 +158,7 @@ export interface SmokeRunResult {
   readonly schemaVersion: 1;
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
+  readonly verdict: AggregateVerdict;
   readonly provenance?: PackageProvenance;
   readonly hosts: readonly HostSmokeResult[];
 }
@@ -296,6 +314,128 @@ function normalizeEvidence(value: Partial<SmokeEvidence> | undefined): SmokeEvid
   return Object.freeze(evidence) as SmokeEvidence;
 }
 
+function receiptFailure(
+  evidence: SmokeEvidence,
+  unavailableReason: string | undefined,
+  failureReason: string | undefined,
+): { readonly status: SmokeStatus; readonly stage: ReceiptStage; readonly reasonCode: ReceiptReasonCode } {
+  if (unavailableReason !== undefined) {
+    if (unavailableReason === "auth_missing") {
+      return { status: "NOT_RUN", stage: "admission", reasonCode: "protected_environment_denied" };
+    }
+    if (unavailableReason === "node_version_unsupported") {
+      return { status: "NOT_RUN", stage: "environment", reasonCode: "node_version_unsupported" };
+    }
+    return {
+      status: "NOT_RUN",
+      stage: "environment",
+      reasonCode: unavailableReason === "runner_unavailable" ? "runner_unavailable" : "host_unavailable",
+    };
+  }
+  if (failureReason === "package_acquisition_failed") {
+    return { status: "FAIL", stage: "package", reasonCode: "package_acquisition_failed" };
+  }
+  if (failureReason === "artifact_integrity_failed") {
+    return { status: "FAIL", stage: "package", reasonCode: "package_hash_mismatch" };
+  }
+  if (failureReason === "install_failed") {
+    return { status: "FAIL", stage: "install", reasonCode: "install_failed" };
+  }
+  if (failureReason === "host_execution_failed" || failureReason === "live_execution_failed") {
+    return { status: "FAIL", stage: "native_event", reasonCode: "native_event_failed" };
+  }
+  if (failureReason !== undefined) {
+    return { status: "FAIL", stage: "evidence_integrity", reasonCode: "receipt_invalid" };
+  }
+  if (!evidence.install) return { status: "FAIL", stage: "install", reasonCode: "install_failed" };
+  if (!evidence.status) return { status: "FAIL", stage: "install", reasonCode: "status_unhealthy" };
+  if (!evidence.toolRegistration) return { status: "FAIL", stage: "mcp", reasonCode: "mcp_registration_missing" };
+  if (!evidence.mcpList) return { status: "FAIL", stage: "mcp", reasonCode: "list_indexes_unavailable" };
+  if (!evidence.mcpCall || !evidence.stubReceipt) return { status: "FAIL", stage: "mcp", reasonCode: "mcp_call_failed" };
+  if (!evidence.navigation || !evidence.hostRuntime) {
+    return { status: "FAIL", stage: "prompt_semantics", reasonCode: "prompt_missing" };
+  }
+  if (!evidence.update) return { status: "FAIL", stage: "install", reasonCode: "update_failed" };
+  if (!evidence.uninstall) return { status: "FAIL", stage: "install", reasonCode: "uninstall_failed" };
+  return { status: "PASS", stage: "evidence_integrity", reasonCode: "none" };
+}
+
+function smokeReceipt(input: {
+  readonly host: HostId;
+  readonly mode: SmokeMode;
+  readonly evidence: SmokeEvidence;
+  readonly unavailableReason?: string;
+  readonly failureReason?: string;
+  readonly provenance?: PackageProvenance;
+}): HostReceipt {
+  let terminal = receiptFailure(input.evidence, input.unavailableReason, input.failureReason);
+  const requiredEvidence = input.mode === "required-contract" ? EVIDENCE_KEYS : OPTIONAL_LIVE_EVIDENCE_KEYS;
+  if (terminal.status === "PASS" && requiredEvidence.some((key) => !input.evidence[key])) {
+    terminal = { status: "FAIL", stage: "evidence_integrity", reasonCode: "receipt_invalid" };
+  }
+  const evidenceLevel: EvidenceLevel = input.mode === "required-contract" ? "PACKAGED" : "LIVE";
+  const packageSha256 = input.provenance?.lifecycleTarballSha256 ?? "0".repeat(64);
+  const packageMemberDigest = crypto.createHash("sha256")
+    .update(`${packageSha256}:${input.provenance?.artifactMemberCount ?? 0}`, "utf8")
+    .digest("hex");
+  const common = terminal.status === "NOT_RUN"
+    ? emptyCommonObservations()
+    : terminal.status === "PASS"
+      ? completeCommonObservations({
+          nativeHostProcess: evidenceLevel === "LIVE",
+          sessionBaselineObserved: evidenceLevel === "LIVE",
+        })
+      : Object.freeze({
+          ...emptyCommonObservations(),
+          packageInstalled: input.evidence.install,
+          statusHealthy: input.evidence.status,
+          updateIdempotent: input.evidence.update,
+          uninstallRestored: input.evidence.uninstall,
+          nativeHostProcess: evidenceLevel === "LIVE" && input.evidence.navigation,
+          sessionBaselineObserved: evidenceLevel === "LIVE" && input.evidence.navigation,
+          mcpRegistered: input.evidence.toolRegistration,
+          listIndexesSucceeded: input.evidence.mcpList,
+          searchCodeSucceeded: input.evidence.mcpCall,
+          structuredResultValid: input.evidence.mcpCall && input.evidence.stubReceipt,
+          feedbackReminderObserved: input.evidence.hostRuntime,
+          submitFeedbackSucceeded: input.evidence.hostRuntime,
+          feedbackSuppressed: input.evidence.hostRuntime,
+          malformedFailOpen: input.evidence.hostRuntime,
+          successMarkerRecorded: input.evidence.navigation,
+          processTreeCleaned: input.evidence.uninstall,
+        });
+  const hostObservations = terminal.status === "NOT_RUN" || evidenceLevel === "PACKAGED"
+    ? emptyHostObservations(input.host)
+    : terminal.status === "PASS"
+      ? completeHostObservations(input.host)
+      : emptyHostObservations(input.host);
+  const timestamp = new Date().toISOString();
+  return createHostReceipt({
+    schemaVersion: 1,
+    host: input.host,
+    hostVersion: RECEIPT_HOST_VERSIONS[input.host],
+    os: process.platform === "win32" ? "windows" : "linux",
+    nodeVersion: process.versions.node,
+    evidenceLevel,
+    status: terminal.status,
+    stage: terminal.stage,
+    reasonCode: terminal.reasonCode,
+    attempted: terminal.status !== "NOT_RUN",
+    candidateSha: packageSha256,
+    packageSha256,
+    packageMemberDigest,
+    workflowRunId: input.mode === "required-contract" ? "local-packaged" : "local-optional-live",
+    startedAt: timestamp,
+    completedAt: timestamp,
+    durationMs: 0,
+    artifactDigest: packageSha256,
+    logDigest: crypto.createHash("sha256")
+      .update(`${input.host}:${terminal.status}:${terminal.stage}:${terminal.reasonCode}`, "utf8")
+      .digest("hex"),
+    observations: Object.freeze({ common, host: hostObservations }),
+  });
+}
+
 export function evaluateHostEvidence(input: {
   readonly host: HostId;
   readonly mode: SmokeMode;
@@ -308,6 +448,14 @@ export function evaluateHostEvidence(input: {
   readonly provenance?: PackageProvenance;
 }): HostSmokeResult {
   const evidence = normalizeEvidence(input.evidence);
+  const receipt = smokeReceipt({
+    host: input.host,
+    mode: input.mode,
+    evidence,
+    ...(input.unavailableReason === undefined ? {} : { unavailableReason: input.unavailableReason }),
+    ...(input.failureReason === undefined ? {} : { failureReason: input.failureReason }),
+    ...(input.provenance === undefined ? {} : { provenance: input.provenance }),
+  });
   const provenance = input.provenance === undefined ? {} : { provenance: input.provenance };
   const navigation = input.navigationContract === undefined ? {} : { navigationContract: input.navigationContract };
   const runtime = input.runtimeContract === undefined ? {} : { runtimeContract: input.runtimeContract };
@@ -317,8 +465,12 @@ export function evaluateHostEvidence(input: {
       schemaVersion: 1,
       host: input.host,
       mode: input.mode,
-      status: "NOT_RUN",
+      status: receipt.status,
       reason: input.unavailableReason,
+      evidenceLevel: receipt.evidenceLevel,
+      stage: receipt.stage,
+      reasonCode: receipt.reasonCode,
+      receipt,
       evidence,
       ...navigation,
       ...runtime,
@@ -327,13 +479,17 @@ export function evaluateHostEvidence(input: {
     });
   }
   const requiredKeys = input.mode === "required-contract" ? EVIDENCE_KEYS : OPTIONAL_LIVE_EVIDENCE_KEYS;
-  const complete = requiredKeys.every((key) => evidence[key]);
+  const complete = requiredKeys.every((key) => evidence[key]) && receipt.status === "PASS";
   return Object.freeze({
     schemaVersion: 1,
     host: input.host,
     mode: input.mode,
-    status: complete ? "PASS" : "FAIL",
+    status: receipt.status,
     reason: complete ? "verified" : (input.failureReason ?? "evidence_incomplete"),
+    evidenceLevel: receipt.evidenceLevel,
+    stage: receipt.stage,
+    reasonCode: receipt.reasonCode,
+    receipt,
     evidence,
     ...navigation,
     ...runtime,
@@ -2900,6 +3056,10 @@ function aggregate(
     schemaVersion: 1,
     mode,
     status,
+    verdict: aggregateHostReceipts(hosts.map((result) => result.receipt), {
+      requiredHosts: hosts.map((result) => result.host),
+      ...(provenance === undefined ? {} : { candidateSha: provenance.lifecycleTarballSha256 }),
+    }),
     ...(provenance === undefined ? {} : { provenance }),
     hosts: Object.freeze([...hosts]),
   });
@@ -2989,7 +3149,7 @@ export async function runHostSmoke(
     return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
       host,
       mode: options.mode,
-      unavailableReason: "package_unavailable",
+      failureReason: "package_acquisition_failed",
     })));
   }
   if (
@@ -2999,7 +3159,7 @@ export async function runHostSmoke(
     return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
       host,
       mode: options.mode,
-      unavailableReason: "package_unavailable",
+      failureReason: "package_acquisition_failed",
     })));
   }
   let request: NormalizedPackageRequest | undefined;
@@ -3010,7 +3170,7 @@ export async function runHostSmoke(
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
         host,
         mode: options.mode,
-        unavailableReason: "package_unavailable",
+        failureReason: "package_acquisition_failed",
       })));
     }
   }
@@ -3038,7 +3198,7 @@ export async function runHostSmoke(
         return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
           host,
           mode: options.mode,
-          unavailableReason: "package_unavailable",
+          failureReason: "package_acquisition_failed",
         })));
       }
     }
@@ -3066,7 +3226,7 @@ export async function runHostSmoke(
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
         host,
         mode: options.mode,
-        unavailableReason: "package_unavailable",
+        failureReason: "package_acquisition_failed",
       })));
     }
     return await executeAcquiredSmoke(

@@ -425,7 +425,7 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
   const unavailable = smoke.evaluateHostEvidence({
     host: "cursor",
     mode: "required-contract",
-    unavailableReason: "package_unavailable",
+    unavailableReason: "runner_unavailable",
   });
   assert.equal(unavailable.status, "NOT_RUN");
   assert.equal(unavailable.stage, "environment");
@@ -759,8 +759,9 @@ test("package acquisition failure occurs before any host project is created", as
         },
       },
     );
-    assert.equal(result.status, "NOT_RUN");
-    assert.equal(smoke.smokeExitCode(result), 0);
+    assert.equal(result.status, "FAIL");
+    assert.equal(result.hosts.every((host) => host.stage === "package" && host.reasonCode === "package_acquisition_failed"), true);
+    assert.equal(smoke.smokeExitCode(result), 1);
     assert.deepEqual(fs.readdirSync(root), []);
     assert.doesNotMatch(JSON.stringify(result), /private detail|Bearer|Authorization/iu);
   } finally {
@@ -821,7 +822,7 @@ test("public acquisition strips inherited npm controls and rejects redirected or
             },
           },
         );
-        assert.equal(result.status, "NOT_RUN", fixture);
+        assert.equal(result.status, "FAIL", fixture);
         assert.equal(result.provenance, undefined, fixture);
         assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture);
         assert.equal(npmCalls, fixture === "integrity-mismatch" ? 2 : 1, fixture);
@@ -863,7 +864,7 @@ test("public registry artifact drift during npm install fails before any host pr
       },
     );
     assert.equal(replaced, true);
-    assert.equal(result.status, "NOT_RUN");
+    assert.equal(result.status, "FAIL");
     assert.equal(result.provenance, undefined);
     assert.equal(fs.existsSync(path.join(root, "projects")), false);
     assert.doesNotMatch(JSON.stringify(result), /registry-install-drift|verified-artifacts|node_modules/iu);
@@ -891,7 +892,7 @@ test("required readiness rejects exact and latest candidates before public acqui
           },
         },
       );
-      assert.equal(result.status, "NOT_RUN");
+      assert.equal(result.status, "FAIL");
       assert.equal(smoke.smokeExitCode(result), 1);
       assert.equal(result.provenance, undefined);
       assert.equal(npmCalls, 0);
@@ -999,7 +1000,7 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       }
     }
     assert.equal("publicRegistryArtifact" in (result.provenance ?? {}), false);
-    assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust|admission/iu);
+    assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust(?:Value|Body)|admission(?:Payload|Body)/iu);
   } finally {
     lease.dispose();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1037,8 +1038,8 @@ test("public specifier validation fails before acquisition or host project write
           },
         },
       );
-      assert.equal(result.status, "NOT_RUN", packageSpec);
-      assert.equal(smoke.smokeExitCode(result), 0);
+      assert.equal(result.status, "FAIL", packageSpec);
+      assert.equal(smoke.smokeExitCode(result), 1);
       assert.equal(acquisitions, 0, packageSpec);
       assert.deepEqual(fs.readdirSync(root), [], packageSpec);
     } finally {
@@ -1068,7 +1069,7 @@ test("public expected-version rules reject exact disagreement and latest omissio
         },
         { acquirePackage: async () => { acquisitions += 1; throw new Error("must not run"); } },
       );
-      assert.equal(result.status, "NOT_RUN");
+      assert.equal(result.status, "FAIL");
       assert.equal(acquisitions, 0);
       assert.deepEqual(fs.readdirSync(root), []);
     } finally {
@@ -1102,7 +1103,7 @@ test("real installed manifests reject exact mismatches, latest races, and wrong 
         },
         { runNpm: publicRegistryRunner(packedFixture.tarball, "1.2.3") },
       );
-      assert.equal(result.status, "NOT_RUN", fixture.name);
+      assert.equal(result.status, "FAIL", fixture.name);
       assert.equal(result.provenance, undefined, fixture.name);
       assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture.name);
       assert.doesNotMatch(JSON.stringify(result), /not-kcoderag-nav|1\.2\.2|1\.2\.4|manifest-fixture/iu);
