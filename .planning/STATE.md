@@ -1,20 +1,22 @@
 ---
 gsd_state_version: 1.0
 current_phase: 05
-current_phase_name: 低误报 Hook 与诚实路由
+current_phase_name: 统一 Hook 策略与真实宿主验证
 status: planning
 stopped_at: Phase 04.2 maintenance closure complete, ready to plan Phase 05
-last_updated: "2026-08-31T21:15:52+08:00"
-last_activity: 2026-08-31
-last_activity_desc: Completed quick task 260831-s98 automated self-hosted acceptance
-state_head: 2becfe29f564dd011b8a81ff91cedfb6769f1880
+last_updated: "2026-09-01T07:35:51.598Z"
+last_activity: 2026-09-01
+state_head: ee3764239c894f132bf09c677d5072349dd81bd3
 progress:
-  total_phases: 11
+  total_phases: 8
   completed_phases: 6
   total_plans: 111
   completed_plans: 111
-  percent: 55
+  percent: 75
+last_activity_desc: Completed quick task 260831-s98 automated self-hosted acceptance
 ---
+
+Total Phases: 8
 
 # Project State
 
@@ -23,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-30)
 
 **Core value:** 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内组合可靠、低打扰的 QA 图优先导航与证据支持的代码规范写前提示。
-**Current focus:** Phase 05 — 低误报 Hook 与诚实路由
+**Current focus:** Phase 05 — 统一 Hook 策略与真实宿主验证
 
 ## Current Position
 
-Phase: 05 — 低误报 Hook 与诚实路由
+Phase: 05 — 统一 Hook 策略与真实宿主验证
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-31 — Completed quick task 260831-s98 automated self-hosted acceptance
+Last activity: 2026-09-01
 
 Progress: [████████████████████] 111/111 plans (100%)
 
@@ -139,12 +141,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 2]: 默认项目级安装仅管理目标仓库的 `.codex/` 与 `.agents/`；QA 默认，QA/Dev 互斥，切换前必须显式卸载。
 - [Phase 3]: 单环境只查询已安装环境；环境不可达时明确报告，索引不可用或陈旧时允许本地 fallback；导航 nudge 不创建跨环境所有权 marker，异步更新检查可使用有界、fail-open 的 cache/session marker。
 - [Cursor]: 只发布一个可配置环境的 `kcoderag-nav`，使用单 MCP server、共享 skill 与 always-on Rule；默认通过免费 local 目录安装器分发，付费 Team Marketplace 仅为可选路径。
-- [Reconciliation]: Phase 1–3 已根据 quick task 实现、当前代码与自动化测试回溯生成 canonical plan/summary/verification/validation，并于 2026-08-23 正式完成；后续强化项留在 Phase 4–8。
+- [Reconciliation]: Phase 1–3 已根据 quick task 实现、当前代码与自动化测试回溯生成 canonical plan/summary/verification/validation，并于 2026-08-23 正式完成；当前 milestone 的后续强化项收敛到 Phase 4–5。
 - [Phase 4]: 先更新真实 Head QA、修复子目录 hook 根路径，再扩展 user-level doctor；不得用自动卸载掩盖错误来源。
-- [Phase 5]: fixed-string、本地复核、窄目录与常见 Lua 全局处理器应静默；semantic/hybrid 只能按实际索引能力推荐。
-- [Phase 6]: loopback CI 不等于真实宿主 PASS；Codex、Claude Code 与 Cursor 必须分别留下可复跑证据。
-- [Phase 7]: KCodeRag hook 与全局 GSD hook 分属不同所有者；GSD runtime 修复需要持久化或上游化。
-- [Phase 8]: 内部内置凭据风险继续被接受到生产安全阶段，不提前声称已解决。
+- [Phase 5]: 统一低打扰 Hook 策略、精度与五宿主真实证据；loopback/launcher 直跑不等于 live PASS，`NOT_RUN` 不得完成阶段。
+- [Deferred]: 全局 GSD runtime/hook 整理移出 KCodeRag Nav milestone；生产身份、HTTPS、轮换与自动发布只在未来公开生产发布时重新立项，解决前不得宣称生产安全。
 - [Quick 260826-dut]: QA-only 项目生命周期扩展到 OpenCode；四宿主使用各自原生成功事件写入同一有界、去敏、fail-open 的 KCodeRag 调用 marker，历史三宿主发布证据保持不变。
 - [Phase 03.1]: Node dependency and build outputs use only exact root-anchored ignore rules. — This keeps npm/build artifacts out of Git without hiding nested paths, product packages, source, tests, planning, or unrelated work.
 - [Phase 03.1]: Accepted the exact audited TypeScript 6.0.3, @types/node 22.20.1, and undici-types 6.21.0 graph; any graph, integrity, ownership, or lifecycle drift requires re-audit.
@@ -340,7 +340,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 ### Blockers/Concerns
 
 - Phase 1–3 是基于当前代码、quick history 与测试的回溯完成记录；实现提交仍保留在 quick task 历史中。
-- Phase 04 的 required CI 覆盖四宿主，历史 Head 三宿主验收保持有效；Phase 04.2 readiness 扩展为五宿主 packaged lifecycle/smoke。OpenCode 1.18.23 已通过未发布 tarball 真机验收，但公共 exact/latest 证据仍待新版本发布。authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 06 关闭。
+- Phase 04 的 required CI 覆盖四宿主，历史 Head 三宿主验收保持有效；Phase 04.2 readiness 扩展为五宿主 packaged lifecycle/smoke。OpenCode 1.18.23 已通过未发布 tarball 真机验收，但公共 exact/latest 证据仍待新版本发布。authenticated QA 服务仍存在旧 MCP protocol/content-only 部署漂移，留待 Phase 05 关闭。
 - GSD runtime 本地补丁当前解析正确，但 GSD 更新可能覆盖，且全局 context monitor 仍注册过宽。
 - 当前内置 Bearer 仅接受于内部 QA/Dev 阶段；不得在日志、测试输出或文档中泄露其值。
 - Cursor 扩大到公开分发前应移除内置 Bearer 默认值；当前免费 local 安装仅面向内部 QA/Dev，Cloud Agent 仍需单独确认内部网络可达性。
@@ -385,14 +385,15 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Phase 04.1 inserted after Phase 4: 多能力安装平台与代码规范提示 (URGENT)
 - Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and code-style nudge
 - Phase 04.2 inserted after Phase 04.1: 公开版本去品牌化 (URGENT)
+- Phase 5 edited: merged hook precision, unified reminder lifecycle, five-host live evidence, and authenticated MCP acceptance
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Security | 个人/组织身份、HTTPS 与凭据轮换 | Scheduled in Phase 8 (SEC-01 to SEC-03) | 2026-08-23 |
-| Release | CI 发布自动化与宿主版本兼容矩阵 | Scheduled in Phase 8 (REL-01 to REL-02) | 2026-08-23 |
-| Live QA | 服务端对目标 MCP protocol 与结构化工具结果的部署对齐 | Scheduled in Phase 6 authenticated evidence | 2026-08-26 |
+| Security | 个人/组织身份、HTTPS 与凭据轮换 | Deferred until a future public production release; hard release gate | 2026-08-23 |
+| Release | CI 发布自动化与宿主版本兼容矩阵 | Deferred until a future public production release | 2026-08-23 |
+| Live QA | 服务端对目标 MCP protocol 与结构化工具结果的部署对齐 | Merged into Phase 5 authenticated evidence | 2026-08-26 |
 
 ### Roadmap Evolution
 

@@ -131,10 +131,14 @@
 
 ### GSD 运行时与 Hook
 
+> Deferred outside the current KCodeRag Nav milestone; this belongs to GSD runtime maintenance.
+
 - [ ] **GSD-01**: GSD 在 Codex 中从安装 runtime marker 选择 orchestrator-worktree，并保留显式 Claude override 与可持久重放的回归保护
 - [ ] **GSD-02**: 全局 GSD context monitor 只在必要事件启动相应逻辑，不在无意义事件重复启动 Node
 
 ## v2 Requirements
+
+> Deferred until a future public production release is explicitly started; these remain hard release gates, not current milestone work.
 
 ### 凭据与传输
 
@@ -217,24 +221,25 @@
 | HOOK-07 | Phase 5 | Pending |
 | HOOK-08 | Phase 5 | Pending |
 | ROUT-05 | Phase 5 | Pending |
-| TEST-07 | Phase 6 | Pending |
-| TEST-08 | Phase 6 | Pending |
-| TEST-09 | Phase 6 | Pending |
-| TEST-11 | Phase 6 | Pending |
-| GSD-01 | Phase 7 | Pending |
-| GSD-02 | Phase 7 | Pending |
-| SEC-01 | Phase 8 | Pending |
-| SEC-02 | Phase 8 | Pending |
-| SEC-03 | Phase 8 | Pending |
-| REL-01 | Phase 8 | Pending |
-| REL-02 | Phase 8 | Pending |
+| TEST-07 | Phase 5 | Pending |
+| TEST-08 | Phase 5 | Pending |
+| TEST-09 | Phase 5 | Pending |
+| TEST-11 | Phase 5 | Pending |
+| GSD-01 | Deferred | Outside KCodeRag Nav milestone |
+| GSD-02 | Deferred | Outside KCodeRag Nav milestone |
+| SEC-01 | Deferred | Required before future production release |
+| SEC-02 | Deferred | Required before future production release |
+| SEC-03 | Deferred | Required before future production release |
+| REL-01 | Deferred | Required before future production release |
+| REL-02 | Deferred | Required before future production release |
 
 **Coverage:**
 
 - v1 + v1.1 requirements: 56 total
 - v2 requirements scheduled: 5 total
-- Mapped to phases: 61
-- Unmapped: 0
+- Mapped to active phases: 54
+- Explicitly deferred outside current milestone: 7
+- Unaccounted: 0
 
 ---
 *Requirements defined: 2026-08-20*

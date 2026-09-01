@@ -45,9 +45,9 @@ install/update/uninstall 只修改 adapter 声明的受管
 - **D-19 marker**: 需要重置一次性提示时，先关闭所有相关宿主会话，再人工删除 OS cache 下 `kcoderag-nav/nudges`；status/doctor 不清理，删除失败也不阻断宿主
 - **发布**: 全部门禁通过后只验证 readiness，不在本阶段执行 publish；既有不可变版本只以前进版本修复
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
-- **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
+- **阶段边界**: Phase 05 统一负责 Hook 精度、节流、真实宿主事件与 authenticated MCP 证据；全局 GSD Hook 和生产身份/HTTPS/轮换已移出当前 milestone，未来重新立项前不得宣称完成
 - **OpenCode**: 只允许项目级安装；JSON/JSONC 双配置硬停止；真机验收基线为 `1.18.23`
-- **ZCode**: 只允许项目级安装；管理 `.zcode/config.json` 的 MCP/Hook section、`.zcode/skills/` 与项目 Hook 运行时；CLI 不预授权 workspace trust，Phase 04.2 验收 packaged lifecycle/smoke，真机 trust/admission 与版本冻结留在 Phase 06
+- **ZCode**: 只允许项目级安装；管理 `.zcode/config.json` 的 MCP/Hook section、`.zcode/skills/` 与项目 Hook 运行时；CLI 不预授权 workspace trust，Phase 04.2 验收 packaged lifecycle/smoke，真机 trust/admission 与版本冻结并入 Phase 05
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
 <!-- GSD:project-end -->
@@ -257,7 +257,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
 - **Release boundary:** Phase 04.2 advances the checked candidate to `0.3.0` and verifies five-host readiness against one exact tgz without tag or publish; any later immutable publication is separately authorized and fixes forward without unpublish or dist-tag rollback.
 - **Documentation boundary:** This repository exclusively owns `docs/MCP_QA_EXPERIENCE_GUIDE.md` from Phase 04.2 onward. The sibling KCodeRag guide is a one-time read-only import source only and is never updated or bound into readiness evidence.
-- **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries plus OpenCode/ZCode true-host evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
+- **Deferred boundary:** Phase 05 owns Hook precision, reminder consumption, authenticated MCP queries, and OpenCode/ZCode true-host evidence. Global GSD Hook work and production identity/HTTPS/token rotation are outside the current milestone and require a future explicit phase.
 
 ## Anti-Patterns
 
@@ -281,7 +281,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - Narrow ownership and unrelated configuration preservation.
 - Secret-safe diagnostics and metadata-only evidence.
 - Node 22/24 and Windows/Linux parity.
-- Honest separation between Phase 04 deployment evidence and Phase 06 authenticated real-host MCP evidence.
+- Honest separation between Phase 04 deployment evidence and Phase 05 authenticated real-host MCP evidence.
 
 <!-- GSD:architecture-end -->
 
