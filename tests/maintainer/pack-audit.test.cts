@@ -78,6 +78,10 @@ const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
 const CAPABILITY_REGISTRY_PATH = "dist/capabilities/registry.cjs";
 const DISPATCHER_PATH = "dist/hooks/pre-tool-dispatcher.cjs";
+const FEEDBACK_NUDGE_PATH = "dist/hooks/feedback-nudge.cjs";
+const ACCEPTANCE_RECEIPT_PATH = "dist/smoke/acceptance-receipt.cjs";
+const HOST_SMOKE_PATH = "dist/smoke/host-smoke.cjs";
+const LIVE_COORDINATOR_PATH = "dist/smoke/live-host-coordinator.cjs";
 const CODE_STYLE_RUNTIME_PATHS = Object.freeze([
   "dist/hooks/code-style-nudge.cjs",
   "dist/hooks/once-marker.cjs",
@@ -244,6 +248,60 @@ test("requires the capability registry, dispatcher runtime, and canonical code s
       () => packAudit.validatePack({ ...missing, expectedPaths }),
       "missing_self_contained_asset",
     );
+  }
+});
+
+test("closes the Phase 05 public receipt runtime and Cursor generated family", () => {
+  const exact = baseline();
+  for (const required of [
+    FEEDBACK_NUDGE_PATH,
+    ACCEPTANCE_RECEIPT_PATH,
+    HOST_SMOKE_PATH,
+    LIVE_COORDINATOR_PATH,
+    "kcoderag-cursor/rules/kcoderag-navigation.mdc",
+    "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md",
+  ]) {
+    assert.equal(exact.packageJson.files.includes(required), true, required);
+    assert.equal(exact.expectedPaths.includes(required), true, required);
+    assert.equal(exact.archiveEntries.has(required), true, required);
+  }
+
+  assert.equal(
+    fs.readFileSync(path.join(repositoryRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc"), "utf8"),
+    fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), "utf8"),
+  );
+  assert.equal(
+    fs.readFileSync(path.join(repositoryRoot, "plugin-src/skills/code-lookup-discipline/SKILL.md"), "utf8"),
+    fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md"), "utf8"),
+  );
+  const routing = fs.readFileSync(
+    path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"),
+    "utf8",
+  );
+  assert.match(routing, /list_indexes/iu);
+  assert.match(routing, /semantic\/hybrid/iu);
+  assert.match(routing, /keyword.*context.*get_call_chain/isu);
+});
+
+test("two actual packs from one tree have identical SHA and closed member inventory", () => {
+  const first = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["pack-audit"],
+  });
+  const second = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["pack-audit"],
+  });
+  try {
+    const firstAudit = packAudit.auditPackArtifact(first, { root: repositoryRoot });
+    const secondAudit = packAudit.auditPackArtifact(second, { root: repositoryRoot });
+    assert.equal(first.artifact.sha256, second.artifact.sha256);
+    assert.equal(first.artifact.memberCount, second.artifact.memberCount);
+    assert.equal(firstAudit.artifactSha256, secondAudit.artifactSha256);
+    assert.equal(firstAudit.memberCount, secondAudit.memberCount);
+  } finally {
+    first.dispose();
+    second.dispose();
   }
 });
 
