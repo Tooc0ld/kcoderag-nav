@@ -104,6 +104,7 @@ test("acceptance workflow has one producer, four PACKAGED lanes and one protecte
 
 test("workflow binds every consumer to the producer artifact and never rebuilds in LIVE", () => {
   const source = workflow();
+  const packageJob = source.slice(source.indexOf("  package:"), source.indexOf("  packaged:"));
   assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
   assert.deepEqual(
     [...source.matchAll(/- lane:\s*([^\s]+)\s*\r?\n\s*os:\s*([^\s]+)\s*\r?\n\s*runner:\s*([^\s]+)\s*\r?\n\s*node:\s*["']([^"']+)["']/gu)]
@@ -116,11 +117,17 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
     ],
   );
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 2);
-  assert.match(source, /candidateSha:[\s\S]*?required:\s*true[\s\S]*?packageSha256:[\s\S]*?required:\s*true[\s\S]*?packageMemberDigest:[\s\S]*?required:\s*true/u);
+  assert.match(source, /candidateSha:[\s\S]*?required:\s*true[\s\S]*?candidateRef:[\s\S]*?required:\s*true[\s\S]*?packageSha256:[\s\S]*?required:\s*true[\s\S]*?packageMemberDigest:[\s\S]*?required:\s*true/u);
+  assert.match(packageJob, /READINESS_PROVENANCE_PROFILE:\s*acceptance/u);
+  assert.match(packageJob, /READINESS_CANDIDATE_SHA:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/u);
+  assert.match(packageJob, /READINESS_CANDIDATE_REF:\s*\$\{\{ inputs\.candidateRef \|\| github\.ref \}\}/u);
+  assert.match(packageJob, /READINESS_WORKFLOW_COMMIT:\s*\$\{\{ github\.workflow_sha \}\}/u);
+  assert.match(packageJob, /READINESS_WORKFLOW_BLOB_SHA:\s*\$\{\{ inputs\.workflowBlobSha \}\}/u);
   assert.match(source, /environment:\s*\r?\n\s+name:\s*kcoderag-live/u);
   assert.match(source, /github\.event_name == 'workflow_dispatch'/u);
   assert.match(source, /github\.event\.repository\.fork == false/u);
   assert.match(source, /inputs\.candidateSha == needs\.package\.outputs\.candidate-sha/u);
+  assert.match(source, /inputs\.candidateRef == github\.ref/u);
   assert.match(source, /node-version:\s*["']22["']/u);
 
   const live = source.slice(source.indexOf("  live:"), source.indexOf("  verify:", source.indexOf("  live:")));
@@ -135,6 +142,7 @@ test("workflow validator fails closed for trust, identity, bypass and LIVE rebui
   const source = workflow();
   const cases = [
     [source.replaceAll("candidateSha:", "candidateDigest:"), "candidate_input_missing"],
+    [source.replaceAll("candidateRef:", "candidateBranch:"), "candidate_ref_input_missing"],
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],
     [source.replace("github.event.repository.fork == false", "github.event.repository.fork == true"), "untrusted_ref_guard_missing"],
     [source.replaceAll("node-version: \"22\"", "node-version: \"24\""), "live_runner_invalid"],
