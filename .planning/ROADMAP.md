@@ -434,14 +434,16 @@ Plans:
   4. 同一 exact tgz 或公开 exact npx 版本在干净项目中完成五宿主 install/status/update/uninstall、MCP、Hook/Rule/plugin、成功 marker 与更新路径；live PASS 必须由真实宿主触发原生事件，直接执行 launcher 只算 packaged contract，`NOT_RUN` 或 skipped 不得完成阶段。
   5. Windows/Linux 适用 runner 可复跑 exact package 与宿主证据；authenticated QA 协商目标 MCP protocol 并返回合规结构化工具结果，所有 receipt、日志和制品保持 metadata-only 且不泄露 URL、Header、Bearer、工具参数或响应正文。
 
-**Plans:** 4 plans
+**Plans:** 6 plans
 
 Plans:
 
 - [ ] `05-01-PLAN.md` — 以 Codex exact-tgz SessionStart tracer 建立统一事件、governor、精度、索引门禁与 feedback 状态机
-- [ ] `05-02-PLAN.md` — 将共享策略诚实投影到五宿主并关闭 canonical generator 与 actual-pack inventory
-- [ ] `05-03-PLAN.md` — 建立 closed receipt、受保护 exact-artifact workflow/coordinator 并在 dispatch 前封存 immutable candidate
-- [ ] `05-04-PLAN.md` — 消费已授权 exact candidate run，仅提交五宿主 authenticated LIVE evidence 与宿主诚实指南
+- [ ] `05-02-PLAN.md` — 将共享策略诚实投影到 Claude、Cursor、OpenCode 与 ZCode 的真实原生表面
+- [ ] `05-03-PLAN.md` — 从 canonical source 确定性生成 QA runtime/config/guidance family
+- [ ] `05-04-PLAN.md` — 关闭 PASS/FAIL/NOT_RUN receipt、五宿主 coordinator 与 independently passing actual tgz
+- [ ] `05-05-PLAN.md` — 建立受保护 exact-artifact workflow 并在 dispatch 前封存 immutable candidate
+- [ ] `05-06-PLAN.md` — 消费已授权 exact candidate run，仅提交五宿主 authenticated LIVE evidence 与宿主诚实指南
 
 ## Progress
 
@@ -457,4 +459,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
 | 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
 | 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
 | 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
-| 5. 统一 Hook 策略与真实宿主验证 | 0/4 | Planned | - |
+| 5. 统一 Hook 策略与真实宿主验证 | 0/6 | Planned | - |
