@@ -124,7 +124,7 @@
 
 ### 真实宿主验证
 
-- [ ] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
+- [x] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
 - [x] **TEST-08**: 在干净 Claude Code 项目中，通过同一 exact npx 包真实验证 install/status、MCP、Grep/Glob/Bash hook、update 与 uninstall
 - [x] **TEST-09**: 在干净 Cursor 项目中，通过同一 exact npx 包真实验证 install/status、必要 reload 后的 MCP/Rule/skill、update 与 uninstall
 - [x] **TEST-11**: 在干净 ZCode 项目中，通过同一 exact npx 包真实验证 install/status、MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook、update 与 uninstall，并冻结受支持版本与 metadata-only delivery receipt
@@ -221,7 +221,7 @@
 | HOOK-07 | Phase 5 | Complete |
 | HOOK-08 | Phase 5 | Complete |
 | ROUT-05 | Phase 5 | Complete |
-| TEST-07 | Phase 5 | Pending |
+| TEST-07 | Phase 5 | Complete |
 | TEST-08 | Phase 5 | Complete |
 | TEST-09 | Phase 5 | Complete |
 | TEST-11 | Phase 5 | Complete |
