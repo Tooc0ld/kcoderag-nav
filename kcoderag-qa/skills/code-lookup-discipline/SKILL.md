@@ -17,12 +17,17 @@ Use the installed KCodeRag QA service for graph lookup. If QA is unreachable, re
 that state; local search remains an explicit fallback when the index is unavailable
 or stale.
 
+## Search mode gate
+
+Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.
+Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.
+
 ## Choose the right lookup
 
 | Question | First choice |
 |---|---|
 | Where is a symbol defined? | `search_code` |
-| Which symbol matches a behavior or concept? | `search_code` semantic search |
+| Which symbol matches a behavior or concept? | `search_code` using the mode gate above |
 | What surrounds this symbol? | `context` |
 | Who calls it, or what does it call? | `get_call_chain` |
 | What may break if it changes? | `get_call_chain` callers, then `context` |

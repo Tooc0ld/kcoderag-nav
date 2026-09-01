@@ -57,6 +57,14 @@ export interface GenerationResult {
   readonly diagnostics: readonly string[];
 }
 
+export interface AssetSourceRoute {
+  readonly product: Product;
+  readonly output: string;
+  readonly canonicalSource: string;
+  readonly renderSource: string;
+  readonly kind: "compiled-copy" | "normalized-copy" | "template" | "hook-registration";
+}
+
 type EnvironmentId = "qa";
 
 interface EnvironmentMetadata {
@@ -298,6 +306,30 @@ function productGroups(product: Product): Readonly<Record<AssetGroup, readonly s
 
 export const ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>> =
   Object.freeze({ qa: productGroups("qa"), cursor: productGroups("cursor") });
+
+export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze([
+  Object.freeze({ product: "cursor", output: "rules/kcoderag-navigation.mdc", canonicalSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", renderSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" }),
+  Object.freeze({ product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/hooks.json", canonicalSource: "plugin-src/hooks/hooks.json", renderSource: "plugin-src/hooks/hooks.json", kind: "hook-registration" }),
+  Object.freeze({ product: "qa", output: "hooks/mcp-call-marker.cjs", canonicalSource: "src/hooks/mcp-call-marker.cts", renderSource: "dist/hooks/mcp-call-marker.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/once-marker.cjs", canonicalSource: "src/hooks/once-marker.cts", renderSource: "dist/hooks/once-marker.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/pre-tool-dispatcher.cjs", canonicalSource: "src/hooks/pre-tool-dispatcher.cts", renderSource: "dist/hooks/pre-tool-dispatcher.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/session-cleanup.cjs", canonicalSource: "src/hooks/session-cleanup.cts", renderSource: "dist/hooks/session-cleanup.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/update-check.cjs", canonicalSource: "src/hooks/update-check.cts", renderSource: "dist/hooks/update-check.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "opencode/kcoderag-nav.js", canonicalSource: "plugin-src/opencode/kcoderag-nav.js", renderSource: "plugin-src/opencode/kcoderag-nav.js", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" }),
+]);
+
+const PHASE_05_ROUTE_BY_OUTPUT: ReadonlyMap<string, AssetSourceRoute> = new Map(
+  PHASE_05_ASSET_ROUTES.map((route) => [`${route.product}/${route.output}`, route]),
+);
+
+function phase05AssetRoute(product: Product, output: string): AssetSourceRoute | undefined {
+  return PHASE_05_ROUTE_BY_OUTPUT.get(`${product}/${output}`);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -641,21 +673,20 @@ function renderQaAsset(
   relativePath: string,
   capabilities: readonly CapabilityId[],
 ): Buffer {
-  if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
-  if (relativePath === "hooks/code-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/code-style-nudge.cjs");
-  if (relativePath === "hooks/feedback-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/feedback-nudge.cjs");
-  if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
-  if (relativePath === "hooks/once-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/once-marker.cjs");
-  if (relativePath === "hooks/pre-tool-dispatcher.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs");
-  if (relativePath === "hooks/session-cleanup.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/session-cleanup.cjs");
-  if (relativePath === "hooks/update-check.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-check.cjs");
+  const phase05Route = phase05AssetRoute("qa", relativePath);
+  if (phase05Route?.kind === "compiled-copy") {
+    return readBytes(inputs.sourceRoot, phase05Route.renderSource);
+  }
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
+  }
   if (relativePath === "hooks/update-notice.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-notice.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
   if (relativePath === "hooks/run_hook.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.sh");
   if (relativePath === "hooks/run_marker.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.cmd");
   if (relativePath === "hooks/run_marker.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.sh");
-  if (relativePath === "hooks/hooks.json") {
+  if (phase05Route?.kind === "hook-registration") {
     const commands = renderProjectHookCommands("claude");
     const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
     const registration = readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json");
@@ -678,9 +709,6 @@ function renderQaAsset(
     if (!capabilities.includes("kcoderag-navigation")) delete hooks.PostToolUse;
     return canonicalJson({ ...rendered, hooks });
   }
-  if (relativePath === "opencode/kcoderag-nav.js") {
-    return normalizedText(inputs.sourceRoot, "plugin-src/opencode/kcoderag-nav.js");
-  }
   if (relativePath === ".mcp.json") return readBytes(inputs.sourceRoot, environment.mcp_source);
   if (relativePath === ".codex.mcp.json") {
     const connection = connectionDetails(inputs, environment);
@@ -699,7 +727,7 @@ function renderQaAsset(
       replacements,
     );
   }
-  if (relativePath === "skills/code-lookup-discipline/SKILL.md") {
+  if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
       "plugin-src/skills/code-lookup-discipline/SKILL.md",
@@ -728,10 +756,11 @@ function renderQaAsset(
 function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
   if (relativePath === ".cursor-plugin/plugin.json") return canonicalJson(cursorManifest(inputs));
   if (relativePath === "mcp.json") return canonicalJson(cursorMcp());
-  if (relativePath === "rules/kcoderag-navigation.mdc") {
-    return normalizedText(inputs.sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc");
+  const phase05Route = phase05AssetRoute("cursor", relativePath);
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
   }
-  if (relativePath === "skills/code-lookup-discipline/SKILL.md") {
+  if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
       "plugin-src/skills/code-lookup-discipline/SKILL.md",
@@ -908,6 +937,54 @@ function inspectRetiredDevOutput(root: string): {
   }
 }
 
+function walkOutputFiles(root: string, relativeDirectory: string): readonly string[] {
+  const absoluteDirectory = path.resolve(root, ...relativeDirectory.split("/"));
+  if (!insideRoot(root, absoluteDirectory)) throw new GenerationError("path_escape", ".");
+  try {
+    const metadata = fs.lstatSync(absoluteDirectory);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) return Object.freeze([relativeDirectory]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return Object.freeze([]);
+    throw new GenerationError("unreadable_output", relativeDirectory);
+  }
+
+  const visit = (directory: string, prefix: string): string[] => {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      throw new GenerationError("unreadable_output", prefix);
+    }
+    return entries.flatMap((entry) => {
+      const relativePath = `${prefix}/${entry.name}`;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        return visit(path.join(directory, entry.name), relativePath);
+      }
+      return [relativePath];
+    });
+  };
+  return Object.freeze(visit(absoluteDirectory, relativeDirectory).sort(compareCodeUnits));
+}
+
+function inspectOrphanOutputs(
+  root: string,
+  rendered: ReturnType<typeof renderSelected>,
+): { readonly changedPaths: readonly string[]; readonly diagnostics: readonly string[] } {
+  if (rendered.group !== "all") {
+    return Object.freeze({ changedPaths: Object.freeze([]), diagnostics: Object.freeze([]) });
+  }
+  const expected = new Set(rendered.outputs.keys());
+  const changedPaths = PRODUCTS
+    .filter((product) => [...expected].some((entry) => entry.startsWith(`${PRODUCT_DIRECTORIES[product]}/`)))
+    .flatMap((product) => walkOutputFiles(root, PRODUCT_DIRECTORIES[product]))
+    .filter((relativePath) => !expected.has(relativePath))
+    .sort(compareCodeUnits);
+  return Object.freeze({
+    changedPaths: Object.freeze(changedPaths),
+    diagnostics: Object.freeze(changedPaths.map((relativePath) => `orphan: ${relativePath}`)),
+  });
+}
+
 function ensureParents(root: string, relativePath: string, createdDirectories: string[]): void {
   let current = root;
   for (const part of relativePath.split("/").slice(0, -1)) {
@@ -1054,11 +1131,12 @@ function result(
 export function checkGenerated(options: GeneratorOptions): GenerationResult {
   const rendered = renderSelected(options);
   const compared = inspectChanges(rendered.root, rendered.outputs);
+  const orphans = inspectOrphanOutputs(rendered.root, rendered);
   const retired = rendered.product === "all" && rendered.group === "all"
     ? inspectRetiredDevOutput(rendered.root)
     : { changedPaths: Object.freeze([] as string[]), diagnostics: Object.freeze([] as string[]) };
-  const changedPaths = sortedUnion(compared.changedPaths, retired.changedPaths);
-  const diagnostics = sortedUnion(compared.diagnostics, retired.diagnostics);
+  const changedPaths = sortedUnion(compared.changedPaths, orphans.changedPaths, retired.changedPaths);
+  const diagnostics = sortedUnion(compared.diagnostics, orphans.diagnostics, retired.diagnostics);
   return result(rendered, changedPaths, [], diagnostics, changedPaths.length === 0);
 }
 
