@@ -50,13 +50,40 @@ test("records only successful KCodeRag calls for all five hook-capable host payl
     assert.equal(markerFiles(root).length, 6);
     const records = markerFiles(root).map((name) =>
       JSON.parse(fs.readFileSync(path.join(root, "mcp-calls", name), "utf8")) as Record<string, unknown>);
-    assert.equal(marker.MCP_CALL_MARKER_SCHEMA_VERSION, 2);
-    assert.equal(records.every((record) => record.schemaVersion === 2), true);
+    assert.equal(marker.MCP_CALL_MARKER_SCHEMA_VERSION, 3);
+    assert.equal(records.every((record) => record.schemaVersion === 3), true);
     assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "codex", "cursor", "opencode", "zcode"]);
     assert.deepEqual(
       [...new Set(records.map((record) => record.toolName))].sort(),
       ["context", "get_call_chain", "search_code"],
     );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("call-scoped markers keep repeated search_code executions distinct and retain only a structured-result boolean", () => {
+  const root = fixture();
+  try {
+    for (const [callID, structuredContent] of [["call-a", { matches: ["secret-a"] }], ["call-b", { matches: ["secret-b"] }]] as const) {
+      const result = marker.recordKCodeRagCall({
+        sessionID: "open-session",
+        callID,
+        tool: "kcoderag-qa_search_code",
+        success: true,
+        structuredResultValid: true,
+        output: { structuredContent },
+      }, { host: "opencode", cacheRoot: root, now: () => 1_000 });
+      assert.equal(result.recorded, true);
+    }
+    const files = markerFiles(root);
+    assert.equal(files.length, 2);
+    const records = files.map((name) =>
+      JSON.parse(fs.readFileSync(path.join(root, "mcp-calls", name), "utf8")) as Record<string, unknown>);
+    assert.equal(records.every((record) => record.scope === "call"), true);
+    assert.equal(records.every((record) => record.structuredResultValid === true), true);
+    const serialized = JSON.stringify(records);
+    assert.doesNotMatch(serialized, /open-session|call-a|call-b|secret-a|secret-b/u);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

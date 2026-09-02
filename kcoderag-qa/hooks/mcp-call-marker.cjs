@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const feedback_nudge_cjs_1 = require("./feedback-nudge.cjs");
-exports.MCP_CALL_MARKER_SCHEMA_VERSION = 2;
+exports.MCP_CALL_MARKER_SCHEMA_VERSION = 3;
 exports.MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
 exports.MAX_MCP_CALL_MARKERS = 128;
 const MAX_INPUT_BYTES = 64 * 1_024;
@@ -89,14 +89,40 @@ function identity(payload, host, cwd, toolName) {
     const session = boundedString(payload.session_id) ??
         boundedString(payload.conversation_id) ??
         boundedString(payload.sessionID);
-    const turn = boundedString(payload.turn_id) ?? boundedString(payload.generation_id);
+    const call = boundedString(payload.tool_use_id) ??
+        boundedString(payload.tool_call_id) ??
+        boundedString(payload.callID) ??
+        boundedString(payload.generation_id);
+    const turn = boundedString(payload.turn_id);
     const fallback = boundedString(cwd);
     const sessionIdentity = session ?? fallback;
     if (sessionIdentity === undefined)
         return undefined;
-    return turn === undefined
-        ? { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" }
-        : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" };
+    if (call !== undefined) {
+        return { raw: `${host}\0call\0${sessionIdentity}\0${call}\0${toolName}`, scope: "call" };
+    }
+    return turn !== undefined
+        ? { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" }
+        : { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" };
+}
+function structuredResultValid(payload) {
+    if (payload.structuredResultValid !== undefined)
+        return payload.structuredResultValid === true;
+    let remaining = 128;
+    const inspect = (value, depth) => {
+        if (remaining <= 0 || depth > 6 || !isRecord(value))
+            return false;
+        remaining -= 1;
+        for (const [key, child] of Object.entries(value).slice(0, 64)) {
+            if ((key === "structuredContent" || key === "structured_content") && isRecord(child))
+                return true;
+            if (["tool_response", "result", "output", "metadata", "data", "response"].includes(key)
+                && inspect(child, depth + 1))
+                return true;
+        }
+        return false;
+    };
+    return [payload.tool_response, payload.result, payload.output].some((value) => inspect(value, 0));
 }
 function markerName(rawIdentity) {
     return `${crypto.createHash("sha256").update(rawIdentity).digest("hex")}.json`;
@@ -135,6 +161,7 @@ function recordKCodeRagCall(payload, options) {
             host: options.host,
             scope: markerIdentity.scope,
             toolName: outcome.toolName,
+            structuredResultValid: structuredResultValid(payload),
             recordedAt: now,
         })}\n`);
         prune(files, directoryPath, name, now);

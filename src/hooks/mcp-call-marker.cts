@@ -11,7 +11,7 @@ import { normalizeKCodeRagOutcome, type LogicalKCodeRagTool } from "./feedback-n
 
 export type MarkerHost = HostId;
 
-export const MCP_CALL_MARKER_SCHEMA_VERSION = 2 as const;
+export const MCP_CALL_MARKER_SCHEMA_VERSION = 3 as const;
 export const MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
 export const MAX_MCP_CALL_MARKERS = 128;
 const MAX_INPUT_BYTES = 64 * 1_024;
@@ -99,18 +99,41 @@ const nodeFiles: MarkerFiles = {
 
 function identity(payload: Record<string, unknown>, host: MarkerHost, cwd: string, toolName: LogicalKCodeRagTool): {
   readonly raw: string;
-  readonly scope: "turn" | "session";
+  readonly scope: "call" | "turn" | "session";
 } | undefined {
   const session = boundedString(payload.session_id) ??
     boundedString(payload.conversation_id) ??
     boundedString(payload.sessionID);
-  const turn = boundedString(payload.turn_id) ?? boundedString(payload.generation_id);
+  const call = boundedString(payload.tool_use_id) ??
+    boundedString(payload.tool_call_id) ??
+    boundedString(payload.callID) ??
+    boundedString(payload.generation_id);
+  const turn = boundedString(payload.turn_id);
   const fallback = boundedString(cwd);
   const sessionIdentity = session ?? fallback;
   if (sessionIdentity === undefined) return undefined;
-  return turn === undefined
-    ? { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" }
-    : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" };
+  if (call !== undefined) {
+    return { raw: `${host}\0call\0${sessionIdentity}\0${call}\0${toolName}`, scope: "call" };
+  }
+  return turn !== undefined
+    ? { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" }
+    : { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" };
+}
+
+function structuredResultValid(payload: Readonly<Record<string, unknown>>): boolean {
+  if (payload.structuredResultValid !== undefined) return payload.structuredResultValid === true;
+  let remaining = 128;
+  const inspect = (value: unknown, depth: number): boolean => {
+    if (remaining <= 0 || depth > 6 || !isRecord(value)) return false;
+    remaining -= 1;
+    for (const [key, child] of Object.entries(value).slice(0, 64)) {
+      if ((key === "structuredContent" || key === "structured_content") && isRecord(child)) return true;
+      if (["tool_response", "result", "output", "metadata", "data", "response"].includes(key)
+        && inspect(child, depth + 1)) return true;
+    }
+    return false;
+  };
+  return [payload.tool_response, payload.result, payload.output].some((value) => inspect(value, 0));
 }
 
 function markerName(rawIdentity: string): string {
@@ -149,6 +172,7 @@ export function recordKCodeRagCall(payload: unknown, options: MarkerOptions): Ma
       host: options.host,
       scope: markerIdentity.scope,
       toolName: outcome.toolName,
+      structuredResultValid: structuredResultValid(payload),
       recordedAt: now,
     })}\n`);
     prune(files, directoryPath, name, now);

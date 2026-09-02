@@ -9,7 +9,7 @@ interface PluginModule {
   KCodeRagNav(context: {
     readonly client: { readonly tui: { showToast(input: unknown): Promise<boolean> } };
     readonly directory: string;
-  }): Promise<Record<string, (input: unknown) => Promise<void>>>;
+  }): Promise<Record<string, (input: unknown, output?: unknown) => Promise<void>>>;
 }
 
 interface GlobalFixture {
@@ -68,9 +68,16 @@ test("OpenCode after-event forwards closed facts and shows one fail-open cached 
     const after = hooks["tool.execute.after"];
     assert.equal(typeof after, "function");
     if (after === undefined) throw new Error("missing tool.execute.after hook");
-    const input = { tool: "read", sessionID: "session-a", args: { token: "must-not-leak" } };
-    const fact = { conversation_id: "session-a", tool: "read", success: true };
-    await after(input);
+    const input = { tool: "read", sessionID: "session-a", callID: "call-a", args: { token: "must-not-leak" } };
+    const output = { status: "completed", structuredContent: { token: "must-not-leak" } };
+    const fact = {
+      conversation_id: "session-a",
+      generation_id: "call-a",
+      tool: "read",
+      success: true,
+      structuredResultValid: true,
+    };
+    await after(input, output);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(fixtureGlobal().calls, [
@@ -82,7 +89,7 @@ test("OpenCode after-event forwards closed facts and shows one fail-open cached 
 
     fixtureGlobal().calls = [];
     fixtureGlobal().fail = true;
-    await assert.doesNotReject(after(input));
+    await assert.doesNotReject(after(input, output));
     assert.deepEqual(fixtureGlobal().calls, [
       ["marker", fact, { host: "opencode", cwd: root }],
       ["notice", "opencode", fact, { cwd: root }],

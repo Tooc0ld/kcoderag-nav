@@ -527,9 +527,11 @@ test("live command specs support disposable non-git projects and require the MCP
   assert.ok(codex.args.includes("hooks"));
   assert.ok(!codex.args.includes("--ignore-user-config"));
   assert.ok(codex.args.includes("--dangerously-bypass-hook-trust"));
-  assert.ok(codex.args.includes("--approve-for-me"));
+  assert.ok(!codex.args.includes("--approve-for-me"));
   assert.ok(!codex.args.includes("--dangerously-bypass-approvals-and-sandbox"));
-  assert.ok(!codex.args.includes("--sandbox"));
+  assert.ok(codex.args.includes("--sandbox"));
+  assert.ok(codex.args.includes("read-only"));
+  assert.ok(codex.args.includes('approval_policy="never"'));
   assert.equal(codex.args.at(-1), smoke.LIVE_PROMPT);
 
   const claude = smoke.liveCommandSpec("claude", projectRoot);

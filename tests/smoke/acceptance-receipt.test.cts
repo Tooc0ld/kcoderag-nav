@@ -83,7 +83,11 @@ test("every reasonCode has one exact stage and accepted status combination", () 
     install: ["install_failed", "status_unhealthy", "update_failed", "uninstall_failed"],
     native_event: ["native_event_missing", "native_event_failed"],
     prompt_semantics: ["prompt_missing", "prompt_unexpected", "prompt_dedupe_failed"],
-    mcp: ["mcp_registration_missing", "list_indexes_unavailable", "mcp_call_failed", "structured_result_invalid"],
+    mcp: [
+      "mcp_registration_missing", "list_indexes_unavailable", "mcp_call_failed", "structured_result_invalid",
+      "mcp_auth_failed", "mcp_permission_denied", "mcp_timeout", "mcp_connection_failed",
+      "mcp_protocol_failed", "mcp_tool_unavailable", "mcp_initialization_failed", "mcp_native_failed",
+    ],
     feedback: ["feedback_reminder_missing", "submit_feedback_failed", "feedback_suppression_failed"],
     evidence_integrity: ["candidate_mismatch", "receipt_invalid", "secret_detected", "cleanup_failed"],
   };

@@ -27,6 +27,7 @@ interface DriverDependencies {
 interface DriverModule {
   readonly DRIVER_HOSTS: readonly HostId[];
   classifyNativeError(value: Record<string, unknown>): string;
+  parseNativeEvidence(output: string): Readonly<Record<string, any>>;
   discoverHostExecutable(
     host: HostId,
     environment: NodeJS.ProcessEnv,
@@ -178,6 +179,18 @@ test("host-specific native prompts trigger fixed Codex search and Claude Grep Gl
       });
       const serialized = JSON.stringify(calls);
       assert.match(serialized, /KCODERAG_NATIVE_ACCEPTANCE_CANARY/u);
+      assert.match(serialized, /feedback-observation-v1/u);
+      assert.match(serialized, /expected_observed_summary/u);
+      assert.match(serialized, /severity low/u);
+      assert.doesNotMatch(serialized, /acceptance-only rating/u);
+      if (host === "codex") {
+        const native = calls.find((args) => args[0] === "exec" && args.includes("--enable"));
+        assert.ok(native !== undefined);
+        assert.equal(native.includes("--approve-for-me"), false);
+        assert.equal(native.includes("--sandbox"), true);
+        assert.equal(native.includes("read-only"), true);
+        assert.equal(native.includes('approval_policy="never"'), true);
+      }
       if (host === "claude") {
         assert.match(serialized, /Use Glob once/u);
         assert.match(serialized, /Use Grep once/u);
@@ -187,6 +200,23 @@ test("host-specific native prompts trigger fixed Codex search and Claude Grep Gl
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Claude stream-json hook lifecycle is correlated with real Grep Glob and Bash tool-use blocks", () => {
+  const output = [
+    { type: "system", subtype: "hook_response", hook_event: "SessionStart", hook_name: "kcoderag-nav session-start", additionalContext: "KCodeRag ready" },
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "Glob" }] } },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "kcoderag-nav run_hook" },
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "Grep" }] } },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "pre-tool-dispatcher.cjs" },
+    { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "kcoderag-nav run_hook" },
+  ].map((value) => JSON.stringify(value)).join("\n");
+  const evidence = driver.parseNativeEvidence(output);
+  assert.equal(evidence.sessionStart, true);
+  assert.equal(evidence.grepHook, true);
+  assert.equal(evidence.globHook, true);
+  assert.equal(evidence.bashHook, true);
 });
 
 test("ZCode freezes desktop and runtime versions and reports native auth absence without leaking output", async () => {
@@ -275,6 +305,7 @@ test("Codex native registration is closed and independent from missing list_inde
         return { code: 0, stdout: [
           JSON.stringify({ type: "SessionStart", additionalContext: "KCodeRag ready" }),
           JSON.stringify({ type: "hook", additionalContext: "KCodeRag ready" }),
+          JSON.stringify({ type: "error", message: "MCP tool approval permission denied" }),
         ].join("\n") };
       },
     });
@@ -282,7 +313,7 @@ test("Codex native registration is closed and independent from missing list_inde
     assert.equal(outcome.observations.host.directMcpRegistrationObserved, true);
     assert.equal(outcome.status, "FAIL");
     assert.equal(outcome.stage, "mcp");
-    assert.equal(outcome.reasonCode, "list_indexes_unavailable");
+    assert.equal(outcome.reasonCode, "mcp_permission_denied");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

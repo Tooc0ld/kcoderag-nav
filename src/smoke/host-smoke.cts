@@ -2808,7 +2808,8 @@ export function liveCommandSpec(host: HostId, projectRoot: string): LiveCommandS
   if (host === "codex") {
     return Object.freeze({ executable: "codex", args: Object.freeze([
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
-      "--approve-for-me", "--skip-git-repo-check", "--json",
+      "--sandbox", "read-only", "-c", 'approval_policy="never"',
+      "--skip-git-repo-check", "--json",
       "--cd", projectRoot, LIVE_PROMPT,
     ]) });
   }

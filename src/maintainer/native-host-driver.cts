@@ -35,7 +35,7 @@ const SECRET_SHAPED_RE = /(?:https?:\/\/|bearer\s|authorization\s*[:=]|token\s*[
 const MCP_SEQUENCE_PROMPT = [
   "For the MCP portion, use only the installed kcoderag MCP tools.",
   "Call list_indexes once, then call search_code for the fixed acceptance canary identifier.",
-  "After the native feedback reminder, call submit_feedback once with an acceptance-only rating, then call search_code once more.",
+  "After the native feedback reminder, call submit_feedback once with exactly schema_version feedback-observation-v1, category expected_observed_summary, severity low, expected_summary acceptance canary completed, and actual_summary acceptance canary completed; then call search_code once more.",
   "Outside any fixed canary actions stated earlier, do not inspect project files or run a shell.",
   "Never quote source, connection data, tool arguments, or tool results.",
 ].join(" ");
@@ -315,7 +315,8 @@ function lifecycleEnvironment(input: NativeDriverInput): NodeJS.ProcessEnv {
 function authenticationSpec(input: NativeDriverInput, executable: string): [string, readonly string[]] {
   const prompt = "Reply only with ready. Do not call tools.";
   if (input.host === "codex") return [executable, [
-    "exec", "--ephemeral", "--approve-for-me", "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
+    "exec", "--ephemeral", "--sandbox", "read-only", "-c", 'approval_policy="never"',
+    "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
   ]];
   if (input.host === "claude") return [executable, [
     "-p", prompt, "--no-session-persistence", "--output-format", "stream-json", "--verbose",
@@ -367,7 +368,8 @@ function nativeSpec(input: NativeDriverInput, executable: string): NativeSpec | 
     ].join(" ");
     return Object.freeze({ executable, args: Object.freeze([
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
-      "--approve-for-me", "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
+      "--sandbox", "read-only", "-c", 'approval_policy="never"',
+      "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
     ]) });
   }
   if (input.host === "claude") {
@@ -469,7 +471,7 @@ export function classifyNativeError(value: Record<string, unknown>): StructuredE
   return "other";
 }
 
-function structuredEvidence(output: string): StructuredEvidence {
+export function parseNativeEvidence(output: string): StructuredEvidence {
   let nativeErrorKind: StructuredEvidence["nativeErrorKind"] = "none";
   let sessionStart = false;
   let hookOutput = false;
@@ -493,12 +495,14 @@ function structuredEvidence(output: string): StructuredEvidence {
   let workspaceSkill = false;
   let zcodePre = false;
   let zcodePost = false;
+  const claudeToolRequests = new Set<"Grep" | "Glob" | "Bash">();
+  let managedClaudePreToolResponses = 0;
   let ordinal = 0;
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) { for (const item of value) visit(item); return; }
     if (!isRecord(value)) return;
     ordinal += 1;
-    const eventName = [value.hook_event_name, value.hookEventName, value.event, value.type]
+    const eventName = [value.hook_event, value.hookEvent, value.hook_event_name, value.hookEventName, value.event, value.type]
       .find((item): item is string => typeof item === "string") ?? "";
     if (nativeErrorKind === "none" && (/error/iu.test(eventName) || value.error !== undefined)) {
       nativeErrorKind = classifyNativeError(value);
@@ -507,6 +511,16 @@ function structuredEvidence(output: string): StructuredEvidence {
     const texts = textFields(value);
     const hasKCodeRagContext = texts.some((item) => /KCodeRag/u.test(item));
     const hasFeedbackContext = texts.some((item) => /submit_feedback/u.test(item));
+    if (value.type === "tool_use" && (value.name === "Grep" || value.name === "Glob" || value.name === "Bash")) {
+      claudeToolRequests.add(value.name);
+    }
+    const hookName = typeof value.hook_name === "string" && value.hook_name.length <= 4_096
+      ? value.hook_name
+      : "";
+    if (value.subtype === "hook_response" && /PreToolUse/iu.test(eventName) &&
+        /(?:kcoderag-nav|pre-tool-dispatcher|run_hook)/iu.test(hookName)) {
+      managedClaudePreToolResponses += 1;
+    }
     if (/SessionStart/iu.test(eventName) && hasKCodeRagContext) sessionStart = true;
     if (/(?:PreToolUse|PostToolUse|hook)/iu.test(eventName) && hasKCodeRagContext) hookOutput = true;
     if (/PreToolUse/iu.test(eventName) && value.tool_name === "Grep") grepHook = true;
@@ -542,6 +556,11 @@ function structuredEvidence(output: string): StructuredEvidence {
     for (const child of Object.values(value)) visit(child);
   };
   for (const value of parseJsonLines(output)) visit(value);
+  const claudeHooksComplete = claudeToolRequests.size > 0 &&
+    managedClaudePreToolResponses >= claudeToolRequests.size;
+  grepHook ||= claudeHooksComplete && claudeToolRequests.has("Grep");
+  globHook ||= claudeHooksComplete && claudeToolRequests.has("Glob");
+  bashHook ||= claudeHooksComplete && claudeToolRequests.has("Bash");
   return Object.freeze({
     nativeErrorKind,
     sessionStart, hookOutput, grepHook, globHook, bashHook, listIndexes, searchCodeCount, structuredResult,
@@ -572,7 +591,8 @@ function readClosedMarkerRecords(input: NativeDriverInput, directory: "mcp-calls
         if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > 512) continue;
         const value: unknown = JSON.parse(fs.readFileSync(markerPath, "utf8"));
         const supportedSchema = directory === "mcp-calls"
-          ? value !== null && isRecord(value) && (value.schemaVersion === 1 || value.schemaVersion === 2)
+          ? value !== null && isRecord(value) &&
+            (value.schemaVersion === 1 || value.schemaVersion === 2 || value.schemaVersion === 3)
           : value !== null && isRecord(value) && value.schemaVersion === 1;
         if (supportedSchema && isRecord(value) && value.host === input.host) records.push(value);
       }
@@ -592,7 +612,7 @@ function withNativeMarkers(input: NativeDriverInput, evidence: StructuredEvidenc
   const feedbackSubmitted = kinds.includes("feedback-submitted");
   const mcpCallback = mcpRecords.length > 0;
   const markerTools = mcpRecords
-    .filter((record) => record.schemaVersion === 2)
+    .filter((record) => record.schemaVersion === 2 || record.schemaVersion === 3)
     .map((record) => record.toolName)
     .filter((toolName): toolName is string => ["list_indexes", "search_code", "submit_feedback"].includes(toolName as string));
   return Object.freeze({
@@ -607,6 +627,8 @@ function withNativeMarkers(input: NativeDriverInput, evidence: StructuredEvidenc
     zcodePost: evidence.zcodePost || (input.host === "zcode" && mcpCallback),
     listIndexes: evidence.listIndexes || markerTools.includes("list_indexes"),
     searchCodeCount: Math.max(evidence.searchCodeCount, markerTools.filter((toolName) => toolName === "search_code").length),
+    structuredResult: evidence.structuredResult || mcpRecords.some((record) =>
+      record.schemaVersion === 3 && record.toolName === "search_code" && record.structuredResultValid === true),
     submitFeedback: evidence.submitFeedback || feedbackSubmitted || markerTools.includes("submit_feedback"),
   });
 }
@@ -700,7 +722,7 @@ async function nativeMcpRegistered(
   }
 }
 
-function failureFromObservations(observations: AcceptanceObservations): {
+function failureFromObservations(observations: AcceptanceObservations, native: StructuredEvidence): {
   readonly stage: ReceiptStage;
   readonly reasonCode: FailureReasonCode;
 } | undefined {
@@ -722,7 +744,21 @@ function failureFromObservations(observations: AcceptanceObservations): {
     ["successMarkerRecorded", "native_event", "native_event_missing"],
     ["uninstallRestored", "install", "uninstall_failed"],
   ];
-  for (const [key, stage, reasonCode] of ordered) if (!common[key]) return { stage, reasonCode };
+  const nativeMcpReason: Readonly<Partial<Record<StructuredEvidence["nativeErrorKind"], FailureReasonCode>>> = {
+    auth: "mcp_auth_failed",
+    permission: "mcp_permission_denied",
+    timeout: "mcp_timeout",
+    connect: "mcp_connection_failed",
+    protocol: "mcp_protocol_failed",
+    tool_unavailable: "mcp_tool_unavailable",
+    init: "mcp_initialization_failed",
+    mcp: "mcp_native_failed",
+  };
+  for (const [key, stage, reasonCode] of ordered) {
+    if (common[key]) continue;
+    const classified = stage === "mcp" ? nativeMcpReason[native.nativeErrorKind] : undefined;
+    return { stage, reasonCode: classified ?? reasonCode };
+  }
   if (Object.values(observations.host).some((value) => !value)) {
     return { stage: "native_event", reasonCode: "native_event_missing" };
   }
@@ -736,7 +772,7 @@ export async function runNativeHost(
   const input = safeInput(rawInput);
   if (input === undefined) return failureOutcome("evidence_integrity", "receipt_invalid", "codex");
   const common = { ...emptyCommonObservations() } as Record<CommonObservationKey, boolean>;
-  let native = structuredEvidence("");
+  let native = parseNativeEvidence("");
   let mcpRegistered = false;
   let installed = false;
   let executable: string | undefined;
@@ -784,7 +820,7 @@ export async function runNativeHost(
         pidRoot: input.cache,
       });
       nativeRan = result.code === 0;
-      native = withNativeMarkers(input, structuredEvidence(result.stdout));
+      native = withNativeMarkers(input, parseNativeEvidence(result.stdout));
     }
     common.nativeHostProcess = nativeRan;
     common.sessionBaselineObserved = input.host === "cursor"
@@ -831,7 +867,7 @@ function outcome(
     host: Object.freeze(Object.fromEntries(HOST_OBSERVATION_KEYS[host].map((key) => [key,
       hostObservations(host, native, nativeRan, mcpRegistered)[key] === true]))),
   });
-  const failure = failureFromObservations(observations);
+  const failure = failureFromObservations(observations, native);
   return Object.freeze({
     status: failure === undefined ? "PASS" : "FAIL",
     stage: failure?.stage ?? "evidence_integrity",

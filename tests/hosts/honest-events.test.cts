@@ -18,7 +18,7 @@ interface PluginModule {
   KCodeRagNav(context: {
     readonly client: { readonly tui: { showToast(input: unknown): Promise<boolean> } };
     readonly directory: string;
-  }): Promise<Record<string, (input: unknown) => Promise<void>>>;
+  }): Promise<Record<string, (input: unknown, output?: unknown) => Promise<void>>>;
 }
 
 interface CallbackFixture {
@@ -167,15 +167,16 @@ test("OpenCode after callback forwards only closed outcome facts and fails open"
     await after({
       tool: "kcoderag-qa_search_code",
       sessionID: "open-session",
-      status: "completed",
+      callID: "call-a",
       args: { authorization: SECRET },
-      result: { source: SECRET },
-    });
+    }, { status: "completed", structuredContent: { source: SECRET } });
     await new Promise<void>((resolve) => setImmediate(resolve));
     const expectedFact = {
       conversation_id: "open-session",
+      generation_id: "call-a",
       tool: "kcoderag-qa_search_code",
       success: true,
+      structuredResultValid: true,
     };
     assert.deepEqual(callbackFixture().calls, [
       ["marker", expectedFact, { host: "opencode", cwd: root }],
@@ -191,9 +192,8 @@ test("OpenCode after callback forwards only closed outcome facts and fails open"
     await assert.doesNotReject(after({
       tool: "kcoderag-qa_search_code",
       sessionID: "open-session",
-      status: "failed",
-      error: SECRET,
-    }));
+      callID: "call-b",
+    }, { status: "failed", error: SECRET }));
     assert.equal(JSON.stringify(callbackFixture().calls).includes(SECRET), false);
   } finally {
     delete (globalThis as unknown as { __kcoderagHonestEvents?: CallbackFixture }).__kcoderagHonestEvents;
