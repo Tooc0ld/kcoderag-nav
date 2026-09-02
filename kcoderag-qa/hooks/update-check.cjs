@@ -6,6 +6,7 @@ exports.CACHE_SCHEMA_VERSION = exports.MAX_SESSION_MARKERS = exports.RENEWAL_TOK
 exports.readInstalledVersion = readInstalledVersion;
 exports.readInstalledHost = readInstalledHost;
 exports.isSimpleVersion = isSimpleVersion;
+exports.readVersionStatus = readVersionStatus;
 exports.readUpdateHint = readUpdateHint;
 exports.scheduleRefresh = scheduleRefresh;
 const childProcess = require("node:child_process");
@@ -178,6 +179,12 @@ function isNewerVersion(installed, latest) {
     }
     return false;
 }
+function sameVersion(left, right) {
+    const leftParts = versionParts(left);
+    const rightParts = versionParts(right);
+    return leftParts !== undefined && rightParts !== undefined &&
+        leftParts.every((part, index) => part === rightParts[index]);
+}
 function readCache(files, cacheRoot) {
     const raw = files.readText(path.join(cacheRoot, "remote-cache.json"));
     if (raw === undefined || raw.length > MAX_CACHE_CHARS)
@@ -195,6 +202,41 @@ function readCache(files, cacheRoot) {
 }
 function isFresh(cache, now) {
     return cache !== undefined && now >= cache.checkedAt && now - cache.checkedAt < exports.CACHE_TTL_MS;
+}
+/** Read a fresh, validated local cache without performing foreground network I/O. */
+function readVersionStatus(installedVersion, options = {}) {
+    const installed = isSimpleVersion(installedVersion) ? installedVersion : null;
+    const unknown = (latest = undefined) => Object.freeze({
+        installedVersion: installed,
+        latestVersion: latest?.latest ?? null,
+        versionStatus: "unknown",
+        checkedAt: latest?.checkedAt ?? null,
+    });
+    try {
+        if (process.env.KCODERAG_NAV_UPDATE_CHECK === "0")
+            return unknown();
+        const now = validNow(options.now);
+        if (now === undefined)
+            return unknown();
+        const files = options.files ?? nodeFiles;
+        const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
+        const latest = readCache(files, cacheRoot);
+        if (!isFresh(latest, now) || installed === null)
+            return unknown();
+        return Object.freeze({
+            installedVersion: installed,
+            latestVersion: latest.latest,
+            versionStatus: isNewerVersion(installed, latest.latest)
+                ? "update_available"
+                : sameVersion(installed, latest.latest)
+                    ? "up_to_date"
+                    : "unknown",
+            checkedAt: latest.checkedAt,
+        });
+    }
+    catch {
+        return unknown();
+    }
 }
 function relevantPayload(value) {
     if (!isRecord(value))
@@ -347,24 +389,20 @@ function claimSession(files, cacheRoot, hookPayload, now) {
 }
 function readUpdateHint(installedVersion, options = {}) {
     try {
-        if (process.env.KCODERAG_NAV_UPDATE_CHECK === "0" || !isSimpleVersion(installedVersion))
+        const version = readVersionStatus(installedVersion, options);
+        if (version.versionStatus !== "update_available" || version.latestVersion === null)
             return undefined;
         const now = validNow(options.now);
         if (now === undefined)
             return undefined;
         const files = options.files ?? nodeFiles;
         const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
-        const latest = readCache(files, cacheRoot);
-        if (!isFresh(latest, now))
-            return undefined;
         if (options.hookPayload !== undefined) {
             if (!relevantPayload(options.hookPayload) || !claimSession(files, cacheRoot, options.hookPayload, now)) {
                 return undefined;
             }
         }
-        if (!isNewerVersion(installedVersion, latest.latest))
-            return undefined;
-        return `KCodeRag Nav update available: ${installedVersion} -> ${latest.latest}. ` +
+        return `KCodeRag Nav update available: ${installedVersion} -> ${version.latestVersion}. ` +
             `Ask the user first; do not update automatically. Run: ${updateCommand(options.host)}`;
     }
     catch {

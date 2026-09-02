@@ -61,11 +61,12 @@ function runPublicCli(
   target: string,
   homeDirectory: string,
   args: readonly string[],
+  json = true,
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
   const versionPreload = supportedClaudeVersionPreload(homeDirectory);
   const result = childProcess.spawnSync(
     process.execPath,
-    [PUBLIC_CLI, ...args, "--target", target, "--yes", "--json"],
+    [PUBLIC_CLI, ...args, "--target", target, "--yes", ...(json ? ["--json"] : [])],
     {
       cwd: target,
       encoding: "utf8",
@@ -74,6 +75,9 @@ function runPublicCli(
         HOME: homeDirectory,
         USERPROFILE: homeDirectory,
         XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+        XDG_CACHE_HOME: path.join(homeDirectory, ".cache"),
+        LOCALAPPDATA: path.join(homeDirectory, "AppData", "Local"),
+        KCODERAG_NAV_UPDATE_CHECK: "1",
         NODE_OPTIONS: `--require=${JSON.stringify(versionPreload)}`,
       },
       timeout: 20_000,
@@ -81,6 +85,22 @@ function runPublicCli(
     },
   );
   return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+}
+
+function updateCacheRoot(homeDirectory: string): string {
+  return process.platform === "win32"
+    ? path.join(homeDirectory, "AppData", "Local", "kcoderag-nav")
+    : path.join(homeDirectory, ".cache", "kcoderag-nav");
+}
+
+function seedUpdateCache(homeDirectory: string, latest: string, checkedAt = Date.now()): void {
+  const root = updateCacheRoot(homeDirectory);
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, "remote-cache.json"), JSON.stringify({
+    schemaVersion: 1,
+    checkedAt,
+    latest,
+  }), "utf8");
 }
 
 function copyPackageFixture(root: string): string {
@@ -1195,9 +1215,11 @@ test("status and doctor report every built-in capability without writing", () =>
   const homeDirectory = path.join(item.root, "home");
   fs.mkdirSync(homeDirectory);
   try {
-    assert.equal(runPublicCli(item.target, homeDirectory, [
+    const installed = runPublicCli(item.target, homeDirectory, [
       "install", "--host", "claude", "--capability", NAVIGATION,
-    ]).status, 0);
+    ]);
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const installedVersion = parseOnlyJson(installed.stdout).version;
     const before = projectSnapshot(item.target);
     for (const command of ["status", "doctor"] as const) {
       const result = runPublicCli(item.target, homeDirectory, [command, "--host", "claude"]);
@@ -1207,8 +1229,60 @@ test("status and doctor report every built-in capability without writing", () =>
         { id: NAVIGATION, installed: true, status: "healthy" },
         { id: CODE_STYLE, installed: false, status: "not_installed" },
       ]);
+      assert.equal(output.installedVersion, installedVersion);
+      assert.equal(output.latestVersion, null);
+      assert.equal(output.versionStatus, "unknown");
+      assert.equal(output.versionCheckedAt, null);
       assert.deepEqual(projectSnapshot(item.target), before);
     }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("status and doctor expose cached latest-version state without writing", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    const installed = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION,
+    ]);
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const installedVersion = parseOnlyJson(installed.stdout).version as string;
+    const parts = installedVersion.split(".").map(Number);
+    const latestVersion = `${parts[0]}.${parts[1]}.${(parts[2] ?? 0) + 1}`;
+    const checkedAt = Date.now() - 1_000;
+    seedUpdateCache(homeDirectory, latestVersion, checkedAt);
+    const before = projectSnapshot(item.target);
+
+    const status = runPublicCli(item.target, homeDirectory, ["status", "--host", "claude"]);
+    assert.equal(status.status, 0, status.stderr || status.stdout);
+    const output = parseOnlyJson(status.stdout);
+    assert.equal(output.ok, true);
+    assert.equal(output.status, "update_available");
+    assert.equal(output.installedVersion, installedVersion);
+    assert.equal(output.latestVersion, latestVersion);
+    assert.equal(output.versionStatus, "update_available");
+    assert.equal(output.versionCheckedAt, checkedAt);
+    assert.deepEqual(output.capabilities, [
+      { id: NAVIGATION, installed: true, status: "healthy" },
+      { id: CODE_STYLE, installed: false, status: "not_installed" },
+    ]);
+
+    const doctor = runPublicCli(
+      item.target,
+      homeDirectory,
+      ["doctor", "--host", "claude"],
+      false,
+    );
+    assert.equal(doctor.status, 0, doctor.stderr || doctor.stdout);
+    assert.match(doctor.stdout, /^doctor: update_available claude at /u);
+    assert.match(doctor.stdout, new RegExp(`^installed_version: ${installedVersion}$`, "mu"));
+    assert.match(doctor.stdout, new RegExp(`^latest_version: ${latestVersion}$`, "mu"));
+    assert.match(doctor.stdout, /^version_status: update_available$/mu);
+    assert.match(doctor.stdout, /^version_checked_at: \d{4}-\d{2}-\d{2}T/mu);
+    assert.deepEqual(projectSnapshot(item.target), before);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
