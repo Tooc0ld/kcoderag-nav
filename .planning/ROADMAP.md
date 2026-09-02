@@ -23,6 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 04.1: 多能力安装平台与代码规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
 - [x] **Phase 04.2: 公开版本去品牌化** - 从 `0.3.0` 起以中性名称发布代码规范能力，并以源码与 npm 制品零命中门禁防止品牌词回归。 (completed 2026-08-30)
 - [ ] **Phase 5: 统一 Hook 策略与真实宿主验证** - 统一低打扰提示与节流策略，并以五宿主原生事件证明 exact package 的真实行为。
+- [x] **Phase 6: 四 Skill 公共接口与宿主交付模式** - 为五宿主交付四个稳定公开 Skill，并分离报告手动 Skill 与证据门禁的自动提示。 (completed 2026-09-03)
 
 ## Phase Details
 
@@ -447,26 +448,10 @@ Plans:
 
 - [x] `05-01-PLAN.md` — 以 Codex exact-tgz SessionStart tracer 建立统一事件、governor、精度、索引门禁与 feedback 状态机
 - [x] `05-02-PLAN.md` — 将共享策略诚实投影到 Claude、Cursor、OpenCode 与 ZCode 的真实原生表面
-- [ ] `05-03-PLAN.md` — 从 canonical source 确定性生成 QA runtime/config/guidance family
-- [ ] `05-04-PLAN.md` — 关闭 PASS/FAIL/NOT_RUN receipt、五宿主 coordinator 与 independently passing actual tgz
-- [ ] `05-05-PLAN.md` — 建立受保护 exact-artifact workflow 并在 dispatch 前封存 immutable candidate
+- [x] `05-03-PLAN.md` — 从 canonical source 确定性生成 QA runtime/config/guidance family
+- [x] `05-04-PLAN.md` — 关闭 PASS/FAIL/NOT_RUN receipt、五宿主 coordinator 与 independently passing actual tgz
+- [x] `05-05-PLAN.md` — 建立受保护 exact-artifact workflow 并在 dispatch 前封存 immutable candidate
 - [ ] `05-06-PLAN.md` — 消费已授权 exact candidate run，仅提交五宿主 authenticated LIVE evidence 与宿主诚实指南
-
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 → 5
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. QA 优先的可重复插件包 | 1/1 | Complete    | 2026-08-23 |
-| 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
-| 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
-| 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
-| 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
-| 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
-| 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
-| 5. 统一 Hook 策略与真实宿主验证 | 5/6 | In Progress|  |
 
 ### Phase 6: 四 Skill 公共接口与宿主交付模式
 
@@ -489,3 +474,20 @@ Plans:
 - [x] 06-01-PLAN.md — 采用既有 RED 与 staged GREEN，在首次实现提交前一次性收敛 canonical、generated、五宿主、文档、审计、pack 与 smoke，并通过真实 pre-commit
 
 **Dependency notes:** 旧 13-plan 集合已由 `06-SUPERSEDED.md` 明确取代并从可执行 PLAN 扫描中移除。仓库 pre-commit 对任一 managed staged path 都检查完整 canonical/generated 集合并运行全局门禁，因此中间实现提交无法在不绕过 Hook 的情况下成立；`06-01-PLAN.md` 保留 `c821975` RED 提交并以一个正常 Hook 验证的 GREEN 提交闭合全部 D-01–D-13。
+
+## Progress
+
+**Execution Order:**
+计划顺序为 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 → 5 → 6；经用户在 2026-09-03 明确授权，Phase 6 已先于 Phase 5 的 LIVE 收口执行完成，Phase 5 仍保持独立未完成。
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. QA 优先的可重复插件包 | 1/1 | Complete    | 2026-08-23 |
+| 2. 受管项目安装与环境生命周期 | 1/1 | Complete    | 2026-08-23 |
+| 3. 可预测的单环境图导航 | 1/1 | Complete    | 2026-08-23 |
+| 03.1. JavaScript 与 npx 安装运行时迁移 | 31/31 | Complete    | 2026-08-24 |
+| 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
+| 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
+| 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
+| 5. 统一 Hook 策略与真实宿主验证 | 5/6 | In Progress |  |
+| 6. 四 Skill 公共接口与宿主交付模式 | 1/1 | Complete | 2026-09-03 |
