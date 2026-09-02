@@ -55,8 +55,11 @@ No accepted risks.
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-09-03 | 8 | 8 | 0 | GSD security auditor |
+| 2026-09-03 | 8 | 8 | 0 | GSD post-review verification |
 
 Fresh evidence included generator drift check with zero changes, 29/29 Skill/support/hook/pre-commit tests, 57/57 CLI/state/transaction/host/source-safety tests, and 38/38 pack/acquired-package smoke tests. The three retired compiled outputs remain absent.
+
+Post-review verification binds the ownership fix `271b26e`, the five-host public Skill source-gate fix `68a948f`, and the deferred-evidence documentation fix `9087c00`. Auto re-review is clean across 89 files; the bounded regression gate and final `ci:local` each pass 527/527 tests, generation remains drift-free, pack passes 19/19, and the final five-host packaged smoke receipt is PASS.
 
 ---
 
