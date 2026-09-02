@@ -20,6 +20,7 @@ import {
   liveEnvironment,
   projectCodexLiveConfig,
   projectLiveCredential,
+  safeEnvironment,
 } from "../smoke/host-smoke.cjs";
 
 export const DRIVER_HOSTS = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
@@ -31,12 +32,15 @@ const PID_FILE = "native-processes.json";
 const ZCODE_FROZEN_VERSION = "3.10.1";
 const EXACT_VERSION_RE = /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/u;
 const SECRET_SHAPED_RE = /(?:https?:\/\/|bearer\s|authorization\s*[:=]|token\s*[:=]|credential\s*[:=]|secret\s*[:=])/iu;
-const NATIVE_PROMPT = [
-  "Use only the installed kcoderag MCP tools for this acceptance sequence.",
+const MCP_SEQUENCE_PROMPT = [
+  "For the MCP portion, use only the installed kcoderag MCP tools.",
   "Call list_indexes once, then call search_code for the fixed acceptance canary identifier.",
   "After the native feedback reminder, call submit_feedback once with an acceptance-only rating, then call search_code once more.",
-  "Do not inspect project files, run a shell, quote source, connection data, tool arguments, or tool results.",
+  "Outside any fixed canary actions stated earlier, do not inspect project files or run a shell.",
+  "Never quote source, connection data, tool arguments, or tool results.",
 ].join(" ");
+const NATIVE_CANARY_NAME = "kcoderag-native-canary.txt";
+const NATIVE_CANARY_TEXT = "KCODERAG_NATIVE_ACCEPTANCE_CANARY";
 
 type DriverAction = "probe" | "run" | "cleanup";
 
@@ -65,6 +69,17 @@ export interface NativeDriverDependencies {
 }
 
 interface StructuredEvidence {
+  readonly nativeErrorKind:
+    | "none"
+    | "mcp"
+    | "init"
+    | "connect"
+    | "timeout"
+    | "auth"
+    | "permission"
+    | "protocol"
+    | "tool_unavailable"
+    | "other";
   readonly sessionStart: boolean;
   readonly hookOutput: boolean;
   readonly grepHook: boolean;
@@ -137,7 +152,7 @@ export function discoverHostExecutable(
   const names = host === "claude"
     ? ["kscc"]
     : host === "cursor"
-      ? ["cursor-agent", "cursor"]
+      ? ["cursor-agent", "agent", "cursor"]
       : host === "zcode"
         ? ["zcode-agent", "zcode"]
         : [host];
@@ -188,7 +203,12 @@ function safeInput(input: Readonly<Record<string, string>>): NativeDriverInput |
   });
 }
 
-function hostVersion(input: NativeDriverInput, executable: string, dependencies: NativeDriverDependencies): Promise<string | undefined> {
+function hostVersion(
+  input: NativeDriverInput,
+  executable: string,
+  environment: NodeJS.ProcessEnv,
+  dependencies: NativeDriverDependencies,
+): Promise<string | undefined> {
   const fromEnvironment = process.env[hostVersionEnvironmentName(input.host)];
   if (input.host === "zcode") {
     const desktopVersion = fromEnvironment === undefined ? undefined : versionFromOutput(fromEnvironment);
@@ -197,7 +217,7 @@ function hostVersion(input: NativeDriverInput, executable: string, dependencies:
     }
     return dependencies.runCommand(process.execPath, [executable, "--version"], {
       cwd: input.project,
-      env: process.env,
+      env: environment,
       timeoutMs: 15_000,
       pidRoot: input.cache,
     }).then((result) => result.code === 0 && versionFromOutput(result.stdout) === "0.16.5"
@@ -210,7 +230,7 @@ function hostVersion(input: NativeDriverInput, executable: string, dependencies:
   }
   return dependencies.runCommand(executable, ["--version"], {
     cwd: input.project,
-    env: process.env,
+    env: environment,
     timeoutMs: 15_000,
     pidRoot: input.cache,
   }).then((result) => result.code === 0 ? versionFromOutput(result.stdout) : undefined);
@@ -222,6 +242,11 @@ export async function probeNativeHost(
 ): Promise<Readonly<Record<string, unknown>>> {
   const input = safeInput(rawInput);
   if (input === undefined) return Object.freeze({ admitted: false, stage: "environment", reasonCode: "runner_unavailable" });
+  fs.mkdirSync(input.project, { recursive: true });
+  fs.mkdirSync(input.cache, { recursive: true });
+  fs.mkdirSync(input.npmCache, { recursive: true });
+  projectLiveCredential(input.host, input.cache);
+  const environment = isolatedEnvironment(input);
   const exists = dependencies.pathExists ?? safeRegularFile;
   const executable = discoverHostExecutable(input.host, process.env, dependencies.resolveCommand, exists);
   if (executable === undefined) {
@@ -230,27 +255,37 @@ export async function probeNativeHost(
   if (input.host === "zcode" && !workspaceTrustApproved()) {
     return Object.freeze({ admitted: false, stage: "admission", reasonCode: "workspace_trust_missing" });
   }
-  if ((input.host === "cursor" && !path.basename(executable).toLowerCase().includes("cursor-agent"))
+  const cursorName = path.basename(executable).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/u, "");
+  if ((input.host === "cursor" && cursorName !== "cursor-agent" && cursorName !== "agent")
     || (input.host === "zcode" && path.extname(executable).toLowerCase() !== ".cjs")) {
     return Object.freeze({ admitted: false, stage: "environment", reasonCode: "host_cli_missing" });
   }
-  const version = await hostVersion(input, executable, dependencies);
+  if (input.host === "cursor") {
+    const help = await dependencies.runCommand(executable, ["--help"], {
+      cwd: input.project,
+      env: environment,
+      timeoutMs: 15_000,
+      pidRoot: input.cache,
+    });
+    if (help.code !== 0 || !/--output-format/u.test(help.stdout) || !/(?:\bmcp\b|cursor)/iu.test(help.stdout)) {
+      return Object.freeze({ admitted: false, stage: "environment", reasonCode: "host_cli_missing" });
+    }
+  }
+  const version = await hostVersion(input, executable, environment, dependencies);
   if (version === undefined || (input.host === "zcode" && version !== ZCODE_FROZEN_VERSION)) {
     return Object.freeze({ admitted: false, stage: "admission", reasonCode: "host_version_unsupported" });
   }
-  if (input.host === "zcode") {
-    const admission = await dependencies.runCommand(process.execPath, [
-      executable, "--prompt", "Reply only with ready.", "--cwd", input.project,
-      "--json", "--max-turns", "1", "--allowed-tools", "",
-    ], {
+  const admission = await dependencies.runCommand(...authenticationSpec(input, executable), {
       cwd: input.project,
-      env: process.env,
+      env: environment,
       timeoutMs: 60_000,
       pidRoot: input.cache,
-    });
-    if (admission.code !== 0 && (admission.authMissing === true || /(?:auth|login)/iu.test(admission.stdout))) {
+  });
+  if (admission.code !== 0) {
+    if (admission.authMissing === true || /(?:auth|login)/iu.test(admission.stdout)) {
       return Object.freeze({ admitted: false, stage: "admission", reasonCode: "host_auth_missing" });
     }
+    return Object.freeze({ admitted: false, stage: "admission", reasonCode: "protected_environment_denied" });
   }
   return Object.freeze({ admitted: true });
 }
@@ -268,6 +303,28 @@ function isolatedEnvironment(input: NativeDriverInput): NodeJS.ProcessEnv {
   environment.npm_config_cache = input.npmCache;
   environment.KCODERAG_NAV_UPDATE_CHECK = "0";
   return environment;
+}
+
+function lifecycleEnvironment(input: NativeDriverInput): NodeJS.ProcessEnv {
+  const environment = safeEnvironment(input.cache, false, input.npmCache);
+  environment.npm_config_cache = input.npmCache;
+  environment.KCODERAG_NAV_UPDATE_CHECK = "0";
+  return environment;
+}
+
+function authenticationSpec(input: NativeDriverInput, executable: string): [string, readonly string[]] {
+  const prompt = "Reply only with ready. Do not call tools.";
+  if (input.host === "codex") return [executable, [
+    "exec", "--ephemeral", "--approve-for-me", "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
+  ]];
+  if (input.host === "claude") return [executable, [
+    "-p", prompt, "--no-session-persistence", "--output-format", "stream-json", "--verbose",
+  ]];
+  if (input.host === "opencode") return [executable, ["run", "--format", "json", "--dir", input.project, "--auto", prompt]];
+  if (input.host === "cursor") return [executable, ["--print", "--output-format", "stream-json", prompt]];
+  return [process.execPath, [
+    executable, "--prompt", prompt, "--cwd", input.project, "--json", "--max-turns", "1", "--allowed-tools", "",
+  ]];
 }
 
 function parseCliResult(result: NativeCommandResult): Record<string, unknown> | undefined {
@@ -296,7 +353,7 @@ async function lifecycle(
   if (command !== "status") args.push("--yes");
   return parseCliResult(await dependencies.runCommand(process.execPath, args, {
     cwd: input.project,
-    env: isolatedEnvironment(input),
+    env: lifecycleEnvironment(input),
     timeoutMs: COMMAND_TIMEOUT_MS,
     pidRoot: input.cache,
   }));
@@ -304,14 +361,24 @@ async function lifecycle(
 
 function nativeSpec(input: NativeDriverInput, executable: string): NativeSpec | undefined {
   if (input.host === "codex") {
+    const prompt = [
+      `First run a matched read-only search for ${NATIVE_CANARY_TEXT} in ${NATIVE_CANARY_NAME}.`,
+      MCP_SEQUENCE_PROMPT,
+    ].join(" ");
     return Object.freeze({ executable, args: Object.freeze([
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
-      "--approve-for-me", "--skip-git-repo-check", "--json", "--cd", input.project, NATIVE_PROMPT,
+      "--approve-for-me", "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
     ]) });
   }
   if (input.host === "claude") {
+    const prompt = [
+      `Use Glob once to locate ${NATIVE_CANARY_NAME}.`,
+      `Use Grep once to find ${NATIVE_CANARY_TEXT} in that file.`,
+      "Use Bash once only for the fixed read-only command: node --version.",
+      MCP_SEQUENCE_PROMPT,
+    ].join(" ");
     return Object.freeze({ executable, args: Object.freeze([
-      "-p", NATIVE_PROMPT, "--mcp-config", path.join(input.project, ".mcp.json"), "--strict-mcp-config",
+      "-p", prompt, "--mcp-config", path.join(input.project, ".mcp.json"), "--strict-mcp-config",
       "--allowedTools", [
         "Grep", "Glob", "Bash",
         "mcp__kcoderag-qa__list_indexes", "mcp__kcoderag-qa__search_code", "mcp__kcoderag-qa__submit_feedback",
@@ -321,17 +388,16 @@ function nativeSpec(input: NativeDriverInput, executable: string): NativeSpec | 
     ]) });
   }
   if (input.host === "opencode") {
-    return Object.freeze({ executable, args: Object.freeze(["run", "--format", "json", "--dir", input.project, "--auto", NATIVE_PROMPT]) });
+    return Object.freeze({ executable, args: Object.freeze(["run", "--format", "json", "--dir", input.project, "--auto", MCP_SEQUENCE_PROMPT]) });
   }
   if (input.host === "cursor") {
-    const isAgentBinary = path.basename(executable).toLowerCase().includes("cursor-agent");
     return Object.freeze({ executable, args: Object.freeze([
-      ...(isAgentBinary ? [] : ["agent"]), "-p", NATIVE_PROMPT, "--output-format", "stream-json", "--workspace", input.project,
+      "--print", "--output-format", "stream-json", MCP_SEQUENCE_PROMPT,
     ]) });
   }
   if (path.extname(executable).toLowerCase() !== ".cjs") return undefined;
   return Object.freeze({ executable: process.execPath, args: Object.freeze([
-    executable, "--prompt", NATIVE_PROMPT, "--cwd", input.project, "--json", "--max-turns", "8",
+    executable, "--prompt", MCP_SEQUENCE_PROMPT, "--cwd", input.project, "--json", "--max-turns", "8",
     "--allowed-tools", "list_indexes,search_code,submit_feedback",
   ]) });
 }
@@ -367,10 +433,44 @@ function reliableSuccess(value: Record<string, unknown>): boolean {
   if (value.success === true || value.isError === false || value.status === "completed" || value.status === "success") return true;
   if (isRecord(value.result) && value.result.error === undefined
     && (value.result.isError === false || value.result.success === true)) return true;
+  if (isRecord(value.state) && value.state.error === undefined &&
+      (value.state.status === "completed" || value.state.status === "success" || value.state.status === "succeeded")) return true;
   return false;
 }
 
+function structuredResultEvidence(value: Record<string, unknown>): boolean {
+  if (isRecord(value.structuredContent) || isRecord(value.structured_content)) return true;
+  if (isRecord(value.result) &&
+      (isRecord(value.result.structuredContent) || isRecord(value.result.structured_content))) return true;
+  if (!isRecord(value.state) || typeof value.state.output !== "string" ||
+      Buffer.byteLength(value.state.output, "utf8") > MAX_NATIVE_OUTPUT_BYTES) return false;
+  try {
+    const parsed: unknown = JSON.parse(value.state.output);
+    return isRecord(parsed) && (isRecord(parsed.structuredContent) || isRecord(parsed.structured_content));
+  } catch {
+    return false;
+  }
+}
+
+export function classifyNativeError(value: Record<string, unknown>): StructuredEvidence["nativeErrorKind"] {
+  const material = [value.code, value.kind, value.type, value.status, value.error, value.message]
+    .filter((item): item is string => typeof item === "string" && item.length <= 4_096)
+    .join(" ");
+  if (/(?:auth|login|unauthorized)/iu.test(material)) return "auth";
+  if (/(?:timeout|timed_out)/iu.test(material)) return "timeout";
+  if (/(?:connect|network|econn|enotfound)/iu.test(material)) return "connect";
+  if (/(?:permission|forbidden|approval|denied)/iu.test(material)) return "permission";
+  if (/(?:handshake|protocol|negotiat)/iu.test(material)) return "protocol";
+  if (/(?:tool[ _-]?(?:unavailable|disabled|missing|not[ _-]?found)|unknown[ _-]?tool)/iu.test(material)) {
+    return "tool_unavailable";
+  }
+  if (/\bmcp\b/iu.test(material)) return "mcp";
+  if (/(?:init|startup)/iu.test(material)) return "init";
+  return "other";
+}
+
 function structuredEvidence(output: string): StructuredEvidence {
+  let nativeErrorKind: StructuredEvidence["nativeErrorKind"] = "none";
   let sessionStart = false;
   let hookOutput = false;
   let grepHook = false;
@@ -400,6 +500,9 @@ function structuredEvidence(output: string): StructuredEvidence {
     ordinal += 1;
     const eventName = [value.hook_event_name, value.hookEventName, value.event, value.type]
       .find((item): item is string => typeof item === "string") ?? "";
+    if (nativeErrorKind === "none" && (/error/iu.test(eventName) || value.error !== undefined)) {
+      nativeErrorKind = classifyNativeError(value);
+    }
     const toolName = logicalToolName(value);
     const texts = textFields(value);
     const hasKCodeRagContext = texts.some((item) => /KCodeRag/u.test(item));
@@ -425,9 +528,7 @@ function structuredEvidence(output: string): StructuredEvidence {
       if (toolName === "search_code") {
         searchCodeCount += 1;
         lastSearchOrdinal = ordinal;
-        structuredResult ||= isRecord(value.structuredContent) || isRecord(value.structured_content)
-          || (isRecord(value.result)
-            && (isRecord(value.result.structuredContent) || isRecord(value.result.structured_content)));
+        structuredResult ||= structuredResultEvidence(value);
       }
       if (toolName === "submit_feedback") {
         submitFeedback = true;
@@ -442,6 +543,7 @@ function structuredEvidence(output: string): StructuredEvidence {
   };
   for (const value of parseJsonLines(output)) visit(value);
   return Object.freeze({
+    nativeErrorKind,
     sessionStart, hookOutput, grepHook, globHook, bashHook, listIndexes, searchCodeCount, structuredResult,
     feedbackReminder, submitFeedback,
     feedbackSuppressed: submitFeedback && lastSearchOrdinal > lastSubmitOrdinal && !reminderAfterSubmit,
@@ -450,19 +552,67 @@ function structuredEvidence(output: string): StructuredEvidence {
   });
 }
 
-function markerRecorded(input: NativeDriverInput): boolean {
-  const roots = [
-    path.join(input.cache, "local-app-data", "kcoderag-nav", "mcp-calls"),
-    path.join(input.cache, "xdg-cache", "kcoderag-nav", "mcp-calls"),
-    path.join(input.cache, "kcoderag-nav", "mcp-calls"),
-  ];
-  return roots.some((root) => {
+function nativeCacheRoots(input: NativeDriverInput): readonly string[] {
+  return Object.freeze([
+    path.join(input.cache, "local-app-data", "kcoderag-nav"),
+    path.join(input.cache, "xdg-cache", "kcoderag-nav"),
+    path.join(input.cache, "kcoderag-nav"),
+  ]);
+}
+
+function readClosedMarkerRecords(input: NativeDriverInput, directory: "mcp-calls" | "nudges"): readonly Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  for (const cacheRoot of nativeCacheRoots(input)) {
+    const markerRoot = path.join(cacheRoot, directory);
     try {
-      return fs.readdirSync(root).some((name) => /^[a-f0-9]{64}\.json$/u.test(name) && safeRegularFile(path.join(root, name)));
-    } catch {
-      return false;
-    }
+      for (const name of fs.readdirSync(markerRoot).slice(0, 256)) {
+        if (directory === "mcp-calls" ? !/^[a-f0-9]{64}\.json$/u.test(name) : !/^[a-f0-9]{64}\.claim$/u.test(name)) continue;
+        const markerPath = path.join(markerRoot, name);
+        const metadata = fs.lstatSync(markerPath);
+        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > 512) continue;
+        const value: unknown = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+        const supportedSchema = directory === "mcp-calls"
+          ? value !== null && isRecord(value) && (value.schemaVersion === 1 || value.schemaVersion === 2)
+          : value !== null && isRecord(value) && value.schemaVersion === 1;
+        if (supportedSchema && isRecord(value) && value.host === input.host) records.push(value);
+      }
+    } catch { /* Missing or malformed marker stores provide no evidence. */ }
+  }
+  return Object.freeze(records);
+}
+
+function withNativeMarkers(input: NativeDriverInput, evidence: StructuredEvidence): StructuredEvidence {
+  const nudgeRecords = readClosedMarkerRecords(input, "nudges");
+  const mcpRecords = readClosedMarkerRecords(input, "mcp-calls");
+  const kinds = nudgeRecords
+    .map((record) => record.reminderKind)
+    .filter((kind): kind is string => typeof kind === "string");
+  const navigation = kinds.includes("navigation");
+  const feedbackReminder = kinds.includes("feedback-reminded");
+  const feedbackSubmitted = kinds.includes("feedback-submitted");
+  const mcpCallback = mcpRecords.length > 0;
+  const markerTools = mcpRecords
+    .filter((record) => record.schemaVersion === 2)
+    .map((record) => record.toolName)
+    .filter((toolName): toolName is string => ["list_indexes", "search_code", "submit_feedback"].includes(toolName as string));
+  return Object.freeze({
+    ...evidence,
+    sessionStart: evidence.sessionStart || navigation,
+    hookOutput: evidence.hookOutput || navigation,
+    feedbackReminder: evidence.feedbackReminder || feedbackReminder,
+    feedbackSuppressed: evidence.feedbackSuppressed || (feedbackSubmitted && feedbackReminder),
+    cursorAfterMcp: evidence.cursorAfterMcp || (input.host === "cursor" && mcpCallback),
+    pluginLoaded: evidence.pluginLoaded || (input.host === "opencode" && mcpCallback),
+    pluginCallback: evidence.pluginCallback || (input.host === "opencode" && mcpCallback),
+    zcodePost: evidence.zcodePost || (input.host === "zcode" && mcpCallback),
+    listIndexes: evidence.listIndexes || markerTools.includes("list_indexes"),
+    searchCodeCount: Math.max(evidence.searchCodeCount, markerTools.filter((toolName) => toolName === "search_code").length),
+    submitFeedback: evidence.submitFeedback || feedbackSubmitted || markerTools.includes("submit_feedback"),
   });
+}
+
+function markerRecorded(input: NativeDriverInput): boolean {
+  return readClosedMarkerRecords(input, "mcp-calls").length > 0;
 }
 
 async function malformedFailOpen(input: NativeDriverInput, dependencies: NativeDriverDependencies): Promise<boolean> {
@@ -487,9 +637,14 @@ async function malformedFailOpen(input: NativeDriverInput, dependencies: NativeD
   return result.code === 0 && result.stdout.length === 0;
 }
 
-function hostObservations(host: HostId, native: StructuredEvidence, nativeRan: boolean): Readonly<Record<string, boolean>> {
+function hostObservations(
+  host: HostId,
+  native: StructuredEvidence,
+  nativeRan: boolean,
+  mcpRegistered: boolean,
+): Readonly<Record<string, boolean>> {
   if (host === "codex") return Object.freeze({
-    directMcpRegistrationObserved: native.listIndexes,
+    directMcpRegistrationObserved: mcpRegistered,
     nativeSessionStartObserved: native.sessionStart,
     nativeHookOutputObserved: native.hookOutput,
   });
@@ -519,6 +674,30 @@ function hostObservations(host: HostId, native: StructuredEvidence, nativeRan: b
     nativePreToolObserved: native.zcodePre,
     nativePostToolObserved: native.zcodePost,
   });
+}
+
+async function nativeMcpRegistered(
+  input: NativeDriverInput,
+  executable: string,
+  native: StructuredEvidence,
+  dependencies: NativeDriverDependencies,
+): Promise<boolean> {
+  if (markerRecorded(input) || native.listIndexes || native.searchCodeCount > 0 || native.submitFeedback) return true;
+  if (input.host !== "codex") return false;
+  const result = await dependencies.runCommand(executable, ["mcp", "list", "--json"], {
+    cwd: input.project,
+    env: isolatedEnvironment(input),
+    timeoutMs: 30_000,
+    pidRoot: input.cache,
+  });
+  if (result.code !== 0 || Buffer.byteLength(result.stdout, "utf8") > MAX_NATIVE_OUTPUT_BYTES) return false;
+  try {
+    const value: unknown = JSON.parse(result.stdout);
+    return Array.isArray(value) && value.some((item) => isRecord(item) &&
+      (item.name === "kcoderag-qa" || item.id === "kcoderag-qa") && item.enabled === true);
+  } catch {
+    return false;
+  }
 }
 
 function failureFromObservations(observations: AcceptanceObservations): {
@@ -558,6 +737,7 @@ export async function runNativeHost(
   if (input === undefined) return failureOutcome("evidence_integrity", "receipt_invalid", "codex");
   const common = { ...emptyCommonObservations() } as Record<CommonObservationKey, boolean>;
   let native = structuredEvidence("");
+  let mcpRegistered = false;
   let installed = false;
   let executable: string | undefined;
   const finalize = async (nativeRan: boolean): Promise<Readonly<Record<string, unknown>>> => {
@@ -570,12 +750,13 @@ export async function runNativeHost(
       }
       installed = false;
     }
-    return outcome((input as NativeDriverInput).host, common, native, nativeRan, false);
+    return outcome((input as NativeDriverInput).host, common, native, nativeRan, mcpRegistered, false);
   };
   try {
     fs.mkdirSync(input.project, { recursive: true });
     fs.mkdirSync(input.cache, { recursive: true });
     fs.mkdirSync(input.npmCache, { recursive: true });
+    fs.writeFileSync(path.join(input.project, NATIVE_CANARY_NAME), `${NATIVE_CANARY_TEXT}\n`, { flag: "wx", mode: 0o600 });
     if (!safeRegularFile(input.package)) return failureOutcome("package", "package_acquisition_failed", input.host);
     executable = discoverHostExecutable(input.host, process.env, dependencies.resolveCommand, dependencies.pathExists ?? safeRegularFile);
     if (executable === undefined) return failureOutcome("native_event", "native_event_failed", input.host);
@@ -603,7 +784,7 @@ export async function runNativeHost(
         pidRoot: input.cache,
       });
       nativeRan = result.code === 0;
-      native = structuredEvidence(result.stdout);
+      native = withNativeMarkers(input, structuredEvidence(result.stdout));
     }
     common.nativeHostProcess = nativeRan;
     common.sessionBaselineObserved = input.host === "cursor"
@@ -611,13 +792,14 @@ export async function runNativeHost(
       : input.host === "opencode"
         ? native.pluginLoaded
         : native.sessionStart;
-    common.mcpRegistered = native.listIndexes || native.searchCodeCount > 0 || native.submitFeedback;
+    mcpRegistered = await nativeMcpRegistered(input, executable, native, dependencies);
+    common.mcpRegistered = mcpRegistered;
     common.listIndexesSucceeded = native.listIndexes;
     common.searchCodeSucceeded = native.searchCodeCount > 0;
     common.structuredResultValid = native.structuredResult;
     common.feedbackReminderObserved = native.feedbackReminder;
     common.submitFeedbackSucceeded = native.submitFeedback;
-    common.feedbackSuppressed = native.feedbackSuppressed;
+    common.feedbackSuppressed = native.feedbackSuppressed && native.searchCodeCount >= 2;
     common.malformedFailOpen = await malformedFailOpen(input, dependencies);
     common.successMarkerRecorded = markerRecorded(input);
     return await finalize(nativeRan);
@@ -640,13 +822,14 @@ function outcome(
   common: Record<CommonObservationKey, boolean>,
   native: StructuredEvidence,
   nativeRan: boolean,
+  mcpRegistered: boolean,
   processTreeCleaned: boolean,
 ): Readonly<Record<string, unknown>> {
   common.processTreeCleaned = processTreeCleaned;
   const observations: AcceptanceObservations = Object.freeze({
     common: Object.freeze(Object.fromEntries(COMMON_OBSERVATION_KEYS.map((key) => [key, common[key] === true]))) as AcceptanceObservations["common"],
     host: Object.freeze(Object.fromEntries(HOST_OBSERVATION_KEYS[host].map((key) => [key,
-      hostObservations(host, native, nativeRan)[key] === true]))),
+      hostObservations(host, native, nativeRan, mcpRegistered)[key] === true]))),
   });
   const failure = failureFromObservations(observations);
   return Object.freeze({
@@ -670,30 +853,52 @@ function pidFile(cacheRoot: string): string {
   return path.join(cacheRoot, PID_FILE);
 }
 
-function appendOwnedPid(cacheRoot: string, pid: number): void {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return;
-  fs.mkdirSync(cacheRoot, { recursive: true });
-  let current: number[] = [];
-  try {
-    const value: unknown = JSON.parse(fs.readFileSync(pidFile(cacheRoot), "utf8"));
-    if (Array.isArray(value)) current = value.filter((item): item is number => Number.isSafeInteger(item) && item > 0);
-  } catch { /* first process */ }
-  const temporary = `${pidFile(cacheRoot)}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify([...new Set([...current, pid])])}\n`, { flag: "wx", mode: 0o600 });
-  fs.renameSync(temporary, pidFile(cacheRoot));
+interface OwnedProcess {
+  readonly pid: number;
+  readonly startedAt: number;
 }
 
-function ownedPids(cacheRoot: string): readonly number[] {
+function validOwnedProcess(value: unknown): value is OwnedProcess {
+  return isRecord(value) && Object.keys(value).sort().join("\0") === "pid\0startedAt" &&
+    Number.isSafeInteger(value.pid) && (value.pid as number) > 0 &&
+    typeof value.startedAt === "number" && Number.isSafeInteger(value.startedAt) && value.startedAt > 0;
+}
+
+function ownedProcesses(cacheRoot: string): readonly OwnedProcess[] {
   try {
     const value: unknown = JSON.parse(fs.readFileSync(pidFile(cacheRoot), "utf8"));
-    if (!Array.isArray(value) || value.length > 256) return Object.freeze([]);
-    return Object.freeze(value.filter((item): item is number => Number.isSafeInteger(item) && item > 0));
+    if (!Array.isArray(value) || value.length > 256 || !value.every(validOwnedProcess)) return Object.freeze([]);
+    return Object.freeze(value);
   } catch {
     return Object.freeze([]);
   }
 }
 
-function terminateOwnedPid(pid: number): void {
+function writeOwnedProcesses(cacheRoot: string, records: readonly OwnedProcess[]): void {
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  const temporary = `${pidFile(cacheRoot)}.${process.pid}.tmp`;
+  try { fs.rmSync(temporary, { force: true }); } catch { /* stale same-process temporary */ }
+  fs.writeFileSync(temporary, `${JSON.stringify(records)}\n`, { flag: "wx", mode: 0o600 });
+  fs.renameSync(temporary, pidFile(cacheRoot));
+}
+
+function appendOwnedProcess(cacheRoot: string, record: OwnedProcess): void {
+  const current = ownedProcesses(cacheRoot).filter((item) => item.pid !== record.pid);
+  writeOwnedProcesses(cacheRoot, [...current, record]);
+}
+
+function removeOwnedProcess(cacheRoot: string, record: OwnedProcess): void {
+  const current = ownedProcesses(cacheRoot);
+  const remaining = current.filter((item) => item.pid !== record.pid || item.startedAt !== record.startedAt);
+  if (remaining.length === current.length) return;
+  if (remaining.length === 0) {
+    fs.rmSync(pidFile(cacheRoot), { force: true });
+    return;
+  }
+  writeOwnedProcesses(cacheRoot, remaining);
+}
+
+function terminateProcessTree(pid: number): void {
   try {
     if (process.platform === "win32") {
       childProcess.spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
@@ -707,10 +912,34 @@ function terminateOwnedPid(pid: number): void {
   } catch { /* absence is already clean */ }
 }
 
+function processStartTime(pid: number): number | undefined {
+  if (process.platform !== "win32") return undefined;
+  try {
+    const script = `$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue;if($null-ne$p){[Console]::Out.Write(([DateTimeOffset]$p.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds())}`;
+    const result = childProcess.spawnSync("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+      maxBuffer: 8_192,
+    });
+    if (result.status !== 0 || typeof result.stdout !== "string" || !/^[0-9]{10,16}$/u.test(result.stdout.trim())) return undefined;
+    const value = Number(result.stdout.trim());
+    return Number.isSafeInteger(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function terminateStillOwned(record: OwnedProcess): void {
+  const observed = processStartTime(record.pid);
+  if (observed !== undefined && Math.abs(observed - record.startedAt) <= 10_000) terminateProcessTree(record.pid);
+}
+
 export async function cleanupNativeHost(rawInput: Readonly<Record<string, string>>): Promise<Readonly<{ cleaned: true }>> {
   const input = safeInput(rawInput);
   if (input === undefined) throw new Error("arguments_invalid");
-  for (const pid of ownedPids(input.cache)) terminateOwnedPid(pid);
+  for (const record of ownedProcesses(input.cache)) terminateStillOwned(record);
   try { fs.rmSync(pidFile(input.cache), { force: true }); } catch { /* lane cleanup follows */ }
   return Object.freeze({ cleaned: true });
 }
@@ -743,16 +972,21 @@ function defaultRunCommand(
     let forcedFailure = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let owned: OwnedProcess | undefined;
     const finish = (code: number): void => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (pidRoot !== undefined && owned !== undefined) {
+        try { removeOwnedProcess(pidRoot, owned); } catch { forcedFailure = true; }
+      }
       resolve(Object.freeze({
         code: forcedFailure ? 1 : code,
         stdout: forcedFailure ? "" : stdout,
         ...(authMissing ? { authMissing: true } : {}),
       }));
     };
+    const startedAt = Date.now();
     const child = childProcess.spawn(selectedExecutable, selectedArgs, {
       cwd,
       env,
@@ -760,7 +994,8 @@ function defaultRunCommand(
       stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     if (pidRoot !== undefined && child.pid !== undefined) {
-      try { appendOwnedPid(pidRoot, child.pid); } catch { forcedFailure = true; }
+      owned = Object.freeze({ pid: child.pid, startedAt });
+      try { appendOwnedProcess(pidRoot, owned); } catch { forcedFailure = true; }
     }
     const stdoutPipe = child.stdout;
     if (stdoutPipe === null) return finish(1);
@@ -770,7 +1005,7 @@ function defaultRunCommand(
       if (outputBytes <= MAX_NATIVE_OUTPUT_BYTES) stdout += chunk;
       else {
         forcedFailure = true;
-        terminateOwnedPid(child.pid ?? -1);
+        terminateProcessTree(child.pid ?? -1);
       }
     });
     const stderrPipe = child.stderr;
@@ -785,7 +1020,7 @@ function defaultRunCommand(
     child.on("close", (code) => finish(code ?? 1));
     timer = setTimeout(() => {
       forcedFailure = true;
-      terminateOwnedPid(child.pid ?? -1);
+      terminateProcessTree(child.pid ?? -1);
       finish(1);
     }, timeoutMs);
     timer.unref();
@@ -840,7 +1075,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 }
 
 exports.DRIVER_HOSTS = DRIVER_HOSTS;
+exports.classifyNativeError = classifyNativeError;
 exports.discoverHostExecutable = discoverHostExecutable;
+exports.defaultRunCommand = defaultRunCommand;
+exports.processStartTime = processStartTime;
 exports.probeNativeHost = probeNativeHost;
 exports.runNativeHost = runNativeHost;
 exports.cleanupNativeHost = cleanupNativeHost;

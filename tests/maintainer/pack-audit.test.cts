@@ -77,6 +77,7 @@ const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
 const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
+const NATIVE_HOST_DRIVER_PATH = "dist/maintainer/native-host-driver.cjs";
 const SCRUB_BASELINE_PATH = "dist/maintainer/scrub-baseline.cjs";
 const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
 const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
@@ -381,6 +382,7 @@ test("publishes host support runtime and keeps repository-only evidence outputs 
     HOST_DELIVERY_FIXTURE_PATH,
     PRE_RELEASE_EVIDENCE_PATH,
     HEAD_ACCEPTANCE_PATH,
+    NATIVE_HOST_DRIVER_PATH,
   ]) {
     for (const boundary of ["declared", "expected", "archive"] as const) {
       const current = baseline();

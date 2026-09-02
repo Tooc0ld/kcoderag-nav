@@ -142,6 +142,7 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
   assert.match(live, /KCODERAG_NATIVE_DRIVER=/u);
   assert.match(live, /KCODERAG_NATIVE_DRIVER_SHA256=/u);
   assert.match(live, /SHA256\]::HashData/u);
+  assert.match(live, /KCODERAG_ZCODE_WORKSPACE_TRUST:\s*\$\{\{ vars\.KCODERAG_ZCODE_WORKSPACE_TRUST \}\}/u);
   assert.match(live, /npm run acceptance:live/u);
   assert.match(live, /package-sha256/u);
   assert.match(live, /package-member-digest/u);
@@ -159,6 +160,7 @@ test("workflow validator fails closed for trust, identity, bypass and LIVE rebui
     [source.replaceAll("node-version: \"22\"", "node-version: \"24\""), "live_runner_invalid"],
     [source.replace("KCODERAG_NATIVE_DRIVER_SHA256", "KCODERAG_NATIVE_DRIVER_DIGEST"), "native_driver_binding_missing"],
     [source.replace("dist/maintainer/native-host-driver.cjs", "C:/mutable/native-driver.cjs"), "native_driver_binding_missing"],
+    [source.replace("${{ vars.KCODERAG_ZCODE_WORKSPACE_TRUST }}", "approved"), "workspace_trust_projection_missing"],
     [source.replace("npm run acceptance:live", "npm pack && npm run acceptance:live"), "live_rebuild_forbidden"],
     [`${source}\n# continue-on-error: true\n`, "acceptance_bypass_forbidden"],
   ] as const;

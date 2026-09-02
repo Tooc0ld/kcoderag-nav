@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const feedback_nudge_cjs_1 = require("./feedback-nudge.cjs");
-exports.MCP_CALL_MARKER_SCHEMA_VERSION = 1;
+exports.MCP_CALL_MARKER_SCHEMA_VERSION = 2;
 exports.MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
 exports.MAX_MCP_CALL_MARKERS = 128;
 const MAX_INPUT_BYTES = 64 * 1_024;
@@ -85,7 +85,7 @@ const nodeFiles = {
         }
     },
 };
-function identity(payload, host, cwd) {
+function identity(payload, host, cwd, toolName) {
     const session = boundedString(payload.session_id) ??
         boundedString(payload.conversation_id) ??
         boundedString(payload.sessionID);
@@ -95,8 +95,8 @@ function identity(payload, host, cwd) {
     if (sessionIdentity === undefined)
         return undefined;
     return turn === undefined
-        ? { raw: `${host}\0session\0${sessionIdentity}`, scope: "session" }
-        : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}`, scope: "turn" };
+        ? { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" }
+        : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" };
 }
 function markerName(rawIdentity) {
     return `${crypto.createHash("sha256").update(rawIdentity).digest("hex")}.json`;
@@ -114,13 +114,16 @@ function prune(files, directoryPath, keepName, now) {
 /** Record only metadata required to recognize a same-session/turn local verification. */
 function recordKCodeRagCall(payload, options) {
     try {
-        if (!isRecord(payload) || (0, feedback_nudge_cjs_1.normalizeKCodeRagOutcome)(payload, { host: options.host })?.success !== true) {
+        if (!isRecord(payload)) {
             return Object.freeze({ recorded: false });
         }
+        const outcome = (0, feedback_nudge_cjs_1.normalizeKCodeRagOutcome)(payload, { host: options.host });
+        if (outcome?.success !== true)
+            return Object.freeze({ recorded: false });
         const now = options.now?.() ?? Date.now();
         if (!Number.isFinite(now) || now < 0)
             return Object.freeze({ recorded: false });
-        const markerIdentity = identity(payload, options.host, options.cwd ?? process.cwd());
+        const markerIdentity = identity(payload, options.host, options.cwd ?? process.cwd(), outcome.toolName);
         if (markerIdentity === undefined)
             return Object.freeze({ recorded: false });
         const files = options.files ?? nodeFiles;
@@ -131,6 +134,7 @@ function recordKCodeRagCall(payload, options) {
             schemaVersion: exports.MCP_CALL_MARKER_SCHEMA_VERSION,
             host: options.host,
             scope: markerIdentity.scope,
+            toolName: outcome.toolName,
             recordedAt: now,
         })}\n`);
         prune(files, directoryPath, name, now);

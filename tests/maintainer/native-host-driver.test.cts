@@ -1,6 +1,7 @@
 /** Candidate-bound Windows native-host driver admission and honesty tests. */
 
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const childProcess: typeof import("node:child_process") = require("node:child_process");
 const fs: typeof import("node:fs") = require("node:fs");
 const os: typeof import("node:os") = require("node:os");
 const path: typeof import("node:path") = require("node:path");
@@ -25,6 +26,7 @@ interface DriverDependencies {
 
 interface DriverModule {
   readonly DRIVER_HOSTS: readonly HostId[];
+  classifyNativeError(value: Record<string, unknown>): string;
   discoverHostExecutable(
     host: HostId,
     environment: NodeJS.ProcessEnv,
@@ -40,9 +42,21 @@ interface DriverModule {
     dependencies: DriverDependencies,
   ): Promise<Readonly<Record<string, any>>>;
   cleanupNativeHost(input: Readonly<Record<string, string>>): Promise<Readonly<{ cleaned: true }>>;
+  defaultRunCommand(
+    executable: string,
+    args: readonly string[],
+    options: Readonly<Record<string, unknown>>,
+  ): Promise<CommandResult>;
+  processStartTime(pid: number): number | undefined;
 }
 
 const driver = require("../../dist/maintainer/native-host-driver.cjs") as DriverModule;
+
+test("native errors use closed admission-safe categories without exposing bodies", () => {
+  assert.equal(driver.classifyNativeError({ type: "error", message: "permission denied" }), "permission");
+  assert.equal(driver.classifyNativeError({ type: "error", kind: "protocol_handshake" }), "protocol");
+  assert.equal(driver.classifyNativeError({ type: "error", code: "tool_not_found" }), "tool_unavailable");
+});
 
 function input(root: string, host: HostId): Readonly<Record<string, string>> {
   return Object.freeze({
@@ -87,6 +101,89 @@ test("probe emits honest environment and admission taxonomy", async () => {
       pathExists: () => true,
     });
     assert.deepEqual(cursorWithoutAgent, { admitted: false, stage: "environment", reasonCode: "host_cli_missing" });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verified Cursor agent uses one isolated authenticated environment for probe and run without an unsupported workspace flag", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-cursor-env-"));
+  const previousVersion = process.env.KCODERAG_CURSOR_VERSION;
+  const previousKey = process.env.CURSOR_API_KEY;
+  const captured: { readonly args: readonly string[]; readonly env: NodeJS.ProcessEnv }[] = [];
+  try {
+    process.env.KCODERAG_CURSOR_VERSION = "3.17.8";
+    process.env.CURSOR_API_KEY = "opaque-test-key";
+    fs.mkdirSync(path.join(root, "project"), { recursive: true });
+    fs.writeFileSync(path.join(root, "candidate.tgz"), "candidate", "utf8");
+    const dependencies: DriverDependencies = {
+      resolveCommand: (name) => name === "agent" ? path.join(root, "agent.exe") : undefined,
+      pathExists: () => true,
+      runCommand: async (_executable, args, options) => {
+        const env = options.env as NodeJS.ProcessEnv;
+        captured.push({ args: [...args], env });
+        if (args.includes("--help")) return { code: 0, stdout: "Cursor Agent mcp --output-format" };
+        if (args.includes("kcoderag-nav")) {
+          if (args.includes("status")) return { code: 0, stdout: JSON.stringify({ ok: true, status: "healthy" }) };
+          return { code: 0, stdout: JSON.stringify({ ok: true }) };
+        }
+        return { code: 0, stdout: "{}\n" };
+      },
+    };
+    assert.deepEqual(await driver.probeNativeHost(input(root, "cursor"), dependencies), { admitted: true });
+    await driver.runNativeHost(input(root, "cursor"), dependencies);
+    const nativeCalls = captured.filter((call) => call.args.includes("--output-format"));
+    assert.ok(nativeCalls.length >= 2);
+    assert.equal(nativeCalls.every((call) => call.env.CURSOR_API_KEY === "opaque-test-key"), true);
+    assert.equal(nativeCalls.every((call) => call.env.USERPROFILE === path.join(root, "cache", "host-home")), true);
+    assert.equal(nativeCalls.every((call) => !call.args.includes("--workspace")), true);
+  } finally {
+    if (previousVersion === undefined) delete process.env.KCODERAG_CURSOR_VERSION; else process.env.KCODERAG_CURSOR_VERSION = previousVersion;
+    if (previousKey === undefined) delete process.env.CURSOR_API_KEY; else process.env.CURSOR_API_KEY = previousKey;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("host-specific native prompts trigger fixed Codex search and Claude Grep Glob Bash canaries", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-prompts-"));
+  try {
+    for (const host of ["codex", "claude"] as const) {
+      const hostRoot = path.join(root, host);
+      fs.mkdirSync(path.join(hostRoot, "project"), { recursive: true });
+      fs.writeFileSync(path.join(hostRoot, "candidate.tgz"), "candidate", "utf8");
+      if (host === "codex") {
+        fs.mkdirSync(path.join(hostRoot, "project", ".codex"), { recursive: true });
+        fs.writeFileSync(path.join(hostRoot, "project", ".codex", "config.toml"), [
+          "# BEGIN kcoderag-nav:kcoderag-navigation",
+          "[mcp_servers.kcoderag-qa]",
+          "command = \"node\"",
+          "# END kcoderag-nav:kcoderag-navigation",
+          "",
+        ].join("\n"), "utf8");
+        fs.writeFileSync(path.join(hostRoot, "project", ".codex", "hooks.json"), JSON.stringify({ hooks: {} }), "utf8");
+      }
+      const calls: readonly string[][] = [];
+      const mutableCalls = calls as string[][];
+      await driver.runNativeHost(input(hostRoot, host), {
+        resolveCommand: (name) => name,
+        pathExists: () => true,
+        runCommand: async (_executable, args) => {
+          mutableCalls.push([...args]);
+          if (args.includes("kcoderag-nav")) {
+            if (args.includes("status")) return { code: 0, stdout: JSON.stringify({ ok: true, status: "healthy" }) };
+            return { code: 0, stdout: JSON.stringify({ ok: true }) };
+          }
+          return { code: 0, stdout: "{}\n" };
+        },
+      });
+      const serialized = JSON.stringify(calls);
+      assert.match(serialized, /KCODERAG_NATIVE_ACCEPTANCE_CANARY/u);
+      if (host === "claude") {
+        assert.match(serialized, /Use Glob once/u);
+        assert.match(serialized, /Use Grep once/u);
+        assert.match(serialized, /Use Bash once/u);
+      }
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -146,6 +243,51 @@ test("native run never converts partial or natural-language claims into PASS obs
   }
 });
 
+test("Codex native registration is closed and independent from missing list_indexes execution", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-codex-registration-"));
+  try {
+    const project = path.join(root, "project");
+    fs.mkdirSync(path.join(project, ".codex", "kcoderag-nav", "qa", "hooks"), { recursive: true });
+    fs.writeFileSync(path.join(root, "candidate.tgz"), "candidate", "utf8");
+    fs.writeFileSync(path.join(project, ".codex", "config.toml"), [
+      "# BEGIN kcoderag-nav:kcoderag-navigation",
+      "[mcp_servers.kcoderag-qa]",
+      "command = \"node\"",
+      "# END kcoderag-nav:kcoderag-navigation",
+      "",
+    ].join("\n"), "utf8");
+    fs.writeFileSync(path.join(project, ".codex", "hooks.json"), JSON.stringify({ hooks: {} }), "utf8");
+    fs.writeFileSync(
+      path.join(project, ".codex", "kcoderag-nav", "qa", "hooks", "pre-tool-dispatcher.cjs"),
+      "process.exitCode=0;\n",
+      "utf8",
+    );
+    const outcome = await driver.runNativeHost(input(root, "codex"), {
+      resolveCommand: () => path.join(root, "codex.cmd"),
+      pathExists: () => true,
+      runCommand: async (_executable, args) => {
+        if (args.includes("kcoderag-nav")) {
+          if (args.includes("status")) return { code: 0, stdout: JSON.stringify({ ok: true, status: "healthy" }) };
+          return { code: 0, stdout: JSON.stringify({ ok: true }) };
+        }
+        if (args[0] === "mcp") return { code: 0, stdout: JSON.stringify([{ name: "kcoderag-qa", enabled: true }]) };
+        if (args.some((item) => item.endsWith("pre-tool-dispatcher.cjs"))) return { code: 0, stdout: "" };
+        return { code: 0, stdout: [
+          JSON.stringify({ type: "SessionStart", additionalContext: "KCodeRag ready" }),
+          JSON.stringify({ type: "hook", additionalContext: "KCodeRag ready" }),
+        ].join("\n") };
+      },
+    });
+    assert.equal(outcome.observations.common.mcpRegistered, true);
+    assert.equal(outcome.observations.host.directMcpRegistrationObserved, true);
+    assert.equal(outcome.status, "FAIL");
+    assert.equal(outcome.stage, "mcp");
+    assert.equal(outcome.reasonCode, "list_indexes_unavailable");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("driver output schema never carries native stdout or secret-shaped fields", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-secret-"));
   try {
@@ -173,6 +315,48 @@ test("cleanup removes only the lane-owned process ledger", async () => {
     fs.writeFileSync(ledger, "[]\n", "utf8");
     assert.deepEqual(await driver.cleanupNativeHost(input(root, "codex")), { cleaned: true });
     assert.equal(fs.existsSync(ledger), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("normal process exit removes ownership and cleanup matches a still-running process start identity", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-owned-process-"));
+  try {
+    const cache = path.join(root, "cache");
+    const completed = await driver.defaultRunCommand(process.execPath, ["-e", "process.stdout.write('ok')"], {
+      cwd: root,
+      env: process.env,
+      timeoutMs: 10_000,
+      pidRoot: cache,
+    });
+    assert.deepEqual(completed, { code: 0, stdout: "ok" });
+    assert.equal(fs.existsSync(path.join(cache, "native-processes.json")), false);
+
+    if (process.platform === "win32") {
+      const child = childProcess.spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+        cwd: root,
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      try {
+        assert.ok(child.pid !== undefined);
+        let startedAt: number | undefined;
+        const deadline = Date.now() + 5_000;
+        while (startedAt === undefined && Date.now() < deadline) {
+          startedAt = driver.processStartTime(child.pid as number);
+          if (startedAt === undefined) await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        assert.ok(startedAt !== undefined);
+        fs.mkdirSync(cache, { recursive: true });
+        fs.writeFileSync(path.join(cache, "native-processes.json"), `${JSON.stringify([{ pid: child.pid, startedAt }])}\n`, "utf8");
+        await driver.cleanupNativeHost(input(root, "codex"));
+        await new Promise<void>((resolve) => child.once("close", () => resolve()));
+        assert.notEqual(child.exitCode, null);
+      } finally {
+        if (child.exitCode === null) child.kill("SIGKILL");
+      }
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

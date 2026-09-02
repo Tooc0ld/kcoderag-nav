@@ -650,10 +650,10 @@ function runProcess(
   };
 }
 
-/** Keep KSCC's native home lookup intact while isolating its Claude config and all smoke caches. */
+/** Keep hosts that bind login state to their native home intact while isolating declared caches. */
 export function liveEnvironment(host: HostId, root: string): NodeJS.ProcessEnv {
   const environment = safeEnvironment(root);
-  if (host !== "claude") return environment;
+  if (host !== "claude" && host !== "opencode") return environment;
   for (const key of ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"] as const) {
     const value = process.env[key];
     if (value !== undefined) environment[key] = value;
@@ -2892,25 +2892,88 @@ function safeKsccSettings(bytes: Buffer): Buffer | undefined {
   }
 }
 
+function safeOpenCodeSettings(bytes: Buffer): Buffer | undefined {
+  try {
+    const source = parseJsoncObject(bytes.toString("utf8"));
+    const projected: Record<string, unknown> = {};
+    for (const key of ["model", "small_model", "provider", "enabled_providers", "disabled_providers"] as const) {
+      if (source[key] !== undefined) projected[key] = source[key];
+    }
+    if (projected.model === undefined && isRecord(source.provider)) {
+      const provider = Object.entries(source.provider)
+        .find(([name, value]) => /^[A-Za-z0-9._-]{1,128}$/u.test(name) && isRecord(value) && isRecord(value.models));
+      const models = provider === undefined || !isRecord(provider[1]) ? undefined : provider[1].models;
+      const model = !isRecord(models) ? undefined : Object.keys(models)
+        .find((name) => /^[A-Za-z0-9._-]{1,128}$/u.test(name));
+      if (provider !== undefined && model !== undefined) projected.model = `${provider[0]}/${model}`;
+    }
+    return Object.keys(projected).length === 0
+      ? undefined
+      : Buffer.from(`${JSON.stringify(projected, null, 2)}\n`, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /** Copy only the credential material needed by the disposable host; never import hooks, plugins, or history. */
 export function projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean {
   const credentialName = host === "codex"
     ? "auth.json"
     : host === "claude"
       ? "settings.json"
-      : undefined;
+      : host === "opencode"
+        ? "auth.json"
+        : host === "zcode"
+          ? "credentials.json"
+          : undefined;
   if (credentialName === undefined) return false;
   const selectedSourceRoot = sourceRoot ?? (host === "codex"
     ? (process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"))
-    : (process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude")));
-  const sourcePath = path.join(selectedSourceRoot, credentialName);
-  const targetRoot = path.join(runtimeRoot, "host-home");
-  const targetPath = path.join(targetRoot, credentialName);
-  const bytes = readBoundedRegularFile(sourcePath);
-  if (bytes === undefined) return false;
-  if (path.resolve(sourcePath) === path.resolve(targetPath)) return true;
-  const projected = host === "claude" ? safeKsccSettings(bytes) : bytes;
-  return projected !== undefined && writeExclusivePrivateFile(targetPath, projected);
+    : host === "claude"
+      ? (process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"))
+      : host === "opencode"
+        ? path.join(os.homedir(), ".local", "share", "opencode")
+        : path.join(os.homedir(), ".zcode", "v2"));
+  const relativeTargetRoot = host === "opencode"
+    ? path.join("host-home", ".local", "share", "opencode")
+    : host === "zcode"
+      ? path.join("host-home", ".zcode", "v2")
+      : "host-home";
+  const projectedNames = host === "zcode" ? [credentialName, "config.json"] : [credentialName];
+  const projectedPaths: string[] = [];
+  try {
+    for (const name of projectedNames) {
+      const sourcePath = path.join(selectedSourceRoot, name);
+      const targetPath = path.join(runtimeRoot, relativeTargetRoot, name);
+      const bytes = readBoundedRegularFile(sourcePath);
+      if (bytes === undefined) throw new Error("credential_unavailable");
+      if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+      const projected = host === "claude" ? safeKsccSettings(bytes) : bytes;
+      if (projected === undefined || !writeExclusivePrivateFile(targetPath, projected)) {
+        throw new Error("credential_projection_failed");
+      }
+      projectedPaths.push(targetPath);
+    }
+    if (host === "opencode") {
+      const configSourceRoot = sourceRoot ?? path.join(os.homedir(), ".config", "opencode");
+      const configName = ["opencode.json", "opencode.jsonc"]
+        .find((name) => readBoundedRegularFile(path.join(configSourceRoot, name)) !== undefined);
+      if (configName !== undefined) {
+        const configBytes = readBoundedRegularFile(path.join(configSourceRoot, configName));
+        const projected = configBytes === undefined ? undefined : safeOpenCodeSettings(configBytes);
+        if (projected === undefined) throw new Error("credential_projection_failed");
+        const targetPath = path.join(runtimeRoot, "host-home", ".config", "opencode", "opencode.json");
+        if (!writeExclusivePrivateFile(targetPath, projected)) throw new Error("credential_projection_failed");
+        projectedPaths.push(targetPath);
+      }
+    }
+    return true;
+  } catch {
+    for (const projectedPath of projectedPaths) {
+      try { fs.rmSync(projectedPath, { force: true }); } catch { /* disposable projection only */ }
+    }
+    return false;
+  }
 }
 
 async function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): Promise<CommandResult> {

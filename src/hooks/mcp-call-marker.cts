@@ -7,11 +7,11 @@ const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
 
 import type { HostId } from "../core/contracts.cjs";
-import { normalizeKCodeRagOutcome } from "./feedback-nudge.cjs";
+import { normalizeKCodeRagOutcome, type LogicalKCodeRagTool } from "./feedback-nudge.cjs";
 
 export type MarkerHost = HostId;
 
-export const MCP_CALL_MARKER_SCHEMA_VERSION = 1 as const;
+export const MCP_CALL_MARKER_SCHEMA_VERSION = 2 as const;
 export const MCP_CALL_MARKER_TTL_MS = 4 * 60 * 60 * 1_000;
 export const MAX_MCP_CALL_MARKERS = 128;
 const MAX_INPUT_BYTES = 64 * 1_024;
@@ -97,7 +97,7 @@ const nodeFiles: MarkerFiles = {
   },
 };
 
-function identity(payload: Record<string, unknown>, host: MarkerHost, cwd: string): {
+function identity(payload: Record<string, unknown>, host: MarkerHost, cwd: string, toolName: LogicalKCodeRagTool): {
   readonly raw: string;
   readonly scope: "turn" | "session";
 } | undefined {
@@ -109,8 +109,8 @@ function identity(payload: Record<string, unknown>, host: MarkerHost, cwd: strin
   const sessionIdentity = session ?? fallback;
   if (sessionIdentity === undefined) return undefined;
   return turn === undefined
-    ? { raw: `${host}\0session\0${sessionIdentity}`, scope: "session" }
-    : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}`, scope: "turn" };
+    ? { raw: `${host}\0session\0${sessionIdentity}\0${toolName}`, scope: "session" }
+    : { raw: `${host}\0turn\0${sessionIdentity}\0${turn}\0${toolName}`, scope: "turn" };
 }
 
 function markerName(rawIdentity: string): string {
@@ -131,12 +131,14 @@ function prune(files: MarkerFiles, directoryPath: string, keepName: string, now:
 /** Record only metadata required to recognize a same-session/turn local verification. */
 export function recordKCodeRagCall(payload: unknown, options: MarkerOptions): MarkerResult {
   try {
-    if (!isRecord(payload) || normalizeKCodeRagOutcome(payload, { host: options.host })?.success !== true) {
+    if (!isRecord(payload)) {
       return Object.freeze({ recorded: false });
     }
+    const outcome = normalizeKCodeRagOutcome(payload, { host: options.host });
+    if (outcome?.success !== true) return Object.freeze({ recorded: false });
     const now = options.now?.() ?? Date.now();
     if (!Number.isFinite(now) || now < 0) return Object.freeze({ recorded: false });
-    const markerIdentity = identity(payload, options.host, options.cwd ?? process.cwd());
+    const markerIdentity = identity(payload, options.host, options.cwd ?? process.cwd(), outcome.toolName);
     if (markerIdentity === undefined) return Object.freeze({ recorded: false });
     const files = options.files ?? nodeFiles;
     const directoryPath = path.join(options.cacheRoot ?? defaultCacheRoot(), MARKER_DIRECTORY);
@@ -146,6 +148,7 @@ export function recordKCodeRagCall(payload: unknown, options: MarkerOptions): Ma
       schemaVersion: MCP_CALL_MARKER_SCHEMA_VERSION,
       host: options.host,
       scope: markerIdentity.scope,
+      toolName: outcome.toolName,
       recordedAt: now,
     })}\n`);
     prune(files, directoryPath, name, now);

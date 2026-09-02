@@ -560,7 +560,7 @@ test("live smoke bypasses machine proxies for its loopback-only MCP transport", 
   }
 });
 
-test("KSCC keeps the native home while its Claude config and caches remain isolated", () => {
+test("KSCC and OpenCode keep native login homes while declared caches remain isolated", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-kscc-env-"));
   try {
     const environment = smoke.liveEnvironment("claude", root);
@@ -568,6 +568,10 @@ test("KSCC keeps the native home while its Claude config and caches remain isola
     assert.equal(environment.LOCALAPPDATA, path.join(root, "local-app-data"));
     if (process.env.USERPROFILE !== undefined) assert.equal(environment.USERPROFILE, process.env.USERPROFILE);
     if (process.env.HOME !== undefined) assert.equal(environment.HOME, process.env.HOME);
+    const openCodeEnvironment = smoke.liveEnvironment("opencode", root);
+    if (process.env.USERPROFILE !== undefined) assert.equal(openCodeEnvironment.USERPROFILE, process.env.USERPROFILE);
+    assert.equal(openCodeEnvironment.LOCALAPPDATA, path.join(root, "local-app-data"));
+    assert.equal(openCodeEnvironment.XDG_CACHE_HOME, path.join(root, "xdg-cache"));
     const codexEnvironment = smoke.liveEnvironment("codex", root);
     if (process.platform === "win32") assert.equal(codexEnvironment.USERPROFILE, path.join(root, "host-home"));
   } finally {
@@ -582,6 +586,11 @@ test("live credential projection copies only bounded host material into the disp
     const runtimeRoot = path.join(root, "runtime");
     fs.mkdirSync(sourceRoot, { recursive: true });
     fs.writeFileSync(path.join(sourceRoot, "auth.json"), "synthetic-auth", "utf8");
+    fs.writeFileSync(path.join(sourceRoot, "opencode.json"), JSON.stringify({
+      provider: { provider: { models: { model: {} }, options: { apiKey: "opaque" } } },
+      plugin: ["must-not-copy"],
+      instructions: ["must-not-copy"],
+    }), "utf8");
     fs.writeFileSync(path.join(sourceRoot, "config.toml"), "must-not-copy", "utf8");
 
     assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), true);
@@ -591,7 +600,35 @@ test("live credential projection copies only bounded host material into the disp
     );
     assert.equal(fs.existsSync(path.join(runtimeRoot, "host-home", "config.toml")), false);
     assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), false);
-    assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), false);
+    assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), true);
+    assert.equal(
+      fs.readFileSync(path.join(runtimeRoot, "host-home", ".local", "share", "opencode", "auth.json"), "utf8"),
+      "synthetic-auth",
+    );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(runtimeRoot, "host-home", ".config", "opencode", "opencode.json"), "utf8")),
+      { model: "provider/model", provider: { provider: { models: { model: {} }, options: { apiKey: "opaque" } } } },
+    );
+
+    const zcodeSourceRoot = path.join(root, "zcode-source");
+    const zcodeRuntimeRoot = path.join(root, "zcode-runtime");
+    fs.mkdirSync(zcodeSourceRoot, { recursive: true });
+    fs.writeFileSync(path.join(zcodeSourceRoot, "credentials.json"), "encrypted-device-credential", "utf8");
+    fs.writeFileSync(path.join(zcodeSourceRoot, "config.json"), "provider-configuration", "utf8");
+    fs.writeFileSync(path.join(zcodeSourceRoot, "telemetry-state.json"), "must-not-copy", "utf8");
+    assert.equal(smoke.projectLiveCredential("zcode", zcodeRuntimeRoot, zcodeSourceRoot), true);
+    assert.equal(
+      fs.readFileSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "credentials.json"), "utf8"),
+      "encrypted-device-credential",
+    );
+    assert.equal(
+      fs.readFileSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "config.json"), "utf8"),
+      "provider-configuration",
+    );
+    assert.equal(
+      fs.existsSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "telemetry-state.json")),
+      false,
+    );
 
     const claudeSourceRoot = path.join(root, "claude-source");
     const claudeRuntimeRoot = path.join(root, "claude-runtime");

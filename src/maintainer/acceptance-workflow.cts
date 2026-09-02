@@ -159,6 +159,8 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   requireMatch(live, /SHA256\]::HashData/u, "native_driver_binding_missing");
   requireMatch(live, /KCODERAG_NATIVE_DRIVER=\$driver/u, "native_driver_binding_missing");
   requireMatch(live, /KCODERAG_NATIVE_DRIVER_SHA256=\$digest/u, "native_driver_binding_missing");
+  requireMatch(live, /KCODERAG_ZCODE_WORKSPACE_TRUST:\s*\$\{\{ vars\.KCODERAG_ZCODE_WORKSPACE_TRUST \}\}/u,
+    "workspace_trust_projection_missing");
   requireMatch(live, /npm run acceptance:live/u, "coordinator_missing");
   if (/npm\s+(?:pack|publish|view)|pack:audit|smoke:required|dist-tag|git\s+(?:tag|push)|@latest/iu.test(live)) {
     throw new AcceptanceWorkflowError("live_rebuild_forbidden");

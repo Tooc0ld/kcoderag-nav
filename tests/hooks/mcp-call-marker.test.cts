@@ -8,6 +8,7 @@ const path = require("node:path") as typeof import("node:path");
 type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 
 interface MarkerModule {
+  readonly MCP_CALL_MARKER_SCHEMA_VERSION: number;
   readonly MCP_CALL_MARKER_TTL_MS: number;
   readonly MAX_MCP_CALL_MARKERS: number;
   recordKCodeRagCall(payload: unknown, options: {
@@ -49,7 +50,13 @@ test("records only successful KCodeRag calls for all five hook-capable host payl
     assert.equal(markerFiles(root).length, 6);
     const records = markerFiles(root).map((name) =>
       JSON.parse(fs.readFileSync(path.join(root, "mcp-calls", name), "utf8")) as Record<string, unknown>);
+    assert.equal(marker.MCP_CALL_MARKER_SCHEMA_VERSION, 2);
+    assert.equal(records.every((record) => record.schemaVersion === 2), true);
     assert.deepEqual(records.map((record) => record.host).sort(), ["claude", "codex", "codex", "cursor", "opencode", "zcode"]);
+    assert.deepEqual(
+      [...new Set(records.map((record) => record.toolName))].sort(),
+      ["context", "get_call_chain", "search_code"],
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
