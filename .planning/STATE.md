@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 Phase: 05 (统一 Hook 策略与真实宿主验证) — EXECUTING
 Plan: 6 of 6
 Status: Ready to execute
-Last activity: 2026-09-02 — Completed quick task 260902-fyg: Expose installed and latest kcoderag-nav versions in status and doctor output
+Last activity: 2026-09-02 — Completed quick task 260902-kn6: Replace the Head project legacy Codex installation with 0.3.1
 
 Progress: [████████░░] 113/117 plans ([████████░░] 75%)
 
@@ -400,6 +400,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260831-ooz | 精简 QA 项目集成体验指南，只保留安装、验证、使用、更新和卸载 | 2026-08-31 | 88c531d | [260831-ooz-qa](./quick/260831-ooz-qa/) | Verified |
 | 260831-s98 | Automate self-hosted live acceptance and remove legacy manual acceptance projects | 2026-08-31 | c9e5f29, 2becfe2 | [260831-s98-automate-self-hosted-live-acceptance-and](./quick/260831-s98-automate-self-hosted-live-acceptance-and/) | Verified |
 | 260902-fyg | Expose installed and latest kcoderag-nav versions in status and doctor output | 2026-09-02 | 88f557c | [260902-fyg-expose-installed-and-latest-kcoderag-nav](./quick/260902-fyg-expose-installed-and-latest-kcoderag-nav/) | Verified |
+| 260902-kn6 | Replace the Head project legacy Codex installation with 0.3.1 | 2026-09-02 | external-only | [260902-kn6-safely-replace-the-head-project-legacy-k](./quick/260902-kn6-safely-replace-the-head-project-legacy-k/) | Verified |
 
 ### Roadmap Evolution
 
