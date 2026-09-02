@@ -33,3 +33,13 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Why not caught:** No post-review integration gate existed for repository-local worktree residue; the final pack/readiness regression gate caught the condition only after the clean code review completed.
 - **Recurrence guard:** Existing test `audits a real temporary npm tgz and preserves repository status and tree` in `dist-tests/maintainer/pack-audit.test.cjs`, plus this KB pattern requiring `git worktree list --porcelain` and slash-terminated `git ls-files -z` checks before proposing product-code changes.
 ---
+
+## phase06-codex-launcher-empty — Codex Windows launcher tests inherited a saturated global reminder cache
+- **Date:** 2026-09-03
+- **Error patterns:** empty stdout, Codex Windows launcher, cmd.exe, 14/17 tests pass, reminder cache, 1024 claim cap
+- **Root cause(s):** The launcher test harness inherited the machine-global reminder cache instead of a suite-owned temporary cache; the failure required that non-hermetic test boundary together with a legitimate global cache already at the intentional 1024-claim cap.
+- **Fix:** `tests/hooks/launcher.test.cts` creates one suite-owned temporary cache, injects it as `LOCALAPPDATA` and `XDG_CACHE_HOME` for launcher children, and removes it in a module `after` hook; production behavior is unchanged.
+- **Files changed:** tests/hooks/launcher.test.cts
+- **Why not caught:** The launcher tests randomized session identifiers but had no hermetic persistent-cache boundary; machines below the cap masked the dependency, while typecheck and lint cannot detect external-state coupling.
+- **Recurrence guard:** The cache-isolated launcher harness in `tests/hooks/launcher.test.cts`; verified by the 17/17 focused launcher suite against a still-saturated real cache and 22/22 adjacent hook tests.
+---
