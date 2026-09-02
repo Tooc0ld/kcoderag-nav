@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "candidateSha": "36942caa844749c434bd1e7a7ddc9c134bb38169",
-  "candidateTreeSha": "61347734dfb4eb262034e53dd2c00ae8bc993067",
+  "candidateSha": "15c2424918522fc27fc92b8eb6d30fc2dbf1e110",
+  "candidateTreeSha": "89a27f8265b9e10aeb32882a0a2db7d473ee6c01",
   "packageVersion": "0.3.1",
-  "packageSha256": "6170a6fc0acd1bbe82ad2fe921f37d3fb5d92ccd96fb00a38dcf08ca83cb0ecc",
-  "packageMemberDigest": "59bb03d0cfafe022d8a21376b41ae0baba6ec549324ad6a0e2946b8681e63af2",
-  "workflowBlobSha": "92cf30de4bbe763f042022772511fa1fc141933f",
+  "packageSha256": "d428bf2cf065c3511ea4890d71ed0bc235f553e98a1fb242b6e5fddcd935d165",
+  "packageMemberDigest": "9e4e0f1941e27e234b75fa37fd535f25b3cdb0cd881370cf24896e7d4535f3c8",
+  "workflowBlobSha": "897e17dcdf847aa4eee804faeec8b055640ea705",
   "packageContractDigest": "6c3c35d07360873413705cf54d9ff7e17005ada59fb6ccab318797c7b5ceb08e",
-  "preparedAt": "2026-09-01T20:45:23.267Z"
+  "preparedAt": "2026-09-02T01:43:38.510Z"
 }
