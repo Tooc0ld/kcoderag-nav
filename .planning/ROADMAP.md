@@ -486,6 +486,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
 Plans:
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — 采用既有 RED 与 staged GREEN，在首次实现提交前一次性收敛 canonical、generated、五宿主、文档、审计、pack 与 smoke，并通过真实 pre-commit
+- [x] 06-01-PLAN.md — 采用既有 RED 与 staged GREEN，在首次实现提交前一次性收敛 canonical、generated、五宿主、文档、审计、pack 与 smoke，并通过真实 pre-commit
 
 **Dependency notes:** 旧 13-plan 集合已由 `06-SUPERSEDED.md` 明确取代并从可执行 PLAN 扫描中移除。仓库 pre-commit 对任一 managed staged path 都检查完整 canonical/generated 集合并运行全局门禁，因此中间实现提交无法在不绕过 Hook 的情况下成立；`06-01-PLAN.md` 保留 `c821975` RED 提交并以一个正常 Hook 验证的 GREEN 提交闭合全部 D-01–D-13。

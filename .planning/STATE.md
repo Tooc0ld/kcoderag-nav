@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 current_phase: 06
 current_phase_name: 四 Skill 公共接口与宿主交付模式
-status: executing
-stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-09-02T12:40:14.368Z"
-last_activity: 2026-09-02
-last_activity_desc: Phase 05 execution started
-state_head: 3b77890a82d919d4fb7eb44dc62330d16b0b67d7
+status: ready_for_verification
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-09-02T19:01:20.826Z"
+last_activity: 2026-09-03
+last_activity_desc: Completed Phase 06 Plan 01
+state_head: 47e851a49f48d98c4d130f4a18d79453305442d0
 progress:
   total_phases: 9
   completed_phases: 6
-  total_plans: 130
-  completed_plans: 116
+  total_plans: 118
+  completed_plans: 117
   percent: 67
 ---
 
@@ -25,16 +25,16 @@ Total Phases: 8
 See: .planning/PROJECT.md (updated 2026-08-30)
 
 **Core value:** 用户通过统一 npx CLI 即可在所选宿主和明确项目边界内组合可靠、低打扰的 QA 图优先导航与证据支持的代码规范写前提示。
-**Current focus:** Phase 05 — 统一 Hook 策略与真实宿主验证
+**Current focus:** Phase 06 — 四 Skill 公共接口与宿主交付模式
 
 ## Current Position
 
-Phase: 06 (四 Skill 公共接口与宿主交付模式) — READY TO EXECUTE
-Plan: 6 of 6
-Status: Ready to execute
-Last activity: 2026-09-02 — Completed quick task 260902-kn6: Replace the Head project legacy Codex installation with 0.3.1
+Phase: 06 (四 Skill 公共接口与宿主交付模式) — READY FOR VERIFICATION
+Plan: 1 of 1
+Status: Phase execution complete; ready for verification
+Last activity: 2026-09-03 — Completed Phase 06 Plan 01
 
-Progress: [████████░░] 113/117 plans ([████████░░] 75%)
+Progress: [███████░░░] 117/118 plans (67%)
 
 ## Performance Metrics
 
@@ -135,6 +135,7 @@ Progress: [████████░░] 113/117 plans ([███████
 | Phase 05 P03 | 7min | 3 tasks | 7 files |
 | Phase 05 P04 | 25min | 3 tasks | 9 files |
 | Phase 05 P05 | 39min | 3 tasks | 11 files |
+| Phase 06 P01 | 2h 45m | 1 tasks | 93 files |
 
 ## Accumulated Context
 
@@ -352,6 +353,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 05]: PACKAGED 与 LIVE 共用闭合 receipt schema，但 PACKAGED 不能提升 native-host 观察或制造 LIVE PASS。
 - [Phase 05]: Phase 05 可执行产品候选固定为 bb92400437f49d0f0e43f1553e930b7a215c759f；候选记录及后续证据提交只能是独立后代。
 - [Phase 05]: Windows candidate gate 通过当前 Node 执行 bundled npm-cli.js，不经过 command shell。
+- [Phase 06]: Phase 06 exposes exactly four public Skills while retaining two internal capability IDs.
+- [Phase 06]: Manual code-style delivery is universal; native automation remains limited to the frozen Claude Code 2.1.241 receipt.
+- [Phase 06]: manualSkill and automaticNudge availability require complete schema-v1 ownership and digest integrity.
+- [Phase 06]: Phase 06 completed packaged delivery before Phase 05 LIVE closure without dispatching or publishing.
 
 ### Pending Todos
 
@@ -430,6 +435,6 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ## Session Continuity
 
-Last session: 2026-09-01T20:04:50.367Z
-Stopped at: Completed 05-05-PLAN.md
+Last session: 2026-09-02T19:01:20.409Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
