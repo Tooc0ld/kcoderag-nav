@@ -467,3 +467,23 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
 | 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
 | 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
 | 5. 统一 Hook 策略与真实宿主验证 | 5/6 | In Progress|  |
+
+### Phase 6: 四 Skill 公共接口与宿主交付模式
+
+**Goal:** 用户可在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 中直接调用四个名称稳定、职责清晰的 KCodeRag Skill；代码规范手动 Skill 对五宿主可用，自动写前提示仍只由真实宿主证据门禁启用，并由 status/doctor 分别报告两种交付模式。
+**Requirements**: None — Phase 06 was added without mapped requirement IDs; locked CONTEXT decisions are the acceptance source.
+**Depends on:** Phase 5
+**Success Criteria** (what must be TRUE):
+
+  1. 五宿主安装后只暴露 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style` 四个公开 Skill，不保留 `code-lookup-discipline` 或 `code-style-correction` 兼容别名。
+  2. `$kcoderag` 只负责只读代码导航；`$kcoderag-manage` 默认只读 status/doctor、仅在明确要求时 update，且默认不 cleanup/uninstall；`$kcoderag-feedback` 通过反馈接口提交真实查询评价；`$kcoderag-code-style` 支持自然语言写前指导和 `review <文件或当前变更>`，不提供 `apply` 子命令。
+  3. 内部 capability 仍固定为 `kcoderag-navigation` 与 `code-style-nudge`；五宿主均可安装手动代码规范 Skill，仅冻结 PASS receipt 对应的 Claude Code 2.1.241 投影自动写前提示。
+  4. status/doctor 以 secret-safe、状态完整性可证明的方式分别报告 `manualSkill` 与 `automaticNudge`，更新/卸载按所有权安全重组旧 Skill 路径并保留无关文件。
+  5. Codex 的四个 Skill 均包含一致的 `agents/openai.yaml`，生成、打包、五宿主 smoke、文档和完整 CI 对四公开 Skill/两内部 capability 模型达成一致。
+**Plans:** 3 plans
+
+Plans:
+
+- [ ] 06-01-PLAN.md — 定义四个公开 Skill 契约，以 Codex tracer 打通手动/自动交付决策与诊断字段
+- [ ] 06-02-PLAN.md — 投影五宿主并验证 schema version 1 更新、卸载与所有权安全重组
+- [ ] 06-03-PLAN.md — 闭合确定性生成、pack、五宿主 smoke、文档与旧公开名称退役门禁
