@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 05
-current_phase_name: 统一 Hook 策略与真实宿主验证
+current_phase: 06
+current_phase_name: 四 Skill 公共接口与宿主交付模式
 status: executing
 stopped_at: Completed 05-05-PLAN.md
-last_updated: "2026-09-01T20:04:50.732Z"
+last_updated: "2026-09-02T12:40:14.368Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 05 execution started
-state_head: 1e946b6693a3c20380baf0405b92b47c25449eee
+state_head: 3b77890a82d919d4fb7eb44dc62330d16b0b67d7
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 6
-  total_plans: 117
+  total_plans: 130
   completed_plans: 116
-  percent: 75
+  percent: 67
 ---
 
 Total Phases: 8
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 ## Current Position
 
-Phase: 05 (统一 Hook 策略与真实宿主验证) — EXECUTING
+Phase: 06 (四 Skill 公共接口与宿主交付模式) — READY TO EXECUTE
 Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-09-02 — Completed quick task 260902-kn6: Replace the Head project legacy Codex installation with 0.3.1
@@ -404,6 +404,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Roadmap Evolution
 
+- Phase 6 added: 四 Skill 公共接口与宿主交付模式
 - Phase 04.1 inserted after Phase 4: 多能力安装平台与代码规范提示 (URGENT)
 - Phase 04.1 edited: regenerated goal, mode, requirements, dependencies, and success criteria for capability platform and code-style nudge
 - Phase 04.2 inserted after Phase 04.1: 公开版本去品牌化 (URGENT)
