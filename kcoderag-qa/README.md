@@ -50,7 +50,7 @@ Native project locations are `.codex/` plus `.agents/skills/` for Codex;
 ## Exact support matrix
 
 Code-style guidance support comes only from checked-in digest-bound receipts. ZCode navigation currently has
-project adapter-contract and synthetic lifecycle coverage; real-host evidence remains Phase 06:
+project adapter-contract and synthetic lifecycle coverage; real-host evidence remains Phase 05:
 
 | Frozen host row | Navigation family | Manual style Skill | Automatic nudge |
 | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ or a manual UAT receipt must prove native admission and real MCP use separately.
 
 Phase 06 PACKAGED evidence covers manual style delivery on all five hosts, the exact-Claude native
 overlay, and complete lifecycle preservation. Authenticated real-host MCP
-query evidence remains Phase 06 work; offline or loopback checks do not claim that result.
+query evidence remains Phase 05 work; offline or loopback checks do not claim that result.
 
 Connection and authorization values remain opaque. Generation, install, status, doctor, tests,
 receipts, logs, and documentation expose metadata only. Production identity, HTTPS, and rotation

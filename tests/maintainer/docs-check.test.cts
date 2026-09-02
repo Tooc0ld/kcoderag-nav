@@ -96,7 +96,7 @@ function completePublicContract(): string {
     "ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`; users must trust the workspace Hook.",
     "Automatic update is automatic version awareness only; it never runs install/update and the explicit update command remains required.",
     "runtimeContract.layer: `packaged` does not prove native host admission.",
-    "Phase 06 owns authenticated real-host MCP query evidence.",
+    "Phase 05 owns authenticated real-host MCP query evidence.",
     "",
     "```powershell",
     "npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation",
@@ -247,6 +247,20 @@ test("canonical public contract requires capability lifecycle, support, integrit
         `expected ${expectedCode} after replacing ${before}`,
       );
     }
+
+    writeCanonicalContract(root);
+    const staleBoundary = path.join(root, "plugin-src", "README.md.tmpl");
+    fs.writeFileSync(
+      staleBoundary,
+      fs.readFileSync(staleBoundary, "utf8")
+        .replace("Phase 05 owns authenticated real-host MCP query evidence.",
+          "Phase 06 owns authenticated real-host MCP query evidence."),
+      "utf8",
+    );
+    assert.ok(
+      codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }))
+        .includes("stale_completed_phase_evidence_boundary"),
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

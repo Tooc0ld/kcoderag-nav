@@ -103,6 +103,6 @@ capacity-pruning, or deletion errors are fail-open and never block host work.
 
 Phase 06 PACKAGED evidence proves Cursor navigation, manual code-style delivery, and silent native
 non-delivery. It does not claim
-authenticated real-Cursor MCP query evidence; that remains Phase 06 work. Connection and
+authenticated real-Cursor MCP query evidence; that remains Phase 05 work. Connection and
 authorization values stay opaque in generation, install, diagnostics, tests, logs, receipts, and
 documentation.

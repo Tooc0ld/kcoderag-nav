@@ -49,7 +49,7 @@ npx kcoderag-nav@latest install --host zcode --capability code-style-nudge --yes
 
 代码规范能力的支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
 或 after-event 推断。ZCode navigation 当前由项目级 adapter contract 与 synthetic lifecycle smoke
-覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 06。
+覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 05。
 
 | 宿主与冻结版本 | 导航与管理 Skill | 手动代码规范 Skill | 自动写前提示 |
 | --- | --- | --- | --- |

@@ -30,6 +30,7 @@ const SECRET_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i,
   /\b(?:api[_-]?key|access[_-]?token|secret)\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{16,}/i,
 ];
+const STALE_COMPLETED_PHASE_EVIDENCE_RE = /(?:Phase\s+06[\s\S]{0,120}(?:owns?|负责|承接)[\s\S]{0,160}(?:authenticated|已认证|真实宿主)|(?:authenticated|已认证|真实宿主|real-host)[\s\S]{0,200}(?:evidence|证据)[\s\S]{0,80}(?:remains?|belongs?|留给|属于)[\s\S]{0,40}Phase\s+06)/iu;
 const PACKAGE_ROOT = path.resolve(__dirname, "../..");
 const CANONICAL_REPO_DOCS = Object.freeze([
   "README.md",
@@ -106,7 +107,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_evidence_boundary",
-    pattern: /(?:Phase\s+06|authenticated\s+real-|已认证|真实[^\n]{0,80}MCP)[\s\S]{0,180}(?:query|查询|evidence|证据)/iu,
+    pattern: /(?=[\s\S]*Phase\s+05)(?=[\s\S]*(?:authenticated\s+real-|已认证|真实[^\n]{0,80}MCP)[\s\S]{0,180}(?:query|查询|evidence|证据))/iu,
   },
   {
     code: "missing_topic_update_awareness",
@@ -429,9 +430,18 @@ function requiredTopicDiagnostics(
         ...(OVERVIEW_DOCS.has(normalized) ? OVERVIEW_PUBLIC_TOPICS : []),
         ...(CURSOR_DOCS.has(normalized) ? CURSOR_PUBLIC_TOPICS : []),
       ];
-  return topics
+  const diagnostics = topics
     .filter((topic) => !topic.pattern.test(source))
     .map((topic) => ({ code: topic.code, path: displayPath, line: 1 }));
+  const staleBoundary = STALE_COMPLETED_PHASE_EVIDENCE_RE.exec(source);
+  if (staleBoundary !== null) {
+    diagnostics.push({
+      code: "stale_completed_phase_evidence_boundary",
+      path: displayPath,
+      line: source.slice(0, staleBoundary.index).split(/\r?\n/u).length,
+    });
+  }
+  return diagnostics;
 }
 
 function checkCanonicalPublicDocs(options: CheckOptions = {}): CheckResult {
