@@ -12,6 +12,7 @@ type HostId = "codex" | "claude" | "cursor" | "opencode" | "zcode";
 interface CommandResult {
   readonly code: number;
   readonly stdout: string;
+  readonly nativeErrorKind?: string;
 }
 
 interface DriverDependencies {
@@ -57,6 +58,7 @@ test("native errors use closed admission-safe categories without exposing bodies
   assert.equal(driver.classifyNativeError({ type: "error", message: "permission denied" }), "permission");
   assert.equal(driver.classifyNativeError({ type: "error", kind: "protocol_handshake" }), "protocol");
   assert.equal(driver.classifyNativeError({ type: "error", code: "tool_not_found" }), "tool_unavailable");
+  assert.equal(driver.classifyNativeError({ type: "error", message: "Transport channel closed after HTTP 502" }), "connect");
 });
 
 function input(root: string, host: HostId): Readonly<Record<string, string>> {
@@ -180,18 +182,23 @@ test("host-specific native prompts trigger fixed Codex search and Claude Grep Gl
       const serialized = JSON.stringify(calls);
       assert.match(serialized, /KCODERAG_NATIVE_ACCEPTANCE_CANARY/u);
       assert.match(serialized, /feedback-observation-v1/u);
-      assert.match(serialized, /expected_observed_summary/u);
+      assert.match(serialized, /usability_report/u);
       assert.match(serialized, /severity low/u);
       assert.doesNotMatch(serialized, /acceptance-only rating/u);
       if (host === "codex") {
-        const native = calls.find((args) => args[0] === "exec" && args.includes("--enable"));
-        assert.ok(native !== undefined);
-        assert.equal(native.includes("--approve-for-me"), false);
-        assert.equal(native.includes("--sandbox"), true);
-        assert.equal(native.includes("read-only"), true);
-        assert.equal(native.includes('approval_policy="never"'), true);
+        const native = calls.filter((args) => args[0] === "exec" && args.includes("--enable"));
+        assert.equal(native.length, 2);
+        assert.equal(native.every((args) => !args.includes("--approve-for-me")), true);
+        assert.equal(native.every((args) => args.includes("--sandbox") && args.includes("read-only")), true);
+        assert.equal(native.every((args) => args.includes('approval_policy="never"')), true);
+        assert.equal(native.filter((args) => JSON.stringify(args).includes("KCODERAG_NATIVE_ACCEPTANCE_CANARY")).length, 2);
+        assert.equal(native.filter((args) => JSON.stringify(args).includes("feedback-observation-v1")).length, 1);
       }
       if (host === "claude") {
+        const native = calls.filter((args) => args[0] === "-p");
+        assert.equal(native.length, 2);
+        assert.equal(native.filter((args) => JSON.stringify(args).includes("Use Glob once")).length, 1);
+        assert.equal(native.filter((args) => JSON.stringify(args).includes("feedback-observation-v1")).length, 1);
         assert.match(serialized, /Use Glob once/u);
         assert.match(serialized, /Use Grep once/u);
         assert.match(serialized, /Use Bash once/u);
@@ -206,17 +213,43 @@ test("Claude stream-json hook lifecycle is correlated with real Grep Glob and Ba
   const output = [
     { type: "system", subtype: "hook_response", hook_event: "SessionStart", hook_name: "kcoderag-nav session-start", additionalContext: "KCodeRag ready" },
     { type: "assistant", message: { content: [{ type: "tool_use", name: "Glob" }] } },
-    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "kcoderag-nav run_hook" },
+    { type: "system", subtype: "hook_started", hook_event: "PreToolUse", hook_id: "glob-hook", hook_name: "PreToolUse:Glob" },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_id: "glob-hook", hook_name: "PreToolUse:Glob", exit_code: 0 },
     { type: "assistant", message: { content: [{ type: "tool_use", name: "Grep" }] } },
-    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "pre-tool-dispatcher.cjs" },
+    { type: "system", subtype: "hook_started", hook_event: "PreToolUse", hook_id: "grep-hook", hook_name: "PreToolUse:Grep" },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_id: "grep-hook", hook_name: "PreToolUse:Grep", exit_code: 0 },
     { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } },
-    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_name: "kcoderag-nav run_hook" },
+    { type: "system", subtype: "hook_started", hook_event: "PreToolUse", hook_id: "bash-hook", hook_name: "PreToolUse:Bash" },
+    { type: "system", subtype: "hook_response", hook_event: "PreToolUse", hook_id: "bash-hook", hook_name: "PreToolUse:Bash", exit_code: 0 },
   ].map((value) => JSON.stringify(value)).join("\n");
   const evidence = driver.parseNativeEvidence(output);
   assert.equal(evidence.sessionStart, true);
   assert.equal(evidence.grepHook, true);
   assert.equal(evidence.globHook, true);
   assert.equal(evidence.bashHook, true);
+});
+
+test("Claude stream-json correlates structured MCP envelopes and rejects failed feedback results", () => {
+  const success = (toolUseId: string) => ({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: "bounded" }] },
+    tool_use_result: { content: [], structuredContent: { ok: true } },
+  });
+  const output = [
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "list-1", name: "mcp__kcoderag-qa__list_indexes" }] } },
+    success("list-1"),
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "search-1", name: "mcp__kcoderag-qa__search_code" }] } },
+    success("search-1"),
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "feedback-1", name: "mcp__kcoderag-qa__submit_feedback" }] } },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "feedback-1", is_error: true, content: "unavailable" }] } },
+    { type: "assistant", message: { content: [{ type: "tool_use", id: "search-2", name: "mcp__kcoderag-qa__search_code" }] } },
+    success("search-2"),
+  ].map((value) => JSON.stringify(value)).join("\n");
+  const evidence = driver.parseNativeEvidence(output);
+  assert.equal(evidence.listIndexes, true);
+  assert.equal(evidence.searchCodeCount, 2);
+  assert.equal(evidence.structuredResult, true);
+  assert.equal(evidence.submitFeedback, false);
 });
 
 test("ZCode freezes desktop and runtime versions and reports native auth absence without leaking output", async () => {
@@ -363,6 +396,18 @@ test("normal process exit removes ownership and cleanup matches a still-running 
     });
     assert.deepEqual(completed, { code: 0, stdout: "ok" });
     assert.equal(fs.existsSync(path.join(cache, "native-processes.json")), false);
+
+    const transportFailure = await driver.defaultRunCommand(process.execPath, [
+      "-e",
+      "process.stderr.write('UnexpectedServerResponse HTTP 502: private-body')",
+    ], {
+      cwd: root,
+      env: process.env,
+      timeoutMs: 10_000,
+      pidRoot: cache,
+    });
+    assert.deepEqual(transportFailure, { code: 0, stdout: "", nativeErrorKind: "connect" });
+    assert.doesNotMatch(JSON.stringify(transportFailure), /private-body/u);
 
     if (process.platform === "win32") {
       const child = childProcess.spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {

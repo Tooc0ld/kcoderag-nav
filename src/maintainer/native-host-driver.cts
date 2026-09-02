@@ -32,15 +32,18 @@ const PID_FILE = "native-processes.json";
 const ZCODE_FROZEN_VERSION = "3.10.1";
 const EXACT_VERSION_RE = /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/u;
 const SECRET_SHAPED_RE = /(?:https?:\/\/|bearer\s|authorization\s*[:=]|token\s*[:=]|credential\s*[:=]|secret\s*[:=])/iu;
-const MCP_SEQUENCE_PROMPT = [
-  "For the MCP portion, use only the installed kcoderag MCP tools.",
-  "Call list_indexes once, then call search_code for the fixed acceptance canary identifier.",
-  "After the native feedback reminder, call submit_feedback once with exactly schema_version feedback-observation-v1, category expected_observed_summary, severity low, expected_summary acceptance canary completed, and actual_summary acceptance canary completed; then call search_code once more.",
-  "Outside any fixed canary actions stated earlier, do not inspect project files or run a shell.",
-  "Never quote source, connection data, tool arguments, or tool results.",
-].join(" ");
 const NATIVE_CANARY_NAME = "kcoderag-native-canary.txt";
 const NATIVE_CANARY_TEXT = "KCODERAG_NATIVE_ACCEPTANCE_CANARY";
+const MCP_SEQUENCE_PROMPT = [
+  "This is a mandatory four-step native MCP acceptance sequence; complete every numbered step and do not stop after an intermediate result.",
+  "Use only the installed kcoderag MCP tools and do not wait for a toast or reminder before continuing.",
+  "Step 1: call list_indexes exactly once.",
+  `Step 2: call search_code for the exact query ${NATIVE_CANARY_TEXT}, using a usable index from step 1 when the tool requires one.`,
+  "Step 3: record the truthful usability outcome from step 2, without claiming a defect, by calling submit_feedback exactly once with schema_version feedback-observation-v1, category usability_report, severity low, and repro_hint native acceptance observed structured search result.",
+  `Step 4: call search_code again for the exact query ${NATIVE_CANARY_TEXT}, using the same index as step 2 when applicable.`,
+  "Do not inspect project files, run a shell, or answer until all four tool calls have completed.",
+  "Never quote source, connection data, tool arguments, or tool results.",
+].join(" ");
 
 type DriverAction = "probe" | "run" | "cleanup";
 
@@ -56,6 +59,7 @@ export interface NativeCommandResult {
   readonly code: number;
   readonly stdout: string;
   readonly authMissing?: boolean;
+  readonly nativeErrorKind?: NativeErrorKind;
 }
 
 export interface NativeDriverDependencies {
@@ -68,18 +72,20 @@ export interface NativeDriverDependencies {
   readonly pathExists?: (filePath: string) => boolean;
 }
 
+type NativeErrorKind =
+  | "none"
+  | "mcp"
+  | "init"
+  | "connect"
+  | "timeout"
+  | "auth"
+  | "permission"
+  | "protocol"
+  | "tool_unavailable"
+  | "other";
+
 interface StructuredEvidence {
-  readonly nativeErrorKind:
-    | "none"
-    | "mcp"
-    | "init"
-    | "connect"
-    | "timeout"
-    | "auth"
-    | "permission"
-    | "protocol"
-    | "tool_unavailable"
-    | "other";
+  readonly nativeErrorKind: NativeErrorKind;
   readonly sessionStart: boolean;
   readonly hookOutput: boolean;
   readonly grepHook: boolean;
@@ -360,48 +366,61 @@ async function lifecycle(
   }));
 }
 
-function nativeSpec(input: NativeDriverInput, executable: string): NativeSpec | undefined {
+function nativeSpecs(input: NativeDriverInput, executable: string): readonly NativeSpec[] {
   if (input.host === "codex") {
-    const prompt = [
-      `First run a matched read-only search for ${NATIVE_CANARY_TEXT} in ${NATIVE_CANARY_NAME}.`,
-      MCP_SEQUENCE_PROMPT,
-    ].join(" ");
-    return Object.freeze({ executable, args: Object.freeze([
+    const shared = [
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
       "--sandbox", "read-only", "-c", 'approval_policy="never"',
-      "--skip-git-repo-check", "--json", "--cd", input.project, prompt,
-    ]) });
+      "--skip-git-repo-check", "--json", "--cd", input.project,
+    ];
+    return Object.freeze([
+      Object.freeze({ executable, args: Object.freeze([
+        ...shared,
+        `Run one matched read-only search for ${NATIVE_CANARY_TEXT} in ${NATIVE_CANARY_NAME}, then reply only with done.`,
+      ]) }),
+      Object.freeze({ executable, args: Object.freeze([...shared, MCP_SEQUENCE_PROMPT]) }),
+    ]);
   }
   if (input.host === "claude") {
-    const prompt = [
+    const hookPrompt = [
       `Use Glob once to locate ${NATIVE_CANARY_NAME}.`,
       `Use Grep once to find ${NATIVE_CANARY_TEXT} in that file.`,
       "Use Bash once only for the fixed read-only command: node --version.",
-      MCP_SEQUENCE_PROMPT,
+      "Then reply only with done.",
     ].join(" ");
-    return Object.freeze({ executable, args: Object.freeze([
-      "-p", prompt, "--mcp-config", path.join(input.project, ".mcp.json"), "--strict-mcp-config",
-      "--allowedTools", [
-        "Grep", "Glob", "Bash",
-        "mcp__kcoderag-qa__list_indexes", "mcp__kcoderag-qa__search_code", "mcp__kcoderag-qa__submit_feedback",
-        "mcp__kcoderag_qa__list_indexes", "mcp__kcoderag_qa__search_code", "mcp__kcoderag_qa__submit_feedback",
-      ].join(","),
+    const shared = [
+      "--mcp-config", path.join(input.project, ".mcp.json"), "--strict-mcp-config",
       "--include-hook-events", "--no-session-persistence", "--output-format", "stream-json", "--verbose",
-    ]) });
+    ];
+    return Object.freeze([
+      Object.freeze({ executable, args: Object.freeze([
+        "-p", hookPrompt, "--allowedTools", "Grep,Glob,Bash", ...shared,
+      ]) }),
+      Object.freeze({ executable, args: Object.freeze([
+        "-p", MCP_SEQUENCE_PROMPT,
+        "--allowedTools", [
+          "mcp__kcoderag-qa__list_indexes", "mcp__kcoderag-qa__search_code", "mcp__kcoderag-qa__submit_feedback",
+          "mcp__kcoderag_qa__list_indexes", "mcp__kcoderag_qa__search_code", "mcp__kcoderag_qa__submit_feedback",
+        ].join(","),
+        ...shared,
+      ]) }),
+    ]);
   }
   if (input.host === "opencode") {
-    return Object.freeze({ executable, args: Object.freeze(["run", "--format", "json", "--dir", input.project, "--auto", MCP_SEQUENCE_PROMPT]) });
+    return Object.freeze([Object.freeze({ executable, args: Object.freeze([
+      "run", "--format", "json", "--dir", input.project, "--auto", MCP_SEQUENCE_PROMPT,
+    ]) })]);
   }
   if (input.host === "cursor") {
-    return Object.freeze({ executable, args: Object.freeze([
+    return Object.freeze([Object.freeze({ executable, args: Object.freeze([
       "--print", "--output-format", "stream-json", MCP_SEQUENCE_PROMPT,
-    ]) });
+    ]) })]);
   }
-  if (path.extname(executable).toLowerCase() !== ".cjs") return undefined;
-  return Object.freeze({ executable: process.execPath, args: Object.freeze([
+  if (path.extname(executable).toLowerCase() !== ".cjs") return Object.freeze([]);
+  return Object.freeze([Object.freeze({ executable: process.execPath, args: Object.freeze([
     executable, "--prompt", MCP_SEQUENCE_PROMPT, "--cwd", input.project, "--json", "--max-turns", "8",
     "--allowed-tools", "list_indexes,search_code,submit_feedback",
-  ]) });
+  ]) })]);
 }
 
 function parseJsonLines(output: string): readonly unknown[] {
@@ -420,19 +439,22 @@ function textFields(value: Record<string, unknown>): readonly string[] {
     .map(([, item]) => item as string);
 }
 
-function logicalToolName(value: Record<string, unknown>): string | undefined {
+type NativeMcpToolName = "list_indexes" | "search_code" | "submit_feedback";
+
+function logicalToolName(value: Record<string, unknown>): NativeMcpToolName | undefined {
   for (const key of ["tool_name", "toolName", "tool", "name"] as const) {
     const item = value[key];
     if (typeof item !== "string") continue;
     const match = /(?:^|__|_)(list_indexes|search_code|submit_feedback)$/u.exec(item);
-    if (match?.[1] !== undefined) return match[1];
+    const candidate = match?.[1];
+    if (candidate === "list_indexes" || candidate === "search_code" || candidate === "submit_feedback") return candidate;
   }
   return undefined;
 }
 
 function reliableSuccess(value: Record<string, unknown>): boolean {
-  if (value.success === false || value.isError === true || value.status === "failed" || value.error !== undefined) return false;
-  if (value.success === true || value.isError === false || value.status === "completed" || value.status === "success") return true;
+  if (value.success === false || value.isError === true || value.is_error === true || value.status === "failed" || value.error !== undefined) return false;
+  if (value.success === true || value.isError === false || value.is_error === false || value.status === "completed" || value.status === "success") return true;
   if (isRecord(value.result) && value.result.error === undefined
     && (value.result.isError === false || value.result.success === true)) return true;
   if (isRecord(value.state) && value.state.error === undefined &&
@@ -454,13 +476,13 @@ function structuredResultEvidence(value: Record<string, unknown>): boolean {
   }
 }
 
-export function classifyNativeError(value: Record<string, unknown>): StructuredEvidence["nativeErrorKind"] {
+export function classifyNativeError(value: Record<string, unknown>): NativeErrorKind {
   const material = [value.code, value.kind, value.type, value.status, value.error, value.message]
     .filter((item): item is string => typeof item === "string" && item.length <= 4_096)
     .join(" ");
   if (/(?:auth|login|unauthorized)/iu.test(material)) return "auth";
   if (/(?:timeout|timed_out)/iu.test(material)) return "timeout";
-  if (/(?:connect|network|econn|enotfound)/iu.test(material)) return "connect";
+  if (/(?:connect|network|econn|enotfound|transport channel closed|http\s+50[234])/iu.test(material)) return "connect";
   if (/(?:permission|forbidden|approval|denied)/iu.test(material)) return "permission";
   if (/(?:handshake|protocol|negotiat)/iu.test(material)) return "protocol";
   if (/(?:tool[ _-]?(?:unavailable|disabled|missing|not[ _-]?found)|unknown[ _-]?tool)/iu.test(material)) {
@@ -469,6 +491,18 @@ export function classifyNativeError(value: Record<string, unknown>): StructuredE
   if (/\bmcp\b/iu.test(material)) return "mcp";
   if (/(?:init|startup)/iu.test(material)) return "init";
   return "other";
+}
+
+function nativeErrorPriority(kind: NativeErrorKind): number {
+  if (kind === "none") return 0;
+  if (kind === "other") return 1;
+  if (kind === "mcp") return 2;
+  if (kind === "init") return 3;
+  return 4;
+}
+
+function preferredNativeError(left: NativeErrorKind, right: NativeErrorKind): NativeErrorKind {
+  return nativeErrorPriority(right) > nativeErrorPriority(left) ? right : left;
 }
 
 export function parseNativeEvidence(output: string): StructuredEvidence {
@@ -496,7 +530,9 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
   let zcodePre = false;
   let zcodePost = false;
   const claudeToolRequests = new Set<"Grep" | "Glob" | "Bash">();
-  let managedClaudePreToolResponses = 0;
+  const claudeMcpRequests = new Map<string, NativeMcpToolName>();
+  const claudePreToolStarts = new Set<string>();
+  const claudePreToolResponses = new Set<string>();
   let ordinal = 0;
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) { for (const item of value) visit(item); return; }
@@ -507,19 +543,38 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
     if (nativeErrorKind === "none" && (/error/iu.test(eventName) || value.error !== undefined)) {
       nativeErrorKind = classifyNativeError(value);
     }
-    const toolName = logicalToolName(value);
+    const directToolName = logicalToolName(value);
+    if (value.type === "tool_use" && directToolName !== undefined && typeof value.id === "string" && value.id.length <= 4_096) {
+      claudeMcpRequests.set(value.id, directToolName);
+    }
+    let toolName = directToolName;
+    let toolSucceeded = directToolName !== undefined && reliableSuccess(value);
+    let toolStructuredResult = structuredResultEvidence(value);
+    if (isRecord(value.tool_use_result) && isRecord(value.message) && Array.isArray(value.message.content)) {
+      const resultBlock = value.message.content.find((item): item is Record<string, unknown> =>
+        isRecord(item) && item.type === "tool_result" && typeof item.tool_use_id === "string");
+      const requested = resultBlock === undefined ? undefined : claudeMcpRequests.get(resultBlock.tool_use_id as string);
+      if (requested !== undefined && resultBlock !== undefined && resultBlock.is_error !== true && resultBlock.isError !== true &&
+          value.tool_use_result.error === undefined && value.tool_use_result.isError !== true &&
+          value.tool_use_result.is_error !== true) {
+        toolName = requested;
+        toolSucceeded = true;
+        toolStructuredResult = structuredResultEvidence(value.tool_use_result);
+      }
+    }
     const texts = textFields(value);
     const hasKCodeRagContext = texts.some((item) => /KCodeRag/u.test(item));
     const hasFeedbackContext = texts.some((item) => /submit_feedback/u.test(item));
     if (value.type === "tool_use" && (value.name === "Grep" || value.name === "Glob" || value.name === "Bash")) {
       claudeToolRequests.add(value.name);
     }
-    const hookName = typeof value.hook_name === "string" && value.hook_name.length <= 4_096
-      ? value.hook_name
-      : "";
-    if (value.subtype === "hook_response" && /PreToolUse/iu.test(eventName) &&
-        /(?:kcoderag-nav|pre-tool-dispatcher|run_hook)/iu.test(hookName)) {
-      managedClaudePreToolResponses += 1;
+    const hookId = typeof value.hook_id === "string" && value.hook_id.length <= 4_096 ? value.hook_id : undefined;
+    if (hookId !== undefined && value.subtype === "hook_started" && /PreToolUse/iu.test(eventName)) {
+      claudePreToolStarts.add(hookId);
+    }
+    if (hookId !== undefined && value.subtype === "hook_response" && /PreToolUse/iu.test(eventName) &&
+        value.exit_code === 0 && claudePreToolStarts.has(hookId)) {
+      claudePreToolResponses.add(hookId);
     }
     if (/SessionStart/iu.test(eventName) && hasKCodeRagContext) sessionStart = true;
     if (/(?:PreToolUse|PostToolUse|hook)/iu.test(eventName) && hasKCodeRagContext) hookOutput = true;
@@ -537,12 +592,12 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
     if (/tool\.execute\.after/iu.test(eventName)) pluginCallback = true;
     if (/PreToolUse/iu.test(eventName)) zcodePre = true;
     if (/PostToolUse/iu.test(eventName)) zcodePost = true;
-    if (toolName !== undefined && reliableSuccess(value)) {
+    if (toolName !== undefined && toolSucceeded) {
       if (toolName === "list_indexes") listIndexes = true;
       if (toolName === "search_code") {
         searchCodeCount += 1;
         lastSearchOrdinal = ordinal;
-        structuredResult ||= structuredResultEvidence(value);
+        structuredResult ||= toolStructuredResult;
       }
       if (toolName === "submit_feedback") {
         submitFeedback = true;
@@ -557,7 +612,7 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
   };
   for (const value of parseJsonLines(output)) visit(value);
   const claudeHooksComplete = claudeToolRequests.size > 0 &&
-    managedClaudePreToolResponses >= claudeToolRequests.size;
+    claudePreToolResponses.size >= claudeToolRequests.size;
   grepHook ||= claudeHooksComplete && claudeToolRequests.has("Grep");
   globHook ||= claudeHooksComplete && claudeToolRequests.has("Glob");
   bashHook ||= claudeHooksComplete && claudeToolRequests.has("Bash");
@@ -568,6 +623,32 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
     feedbackSuppressed: submitFeedback && lastSearchOrdinal > lastSubmitOrdinal && !reminderAfterSubmit,
     cursorReload, cursorRule, cursorSkill, cursorAfterMcp, pluginLoaded, pluginCallback, workspaceSkill,
     zcodePre, zcodePost,
+  });
+}
+
+function mergeNativeEvidence(left: StructuredEvidence, right: StructuredEvidence): StructuredEvidence {
+  return Object.freeze({
+    nativeErrorKind: preferredNativeError(left.nativeErrorKind, right.nativeErrorKind),
+    sessionStart: left.sessionStart || right.sessionStart,
+    hookOutput: left.hookOutput || right.hookOutput,
+    grepHook: left.grepHook || right.grepHook,
+    globHook: left.globHook || right.globHook,
+    bashHook: left.bashHook || right.bashHook,
+    listIndexes: left.listIndexes || right.listIndexes,
+    searchCodeCount: left.searchCodeCount + right.searchCodeCount,
+    structuredResult: left.structuredResult || right.structuredResult,
+    feedbackReminder: left.feedbackReminder || right.feedbackReminder,
+    submitFeedback: left.submitFeedback || right.submitFeedback,
+    feedbackSuppressed: left.feedbackSuppressed || right.feedbackSuppressed,
+    cursorReload: left.cursorReload || right.cursorReload,
+    cursorRule: left.cursorRule || right.cursorRule,
+    cursorSkill: left.cursorSkill || right.cursorSkill,
+    cursorAfterMcp: left.cursorAfterMcp || right.cursorAfterMcp,
+    pluginLoaded: left.pluginLoaded || right.pluginLoaded,
+    pluginCallback: left.pluginCallback || right.pluginCallback,
+    workspaceSkill: left.workspaceSkill || right.workspaceSkill,
+    zcodePre: left.zcodePre || right.zcodePre,
+    zcodePost: left.zcodePost || right.zcodePost,
   });
 }
 
@@ -810,18 +891,25 @@ export async function runNativeHost(
     if (input.host === "codex" && !projectCodexLiveConfig(input.project, input.cache)) {
       return await finalize(false);
     }
-    const spec = nativeSpec(input, executable);
-    let nativeRan = false;
-    if (spec !== undefined) {
+    const specs = nativeSpecs(input, executable);
+    let nativeRan = specs.length > 0;
+    for (const spec of specs) {
       const result = await dependencies.runCommand(spec.executable, spec.args, {
         cwd: input.project,
         env: isolatedEnvironment(input),
         timeoutMs: COMMAND_TIMEOUT_MS,
         pidRoot: input.cache,
       });
-      nativeRan = result.code === 0;
-      native = withNativeMarkers(input, parseNativeEvidence(result.stdout));
+      nativeRan &&= result.code === 0;
+      const parsed = parseNativeEvidence(result.stdout);
+      native = mergeNativeEvidence(native, result.nativeErrorKind === undefined
+        ? parsed
+        : Object.freeze({
+            ...parsed,
+            nativeErrorKind: preferredNativeError(parsed.nativeErrorKind, result.nativeErrorKind),
+          }));
     }
+    native = withNativeMarkers(input, native);
     common.nativeHostProcess = nativeRan;
     common.sessionBaselineObserved = input.host === "cursor"
       ? native.cursorRule && native.cursorSkill
@@ -1004,7 +1092,9 @@ function defaultRunCommand(
         : ["/d", "/s", "/c", executable, ...args];
     let stdout = "";
     let outputBytes = 0;
+    let stderrBytes = 0;
     let authMissing = false;
+    let nativeErrorKind: NativeErrorKind = "none";
     let forcedFailure = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
@@ -1020,6 +1110,7 @@ function defaultRunCommand(
         code: forcedFailure ? 1 : code,
         stdout: forcedFailure ? "" : stdout,
         ...(authMissing ? { authMissing: true } : {}),
+        ...(nativeErrorKind === "none" ? {} : { nativeErrorKind }),
       }));
     };
     const startedAt = Date.now();
@@ -1048,14 +1139,25 @@ function defaultRunCommand(
     if (stderrPipe !== null) {
       stderrPipe.setEncoding("utf8");
       stderrPipe.on("data", (chunk: string) => {
+        stderrBytes += Buffer.byteLength(chunk, "utf8");
+        if (stderrBytes > MAX_NATIVE_OUTPUT_BYTES) {
+          forcedFailure = true;
+          terminateProcessTree(child.pid ?? -1);
+          return;
+        }
         if (/(?:auth|login)/iu.test(chunk)) authMissing = true;
+        nativeErrorKind = preferredNativeError(nativeErrorKind, classifyNativeError({ message: chunk }));
       });
     }
     if (input !== undefined) child.stdin?.end(input);
-    child.on("error", () => finish(1));
+    child.on("error", () => {
+      nativeErrorKind = preferredNativeError(nativeErrorKind, "connect");
+      finish(1);
+    });
     child.on("close", (code) => finish(code ?? 1));
     timer = setTimeout(() => {
       forcedFailure = true;
+      nativeErrorKind = preferredNativeError(nativeErrorKind, "timeout");
       terminateProcessTree(child.pid ?? -1);
       finish(1);
     }, timeoutMs);
