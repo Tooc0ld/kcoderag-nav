@@ -15,7 +15,7 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("OpenCode rejects after-event code-style nudge and projects navigation plugin update awareness", async () => {
+test("OpenCode installs manual code-style and projects navigation plugin update awareness", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-opencode-"));
   try {
     const original = "{\n  // keep comment\n  \"theme\": \"dark\",\n}\n";
@@ -23,12 +23,9 @@ test("OpenCode rejects after-event code-style nudge and projects navigation plug
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = opencode.createOpenCodeAdapter({ hostVersion: "1.18.23", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    assert.throws(() => adapter.renderInstall(context(target, observation, [CODE_STYLE])), (error: any) => error?.code === "host_version_unsupported");
-    assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
-
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])));
     const state = JSON.parse(fs.readFileSync(path.join(root, ".opencode/kcoderag-nav/install-state.json"), "utf8"));
-    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
     assert.equal(state.sections.some((entry: any) => entry.id === "navigation:schema"), true);
     const rendered = fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8");
     assert.equal(/keep comment/u.test(rendered), true);
@@ -43,18 +40,44 @@ test("OpenCode rejects after-event code-style nudge and projects navigation plug
     assert.match(plugin, /readHostUpdateNotice/u);
     assert.match(plugin, /scheduleHostUpdateRefresh/u);
     for (const relativePath of [
-      ".opencode/skills/kcoderag-nav/SKILL.md",
+      ".opencode/skills/kcoderag/SKILL.md",
       ".opencode/kcoderag-nav/hooks/mcp-call-marker.cjs",
       ".opencode/kcoderag-nav/hooks/update-check.cjs",
       ".opencode/kcoderag-nav/hooks/update-notice.cjs",
       ".opencode/kcoderag-nav/hooks/update-worker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
+    assert.equal(fs.existsSync(path.join(root, ".opencode/skills/kcoderag-code-style/SKILL.md")), true);
+    const status = adapter.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: adapter.detect({ target, packageRoot: PACKAGE_ROOT }) });
+    assert.deepEqual(status.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION] }));
+    await transaction.applyTransaction(adapter.renderUninstall({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed, selectedCapabilities: [NAVIGATION, CODE_STYLE] }));
     assert.equal(fs.readFileSync(path.join(root, "opencode.jsonc"), "utf8"), original);
     assert.equal(fs.existsSync(path.join(root, ".opencode/plugins/kcoderag-nav.js")), false);
-    assert.equal(fs.existsSync(path.join(root, ".opencode/skills/code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".opencode/skills/kcoderag-code-style/SKILL.md")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode can add navigation after a manual-only code-style install", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-opencode-reverse-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = opencode.createOpenCodeAdapter({ hostVersion: "1.18.23", evidenceRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [NAVIGATION],
+    )));
+    const state = JSON.parse(fs.readFileSync(path.join(root, ".opencode/kcoderag-nav/install-state.json"), "utf8"));
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
+    assert.equal(fs.existsSync(path.join(root, "opencode.json")), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

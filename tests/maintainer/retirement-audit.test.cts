@@ -358,6 +358,16 @@ test("post retirement rejects every active retired authority, product, workflow,
       code: "retired_workflow_remains",
     },
     {
+      relativePath: ["kcoderag-qa", "skills", ["code", "lookup", "discipline"].join("-"), "SKILL.md"].join("/"),
+      bytes: "retired public skill\n",
+      code: "retired_public_skill_remains",
+    },
+    {
+      relativePath: ["kcoderag-cursor", "skills", ["code", "style", "correction"].join("-"), "SKILL.md"].join("/"),
+      bytes: "retired public skill\n",
+      code: "retired_public_skill_remains",
+    },
+    {
       relativePath: "plugin-src/hooks/runtime.cts",
       bytes: "export const runtime = true;\n",
       code: "runtime_source_remains",

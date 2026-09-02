@@ -273,7 +273,7 @@ test("SessionStart code-style summary requires the frozen receipt and complete i
 
     const state = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;
     const skillRecord = state.files.find((record: Record<string, unknown>) =>
-      record.path === ".claude/skills/code-style-correction/SKILL.md");
+      record.path === ".claude/skills/kcoderag-code-style/SKILL.md");
     assert.equal(typeof skillRecord?.path, "string");
     const skillPath = path.join(projectRoot, ...skillRecord.path.split("/"));
     const originalSkill = fs.readFileSync(skillPath);

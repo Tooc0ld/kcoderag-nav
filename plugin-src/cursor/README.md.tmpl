@@ -8,16 +8,17 @@ Asset presence is not host-delivery evidence. This tree is not a marketplace or 
 install source.
 
 QA is the only public environment for MCP. The current package has two built-in capabilities:
-`kcoderag-navigation` and `code-style-nudge`. Cursor `3.17.8` supports navigation, while its exact
-receipt verdict for code-style guidance is `UNSUPPORTED`; the CLI therefore rejects
-`code-style-nudge` selection with `host_version_unsupported` and zero writes.
+`kcoderag-navigation` and `code-style-nudge`. Cursor receives the `$kcoderag`, `$kcoderag-manage`,
+`$kcoderag-feedback`, and `$kcoderag-code-style` manual Skills. Cursor `3.17.8` has an exact
+`UNSUPPORTED` receipt only for native automatic pre-write delivery.
 
-## Install navigation into one project
+## Install capabilities into one project
 
 Use Node.js 22 or newer from the exact target project:
 
 ```powershell
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation
+npx kcoderag-nav@latest install --host cursor --capability code-style-nudge
 ```
 
 Without `--host`/`--capability`, the CLI can interactively select Cursor and navigation.
@@ -47,8 +48,8 @@ npx kcoderag-nav@latest uninstall --host cursor --capability kcoderag-navigation
 - `uninstall` requires an interactive selection, explicit capability, or explicit `--all`; it
   never defaults to removing everything.
 
-All mutations preflight the complete target set and commit one transaction. One unsupported
-capability, conflict, drift, symlink, special file, unsafe target, or ambiguous owner makes the
+All mutations preflight the complete target set and commit one transaction. One conflict, drift,
+symlink, special file, unsafe target, or ambiguous owner makes the
 entire request fail before the first write. There is no partial success.
 
 ## Cursor source, state, and integrity boundaries
@@ -64,20 +65,21 @@ Old environment-shaped/Python state has no decoder or migration authority. Remov
 recomposes shared files from any remaining contributors and restores an original only when its last
 contributor is gone.
 
-Complete D-15 integrity is checked before any code-style once claim: current state, composite digest, and
-every managed file digest must match. Missing or edited assets stay silent and fail-open, do not
-consume a reminder, and appear as `capability_drift` in status/doctor.
+Complete integrity is checked before any native code-style once claim: current state, composite
+digest, and every managed file digest must match. Missing or edited manual assets appear as
+`capability_drift` in status/doctor; Cursor remains silent on the automatic path.
 
 ## Cursor capability boundary
 
-Cursor navigation uses its always-on Rule, shared Skill, QA MCP configuration, `postToolUse` update
+Cursor navigation uses its always-on Rule, three navigation-family Skills, QA MCP configuration, `postToolUse` update
 notice, and `afterMCPExecution` successful-call marker. It does not use or claim native
-Codex/Claude `PreToolUse` delivery. A Rule, packaged code-style Skill, toast, or after-event is not
+Codex/Claude `PreToolUse` delivery. The manual `$kcoderag-code-style` Skill is available, but a Rule,
+packaged Skill, toast, or after-event is not
 model-visible native pre-write evidence.
 
-The CLI reads Cursor `3.17.8` strictly and evaluates its frozen digest-bound `UNSUPPORTED` receipt.
-Selecting `code-style-nudge` stops before desired-state render/transaction with `host_version_unsupported`; an
-existing navigation tree remains byte-identical and healthy. Exact strings, current edits, and an
+The CLI reads Cursor `3.17.8` strictly and evaluates its frozen digest-bound `UNSUPPORTED` native
+receipt while still installing the manual style Skill. `status`/`doctor` report
+`manualSkill: available` and `automaticNudge: unsupported`. Exact strings, current edits, and an
 unavailable or stale index remain valid reasons to use scoped local search.
 
 The `afterMCPExecution` marker and update notice store no MCP arguments, results, URL, headers, or
@@ -99,7 +101,8 @@ OpenCode, and ZCode session, then delete the whole cache directory with an OS fi
 the needed sessions. `status` and `doctor` are read-only; there is no cleanup command. Listing,
 capacity-pruning, or deletion errors are fail-open and never block host work.
 
-Phase 04.1 evidence proves Cursor navigation and exact code-style zero-write refusal. It does not claim
+Phase 06 PACKAGED evidence proves Cursor navigation, manual code-style delivery, and silent native
+non-delivery. It does not claim
 authenticated real-Cursor MCP query evidence; that remains Phase 06 work. Connection and
 authorization values stay opaque in generation, install, diagnostics, tests, logs, receipts, and
 documentation.

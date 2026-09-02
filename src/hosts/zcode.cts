@@ -12,7 +12,7 @@ import {
   type ProjectedCapabilitySection,
 } from "../capabilities/compose.cjs";
 import type { CapabilityId } from "../capabilities/contracts.cjs";
-import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
+import { resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import {
   InstallError,
   type InstallState,
@@ -23,7 +23,7 @@ import {
 import { upsertJsonObjectProperty } from "../core/json-splice.cjs";
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
-import { createStatusResult, parseInstallState } from "../core/state.cjs";
+import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "../core/state.cjs";
 import type {
   HostAdapter,
   HostInstallContext,
@@ -71,7 +71,10 @@ interface Details {
 
 const STATE_PATH = ".zcode/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".zcode/config.json";
-const NAV_SKILL_PATH = ".zcode/skills/kcoderag-nav/SKILL.md";
+const NAV_SKILL_ROOT = ".zcode/skills/kcoderag";
+const MANAGE_SKILL_ROOT = ".zcode/skills/kcoderag-manage";
+const FEEDBACK_SKILL_ROOT = ".zcode/skills/kcoderag-feedback";
+const CODE_STYLE_SKILL_ROOT = ".zcode/skills/kcoderag-code-style";
 const HOOK_ROOT = ".zcode/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".zcode"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
@@ -184,9 +187,10 @@ function verifyState(target: ProjectTarget, state: InstallState): void {
 
 function detectZCode(context: { readonly target: ProjectTarget }): HostObservation {
   let bytes: Buffer | undefined;
+  let currentState: InstallState | undefined;
   try {
     bytes = readRegular(context.target, STATE_PATH);
-    const currentState = bytes === undefined ? undefined : parseInstallState(bytes);
+    currentState = bytes === undefined ? undefined : parseInstallState(bytes);
     if (currentState !== undefined) verifyState(context.target, currentState);
     return Object.freeze({
       host: "zcode" as const,
@@ -198,6 +202,7 @@ function detectZCode(context: { readonly target: ProjectTarget }): HostObservati
     return Object.freeze({
       host: "zcode" as const,
       target: context.target,
+      ...(currentState === undefined ? {} : { currentState }),
       issues: Object.freeze([issueFrom(error)]),
       details: Object.freeze(bytes === undefined ? {} : { stateBytes: Buffer.from(bytes) }),
     });
@@ -237,23 +242,6 @@ function selectedUninstall(context: HostUninstallContext): readonly CapabilityId
   if (removals === undefined) return Object.freeze([]);
   const remove = new Set(resolveCapabilitySelection(removals).map((entry) => entry.id));
   return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id)));
-}
-
-function assertSupport(
-  selected: readonly CapabilityId[],
-  context: HostInstallContext | HostUninstallContext,
-  options: ZCodeAdapterOptions,
-): void {
-  if (!selected.includes(CODE_STYLE)) return;
-  const extras = context as (HostInstallContext | HostUninstallContext) & Extras;
-  const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.();
-  if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
-  const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({
-    host: "zcode",
-    hostVersion,
-    evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot,
-  });
-  if (!decision.eligible) throw new InstallError(decision.code);
 }
 
 function processHook(scriptName: string, args: readonly string[] = []): JsonMap {
@@ -413,21 +401,17 @@ function contributions(
   projected: readonly CapabilityId[],
   state: InstallState | undefined,
 ): readonly ProjectedCapabilityContribution[] {
-  if (!projected.includes(NAVIGATION)) return Object.freeze([]);
-  const currentConfig = readRegular(target, CONFIG_PATH);
-  const config = mergeConfig(currentConfig, packageRoot, state);
-  return Object.freeze([
-    Object.freeze({
+  const result: ProjectedCapabilityContribution[] = [];
+  if (projected.includes(NAVIGATION)) {
+    const currentConfig = readRegular(target, CONFIG_PATH);
+    const config = mergeConfig(currentConfig, packageRoot, state);
+    result.push(Object.freeze({
       capabilityId: NAVIGATION,
       files: Object.freeze([
         projectedFile(target, state, CONFIG_PATH, config.bytes, true, true),
-        projectedFile(
-          target,
-          state,
-          NAV_SKILL_PATH,
-          sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"),
-          false,
-        ),
+        projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md"), false),
+        projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
+        projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
         projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/grep-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/grep-nudge.cjs"), false),
@@ -447,8 +431,25 @@ function contributions(
           ? [section(CONFIG_PATH, "navigation:hooks-enabled", true, currentConfig !== undefined)]
           : []),
       ]),
-    }),
-  ]);
+    }));
+  }
+  if (projected.includes(CODE_STYLE)) {
+    const references = [
+      "cpp-lifetime-control-flow.md",
+      "protocol-serialization-data.md",
+      "lua-contracts.md",
+      "change-hygiene-self-review.md",
+    ] as const;
+    result.push(Object.freeze({
+      capabilityId: CODE_STYLE,
+      files: Object.freeze([
+        projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false),
+        ...references.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
+      ]),
+      sections: Object.freeze([]),
+    }));
+  }
+  return Object.freeze(result);
 }
 
 function compose(
@@ -480,14 +481,16 @@ function compose(
 function status(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
   if (issue !== undefined) {
+    const status = issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid";
     return createStatusResult({
-      status: issue.code === "managed_content_changed" ? "drifted" : "invalid",
+      status,
       host: "zcode",
       issues: [issue],
+      codeStyle: deriveCodeStyleDelivery(context.observation.currentState, status),
     });
   }
   if (context.observation.currentState !== undefined) {
-    return createStatusResult({ status: "healthy", host: "zcode" });
+    return createStatusResult({ status: "healthy", host: "zcode", codeStyle: deriveCodeStyleDelivery(context.observation.currentState, "healthy") });
   }
   const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS);
   return hasManagedRootResidue(path.dirname(root.absolutePath))
@@ -504,7 +507,7 @@ function defaultMetadata(homeDirectory: string): ZCodeUserSourceMetadata {
   const config = inspectNativeJsonSource(homeDirectory, configPath);
   const ambiguousPaths: string[] = [];
   if (config.ambiguous) ambiguousPaths.push(configPath);
-  const skillPath = ".zcode/skills/kcoderag-nav/SKILL.md";
+  const skillPath = ".zcode/skills/kcoderag/SKILL.md";
   if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
   return Object.freeze({
     activePluginPaths: Object.freeze(config.activePlugin ? [configPath] : []),
@@ -596,13 +599,11 @@ export function createZCodeAdapter(options: ZCodeAdapterOptions = {}): HostAdapt
         throw new InstallError("not_installed", STATE_PATH);
       }
       const selected = selectedInstall(context);
-      assertSupport(selected, context, options);
       return compose(context, selected, preservedForUpdate(context, selected));
     },
     renderUninstall: (context: HostUninstallContext) => {
       refuse(context.observation);
       const selected = selectedUninstall(context);
-      assertSupport(selected, context, options);
       return compose(context, selected);
     },
     status,

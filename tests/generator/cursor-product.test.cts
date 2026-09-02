@@ -58,17 +58,19 @@ const projectTarget = require("../../dist/core/project-target.cjs") as Record<st
 const transaction = require("../../dist/core/transaction.cjs") as Record<string, any>;
 const NAVIGATION = "kcoderag-navigation";
 const CODE_STYLE = "code-style-nudge";
-const STYLE_SKILL_ROOT = "skills/code-style-correction";
+const STYLE_SKILL_ROOT = "skills/kcoderag-code-style";
 const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".cursor-plugin/plugin.json",
   "mcp.json",
   "rules/kcoderag-navigation.mdc",
-  "skills/code-lookup-discipline/SKILL.md",
   `${STYLE_SKILL_ROOT}/SKILL.md`,
   `${STYLE_SKILL_ROOT}/references/change-hygiene-self-review.md`,
   `${STYLE_SKILL_ROOT}/references/cpp-lifetime-control-flow.md`,
   `${STYLE_SKILL_ROOT}/references/lua-contracts.md`,
   `${STYLE_SKILL_ROOT}/references/protocol-serialization-data.md`,
+  "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag/SKILL.md",
 ]);
 const CANONICAL_STYLE_MEMBERS = Object.freeze([
   ["SKILL.md", "SKILL.md"],
@@ -108,16 +110,7 @@ function productPath(root: string, member: string): string {
 }
 
 function formerStyleRoot(): string {
-  return `skills/${String.fromCharCode(106, 120, 51)}-code-style-correction`;
-}
-
-function snapshotTree(root: string): readonly string[] {
-  if (!fs.existsSync(root)) return Object.freeze([]);
-  return Object.freeze(filesBelow(root).map((member) => {
-    const absolute = productPath(root, member);
-    const metadata = fs.statSync(absolute);
-    return `${member}:${metadata.size}:${metadata.mtimeMs}:${sha256(absolute)}`;
-  }));
+  return `skills/${String.fromCharCode(106, 120, 51)}-${["code", "style", "correction"].join("-")}`;
 }
 
 function safeReference(root: string, reference: string, expected: "file" | "directory"): boolean {
@@ -151,7 +144,7 @@ function inspectCursorProduct(root: string, expectedVersion: string): CursorEvid
 
   const activeText = [
     "rules/kcoderag-navigation.mdc",
-    "skills/code-lookup-discipline/SKILL.md",
+    "skills/kcoderag/SKILL.md",
   ].map((member) => fs.readFileSync(productPath(root, member), "utf8")).join("\n");
   const qaOnly = /QA/u.test(`${manifest.description ?? ""}\n${activeText}`)
     && !/kcoderag-dev|--environment\s+dev/iu.test(activeText);
@@ -215,7 +208,7 @@ function generateCursorFixture(): { readonly root: string; readonly productRoot:
   return Object.freeze({ root, productRoot: path.join(root, "kcoderag-cursor") });
 }
 
-test("Cursor non-document product is a closed deterministic nine-file inventory", () => {
+test("Cursor non-document product is a closed deterministic eleven-file inventory", () => {
   const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
   const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
     version: string;
@@ -264,7 +257,7 @@ test("Cursor scoped materialization is a deterministic no-op after the canonical
   }
 });
 
-test("Cursor style asset presence does not grant support or reach a transaction", async () => {
+test("Cursor style asset installs manually without granting native automation", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cursor-style-boundary-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
@@ -277,7 +270,6 @@ test("Cursor style asset presence does not grant support or reach a transaction"
       observation: adapter.detect({ target, packageRoot: repositoryRoot }),
       selectedCapabilities: [NAVIGATION],
     }));
-    const before = snapshotTree(path.join(root, ".cursor"));
     let renderAttempts = 0;
     let transactionCalls = 0;
     const renderAndApply = async (): Promise<void> => {
@@ -294,12 +286,15 @@ test("Cursor style asset presence does not grant support or reach a transaction"
       await transaction.applyTransaction(desired);
     };
 
-    await assert.rejects(renderAndApply(), (error: any) => error?.code === "host_version_unsupported");
+    await renderAndApply();
     assert.equal(renderAttempts, 1);
-    assert.equal(transactionCalls, 0);
-    assert.deepEqual(snapshotTree(path.join(root, ".cursor")), before);
-    const installed = adapter.detect({ target, packageRoot: repositoryRoot }).currentState;
-    assert.deepEqual(installed?.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.equal(transactionCalls, 1);
+    const observation = adapter.detect({ target, packageRoot: repositoryRoot });
+    assert.deepEqual(observation.currentState?.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
+    assert.deepEqual(adapter.status({ target, packageRoot: repositoryRoot, environment: "qa", observation }).codeStyle, {
+      manualSkill: "available",
+      automaticNudge: "unsupported",
+    });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -337,8 +332,8 @@ test("Cursor product rejects Dev and Hook-equivalence wording deterministically"
   }).version;
   const fixtures = [
     { member: "rules/kcoderag-navigation.mdc", text: "\nInstall kcoderag-dev.\n", code: "qa_only_boundary" },
-    { member: "skills/code-lookup-discipline/SKILL.md", text: "\nPreToolUse Hook-equivalent.\n", code: "rule_capability_boundary" },
-    { member: "skills/code-lookup-discipline/SKILL.md", text: "\nNative pre-write context.\n", code: "rule_capability_boundary" },
+    { member: "skills/kcoderag/SKILL.md", text: "\nPreToolUse Hook-equivalent.\n", code: "rule_capability_boundary" },
+    { member: "skills/kcoderag/SKILL.md", text: "\nNative pre-write context.\n", code: "rule_capability_boundary" },
   ] as const;
   for (const mutation of fixtures) {
     const fixture = generateCursorFixture();

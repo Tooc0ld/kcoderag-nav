@@ -19,7 +19,37 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
       },
       {
         id: "navigation:skill",
-        sourcePath: "plugin-src/skills/code-lookup-discipline/SKILL.md",
+        sourcePath: "plugin-src/skills/kcoderag/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:manage-skill",
+        sourcePath: "plugin-src/skills/kcoderag-manage/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:manage-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-manage/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:feedback-skill",
+        sourcePath: "plugin-src/skills/kcoderag-feedback/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:feedback-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml",
         kind: "skill",
         shared: false,
       },

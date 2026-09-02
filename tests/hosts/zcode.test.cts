@@ -29,16 +29,10 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
     const adapter = zcode.createZCodeAdapter({ hostVersion: "0.0.0", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
 
-    assert.throws(
-      () => adapter.renderInstall(context(target, observation, [CODE_STYLE])),
-      (error: any) => error?.code === "host_version_unsupported",
-    );
-    assert.equal(fs.readFileSync(configPath, "utf8"), original);
-
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])));
     const state = JSON.parse(fs.readFileSync(path.join(root, ".zcode/kcoderag-nav/install-state.json"), "utf8"));
     assert.equal(state.host, "zcode");
-    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
 
     const rendered = JSON.parse(fs.readFileSync(configPath, "utf8"));
     assert.equal(rendered.theme, "dark");
@@ -48,7 +42,7 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
     assert.equal(typeof rendered.mcp.servers["kcoderag-qa"].url, "string");
     assert.equal(rendered.mcp.servers["kcoderag-qa"].url.endsWith("/"), false);
     assert.equal(typeof rendered.mcp.servers["kcoderag-qa"].headers.Authorization, "string");
-    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag-nav/SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag/SKILL.md")), true);
     assert.equal(rendered.hooks.enabled, true);
     assert.equal(rendered.hooks.events.PreToolUse.length, 1);
     assert.equal(rendered.hooks.events.PostToolUse.length, 1);
@@ -78,7 +72,7 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
       ".zcode/kcoderag-nav/hooks/update-worker.cjs",
       ".zcode/kcoderag-nav/hooks/mcp-call-marker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
-    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag-code-style/SKILL.md")), true);
     assert.deepEqual({
       host: "zcode",
       layer: "packaged",
@@ -99,6 +93,8 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
       "navigation:pre-tool",
       "navigation:session-start",
     ]);
+    const codeStyleStatus = adapter.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: adapter.detect({ target, packageRoot: PACKAGE_ROOT }) });
+    assert.deepEqual(codeStyleStatus.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
 
     const installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     assert.equal(adapter.status({
@@ -116,10 +112,10 @@ test("ZCode projects native workspace MCP, Skill, advisory Hook, marker, and upd
       packageRoot: PACKAGE_ROOT,
       environment: "qa",
       observation: updated,
-      selectedCapabilities: [NAVIGATION],
+      selectedCapabilities: [NAVIGATION, CODE_STYLE],
     }));
     assert.equal(fs.readFileSync(configPath, "utf8"), original);
-    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag-nav/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag/SKILL.md")), false);
     assert.equal(fs.existsSync(path.join(root, ".zcode/kcoderag-nav/install-state.json")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -141,7 +137,7 @@ test("ZCode refuses unmanaged project identity and user-level duplicate sources 
       readUserSources: () => ({
         rawMcpPaths: [".zcode/cli/config.json"],
         manualHookPaths: [".zcode/cli/config.json"],
-        ambiguousPaths: [".zcode/skills/kcoderag-nav/SKILL.md"],
+        ambiguousPaths: [".zcode/skills/kcoderag/SKILL.md"],
       }),
     });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
@@ -167,6 +163,26 @@ test("ZCode refuses unmanaged project identity and user-level duplicate sources 
     assert.equal("cleanupOwnedSource" in adapter, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ZCode detects the current public navigation Skill as a user-level source conflict", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-current-source-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-current-home-"));
+  try {
+    const sourcePath = path.join(home, ".zcode/skills/kcoderag/SKILL.md");
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, "manual source\n", "utf8");
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = zcode.createZCodeAdapter({ homeDirectory: home });
+    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    const scan = await adapter.scanUserSources({ target, packageRoot: PACKAGE_ROOT, mode: "deep", observation });
+    assert.deepEqual(scan.findings.map((finding: any) => [finding.code, finding.safePath]), [
+      ["ambiguous_source", ".zcode/skills/kcoderag/SKILL.md"],
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

@@ -56,7 +56,7 @@ function installContext(target: any, observation: any, selectedCapabilities: rea
   return { target, packageRoot: PACKAGE_ROOT, command: "install", environment: "qa", observation, selectedCapabilities };
 }
 
-test("registry exposes every host and exact receipt support matrix without fallback parity", async () => {
+test("registry exposes manual style on every host and exact-receipt native automation", async () => {
   assert.deepEqual(registry.HOST_ADAPTERS.map((entry: any) => entry.id), ["codex", "claude", "cursor", "opencode", "zcode"]);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-matrix-"));
   try {
@@ -64,7 +64,8 @@ test("registry exposes every host and exact receipt support matrix without fallb
     const evidence: Array<{
       readonly host: HostId;
       readonly layer: "packaged";
-      readonly zeroWrite: boolean;
+      readonly manualSkill: string;
+      readonly automaticNudge: string;
       readonly navigationPreserved: boolean;
     }> = [];
     for (const host of ["codex", "cursor", "opencode", "zcode"] as const) {
@@ -74,31 +75,28 @@ test("registry exposes every host and exact receipt support matrix without fallb
         current.detect({ target, packageRoot: PACKAGE_ROOT }),
         [NAVIGATION],
       )));
-      const before = snapshot(root, host);
-      assert.throws(
-        () => current.renderInstall(installContext(
-          target,
-          current.detect({ target, packageRoot: PACKAGE_ROOT }),
-          [CODE_STYLE],
-        )),
-        (error: any) => error?.code === "host_version_unsupported",
-        host,
-      );
+      await transaction.applyTransaction(current.renderInstall(installContext(
+        target,
+        current.detect({ target, packageRoot: PACKAGE_ROOT }),
+        [CODE_STYLE],
+      )));
       const observation = current.detect({ target, packageRoot: PACKAGE_ROOT });
+      const status = current.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation });
       evidence.push(Object.freeze({
         host,
         layer: "packaged",
-        zeroWrite: JSON.stringify(snapshot(root, host)) === JSON.stringify(before),
+        manualSkill: status.codeStyle.manualSkill,
+        automaticNudge: status.codeStyle.automaticNudge,
         navigationPreserved: observation.currentState?.capabilities.some(
           (entry: any) => entry.id === NAVIGATION,
         ) === true,
       }));
     }
     assert.deepEqual(evidence, [
-      { host: "codex", layer: "packaged", zeroWrite: true, navigationPreserved: true },
-      { host: "cursor", layer: "packaged", zeroWrite: true, navigationPreserved: true },
-      { host: "opencode", layer: "packaged", zeroWrite: true, navigationPreserved: true },
-      { host: "zcode", layer: "packaged", zeroWrite: true, navigationPreserved: true },
+      { host: "codex", layer: "packaged", manualSkill: "available", automaticNudge: "unsupported", navigationPreserved: true },
+      { host: "cursor", layer: "packaged", manualSkill: "available", automaticNudge: "unsupported", navigationPreserved: true },
+      { host: "opencode", layer: "packaged", manualSkill: "available", automaticNudge: "unsupported", navigationPreserved: true },
+      { host: "zcode", layer: "packaged", manualSkill: "available", automaticNudge: "unsupported", navigationPreserved: true },
     ]);
     const current = adapter("claude");
     const desired = current.renderInstall(installContext(target, current.detect({ target, packageRoot: PACKAGE_ROOT }), [CODE_STYLE]));

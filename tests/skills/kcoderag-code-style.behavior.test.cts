@@ -109,11 +109,11 @@ const rubrics: readonly BehaviorRubric[] = Object.freeze([
   },
   {
     id: "E12",
-    title: "activation is limited to relevant content writes",
+    title: "activation is limited to preparation and bounded review",
     asset: "SKILL.md",
     rules: [],
-    guidance: [/\.c, \.cc, \.cpp, \.cxx/, /\.lua/, /creating or modifying/i],
-    restraint: [/read-only analysis/i, /pure rename\/delete/i, /unrelated languages/i],
+    guidance: [/natural-language request/i, /review <file or current changes>/i],
+    restraint: [/unrelated languages/i, /general read-only code navigation/i],
   },
   {
     id: "E13",

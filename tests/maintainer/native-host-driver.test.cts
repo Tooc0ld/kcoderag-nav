@@ -143,6 +143,11 @@ test("verified Cursor agent uses one isolated authenticated environment for prob
     const homeKey = process.platform === "win32" ? "USERPROFILE" : "HOME";
     assert.equal(nativeCalls.every((call) => call.env[homeKey] === path.join(root, "cache", "host-home")), true);
     assert.equal(nativeCalls.every((call) => !call.args.includes("--workspace")), true);
+    const install = captured.find((call) => call.args.includes("kcoderag-nav") && call.args.includes("install"));
+    assert.deepEqual(
+      install?.args.filter((argument) => argument === "kcoderag-navigation" || argument === "code-style-nudge"),
+      ["kcoderag-navigation", "code-style-nudge"],
+    );
   } finally {
     if (previousVersion === undefined) delete process.env.KCODERAG_CURSOR_VERSION; else process.env.KCODERAG_CURSOR_VERSION = previousVersion;
     if (previousKey === undefined) delete process.env.CURSOR_API_KEY; else process.env.CURSOR_API_KEY = previousKey;

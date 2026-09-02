@@ -95,6 +95,7 @@ const CODE_STYLE_RUNTIME_PATHS = Object.freeze([
 ]);
 const CODE_STYLE_SKILL_PATHS = Object.freeze([
   "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml",
   "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
@@ -265,7 +266,7 @@ test("closes the Phase 05 public receipt runtime and Cursor generated family", (
     HOST_SMOKE_PATH,
     LIVE_COORDINATOR_PATH,
     "kcoderag-cursor/rules/kcoderag-navigation.mdc",
-    "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md",
+    "kcoderag-cursor/skills/kcoderag/SKILL.md",
   ]) {
     assert.equal(exact.packageJson.files.includes(required), true, required);
     assert.equal(exact.expectedPaths.includes(required), true, required);
@@ -278,13 +279,13 @@ test("closes the Phase 05 public receipt runtime and Cursor generated family", (
   );
   assert.deepEqual(
     generator.PHASE_05_ASSET_ROUTES.find((route) =>
-      route.product === "cursor" && route.output === "skills/code-lookup-discipline/SKILL.md"),
+      route.product === "cursor" && route.output === "skills/kcoderag/SKILL.md"),
     {
       product: "cursor",
-      output: "skills/code-lookup-discipline/SKILL.md",
-      canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md",
-      renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md",
-      kind: "template",
+      output: "skills/kcoderag/SKILL.md",
+      canonicalSource: "plugin-src/skills/kcoderag/SKILL.md",
+      renderSource: "plugin-src/skills/kcoderag/SKILL.md",
+    kind: "normalized-copy",
     },
   );
   const routing = fs.readFileSync(

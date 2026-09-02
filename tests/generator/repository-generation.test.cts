@@ -66,7 +66,9 @@ const generator = require(path.join(repositoryRoot, "dist", "generator", "index.
 const products = ["qa", "cursor"] as const;
 const expectedPhase05AssetRoutes = Object.freeze([
   { product: "cursor", output: "rules/kcoderag-navigation.mdc", canonicalSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", renderSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", kind: "normalized-copy" },
-  { product: "cursor", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" },
+  { product: "cursor", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" },
+  { product: "cursor", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" },
+  { product: "cursor", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" },
   { product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" },
   { product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" },
   { product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" },
@@ -77,7 +79,12 @@ const expectedPhase05AssetRoutes = Object.freeze([
   { product: "qa", output: "hooks/session-cleanup.cjs", canonicalSource: "src/hooks/session-cleanup.cts", renderSource: "dist/hooks/session-cleanup.cjs", kind: "compiled-copy" },
   { product: "qa", output: "hooks/update-check.cjs", canonicalSource: "src/hooks/update-check.cts", renderSource: "dist/hooks/update-check.cjs", kind: "compiled-copy" },
   { product: "qa", output: "opencode/kcoderag-nav.js", canonicalSource: "plugin-src/opencode/kcoderag-nav.js", renderSource: "plugin-src/opencode/kcoderag-nav.js", kind: "normalized-copy" },
-  { product: "qa", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" },
+  { product: "qa", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag/agents/openai.yaml", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-manage/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-feedback/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", kind: "normalized-copy" },
 ] as const);
 const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = Object.freeze({
   qa: Object.freeze([
@@ -103,24 +110,32 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "hooks/update-notice.cjs",
     "hooks/update-worker.cjs",
     "opencode/kcoderag-nav.js",
-    "skills/code-lookup-discipline/SKILL.md",
-    "skills/code-style-correction/SKILL.md",
-    "skills/code-style-correction/references/change-hygiene-self-review.md",
-    "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-    "skills/code-style-correction/references/lua-contracts.md",
-    "skills/code-style-correction/references/protocol-serialization-data.md",
+    "skills/kcoderag-code-style/SKILL.md",
+    "skills/kcoderag-code-style/agents/openai.yaml",
+    "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+    "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+    "skills/kcoderag-code-style/references/lua-contracts.md",
+    "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+    "skills/kcoderag-feedback/SKILL.md",
+    "skills/kcoderag-feedback/agents/openai.yaml",
+    "skills/kcoderag-manage/SKILL.md",
+    "skills/kcoderag-manage/agents/openai.yaml",
+    "skills/kcoderag/SKILL.md",
+    "skills/kcoderag/agents/openai.yaml",
   ]),
   cursor: Object.freeze([
     ".cursor-plugin/plugin.json",
     "README.md",
     "mcp.json",
     "rules/kcoderag-navigation.mdc",
-    "skills/code-lookup-discipline/SKILL.md",
-    "skills/code-style-correction/SKILL.md",
-    "skills/code-style-correction/references/change-hygiene-self-review.md",
-    "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-    "skills/code-style-correction/references/lua-contracts.md",
-    "skills/code-style-correction/references/protocol-serialization-data.md",
+    "skills/kcoderag-code-style/SKILL.md",
+    "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+    "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+    "skills/kcoderag-code-style/references/lua-contracts.md",
+    "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+    "skills/kcoderag-feedback/SKILL.md",
+    "skills/kcoderag-manage/SKILL.md",
+    "skills/kcoderag/SKILL.md",
   ]),
 });
 
@@ -250,7 +265,7 @@ function assertQaStructure(root: string, version: string): void {
 
   for (const relativePath of [
     "agents/kcode-explorer.md",
-    "skills/code-lookup-discipline/SKILL.md",
+    "skills/kcoderag/SKILL.md",
     "README.md",
   ]) {
     assert.equal(fs.statSync(productPath(root, "qa", relativePath)).size > 0, true, `qa:${relativePath}`);
@@ -292,7 +307,7 @@ test("compiled repository gate proves all generated products canonical without r
       sourceRoot: repositoryRoot,
       outputRoot,
     });
-    assert.equal(generated.writtenPaths.length, 38);
+    assert.equal(generated.writtenPaths.length, 46);
     const checked = generator.checkGenerated({
       package: "all",
       group: "all",
@@ -329,7 +344,7 @@ test("compiled repository gate proves all generated products canonical without r
     assert.deepEqual(sortedKeys(cursorMcp.mcpServers), ["kcoderag"], "cursor:mcp-namespace");
     for (const relativePath of [
       "rules/kcoderag-navigation.mdc",
-      "skills/code-lookup-discipline/SKILL.md",
+      "skills/kcoderag/SKILL.md",
       "README.md",
     ]) {
       assert.equal(fs.statSync(productPath(outputRoot, "cursor", relativePath)).size > 0, true, `cursor:${relativePath}`);
@@ -348,8 +363,8 @@ test("ROUT-05 guidance gates semantic modes on reliable list_indexes evidence", 
   const gate = "Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.";
   const fallback = "Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.";
   for (const relativePath of [
-    "plugin-src/skills/code-lookup-discipline/SKILL.md",
-    "kcoderag-qa/skills/code-lookup-discipline/SKILL.md",
+    "plugin-src/skills/kcoderag/SKILL.md",
+    "kcoderag-qa/skills/kcoderag/SKILL.md",
     "plugin-src/cursor/rules/kcoderag-navigation.mdc",
   ] as const) {
     const text = fs.readFileSync(path.join(repositoryRoot, ...relativePath.split("/")), "utf8");
@@ -486,9 +501,9 @@ test("capability generation from repository sources writes only an isolated outp
       outputRoot,
     });
     assert.deepEqual(generated.capabilities, ["code-style-nudge"]);
-    assert.equal(generated.writtenPaths.length, 5);
+    assert.equal(generated.writtenPaths.length, 6);
     assert.equal(
-      fs.readFileSync(path.join(outputRoot, "kcoderag-qa", "skills", "code-style-correction", "SKILL.md")).equals(
+      fs.readFileSync(path.join(outputRoot, "kcoderag-qa", "skills", "kcoderag-code-style", "SKILL.md")).equals(
         fs.readFileSync(path.join(repositoryRoot, "plugin-src", "capabilities", "code-style-nudge", "skill", "SKILL.md")),
       ),
       true,

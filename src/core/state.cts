@@ -7,6 +7,7 @@ import {
   InstallError,
   type CapabilityManagedFileRecord,
   type CapabilityManagedSectionRecord,
+  type CodeStyleDeliveryStatus,
   type CapabilityStateRecord,
   sanitizeSafeRelativePath,
   type CurrentEnvironmentId,
@@ -49,7 +50,43 @@ type StatusInput = {
   readonly environment?: CurrentEnvironmentId;
   readonly issues?: readonly { readonly code: string; readonly path?: string }[];
   readonly findings?: readonly SourceFinding[];
+  readonly codeStyle?: CodeStyleDeliveryStatus;
 };
+
+const ABSENT_CODE_STYLE = Object.freeze({ manualSkill: "absent", automaticNudge: "absent" } as const);
+
+/** Derive independent manual/native claims strictly from validated schema-v1 ownership. */
+export function deriveCodeStyleDelivery(
+  state: InstallState | undefined,
+  status: InstallStatus,
+): CodeStyleDeliveryStatus {
+  const capability = state?.capabilities.find((entry) => entry.id === "code-style-nudge");
+  if (capability === undefined) {
+    return status === "invalid" || status === "source_conflict"
+      ? Object.freeze({ manualSkill: "unknown", automaticNudge: "unknown" })
+      : ABSENT_CODE_STYLE;
+  }
+  if (status === "drifted") return Object.freeze({ manualSkill: "drifted", automaticNudge: "drifted" });
+  if (status === "invalid" || status === "source_conflict") {
+    return Object.freeze({ manualSkill: "unknown", automaticNudge: "unknown" });
+  }
+  const files = new Set(capability.files);
+  const manualSkill = [...files].filter((candidate) => candidate.endsWith("/kcoderag-code-style/SKILL.md")).length === 1
+    && [
+      "cpp-lifetime-control-flow.md",
+      "protocol-serialization-data.md",
+      "lua-contracts.md",
+      "change-hygiene-self-review.md",
+    ].every((name) => [...files].filter((candidate) => candidate.endsWith(`/kcoderag-code-style/references/${name}`)).length === 1)
+    ? "available"
+    : "unknown";
+  const automaticNudge = capability.sections.some((reference) => reference.endsWith("#code-style:pre-tool"))
+    && [...files].some((candidate) => candidate.endsWith("/code-style-nudge.cjs"))
+    && [...files].some((candidate) => candidate.endsWith("/pre-tool-dispatcher.cjs"))
+    ? "available"
+    : "unsupported";
+  return Object.freeze({ manualSkill, automaticNudge });
+}
 
 function nodeMajor(version: string): number | undefined {
   const match = /^(?:v)?(\d+)(?:\.|$)/.exec(version);
@@ -79,11 +116,13 @@ export function createStatusResult(input: StatusInput = {}): StatusResult {
     status: InstallStatus;
     host?: HostId;
     environment?: CurrentEnvironmentId;
+    codeStyle: CodeStyleDeliveryStatus;
     issues: readonly StatusIssue[];
     findings: readonly SourceFinding[];
   } = {
     schemaVersion: CORE_SCHEMA_VERSION,
     status: input.status ?? "not_installed",
+    codeStyle: input.codeStyle ?? ABSENT_CODE_STYLE,
     issues: Object.freeze(issues),
     findings: Object.freeze([...(input.findings ?? [])]),
   };

@@ -45,12 +45,18 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "hooks/update-notice.cjs",
   "hooks/update-worker.cjs",
   "opencode/kcoderag-nav.js",
-  "skills/code-lookup-discipline/SKILL.md",
-  "skills/code-style-correction/SKILL.md",
-  "skills/code-style-correction/references/change-hygiene-self-review.md",
-  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/code-style-correction/references/lua-contracts.md",
-  "skills/code-style-correction/references/protocol-serialization-data.md",
+  "skills/kcoderag-code-style/SKILL.md",
+  "skills/kcoderag-code-style/agents/openai.yaml",
+  "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+  "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+  "skills/kcoderag-code-style/references/lua-contracts.md",
+  "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+  "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-feedback/agents/openai.yaml",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-manage/agents/openai.yaml",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag/agents/openai.yaml",
 ]);
 
 function compare(left: string, right: string): number {
@@ -74,11 +80,11 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-test("QA non-document product is a closed deterministic twenty-seven-file inventory", () => {
+test("QA non-document product is a closed deterministic thirty-three-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
   assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
-  assert.equal(actualNonDocument.length, 27);
+  assert.equal(actualNonDocument.length, 33);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));
@@ -110,7 +116,7 @@ test("QA style handler and five Markdown assets are byte-identical to canonical 
   );
   for (const member of CODE_STYLE_SKILL_MEMBERS) {
     assert.equal(
-      sha256(path.join(qaRoot, "skills", "code-style-correction", ...member.split("/"))),
+      sha256(path.join(qaRoot, "skills", "kcoderag-code-style", ...member.split("/"))),
       sha256(path.join(
         repositoryRoot,
         "plugin-src",
@@ -194,11 +200,11 @@ test("QA guidance and registration expose only the current QA product", () => {
   const activeText = [
     "agents/kcode-explorer.md",
     "hooks/hooks.json",
-    "skills/code-lookup-discipline/SKILL.md",
-    "skills/code-style-correction/SKILL.md",
+    "skills/kcoderag/SKILL.md",
+    "skills/kcoderag-code-style/SKILL.md",
   ].map((member) => fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", ...member.split("/")), "utf8")).join("\n");
   assert.match(activeText, /QA/u);
   assert.match(activeText, /run_hook/u);
-  assert.match(activeText, /code-style-correction/u);
+  assert.match(activeText, /kcoderag-code-style/u);
   assert.doesNotMatch(activeText, /kcoderag-dev|--environment\s+dev|mcp__plugin_kcoderag-dev/iu);
 });

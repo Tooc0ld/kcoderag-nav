@@ -396,7 +396,9 @@ async function lifecycle(
   if (npmCli === undefined) return Object.freeze({ reasonCode: "npm_cli_missing" });
   const args = [npmCli, "exec", "--yes", "--ignore-scripts", `--package=${input.package}`, "--", "kcoderag-nav",
     command, "--host", input.host, "--target", input.project, "--json"];
-  if (command === "install") args.push("--capability", "kcoderag-navigation");
+  if (command === "install") {
+    args.push("--capability", "kcoderag-navigation", "--capability", "code-style-nudge");
+  }
   if (command === "uninstall") args.push("--all");
   if (command !== "status") args.push("--yes");
   return parseCliResult(await dependencies.runCommand(process.execPath, args, {

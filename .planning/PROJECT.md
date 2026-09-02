@@ -15,8 +15,9 @@ Cursor、OpenCode 或 ZCode；自动化使用 `--host codex|claude|cursor|openco
 Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
 和共享 skill，OpenCode 使用项目 plugin；ZCode 同时使用项目 `.zcode/config.json` MCP 与 workspace Skill。
 五个宿主以各自原生成功后事件记录 secret-free、fail-open 的 KCodeRag 调用 marker；ZCode 通过
-项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。只有冻结 PASS
-receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；其他四宿主保持 navigation-only。
+项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。公开手动入口固定为 `$kcoderag`、
+`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style`；五宿主都获得手动代码规范 Skill，
+只有冻结 PASS receipt 对应的 Claude Code `2.1.241` 叠加 native 自动写前提示。
 安装器同时提供 `status`、`doctor`、`update` 与 `uninstall`，并以 capability-scoped 所有权、
 全部变更命令的来源门禁、完整摘要硬停止和单宿主原子回滚保护项目与用户配置。
 
@@ -53,12 +54,12 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 - ✓ ZCode 项目级 adapter 支持 `.zcode/config.json` MCP 与 `.zcode/skills/` lifecycle；早期基于错误
   宿主假设未投影 Hook 的边界已由 Quick 260827-nuo 取代 — Quick 260827-fch / superseded
 - ✓ ZCode 项目 `hooks.events` 投影 advisory/fail-open `PreToolUse`、成功调用 `PostToolUse` marker 与
-  离线更新提示，并保持代码规范能力 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
+  离线更新提示，并保持代码规范自动提示 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
   workspace Hook — Quick 260827-nuo / Quick 260827-onf
 - ✓ 两个内置 capability 使用 current schema v1、contributor-scoped 文件/section 与 composite
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
-- ✓ `kcoderag-navigation` 支持五宿主；`code-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
-  receipt 可用，其他宿主零写拒绝且保留 navigation — Phase 04.1 / Quick 260827-fch
+- ✓ `kcoderag-navigation` 支持五宿主；Phase 04.1 冻结 Claude Code `2.1.241` native PASS receipt，
+  Phase 06 在不扩大 native 声明的前提下为五宿主提供手动 `code-style-nudge` Skill
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
 - ✓ 从 `0.3.0` 起，公共源码、生成资产、npm 候选包和本仓库体验指南统一采用中性代码规范身份；
@@ -117,9 +118,9 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
 - **来源**: install/update/uninstall 全部对 raw/manual/ambiguous/旧来源写前硬停止；CLI 不提供迁移、接管或自动清理权
 - **生命周期**: install 使用 `installed ∪ selected`；update 默认全部已安装能力并可筛选；uninstall 必须显式选择 capability 或 `--all`
-- **支持证据**: navigation 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
+- **支持证据**: navigation 与手动代码规范 Skill 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
   安装后的处理器合同，不证明真宿主接纳；ZCode 真机 MCP/Skill 已工作但 Hook trust/admission 尚未通过，
-  版本仍待 Phase 5 冻结；代码规范能力仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
+  版本仍待 Phase 5 冻结；代码规范 native 自动路径仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 manual-only
 - **代码规范 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
 - **Hook**: Codex/Claude/ZCode 仅提供 advisory context，定位和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为

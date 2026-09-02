@@ -145,7 +145,12 @@ const QA_METADATA_CONFIG = Object.freeze([
 ]);
 const QA_METADATA_GUIDANCE = Object.freeze([
   "agents/kcode-explorer.md",
-  "skills/code-lookup-discipline/SKILL.md",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag/agents/openai.yaml",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-manage/agents/openai.yaml",
+  "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-feedback/agents/openai.yaml",
 ]);
 const QA_DOCS = Object.freeze(["README.md"]);
 const QA_VERSION = Object.freeze([
@@ -156,17 +161,23 @@ const QA_VERSION = Object.freeze([
 const CURSOR_METADATA_CONFIG = Object.freeze([".cursor-plugin/plugin.json", "mcp.json"]);
 const CURSOR_METADATA_GUIDANCE = Object.freeze([
   "rules/kcoderag-navigation.mdc",
-  "skills/code-lookup-discipline/SKILL.md",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-feedback/SKILL.md",
 ]);
 const CURSOR_DOCS = Object.freeze(["README.md"]);
 const CURSOR_VERSION = Object.freeze([".cursor-plugin/plugin.json"]);
 const EMPTY_GROUP = Object.freeze([] as string[]);
 const CODE_STYLE_SKILL_PATHS = Object.freeze([
-  "skills/code-style-correction/SKILL.md",
-  "skills/code-style-correction/references/change-hygiene-self-review.md",
-  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/code-style-correction/references/lua-contracts.md",
-  "skills/code-style-correction/references/protocol-serialization-data.md",
+  "skills/kcoderag-code-style/SKILL.md",
+  "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+  "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+  "skills/kcoderag-code-style/references/lua-contracts.md",
+  "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+]);
+const CODE_STYLE_QA_SKILL_PATHS = Object.freeze([
+  ...CODE_STYLE_SKILL_PATHS,
+  "skills/kcoderag-code-style/agents/openai.yaml",
 ]);
 
 interface CanonicalGroupsInput {
@@ -222,7 +233,7 @@ const CODE_STYLE_QA_GROUPS = canonicalGroups({
     "hooks/session-cleanup.cjs",
   ],
   registration: ["hooks/hooks.json", "hooks/run_hook.cmd", "hooks/run_hook.sh"],
-  guidance: CODE_STYLE_SKILL_PATHS,
+  guidance: CODE_STYLE_QA_SKILL_PATHS,
 });
 const CODE_STYLE_CURSOR_GROUPS = canonicalGroups({ guidance: CODE_STYLE_SKILL_PATHS });
 
@@ -309,7 +320,9 @@ export const ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGr
 
 export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze([
   Object.freeze({ product: "cursor", output: "rules/kcoderag-navigation.mdc", canonicalSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", renderSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", kind: "normalized-copy" }),
-  Object.freeze({ product: "cursor", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" }),
@@ -320,7 +333,12 @@ export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze(
   Object.freeze({ product: "qa", output: "hooks/session-cleanup.cjs", canonicalSource: "src/hooks/session-cleanup.cts", renderSource: "dist/hooks/session-cleanup.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "hooks/update-check.cjs", canonicalSource: "src/hooks/update-check.cts", renderSource: "dist/hooks/update-check.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "opencode/kcoderag-nav.js", canonicalSource: "plugin-src/opencode/kcoderag-nav.js", renderSource: "plugin-src/opencode/kcoderag-nav.js", kind: "normalized-copy" }),
-  Object.freeze({ product: "qa", output: "skills/code-lookup-discipline/SKILL.md", canonicalSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", renderSource: "plugin-src/skills/code-lookup-discipline/SKILL.md", kind: "template" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag/agents/openai.yaml", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-manage/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", kind: "normalized-copy" }),
 ]);
 
 const PHASE_05_ROUTE_BY_OUTPUT: ReadonlyMap<string, AssetSourceRoute> = new Map(
@@ -730,16 +748,22 @@ function renderQaAsset(
   if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
-      "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      "plugin-src/skills/kcoderag/SKILL.md",
       ["display_name", "routing_policy"],
       replacements,
     );
   }
-  if (relativePath === "skills/code-style-correction/SKILL.md") {
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
+  }
+  if (relativePath === "skills/kcoderag-code-style/SKILL.md") {
     return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/code-style-correction/".length);
+  if (relativePath === "skills/kcoderag-code-style/agents/openai.yaml") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml");
+  }
+  if (relativePath.startsWith("skills/kcoderag-code-style/references/")) {
+    const reference = relativePath.slice("skills/kcoderag-code-style/".length);
     return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
@@ -763,7 +787,7 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
   if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
-      "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      "plugin-src/skills/kcoderag/SKILL.md",
       ["display_name", "routing_policy"],
       {
         display_name: "KCodeRag QA",
@@ -776,11 +800,11 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
       },
     );
   }
-  if (relativePath === "skills/code-style-correction/SKILL.md") {
+  if (relativePath === "skills/kcoderag-code-style/SKILL.md") {
     return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/code-style-correction/".length);
+  if (relativePath.startsWith("skills/kcoderag-code-style/references/")) {
+    const reference = relativePath.slice("skills/kcoderag-code-style/".length);
     return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {

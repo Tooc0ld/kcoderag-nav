@@ -58,7 +58,9 @@ interface SupportedCapabilityLifecycle {
   readonly schemaVersion: 1;
   readonly branch: "supported";
   readonly hostVersion: string;
-  readonly receiptDigest: string;
+  readonly manualSkill: "available";
+  readonly automaticNudge: "available" | "unsupported";
+  readonly receiptDigest?: string;
   readonly navigationThenStyle: boolean;
   readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
@@ -79,17 +81,7 @@ interface SupportedCapabilityLifecycle {
   readonly sessionEndReceiptBound: boolean;
 }
 
-interface UnsupportedCapabilityLifecycle {
-  readonly schemaVersion: 1;
-  readonly branch: "unsupported";
-  readonly hostVersion: string;
-  readonly navigationInstalled: boolean;
-  readonly refusalCode: "host_version_unsupported";
-  readonly zeroWrite: boolean;
-  readonly navigationPreserved: boolean;
-}
-
-type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
 interface HostSmokeResult {
   readonly schemaVersion: 1;
@@ -1017,25 +1009,18 @@ test("readiness artifact drives all five packaged hosts from the same injected S
         assert.equal(host.runtimeContract?.updateNotice, false);
         assert.equal(host.runtimeContract?.updateRefresh, false);
       }
+      assert.equal(host.capabilityLifecycle?.branch, "supported");
+      assert.equal(host.capabilityLifecycle?.manualSkill, "available");
+      assert.equal(
+        host.capabilityLifecycle?.automaticNudge,
+        host.host === "claude" ? "available" : "unsupported",
+      );
+      assert.equal(host.capabilityLifecycle?.nativeFirstWrite, host.host === "claude");
       if (host.host === "claude") {
-        assert.equal(host.capabilityLifecycle?.branch, "supported");
         assert.equal(host.capabilityLifecycle?.hostVersion, "2.1.241");
+        assert.match(host.capabilityLifecycle?.receiptDigest ?? "", /^[a-f0-9]{64}$/u);
       } else {
-        assert.deepEqual(host.capabilityLifecycle, {
-          schemaVersion: 1,
-          branch: "unsupported",
-          hostVersion: host.host === "codex"
-            ? "0.146.1"
-            : host.host === "cursor"
-              ? "3.17.8"
-              : host.host === "opencode"
-                ? "1.18.23"
-                : "0.0.0",
-          navigationInstalled: true,
-          refusalCode: "host_version_unsupported",
-          zeroWrite: true,
-          navigationPreserved: true,
-        });
+        assert.equal(host.capabilityLifecycle?.receiptDigest, undefined);
       }
     }
     assert.equal("publicRegistryArtifact" in (result.provenance ?? {}), false);

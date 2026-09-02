@@ -116,6 +116,10 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
+    code: "missing_topic_manual_style_delivery",
+    pattern: /(?=[\s\S]*(?:five hosts?|all five hosts?|五个宿主|五宿主)[^\n]{0,180}(?:manual|手动)[^\n]{0,100}(?:code-style-nudge|代码规范|style))(?=[\s\S]*(?:manualSkill))(?=[\s\S]*(?:automaticNudge))/iu,
+  },
+  {
     code: "missing_topic_zcode_boundary",
     pattern: /(?=[\s\S]*ZCode)(?=[\s\S]*\.zcode\/config\.json)(?=[\s\S]*PreToolUse)(?=[\s\S]*PostToolUse)(?=[\s\S]*(?:hooks?\.enabled|hooks?[\s\S]{0,80}enabled|Hook[\s\S]{0,80}启用))(?=[\s\S]*(?:update|更新)[\s\S]{0,160}(?:--host\s+zcode|ZCode))(?=[\s\S]*(?:trust|信任|批准)[\s\S]{0,240}(?:workspace\s+Hook|工作区\s*Hook|Hook))/iu,
   },
@@ -167,7 +171,7 @@ const USER_GUIDE_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_code_style_support",
-    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:目前只支持|currently\s+only\s+supports?|is\s+supported\s+for)[^\n]{0,160}(?:code-style-nudge|Claude))(?=[\s\S]*(?:其他宿主|other hosts?)[^\n]{0,120}(?:不要选择|未启用|do not select|not enabled|should not select))/iu,
+    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:five hosts?|all five hosts?|五个宿主|五宿主)[^\n]{0,180}(?:manual|手动)[^\n]{0,100}(?:code-style-nudge|代码规范|style))(?=[\s\S]*(?:native|自动)[^\n]{0,180}(?:only|仅)[^\n]{0,100}Claude)/iu,
   },
 ]);
 
@@ -372,8 +376,8 @@ function inspectFile(
     if (/\b(?:python\s+[^\n]*(?:scanner|scan)|code-style[^\n]*(?:scanner|scan)|scanner[^\n]*(?:passed|通过)|静态扫描通过)\b/iu.test(line)) {
       addDiagnostic(diagnostics, "scanner_claim", displayPath, lineNumber);
     }
-    if (/\b(?:Codex|Cursor|OpenCode|ZCode)\b[^\n]{0,120}(?:supports?|supported|native[^\n]{0,30}pre[- ]?write|支持|可安装)[^\n]{0,80}(?:code-style|代码规范)/iu.test(line) &&
-        !/(?:UNSUPPORTED|unsupported|does\s+not|not\s+supported|不支持|拒绝|不能|零写)/iu.test(line)) {
+    if (/\b(?:Codex|Cursor|OpenCode|ZCode)\b(?=[^\n]{0,220}(?:native[^\n]{0,30}pre[- ]?write|automatic[^\n]{0,30}pre[- ]?write|自动[^\n]{0,30}写前|原生[^\n]{0,30}写前))(?=[^\n]{0,220}(?:code-style|代码规范))/iu.test(line) &&
+        !/(?:UNSUPPORTED|unsupported|does\s+not|not\s+supported|不支持|拒绝|不能|零写|no\s+native|无原生)/iu.test(line)) {
       addDiagnostic(diagnostics, "unsupported_code_style_claim", displayPath, lineNumber);
     }
     if (/\bcodex\s+plugin\s+marketplace\s+remove\b/iu.test(line) &&

@@ -53,15 +53,25 @@ export interface CapabilitySupportContext {
   readonly evidenceRoot?: string;
 }
 
-export type CapabilitySupportDecision =
+export type AutomaticNudgeSupportDecision =
   | {
       readonly eligible: true;
-      readonly deliveryMode: "host_native" | "native_pre_write";
-      readonly evidenceDigest?: string;
+      readonly evidenceDigest: string;
     }
   | {
       readonly eligible: false;
       readonly code: "host_version_unsupported";
+    };
+
+export type CapabilitySupportDecision =
+  | {
+      readonly eligible: true;
+      readonly deliveryMode: "host_native";
+    }
+  | {
+      readonly eligible: true;
+      readonly deliveryMode: "manual_skill";
+      readonly automaticNudge: AutomaticNudgeSupportDecision;
     };
 
 /** A provider declares requirements and support only; it has no project mutation authority. */

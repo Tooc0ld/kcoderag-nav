@@ -1,6 +1,5 @@
 /** Cursor project capability projection; Rule/post-events never imply code-style pre-write support. */
 
-const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -8,11 +7,11 @@ const path = require("node:path") as typeof import("node:path");
 
 import { composeCapabilitySet, type ProjectedCapabilityContribution, type ProjectedCapabilityFile, type ProjectedCapabilitySection } from "../capabilities/compose.cjs";
 import type { CapabilityId } from "../capabilities/contracts.cjs";
-import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
+import { resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
-import { createStatusResult, parseInstallState } from "../core/state.cjs";
+import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "../core/state.cjs";
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
@@ -39,9 +38,11 @@ interface Details { readonly stateBytes?: Buffer }
 const STATE_PATH = ".cursor/kcoderag-nav/install-state.json";
 const MCP_PATH = ".cursor/mcp.json";
 const HOOKS_PATH = ".cursor/hooks.json";
-const NAV_SKILL_PATH = ".cursor/skills/kcoderag-nav/SKILL.md";
+const NAV_SKILL_ROOT = ".cursor/skills/kcoderag";
+const MANAGE_SKILL_ROOT = ".cursor/skills/kcoderag-manage";
+const FEEDBACK_SKILL_ROOT = ".cursor/skills/kcoderag-feedback";
 const RULE_PATH = ".cursor/rules/kcoderag-navigation.mdc";
-const CODE_STYLE_SKILL_ROOT = ".cursor/skills/code-style-correction";
+const CODE_STYLE_SKILL_ROOT = ".cursor/skills/kcoderag-code-style";
 const HOOK_ROOT = ".cursor/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".cursor"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
@@ -73,15 +74,14 @@ function verifyState(target: ProjectTarget, state: InstallState): void {
 }
 function detectCursor(context: { readonly target: ProjectTarget }): HostObservation {
   let bytes: Buffer | undefined;
-  try { bytes = readRegular(context.target, STATE_PATH); if (bytes === undefined) return Object.freeze({ host: "cursor" as const, target: context.target }); const currentState = parseInstallState(bytes); verifyState(context.target, currentState); return Object.freeze({ host: "cursor" as const, target: context.target, currentState, details: Object.freeze({ stateBytes: Buffer.from(bytes) }) }); }
-  catch (error) { return Object.freeze({ host: "cursor" as const, target: context.target, issues: Object.freeze([issueFrom(error)]), details: Object.freeze(bytes === undefined ? {} : { stateBytes: Buffer.from(bytes) }) }); }
+  let currentState: InstallState | undefined;
+  try { bytes = readRegular(context.target, STATE_PATH); if (bytes === undefined) return Object.freeze({ host: "cursor" as const, target: context.target }); currentState = parseInstallState(bytes); verifyState(context.target, currentState); return Object.freeze({ host: "cursor" as const, target: context.target, currentState, details: Object.freeze({ stateBytes: Buffer.from(bytes) }) }); }
+  catch (error) { return Object.freeze({ host: "cursor" as const, target: context.target, ...(currentState === undefined ? {} : { currentState }), issues: Object.freeze([issueFrom(error)]), details: Object.freeze(bytes === undefined ? {} : { stateBytes: Buffer.from(bytes) }) }); }
 }
 function refuse(observation: HostObservation): void { const issue = observation.issues?.[0]; if (issue !== undefined) throw new InstallError(issue.code, issue.path); }
 function selectedInstall(context: HostInstallContext): readonly CapabilityId[] { const request = (context as HostInstallContext & Extras).selectedCapabilities ?? (context.command === "update" ? context.observation.currentState?.capabilities.map((entry) => entry.id) : [NAVIGATION]); if (request === undefined) throw new InstallError("not_installed", STATE_PATH); const existing = context.observation.currentState?.capabilities.map((entry) => entry.id) ?? []; return Object.freeze(resolveCapabilitySelection([...existing, ...request]).map((entry) => entry.id)); }
 function preservedForUpdate(context: HostInstallContext, selected: readonly CapabilityId[]): readonly CapabilityId[] { if (context.command !== "update" || context.observation.currentState === undefined) return Object.freeze([]); const projected = new Set(context.selectedCapabilities ?? selected); return Object.freeze(selected.filter((id) => !projected.has(id))); }
 function selectedUninstall(context: HostUninstallContext): readonly CapabilityId[] { const state = context.observation.currentState; if (state === undefined) throw new InstallError("not_installed", STATE_PATH); const removals = (context as HostUninstallContext & Extras).selectedCapabilities; if (removals === undefined) return Object.freeze([]); const remove = new Set(resolveCapabilitySelection(removals).map((entry) => entry.id)); return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id))); }
-function defaultVersion(): string | undefined { try { const result = childProcess.spawnSync("cursor", ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 8_192, windowsHide: true }); if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined; return /^(\d+\.\d+\.\d+)\r?\n?$/u.exec(result.stdout)?.[1]; } catch { return undefined; } }
-function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CursorAdapterOptions): void { if (!selected.includes(CODE_STYLE)) return; const extras = context as (HostInstallContext | HostUninstallContext) & Extras; const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion(); if (hostVersion === undefined) throw new InstallError("host_version_unsupported"); const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({ host: "cursor", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot }); if (!decision.eligible) throw new InstallError(decision.code); }
 
 function mergeMcp(current: Buffer | undefined, packageRoot: string, owned: boolean) {
   const document = current === undefined ? {} : parseJson(current, "invalid_json", MCP_PATH); const servers = document.mcpServers === undefined ? {} : document.mcpServers; if (!isRecord(servers)) throw new InstallError("invalid_json", MCP_PATH); if (!owned && servers[MCP_SERVER] !== undefined) throw new InstallError("unmanaged_name_conflict", MCP_PATH); const entry = qaEntry(packageRoot); servers[MCP_SERVER] = entry; document.mcpServers = servers; return Object.freeze({ bytes: canonicalJson(document), entry });
@@ -107,16 +107,19 @@ const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-seri
 function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], projected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
   const result: ProjectedCapabilityContribution[] = []; const hooksCurrent = readRegular(target, HOOKS_PATH); const hooks = mergeHooks(hooksCurrent, selected, state !== undefined);
   if (projected.includes(NAVIGATION)) { const mcpCurrent = readRegular(target, MCP_PATH); const mcp = mergeMcp(mcpCurrent, packageRoot, state !== undefined); result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
-    projectedFile(target, state, MCP_PATH, mcp.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, RULE_PATH, sourceAsset(packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), false), projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-cursor/skills/code-lookup-discipline/SKILL.md"), false),
+    projectedFile(target, state, MCP_PATH, mcp.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, RULE_PATH, sourceAsset(packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), false),
+    projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag/SKILL.md"), false),
+    projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-manage/SKILL.md"), false),
+    projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-feedback/SKILL.md"), false),
     projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
   ]), sections: Object.freeze([section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.marker, hooksCurrent !== undefined)]) })); }
   if (projected.includes(CODE_STYLE)) result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
-    projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)), projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
+    projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
   ]), sections: Object.freeze([]) }));
   return Object.freeze(result);
 }
 function compose(context: HostInstallContext | HostUninstallContext, selected: readonly CapabilityId[], preserved: readonly CapabilityId[] = []) { const previousState = context.observation.currentState; const bytes = stateBytes(context.observation); const projected = selected.filter((id) => !preserved.includes(id)); const reconciled = preserved.length === 0 ? Object.freeze([]) : contributions(context.target, context.packageRoot, selected, preserved, previousState); return composeCapabilitySet({ host: "cursor", target: context.target, packageVersion: packageVersion(context.packageRoot), managedRoots: MANAGED_ROOTS, statePath: STATE_PATH, stateExpectedDigest: bytes === undefined ? null : sha256(bytes), selectedCapabilities: selected, preservedCapabilities: preserved, contributions: contributions(context.target, context.packageRoot, selected, projected, previousState), reconciledContributions: reconciled, ...(previousState === undefined ? {} : { previousState }) }); }
-function status(context: HostStatusContext) { const issue = context.observation.issues?.[0]; if (issue !== undefined) return createStatusResult({ status: issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid", host: "cursor", issues: [issue] }); if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "cursor" }); const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS); return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "cursor", issues: [{ code: "orphaned_managed_root", path: ".cursor/kcoderag-nav" }] }) : createStatusResult({ host: "cursor" }); }
+function status(context: HostStatusContext) { const issue = context.observation.issues?.[0]; if (issue !== undefined) { const status = issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid"; return createStatusResult({ status, host: "cursor", issues: [issue], codeStyle: deriveCodeStyleDelivery(context.observation.currentState, status) }); } if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "cursor", codeStyle: deriveCodeStyleDelivery(context.observation.currentState, "healthy") }); const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS); return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "cursor", issues: [{ code: "orphaned_managed_root", path: ".cursor/kcoderag-nav" }] }) : createStatusResult({ host: "cursor" }); }
 
 function defaultMetadata(homeDirectory: string): CursorUserSourceMetadata {
   const activePluginPaths: string[] = [];
@@ -155,7 +158,7 @@ async function scanSources(context: HostSourceScanContext, reader: () => CursorU
 ]; if (context.mode !== "fast") findings.push(...values(metadata, "cachePaths").map((safePath) => createSourceFinding({ code: "cache_residue", severity: "info", sourceType: "cache_residue", scope: "user", safePath })), ...values(metadata, "disabledPaths").map((safePath) => createSourceFinding({ code: "disabled_source", severity: "info", sourceType: "disabled_registration", scope: "user", safePath }))); return createSourceScanResult(context.mode, findings); }
 
 export function createCursorAdapter(options: CursorAdapterOptions = {}): HostAdapter { const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir()); const reader = options.readUserSources ?? (() => defaultMetadata(homeDirectory)); return Object.freeze({ id: "cursor" as const, managedRoots: MANAGED_ROOTS, detect: detectCursor,
-  renderInstall: (context: HostInstallContext) => { refuse(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); assertSupport(selected, context, options); return compose(context, selected, preservedForUpdate(context, selected)); }, renderUninstall: (context: HostUninstallContext) => { refuse(context.observation); const selected = selectedUninstall(context); assertSupport(selected, context, options); return compose(context, selected); }, status, scanUserSources: (context: HostSourceScanContext) => scanSources(context, reader) }); }
+  renderInstall: (context: HostInstallContext) => { refuse(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); return compose(context, selected, preservedForUpdate(context, selected)); }, renderUninstall: (context: HostUninstallContext) => { refuse(context.observation); const selected = selectedUninstall(context); return compose(context, selected); }, status, scanUserSources: (context: HostSourceScanContext) => scanSources(context, reader) }); }
 export const cursorAdapter: HostAdapter = createCursorAdapter();
 exports.STATE_PATH = STATE_PATH;
 exports.managedPaths = () => Object.freeze([STATE_PATH]);

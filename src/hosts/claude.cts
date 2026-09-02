@@ -12,7 +12,7 @@ import { getCapabilityProvider, resolveCapabilitySelection } from "../capabiliti
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
-import { createStatusResult, parseInstallState } from "../core/state.cjs";
+import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "../core/state.cjs";
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
@@ -57,8 +57,10 @@ interface ProjectionContextExtras {
 const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
 const SETTINGS_PATH = ".claude/settings.json";
 const MCP_PATH = ".mcp.json";
-const NAV_SKILL_PATH = ".claude/skills/kcoderag-nav/SKILL.md";
-const CODE_STYLE_SKILL_ROOT = ".claude/skills/code-style-correction";
+const NAV_SKILL_ROOT = ".claude/skills/kcoderag";
+const MANAGE_SKILL_ROOT = ".claude/skills/kcoderag-manage";
+const FEEDBACK_SKILL_ROOT = ".claude/skills/kcoderag-feedback";
+const CODE_STYLE_SKILL_ROOT = ".claude/skills/kcoderag-code-style";
 const HOOK_ROOT = ".claude/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".claude", MCP_PATH] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
@@ -164,10 +166,11 @@ function verifyStateFiles(target: ProjectTarget, state: InstallState): void {
 
 function detectClaude(context: { readonly target: ProjectTarget }): HostObservation {
   let stateBytes: Buffer | undefined;
+  let currentState: InstallState | undefined;
   try {
     stateBytes = readRegular(context.target, STATE_PATH);
     if (stateBytes === undefined) return Object.freeze({ host: "claude" as const, target: context.target });
-    const currentState = parseInstallState(stateBytes);
+    currentState = parseInstallState(stateBytes);
     verifyStateFiles(context.target, currentState);
     return Object.freeze({
       host: "claude" as const,
@@ -179,6 +182,7 @@ function detectClaude(context: { readonly target: ProjectTarget }): HostObservat
     return Object.freeze({
       host: "claude" as const,
       target: context.target,
+      ...(currentState === undefined ? {} : { currentState }),
       issues: Object.freeze([issueFrom(error)]),
       details: Object.freeze(stateBytes === undefined ? {} : { stateBytes: Buffer.from(stateBytes) }),
     });
@@ -236,26 +240,27 @@ function defaultClaudeVersion(): string | undefined {
   }
 }
 
-function assertSupport(
+function automaticStyleEnabled(
   selected: readonly CapabilityId[],
   context: HostInstallContext | HostUninstallContext,
   options: ClaudeAdapterOptions,
-): void {
-  if (!selected.includes(CODE_STYLE)) return;
+): boolean {
+  if (!selected.includes(CODE_STYLE)) return false;
   const extras = context as (HostInstallContext | HostUninstallContext) & ProjectionContextExtras;
   const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultClaudeVersion();
-  if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
+  if (hostVersion === undefined) return false;
   const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({
     host: "claude",
     hostVersion,
     evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot,
   });
-  if (!decision.eligible) throw new InstallError(decision.code);
+  return decision.deliveryMode === "manual_skill" && decision.automaticNudge.eligible;
 }
 
 function managedHookEntry(
   packageRoot: string,
   selected: readonly CapabilityId[],
+  automaticStyle: boolean,
 ): { readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const commands = renderProjectHookCommands("claude");
@@ -279,7 +284,7 @@ function managedHookEntry(
   if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
     ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
-    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse)
+    ...(!selected.includes(NAVIGATION) && !automaticStyle || !Array.isArray(hooks.PreToolUse)
       ? {}
       : { pre: renderEntry(hooks.PreToolUse[0], commands) }),
     ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse)
@@ -292,12 +297,13 @@ function mergeHookSettings(
   current: Buffer | undefined,
   packageRoot: string,
   selected: readonly CapabilityId[],
+  automaticStyle: boolean,
   owned: boolean,
 ): { readonly bytes: Buffer; readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
   const document = current === undefined ? {} : parseJson(current, "invalid_json", SETTINGS_PATH);
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
-  const entries = managedHookEntry(packageRoot, selected);
+  const entries = managedHookEntry(packageRoot, selected, automaticStyle);
   for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", SETTINGS_PATH);
@@ -389,9 +395,10 @@ function projectContributions(
   selected: readonly CapabilityId[],
   projected: readonly CapabilityId[],
   state: InstallState | undefined,
+  automaticStyle: boolean,
 ): readonly ProjectedCapabilityContribution[] {
   const settingsCurrent = readRegular(target, SETTINGS_PATH);
-  const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, state !== undefined);
+  const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, automaticStyle, state !== undefined);
   const contributions: ProjectedCapabilityContribution[] = [];
   if (projected.includes(NAVIGATION)) {
     const mcpCurrent = readRegular(target, MCP_PATH);
@@ -400,7 +407,9 @@ function projectContributions(
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, MCP_PATH, mcp.bytes, true, true),
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
-      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false),
+      projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md"), false),
+      projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
+      projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ];
     contributions.push(Object.freeze({
@@ -416,19 +425,21 @@ function projectContributions(
   }
   if (projected.includes(CODE_STYLE)) {
     const files: ProjectedCapabilityFile[] = [
-      projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
       projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false),
       ...CODE_STYLE_REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
-      projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true),
-      projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
+      ...(automaticStyle ? [
+        projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
+        projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), true),
+        projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true),
+        projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true),
+        projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true),
+        projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
+      ] : []),
     ];
     contributions.push(Object.freeze({
       capabilityId: CODE_STYLE,
       files: Object.freeze(files),
-      sections: Object.freeze([section(SETTINGS_PATH, "code-style:pre-tool", settings.pre, settingsCurrent !== undefined, true)]),
+      sections: Object.freeze(automaticStyle ? [section(SETTINGS_PATH, "code-style:pre-tool", settings.pre, settingsCurrent !== undefined, true)] : []),
     }));
   }
   return Object.freeze(contributions);
@@ -437,6 +448,7 @@ function projectContributions(
 function compose(
   context: HostInstallContext | HostUninstallContext,
   selected: readonly CapabilityId[],
+  automaticStyle: boolean,
   preserved: readonly CapabilityId[] = [],
 ): ReturnType<typeof composeCapabilitySet> {
   const state = context.observation.currentState;
@@ -444,7 +456,7 @@ function compose(
   const projected = selected.filter((id) => !preserved.includes(id));
   const reconciled = preserved.length === 0
     ? Object.freeze([])
-    : projectContributions(context.target, context.packageRoot, selected, preserved, state);
+    : projectContributions(context.target, context.packageRoot, selected, preserved, state, automaticStyle);
   return composeCapabilitySet({
     host: "claude",
     target: context.target,
@@ -454,7 +466,7 @@ function compose(
     stateExpectedDigest: stateBytes === undefined ? null : sha256(stateBytes),
     selectedCapabilities: selected,
     preservedCapabilities: preserved,
-    contributions: projectContributions(context.target, context.packageRoot, selected, projected, state),
+    contributions: projectContributions(context.target, context.packageRoot, selected, projected, state, automaticStyle),
     reconciledContributions: reconciled,
     ...(state === undefined ? {} : { previousState: state }),
   });
@@ -463,9 +475,10 @@ function compose(
 function claudeStatus(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
   if (issue !== undefined) {
-    return createStatusResult({ status: issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid", host: "claude", issues: [issue] });
+    const status = issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid";
+    return createStatusResult({ status, host: "claude", issues: [issue], codeStyle: deriveCodeStyleDelivery(context.observation.currentState, status) });
   }
-  if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "claude" });
+  if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "claude", codeStyle: deriveCodeStyleDelivery(context.observation.currentState, "healthy") });
   const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS);
   return hasManagedRootResidue(path.dirname(root.absolutePath))
     ? createStatusResult({ status: "invalid", host: "claude", issues: [{ code: "orphaned_managed_root", path: ".claude/kcoderag-nav" }] })
@@ -539,14 +552,12 @@ export function createClaudeAdapter(options: ClaudeAdapterOptions = {}): HostAda
       refuseIssues(context.observation);
       if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH);
       const selected = selectedForInstall(context);
-      assertSupport(selected, context, options);
-      return compose(context, selected, preservedForUpdate(context, selected));
+      return compose(context, selected, automaticStyleEnabled(selected, context, options), preservedForUpdate(context, selected));
     },
     renderUninstall: (context: HostUninstallContext) => {
       refuseIssues(context.observation);
       const selected = selectedAfterUninstall(context);
-      assertSupport(selected, context, options);
-      return compose(context, selected);
+      return compose(context, selected, automaticStyleEnabled(selected, context, options));
     },
     status: claudeStatus,
     scanUserSources: (context: HostSourceScanContext) => scanClaudeSources(context, reader),

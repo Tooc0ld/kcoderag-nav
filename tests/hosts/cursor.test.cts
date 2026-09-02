@@ -15,7 +15,7 @@ function context(target: any, observation: any, selectedCapabilities: readonly s
   return { target, packageRoot: PACKAGE_ROOT, command, environment: "qa", observation, selectedCapabilities };
 }
 
-test("Cursor rejects instruction-only code-style nudge and keeps honest native navigation projection", async () => {
+test("Cursor installs manual code-style and keeps honest native navigation projection", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-cursor-"));
   try {
     fs.mkdirSync(path.join(root, ".cursor"), { recursive: true });
@@ -24,12 +24,9 @@ test("Cursor rejects instruction-only code-style nudge and keeps honest native n
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = cursor.createCursorAdapter({ hostVersion: "3.17.8", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    assert.throws(() => adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])), (error: any) => error?.code === "host_version_unsupported");
-    assert.equal(fs.existsSync(path.join(root, ".cursor/rules/kcoderag-navigation.mdc")), false);
-
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION])));
+    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])));
     const state = JSON.parse(fs.readFileSync(path.join(root, ".cursor/kcoderag-nav/install-state.json"), "utf8"));
-    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
     const mcp = JSON.parse(fs.readFileSync(path.join(root, ".cursor/mcp.json"), "utf8"));
     assert.deepEqual(mcp.unrelated, { keep: true });
     assert.equal(typeof mcp.mcpServers.kcoderag, "object");
@@ -43,12 +40,14 @@ test("Cursor rejects instruction-only code-style nudge and keeps honest native n
     assert.equal(hooks.hooks.preToolUse, undefined);
     for (const relativePath of [
       ".cursor/rules/kcoderag-navigation.mdc",
-      ".cursor/skills/kcoderag-nav/SKILL.md",
+      ".cursor/skills/kcoderag/SKILL.md",
       ".cursor/kcoderag-nav/hooks/feedback-nudge.cjs",
       ".cursor/kcoderag-nav/hooks/mcp-call-marker.cjs",
       ".cursor/kcoderag-nav/hooks/once-marker.cjs",
     ]) assert.equal(fs.existsSync(path.join(root, ...relativePath.split("/"))), true, relativePath);
-    assert.equal(fs.existsSync(path.join(root, ".cursor/skills/code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".cursor/skills/kcoderag-code-style/SKILL.md")), true);
+    const status = adapter.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: adapter.detect({ target, packageRoot: PACKAGE_ROOT }) });
+    assert.deepEqual(status.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

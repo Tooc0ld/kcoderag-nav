@@ -34,7 +34,7 @@ const repositoryRoot = path.resolve(__dirname, "../..");
 const CURRENT_GATE_COMMANDS = Object.freeze([
   "npm run build",
   "npm run test:capabilities",
-  "node --test dist-tests/skills/code-style-correction.test.cjs dist-tests/skills/code-style-correction.behavior.test.cjs",
+  "node --test dist-tests/skills/kcoderag-code-style.test.cjs dist-tests/skills/kcoderag-code-style.behavior.test.cjs",
   "npm run test:capability-hooks",
   "npm run test:manual-conflict",
   "npm run test:generator",

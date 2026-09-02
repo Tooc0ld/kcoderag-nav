@@ -86,7 +86,9 @@ export interface SupportedCapabilityLifecycle {
   readonly schemaVersion: 1;
   readonly branch: "supported";
   readonly hostVersion: string;
-  readonly receiptDigest: string;
+  readonly manualSkill: "available";
+  readonly automaticNudge: "available" | "unsupported";
+  readonly receiptDigest?: string;
   readonly navigationThenStyle: boolean;
   readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
@@ -107,17 +109,7 @@ export interface SupportedCapabilityLifecycle {
   readonly sessionEndReceiptBound: boolean;
 }
 
-export interface UnsupportedCapabilityLifecycle {
-  readonly schemaVersion: 1;
-  readonly branch: "unsupported";
-  readonly hostVersion: string;
-  readonly navigationInstalled: boolean;
-  readonly refusalCode: "host_version_unsupported";
-  readonly zeroWrite: boolean;
-  readonly navigationPreserved: boolean;
-}
-
-export type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+export type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
 export interface HostSmokeResult {
   readonly schemaVersion: 1;
@@ -561,16 +553,16 @@ childProcess.execFile = function(executable, args, options, callback) {
 }
 
 function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
-  if (value.branch === "unsupported") {
-    return value.navigationInstalled && value.refusalCode === "host_version_unsupported" &&
-      value.zeroWrite && value.navigationPreserved;
-  }
-  return value.navigationThenStyle && value.styleThenNavigation && value.duplicateNoop &&
+  const nativeEvidence = value.automaticNudge === "available"
+    ? value.nativeFirstWrite && typeof value.receiptDigest === "string" && /^[a-f0-9]{64}$/u.test(value.receiptDigest)
+    : !value.nativeFirstWrite && value.receiptDigest === undefined;
+  return value.manualSkill === "available" && nativeEvidence &&
+    value.navigationThenStyle && value.styleThenNavigation && value.duplicateNoop &&
     value.failedSecondAddPreserved && value.update && value.conflictUninstallBlocked &&
-    value.partialUninstall && value.finalUninstall && value.nativeFirstWrite && value.singleTransaction &&
+    value.partialUninstall && value.finalUninstall && value.singleTransaction &&
     value.unrelatedTreePreserved && value.rollbackRestored && value.concurrentLoserBlocked &&
     value.assetDriftFailOpen && value.patchEnvelope && value.missingStableIdSilent &&
-    value.markerSaturationSilent && value.sessionEndReceiptBound && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
+    value.markerSaturationSilent && value.sessionEndReceiptBound;
 }
 
 export function safeEnvironment(
@@ -1512,7 +1504,7 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (host === "cursor") {
     try {
       const ruleBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "rules", "kcoderag-navigation.mdc"));
-      const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag-nav", "SKILL.md"));
+      const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag", "SKILL.md"));
       const mcpBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "mcp.json"));
       const hooksBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "hooks.json"));
       const markerBytes = fs.readFileSync(path.join(
@@ -1546,7 +1538,7 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (host === "opencode") {
     try {
       const pluginBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "plugins", "kcoderag-nav.js"));
-      const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag-nav", "SKILL.md"));
+      const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag", "SKILL.md"));
       const markerBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "kcoderag-nav", "hooks", "mcp-call-marker.cjs"));
       const updateNoticeBytes = fs.readFileSync(path.join(
         projectRoot, ".opencode", "kcoderag-nav", "hooks", "update-notice.cjs",
@@ -1569,7 +1561,7 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
     try {
       const configBytes = fs.readFileSync(path.join(projectRoot, ".zcode", "config.json"));
       const skillBytes = fs.readFileSync(path.join(
-        projectRoot, ".zcode", "skills", "kcoderag-nav", "SKILL.md",
+        projectRoot, ".zcode", "skills", "kcoderag", "SKILL.md",
       ));
       const dispatcherBytes = fs.readFileSync(path.join(
         projectRoot, ".zcode", "kcoderag-nav", "hooks", "pre-tool-dispatcher.cjs",
@@ -1651,14 +1643,14 @@ interface OpenCodePluginModule {
 
 function navigationSkillPath(host: HostId, projectRoot: string): string {
   const relativePath = host === "codex"
-    ? ".agents/skills/kcoderag-nav/SKILL.md"
+    ? ".agents/skills/kcoderag/SKILL.md"
     : host === "claude"
-      ? ".claude/skills/kcoderag-nav/SKILL.md"
+      ? ".claude/skills/kcoderag/SKILL.md"
       : host === "cursor"
-        ? ".cursor/skills/kcoderag-nav/SKILL.md"
+        ? ".cursor/skills/kcoderag/SKILL.md"
         : host === "opencode"
-          ? ".opencode/skills/kcoderag-nav/SKILL.md"
-          : ".zcode/skills/kcoderag-nav/SKILL.md";
+          ? ".opencode/skills/kcoderag/SKILL.md"
+          : ".zcode/skills/kcoderag/SKILL.md";
   return path.join(projectRoot, ...relativePath.split("/"));
 }
 
@@ -2270,7 +2262,7 @@ function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): stri
       : host === "opencode"
         ? ".config/opencode/plugins/kcoderag-nav.js"
         : host === "zcode"
-          ? ".zcode/skills/kcoderag-nav/SKILL.md"
+          ? ".zcode/skills/kcoderag/SKILL.md"
           : ".cursor/plugins/local/kcoderag-nav";
   const conflictPath = path.join(hostHome, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
@@ -2295,11 +2287,11 @@ function isConflictFailure(result: PackageCliResult): boolean {
 }
 
 function codeStyleSkillPath(host: HostId): string {
-  if (host === "codex") return ".agents/skills/code-style-correction/SKILL.md";
-  if (host === "claude") return ".claude/skills/code-style-correction/SKILL.md";
-  if (host === "cursor") return ".cursor/skills/code-style-correction/SKILL.md";
-  if (host === "opencode") return ".opencode/skills/code-style-correction/SKILL.md";
-  return ".zcode/skills/code-style-correction/SKILL.md";
+  if (host === "codex") return ".agents/skills/kcoderag-code-style/SKILL.md";
+  if (host === "claude") return ".claude/skills/kcoderag-code-style/SKILL.md";
+  if (host === "cursor") return ".cursor/skills/kcoderag-code-style/SKILL.md";
+  if (host === "opencode") return ".opencode/skills/kcoderag-code-style/SKILL.md";
+  return ".zcode/skills/kcoderag-code-style/SKILL.md";
 }
 
 function isCliError(result: PackageCliResult, code: string): boolean {
@@ -2569,67 +2561,50 @@ async function runRequiredHost(
     const navigationInstall = runPackageCli(
       artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION] },
     );
-    let supportedNavigationThenStyle = false;
-    let supportedStyleThenNavigation = false;
-    let supportedDuplicateNoop = false;
-    let supportedFailedSecondAdd = false;
-    let unsupportedRefusal = false;
-    let unsupportedZeroWrite = false;
-    let unsupportedNavigationPreserved = false;
-    if (receipt !== undefined) {
-      const addStyle = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      supportedNavigationThenStyle = navigationInstall !== undefined && addStyle !== undefined &&
-        exactCapabilities(host, projectRoot, [NAVIGATION, CODE_STYLE]);
-      const beforeDuplicate = treeFingerprint(projectRoot);
-      const duplicate = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE, NAVIGATION] },
-      );
-      supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
-        duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
-      runtimeEvidence = installedRuntimeEvidence(
-        host, runtimePackageRoot, projectRoot, artifact, projectsRoot, runNpm,
-      );
+    const addStyle = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const supportedNavigationThenStyle = navigationInstall !== undefined && addStyle !== undefined &&
+      exactCapabilities(host, projectRoot, [NAVIGATION, CODE_STYLE]);
+    const beforeDuplicate = treeFingerprint(projectRoot);
+    const duplicate = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE, NAVIGATION] },
+    );
+    const supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
+      duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
+    runtimeEvidence = installedRuntimeEvidence(
+      host, runtimePackageRoot, projectRoot, artifact, projectsRoot, runNpm,
+    );
 
-      const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
-      const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
-      fs.mkdirSync(reverseRoot, { recursive: true });
-      const reverseStyle = runPackageCli(
-        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      const reverseNavigation = runPackageCli(
-        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
-      );
-      supportedStyleThenNavigation = reverseStyle !== undefined && reverseNavigation !== undefined &&
-        exactCapabilities(host, reverseRoot, [NAVIGATION, CODE_STYLE]);
+    const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
+    const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
+    fs.mkdirSync(reverseRoot, { recursive: true });
+    const reverseStyle = runPackageCli(
+      artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const reverseNavigation = runPackageCli(
+      artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+    );
+    const supportedStyleThenNavigation = reverseStyle !== undefined && reverseNavigation !== undefined &&
+      exactCapabilities(host, reverseRoot, [NAVIGATION, CODE_STYLE]);
 
-      const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
-      const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
-      fs.mkdirSync(failedRoot, { recursive: true });
-      const failedNavigation = runPackageCli(
-        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
-      );
-      const conflictPath = path.join(failedRoot, ...codeStyleSkillPath(host).split("/"));
-      fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
-      fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
-      const beforeFailedAdd = treeFingerprint(failedRoot);
-      const failedAdd = runPackageCliResult(
-        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      supportedFailedSecondAdd = failedNavigation !== undefined &&
-        isCliError(failedAdd, "unmanaged_name_conflict") &&
-        treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
-      evidence.install = supportedNavigationThenStyle;
-    } else {
-      evidence.install = navigationInstall !== undefined && exactCapabilities(host, projectRoot, [NAVIGATION]);
-      const beforeRefusal = treeFingerprint(projectRoot);
-      const refused = runPackageCliResult(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      unsupportedRefusal = isCliError(refused, "host_version_unsupported");
-      unsupportedZeroWrite = unsupportedRefusal && treeFingerprint(projectRoot) === beforeRefusal;
-    }
+    const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
+    const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
+    fs.mkdirSync(failedRoot, { recursive: true });
+    const failedNavigation = runPackageCli(
+      artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+    );
+    const conflictPath = path.join(failedRoot, ...codeStyleSkillPath(host).split("/"));
+    fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
+    fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
+    const beforeFailedAdd = treeFingerprint(failedRoot);
+    const failedAdd = runPackageCliResult(
+      artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const supportedFailedSecondAdd = failedNavigation !== undefined &&
+      isCliError(failedAdd, "unmanaged_name_conflict") &&
+      treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
+    evidence.install = supportedNavigationThenStyle;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -2641,10 +2616,13 @@ async function runRequiredHost(
     });
     const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const doctor = runPackageCli(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
-    evidence.status = status?.status === "healthy" && status.environment === "qa";
-    evidence.doctor = doctor?.status === "healthy" && doctor.environment === "qa";
-    unsupportedNavigationPreserved = receipt === undefined && unsupportedRefusal &&
-      status?.status === "healthy" && exactCapabilities(host, projectRoot, [NAVIGATION]);
+    const expectedAutomaticNudge = receipt === undefined ? "unsupported" : "available";
+    evidence.status = status?.status === "healthy" && status.environment === "qa" &&
+      status.codeStyle?.manualSkill === "available" &&
+      status.codeStyle?.automaticNudge === expectedAutomaticNudge;
+    evidence.doctor = doctor?.status === "healthy" && doctor.environment === "qa" &&
+      doctor.codeStyle?.manualSkill === "available" &&
+      doctor.codeStyle?.automaticNudge === expectedAutomaticNudge;
     const connection = readConnection(host, projectRoot);
     const packagedConnection = connection?.serverName === expectedServerName(host)
       && typeof connection.url === "string"
@@ -2686,35 +2664,24 @@ async function runRequiredHost(
 
     fs.unlinkSync(sourceConflictPath);
     sourceConflictPath = undefined;
-    let partialUninstall = false;
-    if (receipt !== undefined) {
-      const partial = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [CODE_STYLE], all: false },
-      );
-      const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
-      partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
-        exactCapabilities(host, projectRoot, [NAVIGATION]);
-    }
+    const partial = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [CODE_STYLE], all: false },
+    );
+    const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
+    const partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
+      partialStatus.codeStyle?.manualSkill === "absent" && exactCapabilities(host, projectRoot, [NAVIGATION]);
     const uninstall = runPackageCli(
       artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { all: true },
     );
     evidence.uninstall = uninstall !== undefined && uninstall.environment === "qa" &&
       !fs.existsSync(statePath(host, projectRoot));
-    capabilityLifecycle = receipt === undefined
-      ? Object.freeze({
-          schemaVersion: 1 as const,
-          branch: "unsupported" as const,
-          hostVersion,
-          navigationInstalled: evidence.install,
-          refusalCode: "host_version_unsupported" as const,
-          zeroWrite: unsupportedZeroWrite,
-          navigationPreserved: unsupportedNavigationPreserved,
-        })
-      : Object.freeze({
+    capabilityLifecycle = Object.freeze({
           schemaVersion: 1 as const,
           branch: "supported" as const,
           hostVersion,
-          receiptDigest: receipt.receiptDigest,
+          manualSkill: "available" as const,
+          automaticNudge: receipt === undefined ? "unsupported" as const : "available" as const,
+          ...(receipt === undefined ? {} : { receiptDigest: receipt.receiptDigest }),
           navigationThenStyle: supportedNavigationThenStyle,
           styleThenNavigation: supportedStyleThenNavigation,
           duplicateNoop: supportedDuplicateNoop,

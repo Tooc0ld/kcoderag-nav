@@ -1,10 +1,15 @@
-const { test } = require("node:test") as typeof import("node:test");
+const { after, test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+
+const launcherCacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-launcher-cache-"));
+after(() => {
+  fs.rmSync(launcherCacheRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 
 const sourceHooks = path.resolve("plugin-src/hooks");
 const sourceRegistration = path.resolve("plugin-src/hooks/hooks.json");
@@ -267,6 +272,8 @@ function deployment(): Deployment {
 function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    LOCALAPPDATA: launcherCacheRoot,
+    XDG_CACHE_HOME: launcherCacheRoot,
     KCODERAG_NAV_UPDATE_CHECK: "0",
     ...overrides,
   };

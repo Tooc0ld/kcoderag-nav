@@ -20,13 +20,13 @@ interface CapabilityContribution {
   }[];
 }
 
-type SupportDecision =
-  | {
-      readonly eligible: true;
-      readonly deliveryMode: string;
-      readonly evidenceDigest?: string;
-    }
-  | { readonly eligible: false; readonly code: string };
+type SupportDecision = {
+  readonly eligible: true;
+  readonly deliveryMode: string;
+  readonly automaticNudge?:
+    | { readonly eligible: true; readonly evidenceDigest: string }
+    | { readonly eligible: false; readonly code: string };
+};
 
 interface CapabilityProvider {
   readonly id: CapabilityId;
@@ -46,6 +46,7 @@ const registry = require("../../dist/capabilities/registry.cjs") as {
 
 const CODE_STYLE_SKILL_PATHS = Object.freeze([
   "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml",
   "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
@@ -141,8 +142,11 @@ test("code-style support delegates to the exact checked-in PASS receipt", () => 
   });
   assert.deepEqual(supported, {
     eligible: true,
-    deliveryMode: "native_pre_write",
-    evidenceDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
+    deliveryMode: "manual_skill",
+    automaticNudge: {
+      eligible: true,
+      evidenceDigest: "bb00429dbca08a026604c6f2aeeac988d757fbe10751a92ed7b7d7c2093bd119",
+    },
   });
   assert.equal(Object.isFrozen(supported), true);
 
@@ -155,7 +159,11 @@ test("code-style support delegates to the exact checked-in PASS receipt", () => 
   ] as const) {
     assert.deepEqual(
       codeStyle.evaluateSupport({ host, hostVersion, evidenceRoot: process.cwd() }),
-      { eligible: false, code: "host_version_unsupported" },
+      {
+        eligible: true,
+        deliveryMode: "manual_skill",
+        automaticNudge: { eligible: false, code: "host_version_unsupported" },
+      },
       `${host}@${hostVersion}`,
     );
     assert.equal(

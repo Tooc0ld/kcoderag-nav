@@ -1,12 +1,17 @@
 ---
-name: code-style-correction
-description: Review and guide C/C++ or Lua code changes before writing, applying repository-native rules for results, ownership, lifetime, protocol/serialization, Lua stack contracts, packet buffers, formatting, and file hygiene. Use when creating or modifying .c, .cc, .cpp, .cxx, .h, .hh, .hpp, .hxx, .inl, .ipp, or .lua files; exclude read-only analysis, pure rename/delete operations, and unrelated languages.
+name: kcoderag-code-style
+description: Prepare or review C/C++ and Lua code changes with repository-native rules for results, ownership, lifetime, protocol, serialization, Lua contracts, formatting, and file hygiene. Use for a natural-language pre-write question or review of a requested file or current changes; exclude unrelated languages and general read-only code navigation.
 ---
 
-# Code Style Correction
+# KCodeRag Code Style
 
 Plan and write the smallest repository-native C/C++ or Lua change that preserves business,
 ownership, protocol, persistence, runtime, and file-byte contracts.
+
+Use a natural-language request to prepare a change before editing. For
+`$kcoderag-code-style review <file or current changes>`, inspect only the requested file or
+current diff and report evidence-backed findings. This Skill defines no `apply` subcommand;
+actual edits use the host's ordinary editing tools under the user's existing authorization.
 
 ## Managed asset and precedence
 

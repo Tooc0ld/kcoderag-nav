@@ -132,11 +132,11 @@ function sessionStartCodeStyle(event, runtime, statePath) {
     if (runtime.hostVersion !== undefined &&
         (event.host !== "claude" || runtime.hostVersion !== RECEIPT_PROVEN_CODE_STYLE_VERSION))
         return undefined;
-    if (!(0, code_style_nudge_cjs_1.evaluateCodeStyleIntegrity)({
+    if ((0, code_style_nudge_cjs_1.evaluateCodeStyleIntegrity)({
         host: event.host,
         managedRoot: event.managedRoot,
         ...(statePath === undefined ? {} : { statePath }),
-    }).ok)
+    }).automaticNudge !== "available")
         return undefined;
     const claim = (0, once_marker_cjs_1.claimReminder)(event.payload, {
         host: event.host,
@@ -148,7 +148,7 @@ function sessionStartCodeStyle(event, runtime, statePath) {
         ...(runtime.now === undefined ? {} : { now: runtime.now }),
     });
     return claim.claimed
-        ? "Code-style guidance is installed and integrity-verified; load $code-style-correction before C/C++ or Lua edits."
+        ? "Code-style guidance is installed and integrity-verified; load $kcoderag-code-style before C/C++ or Lua edits."
         : undefined;
 }
 function sessionStartUpdate(event, runtime, statePath) {

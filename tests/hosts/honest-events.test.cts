@@ -90,7 +90,7 @@ test("Cursor projects Rule, Skill, MCP and afterMCPExecution without hook equiva
       assert.equal(hooks.hooks[unsupported], undefined, `${unsupported} must not be projected by Cursor`);
     }
     const rule = fs.readFileSync(path.join(cursorRoot, "rules", "kcoderag-navigation.mdc"), "utf8");
-    const skill = fs.readFileSync(path.join(cursorRoot, "skills", "kcoderag-nav", "SKILL.md"), "utf8");
+    const skill = fs.readFileSync(path.join(cursorRoot, "skills", "kcoderag", "SKILL.md"), "utf8");
     assert.match(rule, /alwaysApply: true/u);
     assert.match(`${rule}\n${skill}`, /search_code/u);
     assert.doesNotMatch(`${rule}\n${skill}`, /SessionStart|PreToolUse|LIVE PASS/u);

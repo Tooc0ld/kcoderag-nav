@@ -21,6 +21,12 @@ const registry = require("../../dist/capabilities/registry.cjs") as {
 
 const NAVIGATION_SKILL = "plugin-src/skills/kcoderag/SKILL.md";
 const NAVIGATION_METADATA = "plugin-src/skills/kcoderag/agents/openai.yaml";
+const MANAGEMENT_SKILL = "plugin-src/skills/kcoderag-manage/SKILL.md";
+const MANAGEMENT_METADATA = "plugin-src/skills/kcoderag-manage/agents/openai.yaml";
+const FEEDBACK_SKILL = "plugin-src/skills/kcoderag-feedback/SKILL.md";
+const FEEDBACK_METADATA = "plugin-src/skills/kcoderag-feedback/agents/openai.yaml";
+const STYLE_SKILL = "plugin-src/capabilities/code-style-nudge/skill/SKILL.md";
+const STYLE_METADATA = "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml";
 const RETIRED_NAVIGATION_SKILL = "plugin-src/skills/code-lookup-discipline/SKILL.md";
 
 function read(relativePath: string): string {
@@ -59,9 +65,16 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
   assert.equal(contribution.capabilityId, "kcoderag-navigation");
   assert.deepEqual(
     contribution.files
-      .filter((file) => file.id.startsWith("navigation:skill"))
+      .filter((file) => file.sourcePath.startsWith("plugin-src/skills/"))
       .map((file) => file.sourcePath),
-    [NAVIGATION_SKILL, NAVIGATION_METADATA],
+    [
+      NAVIGATION_SKILL,
+      NAVIGATION_METADATA,
+      MANAGEMENT_SKILL,
+      MANAGEMENT_METADATA,
+      FEEDBACK_SKILL,
+      FEEDBACK_METADATA,
+    ],
   );
   assert.equal(
     contribution.files.some((file) => file.sourcePath.includes("code-lookup-discipline")),
@@ -71,4 +84,38 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
     registry.BUILT_IN_CAPABILITIES.map((manifest) => manifest.id),
     ["kcoderag-navigation", "code-style-nudge"],
   );
+});
+
+test("the four public Skills have distinct authority boundaries and Codex metadata", () => {
+  const management = read(MANAGEMENT_SKILL);
+  assert.match(management, /^name: kcoderag-manage$/mu);
+  assert.match(management, /status/u);
+  assert.match(management, /doctor/u);
+  assert.match(management, /`update` only when the user explicitly asks/iu);
+  assert.match(management, /Uninstall.*explicit user request/isu);
+
+  const feedback = read(FEEDBACK_SKILL);
+  assert.match(feedback, /^name: kcoderag-feedback$/mu);
+  assert.match(feedback, /submit_feedback/u);
+  assert.match(feedback, /actual query result/u);
+  assert.match(feedback, /do not invent/iu);
+  assert.match(feedback, /MCP URLs.*headers.*bearer.*tokens/isu);
+
+  const style = read(STYLE_SKILL);
+  assert.match(style, /^name: kcoderag-code-style$/mu);
+  assert.match(style, /\$kcoderag-code-style review <file or current changes>/u);
+  assert.match(style, /defines no `apply` subcommand/u);
+
+  for (const [metadataPath, displayName, skillName] of [
+    [MANAGEMENT_METADATA, "KCodeRag Manage", "$kcoderag-manage"],
+    [FEEDBACK_METADATA, "KCodeRag Feedback", "$kcoderag-feedback"],
+    [STYLE_METADATA, "KCodeRag Code Style", "$kcoderag-code-style"],
+  ] as const) {
+    const metadata = read(metadataPath);
+    assert.equal(quotedYamlValue(metadata, "display_name"), displayName);
+    const shortDescription = quotedYamlValue(metadata, "short_description");
+    assert.ok(shortDescription.length >= 25 && shortDescription.length <= 64, metadataPath);
+    assert.match(quotedYamlValue(metadata, "default_prompt"), new RegExp(`\\${skillName}\\b`, "u"));
+    assert.match(metadata, /^\s*allow_implicit_invocation:\s*true\s*$/mu);
+  }
 });

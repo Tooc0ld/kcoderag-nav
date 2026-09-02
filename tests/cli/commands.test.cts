@@ -164,6 +164,8 @@ function runInstalledClaudeLauncher(
     HOME: homeDirectory,
     USERPROFILE: homeDirectory,
     XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+    XDG_CACHE_HOME: path.join(homeDirectory, ".cache"),
+    LOCALAPPDATA: path.join(homeDirectory, "AppData", "Local"),
     KCODERAG_NAV_UPDATE_CHECK: "0",
   };
   const result = process.platform === "win32"
@@ -933,8 +935,8 @@ test("compiled public CLI installs Claude capabilities additively in both orders
         assert.equal(parseOnlyJson(result.stdout).ok, true);
       }
       assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, CODE_STYLE]);
-      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md")), true);
-      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/code-style-correction/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-code-style/SKILL.md")), true);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -1029,7 +1031,7 @@ test("installed Claude launcher keeps code-style nudge operational without the n
       assert.equal(launched.stderr, "");
       const output = parseOnlyJson(launched.stdout);
       assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
-      assert.match(output.hookSpecificOutput.additionalContext, /\$code-style-correction/u);
+      assert.match(output.hookSpecificOutput.additionalContext, /\$kcoderag-code-style/u);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -1059,7 +1061,7 @@ test("duplicate additive install is byte and mtime stable without a transaction 
   }
 });
 
-test("unsupported second capability add is zero-write and preserves the healthy first capability", () => {
+test("manual style adds cleanly to Codex while native automation remains unsupported", () => {
   const item = fixture();
   const homeDirectory = path.join(item.root, "home");
   fs.mkdirSync(homeDirectory);
@@ -1068,14 +1070,13 @@ test("unsupported second capability add is zero-write and preserves the healthy 
       "install", "--host", "codex", "--capability", NAVIGATION,
     ]);
     assert.equal(first.status, 0, first.stderr || first.stdout);
-    const before = projectSnapshot(item.target);
-    const refused = runPublicCli(item.target, homeDirectory, [
+    const added = runPublicCli(item.target, homeDirectory, [
       "install", "--host", "codex", "--capability", CODE_STYLE,
     ]);
-    assert.equal(refused.status, 1, refused.stderr || refused.stdout);
-    assert.equal(parseOnlyJson(refused.stdout).error.code, "host_version_unsupported");
-    assert.deepEqual(installedCapabilities(item.target, "codex"), [NAVIGATION]);
-    assert.deepEqual(projectSnapshot(item.target), before);
+    assert.equal(added.status, 0, added.stderr || added.stdout);
+    assert.deepEqual(installedCapabilities(item.target, "codex"), [NAVIGATION, CODE_STYLE]);
+    const status = parseOnlyJson(runPublicCli(item.target, homeDirectory, ["status", "--host", "codex"]).stdout);
+    assert.deepEqual(status.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -1126,11 +1127,11 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
   fs.mkdirSync(homeDirectory);
   const packageRoot = copyPackageFixture(item.root);
   const statePath = path.join(item.target, ".claude/kcoderag-nav/install-state.json");
-  const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md");
+  const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md");
   const codeStyleSource = path.join(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   const hooksSource = path.join(packageRoot, "kcoderag-qa/hooks/hooks.json");
-  const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md");
-  const codeStyleInstalled = path.join(item.target, ".claude/skills/code-style-correction/SKILL.md");
+  const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag/SKILL.md");
+  const codeStyleInstalled = path.join(item.target, ".claude/skills/kcoderag-code-style/SKILL.md");
   try {
     const installed = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
       "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE, "--yes", "--json",
@@ -1166,8 +1167,8 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
     assert.deepEqual(output.capabilities, [NAVIGATION, CODE_STYLE]);
     assert.deepEqual(output.selectedCapabilities, [NAVIGATION]);
     assert.equal(output.changed, true);
-    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-nav/SKILL.md"), true);
-    assert.equal(output.changedPaths.includes(".claude/skills/code-style-correction/SKILL.md"), false);
+    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag/SKILL.md"), true);
+    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-code-style/SKILL.md"), false);
 
     assert.equal(fs.readFileSync(navigationInstalled).equals(beforeNavigation), false);
     assert.equal(fs.readFileSync(navigationInstalled).equals(fs.readFileSync(navigationSource)), true);
@@ -1312,9 +1313,10 @@ test("status reports conservative per-capability drift and doctor reports stale 
     assert.equal(driftOutput.status, "drifted");
     assert.equal(driftOutput.issues[0].code, "capability_drift");
     assert.deepEqual(driftOutput.capabilities, [
-      { id: NAVIGATION, installed: null, status: "capability_drift" },
-      { id: CODE_STYLE, installed: null, status: "capability_drift" },
+      { id: NAVIGATION, installed: true, status: "capability_drift" },
+      { id: CODE_STYLE, installed: true, status: "capability_drift" },
     ]);
+    assert.deepEqual(driftOutput.codeStyle, { manualSkill: "drifted", automaticNudge: "drifted" });
 
     const child = childProcess.spawnSync(process.execPath, [
       "-e",

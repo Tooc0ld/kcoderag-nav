@@ -22,6 +22,8 @@ interface CodeStyleNudgeModule {
     readonly statePath?: string;
   }): {
     readonly ok: boolean;
+    readonly manualSkill?: "available";
+    readonly automaticNudge?: "available" | "unsupported";
     readonly finding?: { readonly code: "capability_drift"; readonly path: string };
   };
 }
@@ -36,14 +38,15 @@ const allowedExtensions = [
 ] as const;
 
 const integrityAssets = [
-  [".claude/skills/code-style-correction/SKILL.md", "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"],
-  [".claude/skills/code-style-correction/references/cpp-lifetime-control-flow.md", "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md"],
-  [".claude/skills/code-style-correction/references/protocol-serialization-data.md", "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md"],
-  [".claude/skills/code-style-correction/references/lua-contracts.md", "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md"],
-  [".claude/skills/code-style-correction/references/change-hygiene-self-review.md", "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md"],
+  [".claude/skills/kcoderag-code-style/SKILL.md", "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"],
+  [".claude/skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md", "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md"],
+  [".claude/skills/kcoderag-code-style/references/protocol-serialization-data.md", "plugin-src/capabilities/code-style-nudge/skill/references/protocol-serialization-data.md"],
+  [".claude/skills/kcoderag-code-style/references/lua-contracts.md", "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md"],
+  [".claude/skills/kcoderag-code-style/references/change-hygiene-self-review.md", "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md"],
   [".claude/kcoderag-nav/hooks/code-style-nudge.cjs", "dist/hooks/code-style-nudge.cjs"],
   [".claude/kcoderag-nav/hooks/pre-tool-dispatcher.cjs", "dist/hooks/pre-tool-dispatcher.cjs"],
   [".claude/kcoderag-nav/hooks/once-marker.cjs", "dist/hooks/once-marker.cjs"],
+  [".claude/settings.json", "plugin-src/hooks/hooks.json"],
 ] as const;
 
 interface IntegrityFixture {
@@ -80,10 +83,16 @@ function integrityFixture(): IntegrityFixture {
     capabilities: [{
       id: "code-style-nudge",
       files: files.map((file) => file.path),
-      sections: [],
+      sections: [".claude/settings.json#code-style:pre-tool"],
     }],
     files,
-    sections: [],
+    sections: [{
+      path: ".claude/settings.json",
+      id: "code-style:pre-tool",
+      digest: digest(Buffer.from("code-style:pre-tool", "utf8")),
+      fileExisted: false,
+      contributors: ["code-style-nudge"],
+    }],
   });
   const statePath = path.join(root, ".claude", "kcoderag-nav", "install-state.json");
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
@@ -277,7 +286,7 @@ test("code-style contribution requires a stable identity and emits once per host
 });
 
 test("the reminder is constant, short, precedence-aware, and makes no scan claim", () => {
-  assert.match(codeStyle.CODE_STYLE_NUDGE, /\$code-style-correction/u);
+  assert.match(codeStyle.CODE_STYLE_NUDGE, /\$kcoderag-code-style/u);
   assert.match(codeStyle.CODE_STYLE_NUDGE, /user and project instructions take precedence/iu);
   assert.match(codeStyle.CODE_STYLE_NUDGE, /regions changed in this task/iu);
   assert.ok(codeStyle.CODE_STYLE_NUDGE.split(/\s+/u).length <= 50);
@@ -287,7 +296,11 @@ test("the reminder is constant, short, precedence-aware, and makes no scan claim
 test("complete managed code-style tree passes every digest before claiming once", () => {
   const fixture = integrityFixture();
   try {
-    assert.deepEqual(codeStyle.evaluateCodeStyleIntegrity(integrityOptions(fixture)), { ok: true });
+    assert.deepEqual(codeStyle.evaluateCodeStyleIntegrity(integrityOptions(fixture)), {
+      ok: true,
+      manualSkill: "available",
+      automaticNudge: "available",
+    });
     const event = {
       hook_event_name: "PreToolUse",
       tool_name: "Write",
@@ -346,8 +359,8 @@ test("every missing or edited managed asset is silent before marker creation", (
 
 test("an extra Skill override source is drift and cannot consume the once claim", () => {
   for (const relativeOverride of [
-    ".claude/skills/code-style-correction/OVERRIDE.md",
-    ".claude/skills/code-style-correction/references/extra.md",
+    ".claude/skills/kcoderag-code-style/OVERRIDE.md",
+    ".claude/skills/kcoderag-code-style/references/extra.md",
   ]) {
     const fixture = integrityFixture();
     try {

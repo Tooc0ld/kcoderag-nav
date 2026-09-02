@@ -221,11 +221,11 @@ function sessionStartCodeStyle(
     runtime.hostVersion !== undefined &&
     (event.host !== "claude" || runtime.hostVersion !== RECEIPT_PROVEN_CODE_STYLE_VERSION)
   ) return undefined;
-  if (!evaluateCodeStyleIntegrity({
+  if (evaluateCodeStyleIntegrity({
     host: event.host,
     managedRoot: event.managedRoot,
     ...(statePath === undefined ? {} : { statePath }),
-  }).ok) return undefined;
+  }).automaticNudge !== "available") return undefined;
   const claim = claimReminder(event.payload, {
     host: event.host,
     managedRoot: event.managedRoot,
@@ -236,7 +236,7 @@ function sessionStartCodeStyle(
     ...(runtime.now === undefined ? {} : { now: runtime.now }),
   });
   return claim.claimed
-    ? "Code-style guidance is installed and integrity-verified; load $code-style-correction before C/C++ or Lua edits."
+    ? "Code-style guidance is installed and integrity-verified; load $kcoderag-code-style before C/C++ or Lua edits."
     : undefined;
 }
 

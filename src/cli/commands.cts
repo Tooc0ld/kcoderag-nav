@@ -395,6 +395,7 @@ function withRuntimeIssue(
     environment: status.environment ?? environment,
     issues: [...status.issues, issue],
     findings: status.findings,
+    codeStyle: status.codeStyle,
   });
 }
 
@@ -501,6 +502,7 @@ export async function executeCommand(
         environment: adapterStatus.environment ?? QA_ENVIRONMENT,
         issues: adapterStatus.issues,
         findings: sourceScan.findings,
+        codeStyle: adapterStatus.codeStyle,
       });
       const baseStatus = withRuntimeIssue(
         normalizedStatus,
@@ -524,6 +526,7 @@ export async function executeCommand(
             environment: QA_ENVIRONMENT,
             issues: baseStatus.issues,
             findings: baseStatus.findings,
+            codeStyle: baseStatus.codeStyle,
           })
         : baseStatus;
       const ok = status.status === "healthy" ||
@@ -544,6 +547,7 @@ export async function executeCommand(
         versionStatus: version.versionStatus,
         versionCheckedAt: version.checkedAt,
         capabilities: capabilityResults(installedCapabilities, status.status),
+        codeStyle: status.codeStyle,
         maintenance: Object.freeze({
           mutationLock: lockInspection,
           manualCleanupRequired: lockInspection.status === "stale",
@@ -556,6 +560,8 @@ export async function executeCommand(
         stdout(`latest_version: ${version.latestVersion ?? "unknown"}`);
         stdout(`version_status: ${version.versionStatus}`);
         stdout(`version_checked_at: ${displayCheckedAt(version.checkedAt)}`);
+        stdout(`code_style.manualSkill: ${status.codeStyle.manualSkill}`);
+        stdout(`code_style.automaticNudge: ${status.codeStyle.automaticNudge}`);
         for (const issue of status.issues) {
           stdout(`${issue.code}: ${issue.path}`);
         }

@@ -241,6 +241,7 @@ test("Node 22 is a write gate but an explicit read-only status issue", () => {
       schemaVersion: 1,
       status: "invalid",
       host: "codex",
+      codeStyle: { manualSkill: "absent", automaticNudge: "absent" },
       issues: [{ code: "unsupported_node", path: "." }],
       findings: [],
     },

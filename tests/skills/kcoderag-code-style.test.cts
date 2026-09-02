@@ -62,8 +62,8 @@ test("canonical Code Style Skill is a nav-managed non-overridable asset", () => 
   assert.match(markdown, /do not (?:directly )?edit/i);
   assert.match(markdown, /do not (?:create|use).{0,30}override/i);
   assert.match(markdown, /AGENTS\.md.{0,80}project (?:documentation|instructions)/i);
-  assert.match(markdown, /^name: code-style-correction$/m);
-  assert.match(markdown, /^# Code Style Correction$/m);
+  assert.match(markdown, /^name: kcoderag-code-style$/m);
+  assert.match(markdown, /^# KCodeRag Code Style$/m);
 });
 
 test("SKILL.md alone contains the exact 27-rule compact index", () => {
@@ -110,6 +110,8 @@ test("the compact Skill remains prescriptive and contains no executable legacy w
   assert.doesNotMatch(markdown, /audit_added_lines|historical-revisions|svn\s+(?:status|diff|cat)|python\s+scripts|clang-format|scan(?:ner)?\s+passed/i);
   assert.match(markdown, /pre-write/i);
   assert.match(markdown, /guidance, not (?:a )?(?:scan|scanner)/i);
+  assert.match(markdown, /\$kcoderag-code-style review <file or current changes>/u);
+  assert.match(markdown, /defines no `apply` subcommand/u);
 });
 
 test("four detailed references exist and repeat only their assigned partition IDs", () => {
