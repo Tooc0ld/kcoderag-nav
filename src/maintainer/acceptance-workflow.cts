@@ -64,6 +64,12 @@ export class AcceptanceWorkflowError extends Error {
   }
 }
 
+/** Give every workflow attempt a separate persistent-runner namespace. */
+export function liveLaneRoot(output: string, workflowRunId: string): string {
+  if (!SAFE_ID_RE.test(workflowRunId)) throw new AcceptanceWorkflowError("arguments_invalid");
+  return path.join(path.dirname(path.resolve(output)), "lanes", sha256(workflowRunId));
+}
+
 export interface AcceptanceWorkflowContract {
   readonly schemaVersion: 1;
   readonly producerJob: "package";
@@ -504,7 +510,7 @@ async function runLive(flags: Readonly<Record<string, string>>): Promise<number>
     return [host, SAFE_VERSION_RE.test(value) ? value : "unknown"];
   })) as Record<HostId, string>;
   const result = await runLiveHostCoordinator({
-    root: path.join(path.dirname(path.resolve(output)), "lanes"),
+    root: liveLaneRoot(output, workflowRunId),
     candidateSha,
     packageSha256,
     packageMemberDigest: expectedMemberDigest,
@@ -563,6 +569,7 @@ exports.validateAcceptanceWorkflow = validateAcceptanceWorkflow;
 exports.validateAcceptanceWorkflowFile = validateAcceptanceWorkflowFile;
 exports.resolveTrustedDriver = resolveTrustedDriver;
 exports.nativeDriverSpawnSpec = nativeDriverSpawnSpec;
+exports.liveLaneRoot = liveLaneRoot;
 exports.main = main;
 
 if (require.main === module) {

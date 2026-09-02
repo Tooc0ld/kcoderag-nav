@@ -38,9 +38,18 @@ export const RECEIPT_REASON_CODE_STAGES = Object.freeze({
   package_hash_mismatch: "package",
   package_inventory_mismatch: "package",
   install_failed: "install",
+  npm_cli_missing: "install",
+  lifecycle_timeout: "install",
+  lifecycle_transport_failed: "install",
+  lifecycle_output_invalid: "install",
+  lifecycle_output_rejected: "install",
+  install_refused: "install",
   status_unhealthy: "install",
+  status_refused: "install",
   update_failed: "install",
+  update_refused: "install",
   uninstall_failed: "install",
+  uninstall_refused: "install",
   native_event_missing: "native_event",
   native_event_failed: "native_event",
   prompt_missing: "prompt_semantics",
@@ -65,6 +74,8 @@ export const RECEIPT_REASON_CODE_STAGES = Object.freeze({
   receipt_invalid: "evidence_integrity",
   secret_detected: "evidence_integrity",
   cleanup_failed: "evidence_integrity",
+  lane_workspace_conflict: "evidence_integrity",
+  lane_workspace_unavailable: "evidence_integrity",
 } as const satisfies Readonly<Record<string, ReceiptStage>>);
 export type FailureReasonCode = keyof typeof RECEIPT_REASON_CODE_STAGES;
 export type ReceiptReasonCode = "none" | FailureReasonCode;

@@ -80,7 +80,11 @@ test("every reasonCode has one exact stage and accepted status combination", () 
     environment: ["host_unavailable", "host_cli_missing", "runner_unavailable", "node_version_unsupported"],
     admission: ["host_version_unsupported", "host_auth_missing", "workspace_trust_missing", "protected_environment_denied", "untrusted_ref"],
     package: ["package_acquisition_failed", "package_hash_mismatch", "package_inventory_mismatch"],
-    install: ["install_failed", "status_unhealthy", "update_failed", "uninstall_failed"],
+    install: [
+      "install_failed", "npm_cli_missing", "lifecycle_timeout", "lifecycle_transport_failed",
+      "lifecycle_output_invalid", "lifecycle_output_rejected", "install_refused", "status_unhealthy",
+      "status_refused", "update_failed", "update_refused", "uninstall_failed", "uninstall_refused",
+    ],
     native_event: ["native_event_missing", "native_event_failed"],
     prompt_semantics: ["prompt_missing", "prompt_unexpected", "prompt_dedupe_failed"],
     mcp: [
@@ -89,7 +93,10 @@ test("every reasonCode has one exact stage and accepted status combination", () 
       "mcp_protocol_failed", "mcp_tool_unavailable", "mcp_initialization_failed", "mcp_native_failed",
     ],
     feedback: ["feedback_reminder_missing", "submit_feedback_failed", "feedback_suppression_failed"],
-    evidence_integrity: ["candidate_mismatch", "receipt_invalid", "secret_detected", "cleanup_failed"],
+    evidence_integrity: [
+      "candidate_mismatch", "receipt_invalid", "secret_detected", "cleanup_failed",
+      "lane_workspace_conflict", "lane_workspace_unavailable",
+    ],
   };
   assert.deepEqual(
     Object.fromEntries(receipt.RECEIPT_STAGES.map((stage) => [

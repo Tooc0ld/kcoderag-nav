@@ -53,6 +53,7 @@ interface AcceptanceWorkflowModule {
     readonly executable: string;
     readonly args: readonly string[];
   };
+  liveLaneRoot(output: string, workflowRunId: string): string;
 }
 
 interface CoordinatorModule {
@@ -184,6 +185,17 @@ test("native driver path is hash-bound and spawned through the current Node runt
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("LIVE lane roots are isolated by workflow attempt on persistent runners", () => {
+  const output = path.join("R:\\runner-temp", "live-receipts.json");
+  const first = workflowContract.liveLaneRoot(output, "33589742940-2");
+  const retry = workflowContract.liveLaneRoot(output, "33589742940-3");
+  assert.notEqual(first, retry);
+  assert.equal(first, workflowContract.liveLaneRoot(output, "33589742940-2"));
+  assert.equal(path.dirname(path.dirname(first)), path.dirname(path.resolve(output)));
+  assert.match(path.basename(first), /^[a-f0-9]{64}$/u);
+  assert.doesNotMatch(first, /33589742940/u);
 });
 
 test("the packaged coordinator keeps three parallel lanes before serial Cursor and ZCode with lane cleanup", async () => {

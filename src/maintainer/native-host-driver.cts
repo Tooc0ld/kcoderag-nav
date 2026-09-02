@@ -334,25 +334,43 @@ function authenticationSpec(input: NativeDriverInput, executable: string): [stri
   ]];
 }
 
-function parseCliResult(result: NativeCommandResult): Record<string, unknown> | undefined {
-  if (result.code !== 0 || Buffer.byteLength(result.stdout, "utf8") > MAX_NATIVE_OUTPUT_BYTES || SECRET_SHAPED_RE.test(result.stdout)) {
-    return undefined;
+type LifecycleCommand = "install" | "status" | "update" | "uninstall";
+
+interface LifecycleResult {
+  readonly value?: Record<string, unknown>;
+  readonly reasonCode?: FailureReasonCode;
+}
+
+function lifecycleRefusalReason(command: LifecycleCommand): FailureReasonCode {
+  if (command === "install") return "install_refused";
+  if (command === "status") return "status_refused";
+  if (command === "update") return "update_refused";
+  return "uninstall_refused";
+}
+
+function parseCliResult(result: NativeCommandResult, command: LifecycleCommand): LifecycleResult {
+  if (Buffer.byteLength(result.stdout, "utf8") > MAX_NATIVE_OUTPUT_BYTES || SECRET_SHAPED_RE.test(result.stdout)) {
+    return Object.freeze({ reasonCode: "lifecycle_output_rejected" });
   }
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(result.stdout.trim());
-    return isRecord(value) ? value : undefined;
+    value = JSON.parse(result.stdout.trim());
   } catch {
-    return undefined;
+    if (result.nativeErrorKind === "timeout") return Object.freeze({ reasonCode: "lifecycle_timeout" });
+    return Object.freeze({ reasonCode: result.code === 0 ? "lifecycle_output_invalid" : "lifecycle_transport_failed" });
   }
+  if (!isRecord(value)) return Object.freeze({ reasonCode: "lifecycle_output_invalid" });
+  if (result.code !== 0 || value.ok !== true) return Object.freeze({ reasonCode: lifecycleRefusalReason(command) });
+  return Object.freeze({ value });
 }
 
 async function lifecycle(
   input: NativeDriverInput,
-  command: "install" | "status" | "update" | "uninstall",
+  command: LifecycleCommand,
   dependencies: NativeDriverDependencies,
-): Promise<Record<string, unknown> | undefined> {
+): Promise<LifecycleResult> {
   const npmCli = npmCliPath();
-  if (npmCli === undefined) return undefined;
+  if (npmCli === undefined) return Object.freeze({ reasonCode: "npm_cli_missing" });
   const args = [npmCli, "exec", "--yes", "--ignore-scripts", `--package=${input.package}`, "--", "kcoderag-nav",
     command, "--host", input.host, "--target", input.project, "--json"];
   if (command === "install") args.push("--capability", "kcoderag-navigation");
@@ -363,7 +381,7 @@ async function lifecycle(
     env: lifecycleEnvironment(input),
     timeoutMs: COMMAND_TIMEOUT_MS,
     pidRoot: input.cache,
-  }));
+  }), command);
 }
 
 function nativeSpecs(input: NativeDriverInput, executable: string): readonly NativeSpec[] {
@@ -857,35 +875,49 @@ export async function runNativeHost(
   let mcpRegistered = false;
   let installed = false;
   let executable: string | undefined;
+  let lifecycleFailure: FailureReasonCode | undefined;
   const finalize = async (nativeRan: boolean): Promise<Readonly<Record<string, unknown>>> => {
     if (installed) {
       try {
         const removed = await lifecycle(input as NativeDriverInput, "uninstall", dependencies);
-        common.uninstallRestored = removed?.ok === true;
+        common.uninstallRestored = removed.value?.ok === true;
+        if (!common.uninstallRestored) lifecycleFailure ??= removed.reasonCode ?? "uninstall_failed";
       } catch {
         common.uninstallRestored = false;
+        lifecycleFailure ??= "uninstall_failed";
       }
       installed = false;
     }
-    return outcome((input as NativeDriverInput).host, common, native, nativeRan, mcpRegistered, false);
+    return outcome((input as NativeDriverInput).host, common, native, nativeRan, mcpRegistered, false, lifecycleFailure);
   };
   try {
     fs.mkdirSync(input.project, { recursive: true });
     fs.mkdirSync(input.cache, { recursive: true });
     fs.mkdirSync(input.npmCache, { recursive: true });
-    fs.writeFileSync(path.join(input.project, NATIVE_CANARY_NAME), `${NATIVE_CANARY_TEXT}\n`, { flag: "wx", mode: 0o600 });
+    const canaryPath = path.join(input.project, NATIVE_CANARY_NAME);
+    if (fs.existsSync(canaryPath)) return failureOutcome("evidence_integrity", "lane_workspace_conflict", input.host);
+    try {
+      fs.writeFileSync(canaryPath, `${NATIVE_CANARY_TEXT}\n`, { flag: "wx", mode: 0o600 });
+    } catch {
+      return failureOutcome("evidence_integrity", "lane_workspace_unavailable", input.host);
+    }
     if (!safeRegularFile(input.package)) return failureOutcome("package", "package_acquisition_failed", input.host);
     executable = discoverHostExecutable(input.host, process.env, dependencies.resolveCommand, dependencies.pathExists ?? safeRegularFile);
     if (executable === undefined) return failureOutcome("native_event", "native_event_failed", input.host);
     const install = await lifecycle(input, "install", dependencies);
-    installed = install?.ok === true;
+    installed = install.value?.ok === true;
     common.packageInstalled = installed;
-    if (!installed) return await finalize(false);
+    if (!installed) {
+      lifecycleFailure = install.reasonCode ?? "install_failed";
+      return await finalize(false);
+    }
     const status = await lifecycle(input, "status", dependencies);
-    common.statusHealthy = status?.ok === true && status.status === "healthy";
+    common.statusHealthy = status.value?.ok === true && status.value.status === "healthy";
+    if (!common.statusHealthy) lifecycleFailure ??= status.reasonCode ?? "status_unhealthy";
     const firstUpdate = await lifecycle(input, "update", dependencies);
     const secondUpdate = await lifecycle(input, "update", dependencies);
-    common.updateIdempotent = firstUpdate?.ok === true && secondUpdate?.ok === true;
+    common.updateIdempotent = firstUpdate.value?.ok === true && secondUpdate.value?.ok === true;
+    if (!common.updateIdempotent) lifecycleFailure ??= firstUpdate.reasonCode ?? secondUpdate.reasonCode ?? "update_failed";
 
     projectLiveCredential(input.host, input.cache);
     if (input.host === "codex" && !projectCodexLiveConfig(input.project, input.cache)) {
@@ -933,9 +965,11 @@ export async function runNativeHost(
     if (installed) {
       try {
         const removed = await lifecycle(input, "uninstall", dependencies);
-        common.uninstallRestored = removed?.ok === true;
+        common.uninstallRestored = removed.value?.ok === true;
+        if (!common.uninstallRestored) lifecycleFailure ??= removed.reasonCode ?? "uninstall_failed";
       } catch {
         common.uninstallRestored = false;
+        lifecycleFailure ??= "uninstall_failed";
       }
     }
   }
@@ -948,6 +982,7 @@ function outcome(
   nativeRan: boolean,
   mcpRegistered: boolean,
   processTreeCleaned: boolean,
+  lifecycleFailure?: FailureReasonCode,
 ): Readonly<Record<string, unknown>> {
   common.processTreeCleaned = processTreeCleaned;
   const observations: AcceptanceObservations = Object.freeze({
@@ -955,7 +990,9 @@ function outcome(
     host: Object.freeze(Object.fromEntries(HOST_OBSERVATION_KEYS[host].map((key) => [key,
       hostObservations(host, native, nativeRan, mcpRegistered)[key] === true]))),
   });
-  const failure = failureFromObservations(observations, native);
+  const failure = lifecycleFailure === undefined
+    ? failureFromObservations(observations, native)
+    : { stage: "install" as const, reasonCode: lifecycleFailure };
   return Object.freeze({
     status: failure === undefined ? "PASS" : "FAIL",
     stage: failure?.stage ?? "evidence_integrity",

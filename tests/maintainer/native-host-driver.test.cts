@@ -307,6 +307,61 @@ test("native run never converts partial or natural-language claims into PASS obs
   }
 });
 
+test("stale persistent-runner workspaces fail with a specific metadata-only reason", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-stale-lane-"));
+  let calls = 0;
+  try {
+    fs.mkdirSync(path.join(root, "project"), { recursive: true });
+    fs.writeFileSync(path.join(root, "project", "kcoderag-native-canary.txt"), "stale\n", "utf8");
+    fs.writeFileSync(path.join(root, "candidate.tgz"), "candidate", "utf8");
+    const outcome = await driver.runNativeHost(input(root, "codex"), {
+      resolveCommand: (name) => name,
+      pathExists: () => true,
+      runCommand: async () => {
+        calls += 1;
+        return { code: 0, stdout: JSON.stringify({ ok: true }) };
+      },
+    });
+    assert.equal(calls, 0);
+    assert.equal(outcome.status, "FAIL");
+    assert.equal(outcome.stage, "evidence_integrity");
+    assert.equal(outcome.reasonCode, "lane_workspace_conflict");
+    assert.doesNotMatch(JSON.stringify(outcome), /stale/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("lifecycle failures retain closed transport, timeout, parse, safety and refusal reasons", async () => {
+  const cases = [
+    [{ code: 1, stdout: "" }, "lifecycle_transport_failed"],
+    [{ code: 1, stdout: "", nativeErrorKind: "timeout" }, "lifecycle_timeout"],
+    [{ code: 0, stdout: "not-json" }, "lifecycle_output_invalid"],
+    [{ code: 0, stdout: "Authorization: Bearer secret-canary" }, "lifecycle_output_rejected"],
+    [{ code: 1, stdout: JSON.stringify({ ok: false, code: "private-refusal" }) }, "install_refused"],
+  ] as const;
+  for (const [failure, reasonCode] of cases) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-lifecycle-reason-"));
+    try {
+      fs.mkdirSync(path.join(root, "project"), { recursive: true });
+      fs.writeFileSync(path.join(root, "candidate.tgz"), "candidate", "utf8");
+      const outcome = await driver.runNativeHost(input(root, "codex"), {
+        resolveCommand: (name) => name,
+        pathExists: () => true,
+        runCommand: async (_executable, args) => args.includes("kcoderag-nav")
+          ? failure
+          : { code: 0, stdout: "{}" },
+      });
+      assert.equal(outcome.status, "FAIL");
+      assert.equal(outcome.stage, "install");
+      assert.equal(outcome.reasonCode, reasonCode);
+      assert.doesNotMatch(JSON.stringify(outcome), /Bearer|secret-canary|private-refusal/u);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Codex native registration is closed and independent from missing list_indexes execution", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-codex-registration-"));
   try {
