@@ -70,6 +70,69 @@ export function liveLaneRoot(output: string, workflowRunId: string): string {
   return path.join(path.dirname(path.resolve(output)), "lanes", sha256(workflowRunId));
 }
 
+export interface LivePackageLease {
+  readonly packagePath: string;
+  readonly release: () => void;
+}
+
+/** Give npm an exact `.tgz` path without trusting the artifact service's downloaded filename. */
+export function materializeLivePackage(
+  sourcePackagePath: string,
+  executionRoot: string,
+  expectedSha: string,
+): LivePackageLease {
+  if (!SHA256_RE.test(expectedSha)) throw new AcceptanceWorkflowError("arguments_invalid");
+  const source = path.resolve(sourcePackagePath);
+  const root = path.resolve(executionRoot);
+  const packagePath = path.join(root, "candidate.tgz");
+  try {
+    const sourceStat = fs.lstatSync(source);
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sha256(fs.readFileSync(source)) !== expectedSha) {
+      throw new AcceptanceWorkflowError("package_hash_mismatch");
+    }
+  } catch (error) {
+    if (error instanceof AcceptanceWorkflowError) throw error;
+    throw new AcceptanceWorkflowError("package_hash_mismatch");
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(root), { recursive: true });
+    fs.mkdirSync(root);
+  } catch {
+    throw new AcceptanceWorkflowError(fs.existsSync(root)
+      ? "lane_workspace_conflict"
+      : "lane_workspace_unavailable");
+  }
+
+  try {
+    fs.copyFileSync(source, packagePath, fs.constants.COPYFILE_EXCL);
+    const packageStat = fs.lstatSync(packagePath);
+    if (!packageStat.isFile() || packageStat.isSymbolicLink() || sha256(fs.readFileSync(packagePath)) !== expectedSha) {
+      throw new AcceptanceWorkflowError("package_hash_mismatch");
+    }
+  } catch (error) {
+    try { fs.rmSync(packagePath, { force: true }); } catch { /* closed result below */ }
+    try { fs.rmdirSync(root); } catch { /* closed result below */ }
+    if (error instanceof AcceptanceWorkflowError) throw error;
+    throw new AcceptanceWorkflowError("lane_workspace_unavailable");
+  }
+
+  let released = false;
+  return Object.freeze({
+    packagePath,
+    release() {
+      if (released) return;
+      released = true;
+      try {
+        fs.rmSync(packagePath, { force: true });
+        fs.rmdirSync(root);
+      } catch {
+        throw new AcceptanceWorkflowError("cleanup_failed");
+      }
+    },
+  });
+}
+
 export interface AcceptanceWorkflowContract {
   readonly schemaVersion: 1;
   readonly producerJob: "package";
@@ -503,43 +566,50 @@ async function runLive(flags: Readonly<Record<string, string>>): Promise<number>
     || packageMemberDigest(packageSha256, memberCount) !== expectedMemberDigest || !SAFE_ID_RE.test(workflowRunId)) {
     throw new AcceptanceWorkflowError("arguments_invalid");
   }
-  const packagePath = singleArtifactFile(artifactRoot, packageSha256);
+  const sourcePackagePath = singleArtifactFile(artifactRoot, packageSha256);
+  const root = liveLaneRoot(output, workflowRunId);
+  const packageLease = materializeLivePackage(sourcePackagePath, root, packageSha256);
+  const packagePath = packageLease.packagePath;
   const driver = trustedDriver();
   const hostVersions = Object.fromEntries(ACCEPTANCE_HOSTS.map((host) => {
     const value = process.env[`KCODERAG_${host.toUpperCase()}_VERSION`] ?? "unknown";
     return [host, SAFE_VERSION_RE.test(value) ? value : "unknown"];
   })) as Record<HostId, string>;
-  const result = await runLiveHostCoordinator({
-    root: liveLaneRoot(output, workflowRunId),
-    candidateSha,
-    packageSha256,
-    packageMemberDigest: expectedMemberDigest,
-    workflowRunId,
-    artifactDigest: packageSha256,
-    nodeVersion: process.versions.node,
-    os: "windows",
-    hostVersions,
-  }, {
-    async probeLane(context) {
-      if (driver === undefined) return Object.freeze({ admitted: false, stage: "environment", reasonCode: "host_unavailable" });
-      const response = await invokeDriver(driver, "probe", context, packagePath);
-      return response.code === 0 ? parseAdmission(response.value)
-        : Object.freeze({ admitted: false, stage: "environment", reasonCode: "runner_unavailable" });
-    },
-    async runLane(context) {
-      if (driver === undefined) return parseLaneOutcome(undefined);
-      const response = await invokeDriver(driver, "run", context, packagePath);
-      return response.code === 0 ? parseLaneOutcome(response.value) : parseLaneOutcome(undefined);
-    },
-    async cleanupLane(context) {
-      if (driver !== undefined) {
-        const response = await invokeDriver(driver, "cleanup", context, packagePath);
-        if (response.code !== 0) throw new AcceptanceWorkflowError("cleanup_failed");
-      }
-    },
-  });
-  writeMetadata(output, result);
-  return result.verdict === "PASS" ? 0 : 1;
+  try {
+    const result = await runLiveHostCoordinator({
+      root,
+      candidateSha,
+      packageSha256,
+      packageMemberDigest: expectedMemberDigest,
+      workflowRunId,
+      artifactDigest: packageSha256,
+      nodeVersion: process.versions.node,
+      os: "windows",
+      hostVersions,
+    }, {
+      async probeLane(context) {
+        if (driver === undefined) return Object.freeze({ admitted: false, stage: "environment", reasonCode: "host_unavailable" });
+        const response = await invokeDriver(driver, "probe", context, packagePath);
+        return response.code === 0 ? parseAdmission(response.value)
+          : Object.freeze({ admitted: false, stage: "environment", reasonCode: "runner_unavailable" });
+      },
+      async runLane(context) {
+        if (driver === undefined) return parseLaneOutcome(undefined);
+        const response = await invokeDriver(driver, "run", context, packagePath);
+        return response.code === 0 ? parseLaneOutcome(response.value) : parseLaneOutcome(undefined);
+      },
+      async cleanupLane(context) {
+        if (driver !== undefined) {
+          const response = await invokeDriver(driver, "cleanup", context, packagePath);
+          if (response.code !== 0) throw new AcceptanceWorkflowError("cleanup_failed");
+        }
+      },
+    });
+    writeMetadata(output, result);
+    return result.verdict === "PASS" ? 0 : 1;
+  } finally {
+    packageLease.release();
+  }
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -570,6 +640,7 @@ exports.validateAcceptanceWorkflowFile = validateAcceptanceWorkflowFile;
 exports.resolveTrustedDriver = resolveTrustedDriver;
 exports.nativeDriverSpawnSpec = nativeDriverSpawnSpec;
 exports.liveLaneRoot = liveLaneRoot;
+exports.materializeLivePackage = materializeLivePackage;
 exports.main = main;
 
 if (require.main === module) {

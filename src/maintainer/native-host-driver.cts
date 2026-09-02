@@ -82,6 +82,7 @@ type NativeErrorKind =
   | "permission"
   | "protocol"
   | "tool_unavailable"
+  | "path"
   | "other";
 
 interface StructuredEvidence {
@@ -357,6 +358,7 @@ function parseCliResult(result: NativeCommandResult, command: LifecycleCommand):
     value = JSON.parse(result.stdout.trim());
   } catch {
     if (result.nativeErrorKind === "timeout") return Object.freeze({ reasonCode: "lifecycle_timeout" });
+    if (result.nativeErrorKind === "path") return Object.freeze({ reasonCode: "lifecycle_package_path_invalid" });
     return Object.freeze({ reasonCode: result.code === 0 ? "lifecycle_output_invalid" : "lifecycle_transport_failed" });
   }
   if (!isRecord(value)) return Object.freeze({ reasonCode: "lifecycle_output_invalid" });
@@ -500,6 +502,7 @@ export function classifyNativeError(value: Record<string, unknown>): NativeError
     .join(" ");
   if (/(?:auth|login|unauthorized)/iu.test(material)) return "auth";
   if (/(?:timeout|timed_out)/iu.test(material)) return "timeout";
+  if (/(?:\benoent\b|no such file or directory)/iu.test(material)) return "path";
   if (/(?:connect|network|econn|enotfound|transport channel closed|http\s+50[234])/iu.test(material)) return "connect";
   if (/(?:permission|forbidden|approval|denied)/iu.test(material)) return "permission";
   if (/(?:handshake|protocol|negotiat)/iu.test(material)) return "protocol";

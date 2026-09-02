@@ -41,6 +41,7 @@ export const RECEIPT_REASON_CODE_STAGES = Object.freeze({
   npm_cli_missing: "install",
   lifecycle_timeout: "install",
   lifecycle_transport_failed: "install",
+  lifecycle_package_path_invalid: "install",
   lifecycle_output_invalid: "install",
   lifecycle_output_rejected: "install",
   install_refused: "install",

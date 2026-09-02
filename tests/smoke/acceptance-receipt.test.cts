@@ -82,6 +82,7 @@ test("every reasonCode has one exact stage and accepted status combination", () 
     package: ["package_acquisition_failed", "package_hash_mismatch", "package_inventory_mismatch"],
     install: [
       "install_failed", "npm_cli_missing", "lifecycle_timeout", "lifecycle_transport_failed",
+      "lifecycle_package_path_invalid",
       "lifecycle_output_invalid", "lifecycle_output_rejected", "install_refused", "status_unhealthy",
       "status_refused", "update_failed", "update_refused", "uninstall_failed", "uninstall_refused",
     ],

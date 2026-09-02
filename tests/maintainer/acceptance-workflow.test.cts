@@ -54,6 +54,10 @@ interface AcceptanceWorkflowModule {
     readonly args: readonly string[];
   };
   liveLaneRoot(output: string, workflowRunId: string): string;
+  materializeLivePackage(sourcePackagePath: string, executionRoot: string, expectedSha: string): {
+    readonly packagePath: string;
+    readonly release: () => void;
+  };
 }
 
 interface CoordinatorModule {
@@ -196,6 +200,45 @@ test("LIVE lane roots are isolated by workflow attempt on persistent runners", (
   assert.equal(path.dirname(path.dirname(first)), path.dirname(path.resolve(output)));
   assert.match(path.basename(first), /^[a-f0-9]{64}$/u);
   assert.doesNotMatch(first, /33589742940/u);
+});
+
+test("LIVE materializes verified artifact bytes under the exact npm tgz suffix and cleans its bounded root", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-package-"));
+  const source = path.join(root, "kcoderag-nav-0.3.1.tgz.gz");
+  const executionRoot = path.join(root, "lanes", "attempt");
+  const bytes = Buffer.from("exact-candidate-bytes", "utf8");
+  const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+  try {
+    fs.writeFileSync(source, bytes);
+    const lease = workflowContract.materializeLivePackage(source, executionRoot, digest);
+    assert.equal(path.basename(lease.packagePath), "candidate.tgz");
+    assert.deepEqual(fs.readFileSync(lease.packagePath), bytes);
+    assert.deepEqual(fs.readFileSync(source), bytes);
+    lease.release();
+    lease.release();
+    assert.equal(fs.existsSync(executionRoot), false);
+    assert.deepEqual(fs.readFileSync(source), bytes);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("LIVE package materialization fails closed for stale roots and source digest drift", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-package-closed-"));
+  const source = path.join(root, "artifact.tgz.gz");
+  const executionRoot = path.join(root, "lanes", "attempt");
+  const bytes = Buffer.from("candidate", "utf8");
+  const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+  try {
+    fs.writeFileSync(source, bytes);
+    expectCode(() => workflowContract.materializeLivePackage(source, executionRoot, "0".repeat(64)),
+      "package_hash_mismatch");
+    fs.mkdirSync(executionRoot, { recursive: true });
+    expectCode(() => workflowContract.materializeLivePackage(source, executionRoot, digest),
+      "lane_workspace_conflict");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("the packaged coordinator keeps three parallel lanes before serial Cursor and ZCode with lane cleanup", async () => {

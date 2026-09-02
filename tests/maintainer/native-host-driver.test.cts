@@ -59,6 +59,7 @@ test("native errors use closed admission-safe categories without exposing bodies
   assert.equal(driver.classifyNativeError({ type: "error", kind: "protocol_handshake" }), "protocol");
   assert.equal(driver.classifyNativeError({ type: "error", code: "tool_not_found" }), "tool_unavailable");
   assert.equal(driver.classifyNativeError({ type: "error", message: "Transport channel closed after HTTP 502" }), "connect");
+  assert.equal(driver.classifyNativeError({ type: "error", message: "ENOENT: no such file or directory" }), "path");
 });
 
 function input(root: string, host: HostId): Readonly<Record<string, string>> {
@@ -336,6 +337,7 @@ test("lifecycle failures retain closed transport, timeout, parse, safety and ref
   const cases = [
     [{ code: 1, stdout: "" }, "lifecycle_transport_failed"],
     [{ code: 1, stdout: "", nativeErrorKind: "timeout" }, "lifecycle_timeout"],
+    [{ code: 1, stdout: "", nativeErrorKind: "path" }, "lifecycle_package_path_invalid"],
     [{ code: 0, stdout: "not-json" }, "lifecycle_output_invalid"],
     [{ code: 0, stdout: "Authorization: Bearer secret-canary" }, "lifecycle_output_rejected"],
     [{ code: 1, stdout: JSON.stringify({ ok: false, code: "private-refusal" }) }, "install_refused"],
