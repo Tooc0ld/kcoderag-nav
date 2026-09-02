@@ -138,7 +138,8 @@ test("verified Cursor agent uses one isolated authenticated environment for prob
     const nativeCalls = captured.filter((call) => call.args.includes("--output-format"));
     assert.ok(nativeCalls.length >= 2);
     assert.equal(nativeCalls.every((call) => call.env.CURSOR_API_KEY === "opaque-test-key"), true);
-    assert.equal(nativeCalls.every((call) => call.env.USERPROFILE === path.join(root, "cache", "host-home")), true);
+    const homeKey = process.platform === "win32" ? "USERPROFILE" : "HOME";
+    assert.equal(nativeCalls.every((call) => call.env[homeKey] === path.join(root, "cache", "host-home")), true);
     assert.equal(nativeCalls.every((call) => !call.args.includes("--workspace")), true);
   } finally {
     if (previousVersion === undefined) delete process.env.KCODERAG_CURSOR_VERSION; else process.env.KCODERAG_CURSOR_VERSION = previousVersion;

@@ -91,7 +91,7 @@ function runLifecycle(
         encoding: "utf8",
         windowsHide: true,
       })
-    : childProcess.spawnSync(launcher, [host], {
+    : childProcess.spawnSync("sh", [launcher, host], {
         cwd: root,
         env,
         input,

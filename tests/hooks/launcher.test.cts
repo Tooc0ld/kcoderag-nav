@@ -551,7 +551,7 @@ test("installed Codex and Claude commands run from project root and a Unicode de
       }
     }
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
