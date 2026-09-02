@@ -481,7 +481,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
   4. status/doctor 以 secret-safe、状态完整性可证明的方式分别报告 `manualSkill` 与 `automaticNudge`，更新/卸载按所有权安全重组旧 Skill 路径并保留无关文件。
   5. Codex 的四个 Skill 均包含一致的 `agents/openai.yaml`，生成、打包、五宿主 smoke、文档和完整 CI 对四公开 Skill/两内部 capability 模型达成一致。
 
-**Plans:** 1 convergence plan
+**Plans:** 1/1 plans complete
 
 Plans:
 **Wave 1**
