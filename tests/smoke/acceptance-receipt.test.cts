@@ -93,7 +93,11 @@ test("every reasonCode has one exact stage and accepted status combination", () 
       "mcp_auth_failed", "mcp_permission_denied", "mcp_timeout", "mcp_connection_failed",
       "mcp_protocol_failed", "mcp_tool_unavailable", "mcp_initialization_failed", "mcp_native_failed",
     ],
-    feedback: ["feedback_reminder_missing", "submit_feedback_failed", "feedback_suppression_failed"],
+    feedback: [
+      "feedback_reminder_missing", "submit_feedback_not_attempted", "submit_feedback_invalid_input",
+      "submit_feedback_invalid", "submit_feedback_unavailable", "submit_feedback_rate_limited",
+      "submit_feedback_idempotency_conflict", "submit_feedback_failed", "feedback_suppression_failed",
+    ],
     evidence_integrity: [
       "candidate_mismatch", "receipt_invalid", "secret_detected", "cleanup_failed",
       "lane_workspace_conflict", "lane_workspace_unavailable",

@@ -27,6 +27,7 @@ interface DriverDependencies {
 
 interface DriverModule {
   readonly DRIVER_HOSTS: readonly HostId[];
+  nativeFeedbackIdempotencyKey(input: Readonly<{ host: HostId; project: string }>): string;
   classifyNativeError(value: Record<string, unknown>): string;
   parseNativeEvidence(output: string): Readonly<Record<string, any>>;
   discoverHostExecutable(
@@ -186,6 +187,7 @@ test("host-specific native prompts trigger fixed Codex search and Claude Grep Gl
       assert.match(serialized, /feedback-observation-v1/u);
       assert.match(serialized, /usability_report/u);
       assert.match(serialized, /severity low/u);
+      assert.match(serialized, /idempotency_key kcoderag-nav-[a-f0-9]{32}/u);
       assert.doesNotMatch(serialized, /acceptance-only rating/u);
       if (host === "codex") {
         const native = calls.filter((args) => args[0] === "exec" && args.includes("--enable"));
@@ -209,6 +211,17 @@ test("host-specific native prompts trigger fixed Codex search and Claude Grep Gl
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("feedback idempotency keys are deterministic per host lane and distinct across lanes", () => {
+  const first = { host: "codex" as const, project: path.join("C:\\acceptance", "lane-a") };
+  const same = { host: "codex" as const, project: path.join("C:\\acceptance", "lane-a") };
+  const otherHost = { host: "claude" as const, project: path.join("C:\\acceptance", "lane-a") };
+  const otherLane = { host: "codex" as const, project: path.join("C:\\acceptance", "lane-b") };
+  assert.match(driver.nativeFeedbackIdempotencyKey(first), /^kcoderag-nav-[a-f0-9]{32}$/u);
+  assert.equal(driver.nativeFeedbackIdempotencyKey(first), driver.nativeFeedbackIdempotencyKey(same));
+  assert.notEqual(driver.nativeFeedbackIdempotencyKey(first), driver.nativeFeedbackIdempotencyKey(otherHost));
+  assert.notEqual(driver.nativeFeedbackIdempotencyKey(first), driver.nativeFeedbackIdempotencyKey(otherLane));
 });
 
 test("Claude stream-json hook lifecycle is correlated with real Grep Glob and Bash tool-use blocks", () => {
@@ -243,7 +256,7 @@ test("Claude stream-json correlates structured MCP envelopes and rejects failed 
     { type: "assistant", message: { content: [{ type: "tool_use", id: "search-1", name: "mcp__kcoderag-qa__search_code" }] } },
     success("search-1"),
     { type: "assistant", message: { content: [{ type: "tool_use", id: "feedback-1", name: "mcp__kcoderag-qa__submit_feedback" }] } },
-    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "feedback-1", is_error: true, content: "unavailable" }] } },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "feedback-1", is_error: true, content: "krag.submit_feedback/1: execution_error; code=feedback_unavailable." }] } },
     { type: "assistant", message: { content: [{ type: "tool_use", id: "search-2", name: "mcp__kcoderag-qa__search_code" }] } },
     success("search-2"),
   ].map((value) => JSON.stringify(value)).join("\n");
@@ -251,7 +264,39 @@ test("Claude stream-json correlates structured MCP envelopes and rejects failed 
   assert.equal(evidence.listIndexes, true);
   assert.equal(evidence.searchCodeCount, 2);
   assert.equal(evidence.structuredResult, true);
+  assert.equal(evidence.submitFeedbackAttempted, true);
   assert.equal(evidence.submitFeedback, false);
+  assert.equal(evidence.feedbackErrorKind, "feedback_unavailable");
+});
+
+test("feedback failures use only the closed service error taxonomy", () => {
+  const cases = [
+    ["invalid_input", "invalid_input"],
+    ["invalid_feedback", "invalid_feedback"],
+    ["feedback_unavailable", "feedback_unavailable"],
+    ["feedback_rate_limited", "feedback_rate_limited"],
+    ["idempotency_conflict", "idempotency_conflict"],
+  ] as const;
+  for (const [serviceCode, expected] of cases) {
+    const output = JSON.stringify({
+      type: "tool_result",
+      tool_name: "submit_feedback",
+      isError: true,
+      content: `private detail; code=${serviceCode}`,
+    });
+    const evidence = driver.parseNativeEvidence(output);
+    assert.equal(evidence.submitFeedbackAttempted, true);
+    assert.equal(evidence.submitFeedback, false);
+    assert.equal(evidence.feedbackErrorKind, expected);
+  }
+  const unknown = driver.parseNativeEvidence(JSON.stringify({
+    type: "tool_result",
+    tool_name: "submit_feedback",
+    isError: true,
+    content: "private unknown failure detail",
+  }));
+  assert.equal(unknown.feedbackErrorKind, "other");
+  assert.doesNotMatch(JSON.stringify(unknown), /private unknown failure detail/u);
 });
 
 test("ZCode freezes desktop and runtime versions and reports native auth absence without leaking output", async () => {

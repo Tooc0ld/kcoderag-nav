@@ -2,6 +2,7 @@
 /** Candidate-bound Windows native-host acceptance driver with metadata-only output. */
 
 import * as childProcess from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -34,16 +35,6 @@ const EXACT_VERSION_RE = /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/u;
 const SECRET_SHAPED_RE = /(?:https?:\/\/|bearer\s|authorization\s*[:=]|token\s*[:=]|credential\s*[:=]|secret\s*[:=])/iu;
 const NATIVE_CANARY_NAME = "kcoderag-native-canary.txt";
 const NATIVE_CANARY_TEXT = "KCODERAG_NATIVE_ACCEPTANCE_CANARY";
-const MCP_SEQUENCE_PROMPT = [
-  "This is a mandatory four-step native MCP acceptance sequence; complete every numbered step and do not stop after an intermediate result.",
-  "Use only the installed kcoderag MCP tools and do not wait for a toast or reminder before continuing.",
-  "Step 1: call list_indexes exactly once.",
-  `Step 2: call search_code for the exact query ${NATIVE_CANARY_TEXT}, using a usable index from step 1 when the tool requires one.`,
-  "Step 3: record the truthful usability outcome from step 2, without claiming a defect, by calling submit_feedback exactly once with schema_version feedback-observation-v1, category usability_report, severity low, and repro_hint native acceptance observed structured search result.",
-  `Step 4: call search_code again for the exact query ${NATIVE_CANARY_TEXT}, using the same index as step 2 when applicable.`,
-  "Do not inspect project files, run a shell, or answer until all four tool calls have completed.",
-  "Never quote source, connection data, tool arguments, or tool results.",
-].join(" ");
 
 type DriverAction = "probe" | "run" | "cleanup";
 
@@ -85,6 +76,15 @@ type NativeErrorKind =
   | "path"
   | "other";
 
+type FeedbackErrorKind =
+  | "none"
+  | "invalid_input"
+  | "invalid_feedback"
+  | "feedback_unavailable"
+  | "feedback_rate_limited"
+  | "idempotency_conflict"
+  | "other";
+
 interface StructuredEvidence {
   readonly nativeErrorKind: NativeErrorKind;
   readonly sessionStart: boolean;
@@ -96,7 +96,9 @@ interface StructuredEvidence {
   readonly searchCodeCount: number;
   readonly structuredResult: boolean;
   readonly feedbackReminder: boolean;
+  readonly submitFeedbackAttempted: boolean;
   readonly submitFeedback: boolean;
+  readonly feedbackErrorKind: FeedbackErrorKind;
   readonly feedbackSuppressed: boolean;
   readonly cursorReload: boolean;
   readonly cursorRule: boolean;
@@ -112,6 +114,25 @@ interface StructuredEvidence {
 interface NativeSpec {
   readonly executable: string;
   readonly args: readonly string[];
+}
+
+export function nativeFeedbackIdempotencyKey(input: Pick<NativeDriverInput, "host" | "project">): string {
+  const laneIdentity = `${input.host}\0${path.resolve(input.project)}`;
+  return `kcoderag-nav-${crypto.createHash("sha256").update(laneIdentity, "utf8").digest("hex").slice(0, 32)}`;
+}
+
+function mcpSequencePrompt(input: NativeDriverInput): string {
+  const idempotencyKey = nativeFeedbackIdempotencyKey(input);
+  return [
+    "This is a mandatory four-step native MCP acceptance sequence; complete every numbered step and do not stop after an intermediate result.",
+    "Use only the installed kcoderag MCP tools and do not wait for a toast or reminder before continuing.",
+    "Step 1: call list_indexes exactly once.",
+    `Step 2: call search_code for the exact query ${NATIVE_CANARY_TEXT}, using a usable index from step 1 when the tool requires one.`,
+    `Step 3: record the truthful usability outcome from step 2, without claiming a defect, by calling submit_feedback exactly once with schema_version feedback-observation-v1, idempotency_key ${idempotencyKey}, category usability_report, severity low, and repro_hint native acceptance observed structured search result.`,
+    `Step 4: call search_code again for the exact query ${NATIVE_CANARY_TEXT}, using the same index as step 2 when applicable.`,
+    "Do not inspect project files, run a shell, or answer until all four tool calls have completed.",
+    "Never quote source, connection data, tool arguments, or tool results.",
+  ].join(" ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -387,6 +408,7 @@ async function lifecycle(
 }
 
 function nativeSpecs(input: NativeDriverInput, executable: string): readonly NativeSpec[] {
+  const sequencePrompt = mcpSequencePrompt(input);
   if (input.host === "codex") {
     const shared = [
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
@@ -398,7 +420,7 @@ function nativeSpecs(input: NativeDriverInput, executable: string): readonly Nat
         ...shared,
         `Run one matched read-only search for ${NATIVE_CANARY_TEXT} in ${NATIVE_CANARY_NAME}, then reply only with done.`,
       ]) }),
-      Object.freeze({ executable, args: Object.freeze([...shared, MCP_SEQUENCE_PROMPT]) }),
+      Object.freeze({ executable, args: Object.freeze([...shared, sequencePrompt]) }),
     ]);
   }
   if (input.host === "claude") {
@@ -417,7 +439,7 @@ function nativeSpecs(input: NativeDriverInput, executable: string): readonly Nat
         "-p", hookPrompt, "--allowedTools", "Grep,Glob,Bash", ...shared,
       ]) }),
       Object.freeze({ executable, args: Object.freeze([
-        "-p", MCP_SEQUENCE_PROMPT,
+        "-p", sequencePrompt,
         "--allowedTools", [
           "mcp__kcoderag-qa__list_indexes", "mcp__kcoderag-qa__search_code", "mcp__kcoderag-qa__submit_feedback",
           "mcp__kcoderag_qa__list_indexes", "mcp__kcoderag_qa__search_code", "mcp__kcoderag_qa__submit_feedback",
@@ -428,17 +450,17 @@ function nativeSpecs(input: NativeDriverInput, executable: string): readonly Nat
   }
   if (input.host === "opencode") {
     return Object.freeze([Object.freeze({ executable, args: Object.freeze([
-      "run", "--format", "json", "--dir", input.project, "--auto", MCP_SEQUENCE_PROMPT,
+      "run", "--format", "json", "--dir", input.project, "--auto", sequencePrompt,
     ]) })]);
   }
   if (input.host === "cursor") {
     return Object.freeze([Object.freeze({ executable, args: Object.freeze([
-      "--print", "--output-format", "stream-json", MCP_SEQUENCE_PROMPT,
+      "--print", "--output-format", "stream-json", sequencePrompt,
     ]) })]);
   }
   if (path.extname(executable).toLowerCase() !== ".cjs") return Object.freeze([]);
   return Object.freeze([Object.freeze({ executable: process.execPath, args: Object.freeze([
-    executable, "--prompt", MCP_SEQUENCE_PROMPT, "--cwd", input.project, "--json", "--max-turns", "8",
+    executable, "--prompt", sequencePrompt, "--cwd", input.project, "--json", "--max-turns", "8",
     "--allowed-tools", "list_indexes,search_code,submit_feedback",
   ]) })]);
 }
@@ -496,6 +518,44 @@ function structuredResultEvidence(value: Record<string, unknown>): boolean {
   }
 }
 
+function classifyFeedbackError(value: unknown): FeedbackErrorKind {
+  const stack: unknown[] = [value];
+  let inspected = 0;
+  let explicitFailure = false;
+  while (stack.length > 0 && inspected < 256) {
+    const current = stack.pop();
+    inspected += 1;
+    if (typeof current === "string") {
+      if (current.length > 4_096) continue;
+      if (/\bidempotency_conflict\b/iu.test(current)) return "idempotency_conflict";
+      if (/\bfeedback_rate_limited\b/iu.test(current)) return "feedback_rate_limited";
+      if (/\bfeedback_unavailable\b/iu.test(current)) return "feedback_unavailable";
+      if (/\binvalid_feedback\b/iu.test(current)) return "invalid_feedback";
+      if (/\binvalid_input\b/iu.test(current)) return "invalid_input";
+      continue;
+    }
+    if (Array.isArray(current)) {
+      stack.push(...current.slice(0, 64));
+      continue;
+    }
+    if (!isRecord(current)) continue;
+    explicitFailure ||= current.isError === true || current.is_error === true || current.success === false ||
+      current.status === "failed" || current.error !== undefined;
+    stack.push(...Object.values(current).slice(0, 64));
+  }
+  return explicitFailure ? "other" : "none";
+}
+
+function feedbackErrorPriority(kind: FeedbackErrorKind): number {
+  if (kind === "none") return 0;
+  if (kind === "other") return 1;
+  return 2;
+}
+
+function preferredFeedbackError(left: FeedbackErrorKind, right: FeedbackErrorKind): FeedbackErrorKind {
+  return feedbackErrorPriority(right) > feedbackErrorPriority(left) ? right : left;
+}
+
 export function classifyNativeError(value: Record<string, unknown>): NativeErrorKind {
   const material = [value.code, value.kind, value.type, value.status, value.error, value.message]
     .filter((item): item is string => typeof item === "string" && item.length <= 4_096)
@@ -537,7 +597,9 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
   let searchCodeCount = 0;
   let structuredResult = false;
   let feedbackReminder = false;
+  let submitFeedbackAttempted = false;
   let submitFeedback = false;
+  let feedbackErrorKind: FeedbackErrorKind = "none";
   let lastSubmitOrdinal = -1;
   let lastSearchOrdinal = -1;
   let reminderAfterSubmit = false;
@@ -571,14 +633,15 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
     let toolName = directToolName;
     let toolSucceeded = directToolName !== undefined && reliableSuccess(value);
     let toolStructuredResult = structuredResultEvidence(value);
-    if (isRecord(value.tool_use_result) && isRecord(value.message) && Array.isArray(value.message.content)) {
+    if (isRecord(value.message) && Array.isArray(value.message.content)) {
       const resultBlock = value.message.content.find((item): item is Record<string, unknown> =>
         isRecord(item) && item.type === "tool_result" && typeof item.tool_use_id === "string");
       const requested = resultBlock === undefined ? undefined : claudeMcpRequests.get(resultBlock.tool_use_id as string);
-      if (requested !== undefined && resultBlock !== undefined && resultBlock.is_error !== true && resultBlock.isError !== true &&
+      if (requested !== undefined && resultBlock !== undefined) toolName = requested;
+      if (requested !== undefined && resultBlock !== undefined && isRecord(value.tool_use_result) &&
+          resultBlock.is_error !== true && resultBlock.isError !== true &&
           value.tool_use_result.error === undefined && value.tool_use_result.isError !== true &&
           value.tool_use_result.is_error !== true) {
-        toolName = requested;
         toolSucceeded = true;
         toolStructuredResult = structuredResultEvidence(value.tool_use_result);
       }
@@ -613,6 +676,12 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
     if (/tool\.execute\.after/iu.test(eventName)) pluginCallback = true;
     if (/PreToolUse/iu.test(eventName)) zcodePre = true;
     if (/PostToolUse/iu.test(eventName)) zcodePost = true;
+    if (toolName === "submit_feedback") {
+      submitFeedbackAttempted = true;
+      if (!toolSucceeded) {
+        feedbackErrorKind = preferredFeedbackError(feedbackErrorKind, classifyFeedbackError(value));
+      }
+    }
     if (toolName !== undefined && toolSucceeded) {
       if (toolName === "list_indexes") listIndexes = true;
       if (toolName === "search_code") {
@@ -640,7 +709,7 @@ export function parseNativeEvidence(output: string): StructuredEvidence {
   return Object.freeze({
     nativeErrorKind,
     sessionStart, hookOutput, grepHook, globHook, bashHook, listIndexes, searchCodeCount, structuredResult,
-    feedbackReminder, submitFeedback,
+    feedbackReminder, submitFeedbackAttempted, submitFeedback, feedbackErrorKind,
     feedbackSuppressed: submitFeedback && lastSearchOrdinal > lastSubmitOrdinal && !reminderAfterSubmit,
     cursorReload, cursorRule, cursorSkill, cursorAfterMcp, pluginLoaded, pluginCallback, workspaceSkill,
     zcodePre, zcodePost,
@@ -659,7 +728,9 @@ function mergeNativeEvidence(left: StructuredEvidence, right: StructuredEvidence
     searchCodeCount: left.searchCodeCount + right.searchCodeCount,
     structuredResult: left.structuredResult || right.structuredResult,
     feedbackReminder: left.feedbackReminder || right.feedbackReminder,
+    submitFeedbackAttempted: left.submitFeedbackAttempted || right.submitFeedbackAttempted,
     submitFeedback: left.submitFeedback || right.submitFeedback,
+    feedbackErrorKind: preferredFeedbackError(left.feedbackErrorKind, right.feedbackErrorKind),
     feedbackSuppressed: left.feedbackSuppressed || right.feedbackSuppressed,
     cursorReload: left.cursorReload || right.cursorReload,
     cursorRule: left.cursorRule || right.cursorRule,
@@ -722,6 +793,7 @@ function withNativeMarkers(input: NativeDriverInput, evidence: StructuredEvidenc
     sessionStart: evidence.sessionStart || navigation,
     hookOutput: evidence.hookOutput || navigation,
     feedbackReminder: evidence.feedbackReminder || feedbackReminder,
+    submitFeedbackAttempted: evidence.submitFeedbackAttempted || feedbackSubmitted || markerTools.includes("submit_feedback"),
     feedbackSuppressed: evidence.feedbackSuppressed || (feedbackSubmitted && feedbackReminder),
     cursorAfterMcp: evidence.cursorAfterMcp || (input.host === "cursor" && mcpCallback),
     pluginLoaded: evidence.pluginLoaded || (input.host === "opencode" && mcpCallback),
@@ -856,10 +928,22 @@ function failureFromObservations(observations: AcceptanceObservations, native: S
     init: "mcp_initialization_failed",
     mcp: "mcp_native_failed",
   };
+  const feedbackReason: Readonly<Partial<Record<StructuredEvidence["feedbackErrorKind"], FailureReasonCode>>> = {
+    invalid_input: "submit_feedback_invalid_input",
+    invalid_feedback: "submit_feedback_invalid",
+    feedback_unavailable: "submit_feedback_unavailable",
+    feedback_rate_limited: "submit_feedback_rate_limited",
+    idempotency_conflict: "submit_feedback_idempotency_conflict",
+  };
   for (const [key, stage, reasonCode] of ordered) {
     if (common[key]) continue;
     const classified = stage === "mcp" ? nativeMcpReason[native.nativeErrorKind] : undefined;
-    return { stage, reasonCode: classified ?? reasonCode };
+    const feedbackClassified = key === "submitFeedbackSucceeded"
+      ? native.submitFeedbackAttempted
+        ? feedbackReason[native.feedbackErrorKind]
+        : "submit_feedback_not_attempted"
+      : undefined;
+    return { stage, reasonCode: feedbackClassified ?? classified ?? reasonCode };
   }
   if (Object.values(observations.host).some((value) => !value)) {
     return { stage: "native_event", reasonCode: "native_event_missing" };
