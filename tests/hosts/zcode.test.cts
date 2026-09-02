@@ -265,3 +265,41 @@ test("ZCode refuses an unmanaged Hook that targets the managed runtime", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ZCode style-only state does not claim an unmanaged same-name native config", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-zcode-config-ownership-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = zcode.createZCodeAdapter({ hostVersion: "0.0.0", evidenceRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    const configPath = path.join(root, ".zcode", "config.json");
+    const statePath = path.join(root, ".zcode", "kcoderag-nav", "install-state.json");
+    const original = `${JSON.stringify({
+      mcp: {
+        servers: {
+          "kcoderag-qa": { type: "http", url: "https://unmanaged.example.invalid/mcp" },
+        },
+      },
+    }, null, 2)}\n`;
+    fs.writeFileSync(configPath, original, "utf8");
+    const stateBefore = fs.readFileSync(statePath);
+
+    assert.throws(
+      () => adapter.renderInstall(context(
+        target,
+        adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+        [NAVIGATION],
+      )),
+      (error: any) => error?.code === "unmanaged_name_conflict" && error?.safePath === ".zcode/config.json",
+    );
+    assert.equal(fs.readFileSync(configPath, "utf8"), original);
+    assert.deepEqual(fs.readFileSync(statePath), stateBefore);
+    assert.equal(fs.existsSync(path.join(root, ".zcode/skills/kcoderag/SKILL.md")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

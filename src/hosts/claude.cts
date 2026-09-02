@@ -398,7 +398,8 @@ function projectContributions(
   automaticStyle: boolean,
 ): readonly ProjectedCapabilityContribution[] {
   const settingsCurrent = readRegular(target, SETTINGS_PATH);
-  const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, automaticStyle, state !== undefined);
+  const settingsOwned = previousFile(state, SETTINGS_PATH) !== undefined;
+  const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, automaticStyle, settingsOwned);
   const contributions: ProjectedCapabilityContribution[] = [];
   if (projected.includes(NAVIGATION)) {
     const mcpCurrent = readRegular(target, MCP_PATH);

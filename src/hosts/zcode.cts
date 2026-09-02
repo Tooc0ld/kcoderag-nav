@@ -310,7 +310,7 @@ function mergeConfig(current: Buffer | undefined, packageRoot: string, state: In
   const existingStart = hookEntries(events.SessionStart);
   const existingPre = hookEntries(events.PreToolUse);
   const existingPost = hookEntries(events.PostToolUse);
-  const owned = state !== undefined;
+  const owned = previousFile(state, CONFIG_PATH) !== undefined;
   if (!owned && (servers["kcoderag-qa"] !== undefined ||
     existingStart.some(isManagedHookEntry) || existingPre.some(isManagedHookEntry) ||
     existingPost.some(isManagedHookEntry))) {
