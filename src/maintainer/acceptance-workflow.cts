@@ -153,6 +153,12 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
     "package_binding_missing");
   requireMatch(live, /inputs\.packageMemberDigest == needs\.package\.outputs\.package-member-digest/u,
     "package_binding_missing");
+  requireMatch(live, /name:\s*Bind candidate native driver/u, "native_driver_binding_missing");
+  requireMatch(live, /Resolve-Path\s+["']dist\/maintainer\/native-host-driver\.cjs["']/u,
+    "native_driver_binding_missing");
+  requireMatch(live, /SHA256\]::HashData/u, "native_driver_binding_missing");
+  requireMatch(live, /KCODERAG_NATIVE_DRIVER=\$driver/u, "native_driver_binding_missing");
+  requireMatch(live, /KCODERAG_NATIVE_DRIVER_SHA256=\$digest/u, "native_driver_binding_missing");
   requireMatch(live, /npm run acceptance:live/u, "coordinator_missing");
   if (/npm\s+(?:pack|publish|view)|pack:audit|smoke:required|dist-tag|git\s+(?:tag|push)|@latest/iu.test(live)) {
     throw new AcceptanceWorkflowError("live_rebuild_forbidden");
@@ -330,9 +336,7 @@ interface DriverResult {
   readonly value?: unknown;
 }
 
-function trustedDriver(): string | undefined {
-  const driver = process.env.KCODERAG_NATIVE_DRIVER;
-  const expected = process.env.KCODERAG_NATIVE_DRIVER_SHA256;
+export function resolveTrustedDriver(driver: string | undefined, expected: string | undefined): string | undefined {
   if (driver === undefined || expected === undefined || !SHA256_RE.test(expected)) return undefined;
   try {
     const metadata = fs.lstatSync(driver);
@@ -343,18 +347,47 @@ function trustedDriver(): string | undefined {
   }
 }
 
+function trustedDriver(): string | undefined {
+  return resolveTrustedDriver(process.env.KCODERAG_NATIVE_DRIVER, process.env.KCODERAG_NATIVE_DRIVER_SHA256);
+}
+
+export function nativeDriverSpawnSpec(
+  driver: string,
+  args: readonly string[],
+): Readonly<{ readonly executable: string; readonly args: readonly string[] }> {
+  return Object.freeze({ executable: process.execPath, args: Object.freeze([driver, ...args]) });
+}
+
 async function invokeDriver(driver: string, action: "probe" | "run" | "cleanup", context: LaneContext, packagePath: string): Promise<DriverResult> {
   return await new Promise<DriverResult>((resolve) => {
     const args = [action, "--host", context.host, "--project", context.projectRoot, "--cache", context.cacheRoot,
       "--npm-cache", context.npmCacheRoot, "--package", packagePath];
-    const child = childProcess.spawn(driver, args, {
+    const command = nativeDriverSpawnSpec(driver, args);
+    const child = childProcess.spawn(command.executable, command.args, {
       cwd: context.laneRoot,
       env: {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
+        ComSpec: process.env.ComSpec,
+        PATHEXT: process.env.PATHEXT,
         TEMP: context.cacheRoot,
         TMP: context.cacheRoot,
         npm_config_cache: context.npmCacheRoot,
+        npm_execpath: process.env.npm_execpath,
+        HOME: process.env.HOME,
+        USERPROFILE: process.env.USERPROFILE,
+        HOMEDRIVE: process.env.HOMEDRIVE,
+        HOMEPATH: process.env.HOMEPATH,
+        LOCALAPPDATA: process.env.LOCALAPPDATA,
+        APPDATA: process.env.APPDATA,
+        CODEX_HOME: process.env.CODEX_HOME,
+        CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+        KCODERAG_CODEX_VERSION: process.env.KCODERAG_CODEX_VERSION,
+        KCODERAG_CLAUDE_VERSION: process.env.KCODERAG_CLAUDE_VERSION,
+        KCODERAG_CURSOR_VERSION: process.env.KCODERAG_CURSOR_VERSION,
+        KCODERAG_OPENCODE_VERSION: process.env.KCODERAG_OPENCODE_VERSION,
+        KCODERAG_ZCODE_VERSION: process.env.KCODERAG_ZCODE_VERSION,
+        KCODERAG_ZCODE_WORKSPACE_TRUST: process.env.KCODERAG_ZCODE_WORKSPACE_TRUST,
       },
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -362,10 +395,11 @@ async function invokeDriver(driver: string, action: "probe" | "run" | "cleanup",
     const chunks: Buffer[] = [];
     let length = 0;
     let settled = false;
+    let timer: NodeJS.Timeout | undefined;
     const finish = (code: number, value?: unknown) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       resolve(value === undefined ? { code } : { code, value });
     };
     child.stdout.on("data", (chunk: Buffer) => {
@@ -384,7 +418,7 @@ async function invokeDriver(driver: string, action: "probe" | "run" | "cleanup",
         finish(1);
       }
     });
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       try {
         if (process.platform === "win32" && child.pid !== undefined) {
           childProcess.spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
@@ -525,6 +559,8 @@ exports.ACCEPTANCE_HOSTS = ACCEPTANCE_HOSTS;
 exports.AcceptanceWorkflowError = AcceptanceWorkflowError;
 exports.validateAcceptanceWorkflow = validateAcceptanceWorkflow;
 exports.validateAcceptanceWorkflowFile = validateAcceptanceWorkflowFile;
+exports.resolveTrustedDriver = resolveTrustedDriver;
+exports.nativeDriverSpawnSpec = nativeDriverSpawnSpec;
 exports.main = main;
 
 if (require.main === module) {

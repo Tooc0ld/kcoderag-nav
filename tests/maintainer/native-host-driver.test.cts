@@ -39,6 +39,7 @@ interface DriverModule {
     input: Readonly<Record<string, string>>,
     dependencies: DriverDependencies,
   ): Promise<Readonly<Record<string, any>>>;
+  cleanupNativeHost(input: Readonly<Record<string, string>>): Promise<Readonly<{ cleaned: true }>>;
 }
 
 const driver = require("../../dist/maintainer/native-host-driver.cjs") as DriverModule;
@@ -79,7 +80,47 @@ test("probe emits honest environment and admission taxonomy", async () => {
       pathExists: () => true,
     });
     assert.deepEqual(untrusted, { admitted: false, stage: "admission", reasonCode: "workspace_trust_missing" });
+
+    const cursorWithoutAgent = await driver.probeNativeHost(input(root, "cursor"), {
+      resolveCommand: () => "cursor.exe",
+      runCommand: async () => ({ code: 0, stdout: "3.17.8" }),
+      pathExists: () => true,
+    });
+    assert.deepEqual(cursorWithoutAgent, { admitted: false, stage: "environment", reasonCode: "host_cli_missing" });
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ZCode freezes desktop and runtime versions and reports native auth absence without leaking output", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-zcode-"));
+  const previousLocal = process.env.LOCALAPPDATA;
+  const previousVersion = process.env.KCODERAG_ZCODE_VERSION;
+  const previousTrust = process.env.KCODERAG_ZCODE_WORKSPACE_TRUST;
+  try {
+    process.env.LOCALAPPDATA = root;
+    process.env.KCODERAG_ZCODE_VERSION = "3.10.1";
+    process.env.KCODERAG_ZCODE_WORKSPACE_TRUST = "approved";
+    const runtime = path.join(root, "Programs", "ZCode", "resources", "glm", "zcode.cjs");
+    const calls: readonly string[][] = [];
+    const mutableCalls = calls as string[][];
+    const admission = await driver.probeNativeHost(input(root, "zcode"), {
+      resolveCommand: () => undefined,
+      pathExists: (candidate) => candidate === runtime,
+      runCommand: async (_executable, args) => {
+        mutableCalls.push([...args]);
+        return args.includes("--version")
+          ? { code: 0, stdout: "zcode 0.16.5" }
+          : { code: 1, stdout: "login required Authorization: Bearer never-copy" };
+      },
+    });
+    assert.deepEqual(admission, { admitted: false, stage: "admission", reasonCode: "host_auth_missing" });
+    assert.equal(JSON.stringify(admission).includes("Bearer"), false);
+    assert.equal(calls.length, 2);
+  } finally {
+    if (previousLocal === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = previousLocal;
+    if (previousVersion === undefined) delete process.env.KCODERAG_ZCODE_VERSION; else process.env.KCODERAG_ZCODE_VERSION = previousVersion;
+    if (previousTrust === undefined) delete process.env.KCODERAG_ZCODE_WORKSPACE_TRUST; else process.env.KCODERAG_ZCODE_WORKSPACE_TRUST = previousTrust;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -118,6 +159,20 @@ test("driver output schema never carries native stdout or secret-shaped fields",
     const serialized = JSON.stringify(outcome);
     assert.doesNotMatch(serialized, /Authorization|Bearer|should-never-escape/u);
     assert.deepEqual(Object.keys(outcome).sort(), ["observations", "reasonCode", "stage", "status"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup removes only the lane-owned process ledger", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-cleanup-"));
+  try {
+    const cache = path.join(root, "cache");
+    fs.mkdirSync(cache, { recursive: true });
+    const ledger = path.join(cache, "native-processes.json");
+    fs.writeFileSync(ledger, "[]\n", "utf8");
+    assert.deepEqual(await driver.cleanupNativeHost(input(root, "codex")), { cleaned: true });
+    assert.equal(fs.existsSync(ledger), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

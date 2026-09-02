@@ -94,9 +94,10 @@ function laneContext(root: string, host: HostId): LaneContext {
 function safeAdmission(value: LaneAdmission): value is LaneAdmission {
   if (value.admitted) return true;
   if (value.stage !== "environment" && value.stage !== "admission") return false;
-  const environment = new Set(["host_unavailable", "runner_unavailable", "node_version_unsupported"]);
+  const environment = new Set(["host_unavailable", "host_cli_missing", "runner_unavailable", "node_version_unsupported"]);
   const admission = new Set([
     "host_version_unsupported",
+    "host_auth_missing",
     "workspace_trust_missing",
     "protected_environment_denied",
     "untrusted_ref",

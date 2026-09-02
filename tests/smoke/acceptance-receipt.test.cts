@@ -77,8 +77,8 @@ test("receipt and aggregate vocabularies are separate closed enums", () => {
 
 test("every reasonCode has one exact stage and accepted status combination", () => {
   const expected: Readonly<Record<string, readonly string[]>> = {
-    environment: ["host_unavailable", "runner_unavailable", "node_version_unsupported"],
-    admission: ["host_version_unsupported", "workspace_trust_missing", "protected_environment_denied", "untrusted_ref"],
+    environment: ["host_unavailable", "host_cli_missing", "runner_unavailable", "node_version_unsupported"],
+    admission: ["host_version_unsupported", "host_auth_missing", "workspace_trust_missing", "protected_environment_denied", "untrusted_ref"],
     package: ["package_acquisition_failed", "package_hash_mismatch", "package_inventory_mismatch"],
     install: ["install_failed", "status_unhealthy", "update_failed", "uninstall_failed"],
     native_event: ["native_event_missing", "native_event_failed"],

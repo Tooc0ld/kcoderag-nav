@@ -26,9 +26,11 @@ export type ReceiptStage = (typeof RECEIPT_STAGES)[number];
 
 export const RECEIPT_REASON_CODE_STAGES = Object.freeze({
   host_unavailable: "environment",
+  host_cli_missing: "environment",
   runner_unavailable: "environment",
   node_version_unsupported: "environment",
   host_version_unsupported: "admission",
+  host_auth_missing: "admission",
   workspace_trust_missing: "admission",
   protected_environment_denied: "admission",
   untrusted_ref: "admission",

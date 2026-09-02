@@ -1,5 +1,6 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
@@ -47,6 +48,11 @@ interface AcceptanceWorkflowModule {
   readonly ACCEPTANCE_WORKFLOW_STAGES: readonly string[];
   validateAcceptanceWorkflow(source: string): AcceptanceWorkflowContract;
   validateAcceptanceWorkflowFile(filePath?: string): AcceptanceWorkflowContract;
+  resolveTrustedDriver(driver: string | undefined, expected: string | undefined): string | undefined;
+  nativeDriverSpawnSpec(driver: string, args: readonly string[]): {
+    readonly executable: string;
+    readonly args: readonly string[];
+  };
 }
 
 interface CoordinatorModule {
@@ -135,7 +141,7 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
   assert.match(live, /dist[\\/]maintainer[\\/]native-host-driver\.cjs/u);
   assert.match(live, /KCODERAG_NATIVE_DRIVER=/u);
   assert.match(live, /KCODERAG_NATIVE_DRIVER_SHA256=/u);
-  assert.match(live, /SHA256\.HashData/u);
+  assert.match(live, /SHA256\]::HashData/u);
   assert.match(live, /npm run acceptance:live/u);
   assert.match(live, /package-sha256/u);
   assert.match(live, /package-member-digest/u);
@@ -157,6 +163,25 @@ test("workflow validator fails closed for trust, identity, bypass and LIVE rebui
     [`${source}\n# continue-on-error: true\n`, "acceptance_bypass_forbidden"],
   ] as const;
   for (const [changed, code] of cases) expectCode(() => workflowContract.validateAcceptanceWorkflow(changed), code);
+});
+
+test("native driver path is hash-bound and spawned through the current Node runtime", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-native-driver-binding-"));
+  const driverPath = path.join(root, "driver.cjs");
+  try {
+    fs.writeFileSync(driverPath, "process.stdout.write('{}')\n", "utf8");
+    const digest = crypto.createHash("sha256").update(fs.readFileSync(driverPath)).digest("hex");
+    assert.equal(workflowContract.resolveTrustedDriver(driverPath, digest), path.resolve(driverPath));
+    fs.appendFileSync(driverPath, "// tampered\n", "utf8");
+    assert.equal(workflowContract.resolveTrustedDriver(driverPath, digest), undefined);
+    assert.equal(workflowContract.resolveTrustedDriver(driverPath, "not-a-digest"), undefined);
+
+    const command = workflowContract.nativeDriverSpawnSpec(driverPath, ["probe", "--host", "codex"]);
+    assert.equal(command.executable, process.execPath);
+    assert.deepEqual(command.args, [driverPath, "probe", "--host", "codex"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("the packaged coordinator keeps three parallel lanes before serial Cursor and ZCode with lane cleanup", async () => {
