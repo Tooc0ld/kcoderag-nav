@@ -472,7 +472,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
 
 **Goal:** 用户可在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 中直接调用四个名称稳定、职责清晰的 KCodeRag Skill；代码规范手动 Skill 对五宿主可用，自动写前提示仍只由真实宿主证据门禁启用，并由 status/doctor 分别报告两种交付模式。
 **Requirements**: None — Phase 06 was added without mapped requirement IDs; locked CONTEXT decisions are the acceptance source.
-**Depends on:** Phase 5
+**Depends on:** None for implementation execution — the user explicitly authorized Phase 06 to run before Phase 05 LIVE closure on 2026-09-03. Phase 05 evidence remains independently incomplete and must not be claimed by this phase.
 **Success Criteria** (what must be TRUE):
 
   1. 五宿主安装后只暴露 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style` 四个公开 Skill，不保留 `code-lookup-discipline` 或 `code-style-correction` 兼容别名。
@@ -481,59 +481,11 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
   4. status/doctor 以 secret-safe、状态完整性可证明的方式分别报告 `manualSkill` 与 `automaticNudge`，更新/卸载按所有权安全重组旧 Skill 路径并保留无关文件。
   5. Codex 的四个 Skill 均包含一致的 `agents/openai.yaml`，生成、打包、五宿主 smoke、文档和完整 CI 对四公开 Skill/两内部 capability 模型达成一致。
 
-**Plans:** 13 plans
+**Plans:** 1 convergence plan
 
 Plans:
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — 以聚焦测试定义三个导航族公开 Skill 与 navigation contributor
+- [ ] 06-01-PLAN.md — 采用既有 RED 与 staged GREEN，在首次实现提交前一次性收敛 canonical、generated、五宿主、文档、审计、pack 与 smoke，并通过真实 pre-commit
 
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 06-02-PLAN.md — 精确重命名代码规范测试、清理两个旧编译产物并定义第四个 Skill
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 06-03-PLAN.md — 建立全宿主手动/仅 exact Claude 自动的 provider 与独立诊断契约
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [ ] 06-04-PLAN.md — 先生成 QA/Codex 的三个导航族 Skill 与 metadata
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [ ] 06-05-PLAN.md — 生成 QA/Codex 的代码规范 Skill、metadata 与四个 references
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [ ] 06-06-PLAN.md — 生成 Cursor 的三个导航族 Skill
-
-**Wave 7** *(blocked on Wave 6 completion)*
-
-- [ ] 06-07-PLAN.md — 生成 Cursor 的手动代码规范 Skill 与四个 references
-
-**Wave 8** *(blocked on Wave 7 completion)*
-
-- [ ] 06-08-PLAN.md — 更新自动提示与生成 Hook payload，保留 fail-open/receipt 门禁
-
-**Wave 9** *(blocked on Wave 8 completion)*
-
-- [ ] 06-09-PLAN.md — 在生成输入就绪后投影 Codex 与 Claude
-
-**Wave 10** *(blocked on Wave 9 completion)*
-
-- [ ] 06-10-PLAN.md — 投影 Cursor 与 OpenCode，保持真实事件边界
-
-**Wave 11** *(blocked on Wave 10 completion)*
-
-- [ ] 06-11-PLAN.md — 投影 ZCode，随后闭合 state-owned 重组与五宿主原子生命周期
-
-**Wave 12** *(blocked on Wave 11 completion)*
-
-- [ ] 06-12-PLAN.md — 在退役审计启用前同步 README、体验指南和规划约束
-
-**Wave 13** *(blocked on Wave 12 completion)*
-
-- [ ] 06-13-PLAN.md — 最后启用退役审计并运行 pack、五宿主 smoke 与完整门禁
-
-**Dependency notes:** 06-01 → 06-02 → 06-03 establishes canonical/provider contracts with focused tests only; 06-04 → 06-07 materializes every QA/Cursor Skill input before 06-08 → 06-10 Hook/adapter consumers; 06-11 performs owned-path lifecycle reconciliation only after all five adapters know current paths; 06-12 updates every scanned document before 06-13 enables the exhaustive retired-name gate and runs final pack/smoke/full verification.
+**Dependency notes:** 旧 13-plan 集合已由 `06-SUPERSEDED.md` 明确取代并从可执行 PLAN 扫描中移除。仓库 pre-commit 对任一 managed staged path 都检查完整 canonical/generated 集合并运行全局门禁，因此中间实现提交无法在不绕过 Hook 的情况下成立；`06-01-PLAN.md` 保留 `c821975` RED 提交并以一个正常 Hook 验证的 GREEN 提交闭合全部 D-01–D-13。
