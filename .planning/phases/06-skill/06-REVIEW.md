@@ -1,8 +1,8 @@
 ---
 phase: 06-skill
-reviewed: 2026-09-02T19:25:21Z
+reviewed: 2026-09-02T19:50:00Z
 depth: standard
-files_reviewed: 87
+files_reviewed: 89
 files_reviewed_list:
   - AGENTS.md
   - README.md
@@ -91,124 +91,51 @@ files_reviewed_list:
   - tests/skills/kcoderag-code-style.test.cts
   - tests/skills/public-skills.test.cts
   - tests/smoke/host-smoke.test.cts
+  - src/hosts/user-sources.cts
+  - tests/hosts/public-skill-source-gate.test.cts
 findings:
-  critical: 2
-  warning: 1
+  critical: 0
+  warning: 0
   info: 0
-  total: 3
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 06: Code Review Report
 
-**Reviewed:** 2026-09-02T19:25:21Z
+**Reviewed:** 2026-09-02T19:50:00Z
 **Depth:** standard
-**Files Reviewed:** 87
-**Status:** issues_found
+**Files Reviewed:** 89
+**Status:** clean
 
 ## Summary
 
-The four-Skill projection is internally consistent across canonical and generated assets, but the
-reverse-order lifecycle introduces two safety regressions. Three adapters can overwrite an
-unmanaged host configuration after a style-only install, and every host's user-source scanner
-misses at least some of the newly public Skill identities. Both behaviors violate the project's
-write-before-refusal/source-gate contract. The shipped documentation also assigns deferred
-real-host evidence to the phase that has just completed instead of Phase 05.
-
-The ownership defect was reproduced against the compiled adapters in disposable temporary
-projects: after installing only "code-style-nudge", adding a user-owned host configuration, and
-then installing navigation, Cursor and ZCode replaced the user's MCP URL and Claude replaced the
-user's matching hook without returning "unmanaged_name_conflict". The source-scan defect was also
-reproduced for all five adapters; each tested current public Skill path returned
-"hasConflict: false" and no findings.
+The complete persisted Phase 06 scope and the two fix-introduced files were re-reviewed after
+commits `271b26e`, `68a948f`, and `9087c00`. The two ownership/source-gate blockers and the
+documentation warning from iteration 1 are resolved. No actionable correctness, security,
+secret-safety, transaction-boundary, host-behavior, generated-source, or test-reliability issue
+remains in the reviewed scope.
 
 ## Narrative Findings (AI reviewer)
 
-## Critical Issues
+No actionable findings.
 
-### CR-01: Style-only state is incorrectly treated as ownership of unrelated host configuration
+### Resolution evidence
 
-**Classification:** BLOCKER
-
-**Files:**
-
-- D:/AIProgram/kcoderag-nav/src/hosts/claude.cts:401
-- D:/AIProgram/kcoderag-nav/src/hosts/cursor.cts:108-109
-- D:/AIProgram/kcoderag-nav/src/hosts/zcode.cts:313
-
-**Issue:** These adapters use "state !== undefined" as the ownership predicate for a native
-settings/MCP/Hook file. Phase 06 makes a valid style-only state possible on every host, but that
-state does not own Claude's ".claude/settings.json", Cursor's ".cursor/mcp.json" or
-".cursor/hooks.json", or ZCode's ".zcode/config.json". A later navigation install therefore
-bypasses "unmanaged_name_conflict" merely because the unrelated style state exists. The merge then
-removes or replaces user-owned entries and the transaction commits that loss. This is an ownership
-and data-loss violation, not just a missing diagnostic.
-
-**Fix:** Determine ownership per exact file from the validated state, as the Codex and OpenCode
-adapters already do. For example:
-
-    const settingsOwned = previousFile(state, SETTINGS_PATH) !== undefined;
-    const hooksOwned = previousFile(state, HOOKS_PATH) !== undefined;
-    const mcpOwned = previousFile(state, MCP_PATH) !== undefined;
-    const configOwned = previousFile(state, CONFIG_PATH) !== undefined;
-
-Pass those booleans to the merge functions, and add reverse-order tests that install style only,
-create a same-name unmanaged native config/hook, then require navigation installation to fail
-before writing while preserving the exact original bytes.
-
-### CR-02: The source gate does not scan the four current public Skill identities
-
-**Classification:** BLOCKER
-
-**Files:**
-
-- D:/AIProgram/kcoderag-nav/src/hosts/codex.cts:300
-- D:/AIProgram/kcoderag-nav/src/hosts/claude.cts:507
-- D:/AIProgram/kcoderag-nav/src/hosts/cursor.cts:142
-- D:/AIProgram/kcoderag-nav/src/hosts/opencode.cts:156
-- D:/AIProgram/kcoderag-nav/src/hosts/zcode.cts:510
-
-**Issue:** Codex, Claude, Cursor, and OpenCode still inspect only the retired
-"kcoderag-nav/SKILL.md" path, while ZCode inspects only the new "kcoderag/SKILL.md" path. None of
-the scanners covers all four public names ("kcoderag", "kcoderag-manage", "kcoderag-feedback", and
-"kcoderag-code-style"), and ZCode no longer checks its retired path. As a result, a user-global
-same-name Skill can coexist with the project install without a "source_conflict", leaving host
-resolution ambiguous and defeating the mandatory mutation source gate.
-
-**Fix:** For each host, inspect all four current user-level Skill paths and retain the retired
-"kcoderag-nav"/"code-style-correction" paths as legacy conflict sources. Return only stable safe
-paths. Add gate-mode tests for every current identity plus the retired identities, asserting that
-install, update, and uninstall stop before adapter rendering and preserve the project tree.
-
-## Warnings
-
-### WR-01: Shipped documentation assigns deferred real-host evidence to completed Phase 06
-
-**Classification:** WARNING
-
-**Files:**
-
-- D:/AIProgram/kcoderag-nav/README.md:52
-- D:/AIProgram/kcoderag-nav/plugin-src/README.md.tmpl:53
-- D:/AIProgram/kcoderag-nav/plugin-src/README.md.tmpl:181
-- D:/AIProgram/kcoderag-nav/kcoderag-qa/README.md:53
-- D:/AIProgram/kcoderag-nav/kcoderag-qa/README.md:185
-- D:/AIProgram/kcoderag-nav/plugin-src/cursor/README.md.tmpl:106
-- D:/AIProgram/kcoderag-nav/kcoderag-cursor/README.md:106
-
-**Issue:** These current/shipped documents say that ZCode or authenticated real-host MCP evidence
-"remains Phase 06 work." Phase 06 is the completed phase under review, and the governing project
-contract explicitly assigns Hook precision and authenticated/true-host evidence to unfinished
-Phase 05. The generated products therefore publish a stale and self-contradictory delivery
-boundary.
-
-**Fix:** Change the canonical templates and root README to Phase 05 (or to a neutral explicitly
-deferred milestone statement), regenerate QA/Cursor products, and add a docs check that rejects
-future-work claims targeting a completed phase.
+- **CR-01 resolved:** Claude settings, Cursor MCP/Hook files, and ZCode config now derive ownership
+  from the exact prior-state file record instead of the mere presence of any state. Reverse-order
+  style-only regressions preserve unmanaged native bytes and refuse navigation before mutation.
+- **CR-02 resolved:** all five adapters use the shared six-name conflict inventory covering the
+  four current public Skills plus `kcoderag-nav` and `code-style-correction`. Tests prove every
+  identity blocks install, update, and uninstall before rendering, while findings remain path-only
+  and secret-free.
+- **WR-01 resolved:** canonical and generated docs assign authenticated real-host MCP evidence to
+  Phase 05, and the docs gate rejects the stale Phase 06 attribution.
+- **Regression evidence:** the focused host/docs set passed 34/34; the full compiled suite passed
+  527/527; `generate:check` and `docs:check` both passed with no generated drift.
 
 ---
 
-_Reviewed: 2026-09-02T19:25:21Z_
+_Reviewed: 2026-09-02T19:50:00Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
-
