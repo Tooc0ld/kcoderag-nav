@@ -16,6 +16,7 @@ import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeDirectory,
@@ -153,8 +154,10 @@ function defaultMetadata(homeDirectory: string): OpenCodeUserSourceMetadata {
   const hooks = inspectNativeDirectory(homeDirectory, ".config/opencode/hooks");
   manualHookPaths.push(...hooks.matches);
   if (hooks.ambiguous) ambiguousPaths.push(".config/opencode/hooks");
-  const skillPath = ".config/opencode/skills/kcoderag-nav/SKILL.md";
-  if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
+  for (const name of CONFLICTING_SKILL_SOURCE_NAMES) {
+    const skillPath = `.config/opencode/skills/${name}/SKILL.md`;
+    if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
+  }
   return Object.freeze({
     activePluginPaths: Object.freeze([...new Set(activePluginPaths)].sort()),
     rawMcpPaths: Object.freeze([...new Set(rawMcpPaths)].sort()),

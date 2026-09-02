@@ -16,6 +16,7 @@ import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeDirectory,
@@ -297,7 +298,10 @@ function existingMetadata(homeDirectory: string): CodexUserSourceMetadata {
   const hookDirectory = inspectNativeDirectory(homeDirectory, ".codex/hooks");
   manualHookPaths.push(...hookDirectory.matches);
   if (hookDirectory.ambiguous) ambiguousPaths.push(".codex/hooks");
-  for (const relativePath of [".codex/plugins/local/kcoderag-nav", ".codex/skills/kcoderag-nav/SKILL.md"]) {
+  for (const relativePath of [
+    ".codex/plugins/local/kcoderag-nav",
+    ...CONFLICTING_SKILL_SOURCE_NAMES.map((name) => `.codex/skills/${name}/SKILL.md`),
+  ]) {
     const inspection = inspectNativePath(homeDirectory, relativePath);
     if (inspection !== "absent") ambiguousPaths.push(relativePath);
   }

@@ -17,6 +17,7 @@ import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeDirectory,
@@ -505,7 +506,11 @@ function defaultMetadata(homeDirectory: string): ClaudeUserSourceMetadata {
   const hooks = inspectNativeDirectory(homeDirectory, ".claude/hooks");
   manualHookPaths.push(...hooks.matches);
   if (hooks.ambiguous) ambiguousPaths.push(".claude/hooks");
-  for (const relativePath of [".claude/plugins/kcoderag-nav", ".claude/plugins/cache/kcoderag-nav", ".claude/skills/kcoderag-nav/SKILL.md"]) {
+  for (const relativePath of [
+    ".claude/plugins/kcoderag-nav",
+    ".claude/plugins/cache/kcoderag-nav",
+    ...CONFLICTING_SKILL_SOURCE_NAMES.map((name) => `.claude/skills/${name}/SKILL.md`),
+  ]) {
     const inspection = inspectNativePath(homeDirectory, relativePath);
     if (inspection !== "absent") ambiguousPaths.push(relativePath);
   }

@@ -18,6 +18,16 @@ export type { SourceFinding } from "../core/contracts.cjs";
 export const SOURCE_SCAN_MODES = Object.freeze(["fast", "deep", "gate"] as const);
 export type SourceScanMode = (typeof SOURCE_SCAN_MODES)[number];
 
+/** Current public Skills plus retired identities that remain conflicts, never aliases. */
+export const CONFLICTING_SKILL_SOURCE_NAMES = Object.freeze([
+  "kcoderag",
+  "kcoderag-manage",
+  "kcoderag-feedback",
+  "kcoderag-code-style",
+  "kcoderag-nav",
+  ["code", "style", "correction"].join("-"),
+] as const);
+
 const SOURCE_CODES = new Set([
   "active_plugin_source",
   "owned_plugin_source",

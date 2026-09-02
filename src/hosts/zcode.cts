@@ -33,6 +33,7 @@ import type {
   HostUninstallContext,
 } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeJsonSource,
@@ -507,8 +508,10 @@ function defaultMetadata(homeDirectory: string): ZCodeUserSourceMetadata {
   const config = inspectNativeJsonSource(homeDirectory, configPath);
   const ambiguousPaths: string[] = [];
   if (config.ambiguous) ambiguousPaths.push(configPath);
-  const skillPath = ".zcode/skills/kcoderag/SKILL.md";
-  if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
+  for (const name of CONFLICTING_SKILL_SOURCE_NAMES) {
+    const skillPath = `.zcode/skills/${name}/SKILL.md`;
+    if (inspectNativePath(homeDirectory, skillPath) !== "absent") ambiguousPaths.push(skillPath);
+  }
   return Object.freeze({
     activePluginPaths: Object.freeze(config.activePlugin ? [configPath] : []),
     rawMcpPaths: Object.freeze(config.rawMcp ? [configPath] : []),

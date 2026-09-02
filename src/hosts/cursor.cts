@@ -15,6 +15,7 @@ import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeDirectory,
@@ -139,7 +140,10 @@ function defaultMetadata(homeDirectory: string): CursorUserSourceMetadata {
   const plugins = inspectNativeDirectory(homeDirectory, ".cursor/plugins");
   activePluginPaths.push(...plugins.matches);
   if (plugins.ambiguous) ambiguousPaths.push(".cursor/plugins");
-  for (const relativePath of [".cursor/plugins/local/kcoderag-nav", ".cursor/skills/kcoderag-nav/SKILL.md"]) {
+  for (const relativePath of [
+    ".cursor/plugins/local/kcoderag-nav",
+    ...CONFLICTING_SKILL_SOURCE_NAMES.map((name) => `.cursor/skills/${name}/SKILL.md`),
+  ]) {
     const inspection = inspectNativePath(homeDirectory, relativePath);
     if (inspection !== "absent") ambiguousPaths.push(relativePath);
   }
