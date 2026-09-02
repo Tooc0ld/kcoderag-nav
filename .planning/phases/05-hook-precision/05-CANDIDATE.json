@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "candidateSha": "67b268962060adbcfe9e696d1ab3f8c827585545",
-  "candidateTreeSha": "92a41c43d2fa90c133a237d652b0299f17cf1234",
+  "candidateSha": "6e6893f41e3d83a1d5a416eeb6c32dc92f8ef819",
+  "candidateTreeSha": "23694bfca0aa58e5e454548149771c898b404e82",
   "packageVersion": "0.3.1",
-  "packageSha256": "1a842fd8713706f2e75eb717395a7fb18280e49502a46386e2acd912f4d21705",
-  "packageMemberDigest": "0a66445d596046fc5550974862d609e6d9c36e748649304dd6f2a81ebe889777",
+  "packageSha256": "6bcdd46d97b0c4947812a1ef4909f045e3690746062aecee0329616b8ad2ebab",
+  "packageMemberDigest": "69c54d7a25c2ac4222bbc013c4b35133116b9559080e66e6f05e1fd483dfcd84",
   "workflowBlobSha": "897e17dcdf847aa4eee804faeec8b055640ea705",
   "packageContractDigest": "6c3c35d07360873413705cf54d9ff7e17005ada59fb6ccab318797c7b5ceb08e",
-  "preparedAt": "2026-09-02T07:51:36.800Z"
+  "preparedAt": "2026-09-02T09:13:45.548Z"
 }
