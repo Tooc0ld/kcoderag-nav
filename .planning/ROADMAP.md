@@ -480,10 +480,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
   3. 内部 capability 仍固定为 `kcoderag-navigation` 与 `code-style-nudge`；五宿主均可安装手动代码规范 Skill，仅冻结 PASS receipt 对应的 Claude Code 2.1.241 投影自动写前提示。
   4. status/doctor 以 secret-safe、状态完整性可证明的方式分别报告 `manualSkill` 与 `automaticNudge`，更新/卸载按所有权安全重组旧 Skill 路径并保留无关文件。
   5. Codex 的四个 Skill 均包含一致的 `agents/openai.yaml`，生成、打包、五宿主 smoke、文档和完整 CI 对四公开 Skill/两内部 capability 模型达成一致。
-**Plans:** 3 plans
+**Plans:** 8 plans
 
 Plans:
 
-- [ ] 06-01-PLAN.md — 定义四个公开 Skill 契约，以 Codex tracer 打通手动/自动交付决策与诊断字段
-- [ ] 06-02-PLAN.md — 投影五宿主并验证 schema version 1 更新、卸载与所有权安全重组
-- [ ] 06-03-PLAN.md — 闭合确定性生成、pack、五宿主 smoke、文档与旧公开名称退役门禁
+- [ ] 06-01-PLAN.md — 定义三个导航族公开 Skill 与单一 navigation contributor 契约
+- [ ] 06-02-PLAN.md — 定义代码规范 Skill、唯一测试重命名与手动/自动交付决策
+- [ ] 06-03-PLAN.md — 以 Codex tracer 打通四 Skill 投影和独立交付诊断
+- [ ] 06-04-PLAN.md — 更新自动提示并投影 Claude、Cursor、OpenCode、ZCode
+- [ ] 06-05-PLAN.md — 验证 state-owned 路径重组与五宿主原子生命周期
+- [ ] 06-06-PLAN.md — 闭合确定性生成和旧公开名称退役门禁
+- [ ] 06-07-PLAN.md — 闭合 exact pack inventory 与五宿主 packaged smoke
+- [ ] 06-08-PLAN.md — 同步文档并运行完整 generation、CI 与 smoke 门禁

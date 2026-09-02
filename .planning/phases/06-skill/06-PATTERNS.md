@@ -122,10 +122,10 @@ different concern and must remain.
 long-form style payload. Their opening sections already implement selective
 loading and evidence boundaries:
 
-- \`references/cpp.md\` lines 3-6
-- \`references/protocols.md\` lines 3-6
-- \`references/lua.md\` lines 3-5
-- \`references/code-hygiene.md\` lines 3-5 and bounded review lines 45-57
+- \`references/cpp-lifetime-control-flow.md\` lines 3-6
+- \`references/protocol-serialization-data.md\` lines 3-6
+- \`references/lua-contracts.md\` lines 3-5
+- \`references/change-hygiene-self-review.md\` lines 3-5 and bounded review lines 45-57
 
 Do not duplicate those rules into the short \`SKILL.md\`.
 
