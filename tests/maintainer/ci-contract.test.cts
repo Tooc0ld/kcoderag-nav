@@ -43,6 +43,7 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   );
   assert.match(required, /name:\s*Required contracts \/ \$\{\{ matrix\.lane \}\}/u);
   assert.match(required, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
+  assert.match(required, /timeout-minutes:\s*30/u);
   assert.match(required, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
   assert.equal(required.match(/\n\s*- lane:/gu)?.length, 4);
   assert.doesNotMatch(required, /exclude:|continue-on-error|matrix\.python|python-version/iu);
