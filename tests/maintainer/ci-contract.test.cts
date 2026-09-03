@@ -189,6 +189,7 @@ test("third-party actions are immutable pins and no CI script can publish", () =
     packageJson.scripts["check:acceptance-workflow"],
     "node dist/maintainer/acceptance-workflow.cjs check .github/workflows/acceptance.yml",
   );
+  assert.match(packageJson.scripts.test ?? "", /--require \.\/dist-tests\/test-bootstrap\.cjs/u);
   assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
   assert.match(packageJson.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
   assert.doesNotMatch(

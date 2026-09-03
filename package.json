@@ -118,7 +118,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
-    "test": "node --test --test-concurrency=1 \"dist-tests/**/*.test.cjs\"",
+    "test": "node --require ./dist-tests/test-bootstrap.cjs --test --test-concurrency=1 \"dist-tests/**/*.test.cjs\"",
     "deps:audit": "node dist/maintainer/dependency-audit.cjs",
     "test:dependency-audit": "node --test dist-tests/maintainer/dependency-audit.test.cjs",
     "test:transaction": "node --test dist-tests/core/transaction.test.cjs",

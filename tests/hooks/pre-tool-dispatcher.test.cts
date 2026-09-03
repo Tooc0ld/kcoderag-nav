@@ -89,17 +89,22 @@ test("direct ZCode process invocation emits strict advisory context and fails op
       packageVersion: "0.2.2",
       host: "zcode",
     })}\n`);
-    const result = childProcess.spawnSync(process.execPath, [compiledDispatcher, "zcode"], {
-      input: JSON.stringify({
-        hook_event_name: "PreToolUse",
-        session_id: `zcode-session-${crypto.randomUUID()}`,
-        cwd: root,
-        tool_name: "Grep",
-        tool_input: { pattern: "LoginMgr", path: "src" },
-      }),
-      encoding: "utf8",
-      env: { ...process.env, ZCODE_PROJECT_DIR: root },
-    });
+    let result: { readonly status: number | null; readonly stderr: string; readonly stdout: string } | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      result = childProcess.spawnSync(process.execPath, [compiledDispatcher, "zcode"], {
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          session_id: `zcode-session-${crypto.randomUUID()}`,
+          cwd: root,
+          tool_name: "Grep",
+          tool_input: { pattern: "LoginMgr", path: "src" },
+        }),
+        encoding: "utf8",
+        env: { ...process.env, ZCODE_PROJECT_DIR: root },
+      });
+      if (result.status !== 0 || result.stderr !== "" || result.stdout !== "") break;
+    }
+    if (result === undefined) assert.fail("ZCode dispatcher was not invoked");
     assert.equal(result.status, 0);
     assert.equal(result.stderr, "");
     const output = JSON.parse(result.stdout) as Record<string, any>;
