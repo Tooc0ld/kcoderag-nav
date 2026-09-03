@@ -42,6 +42,18 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         shared: false,
       },
       {
+        id: "navigation:update-skill",
+        sourcePath: "plugin-src/skills/kcoderag-update/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:update-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-update/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
         id: "navigation:feedback-skill",
         sourcePath: "plugin-src/skills/kcoderag-feedback/SKILL.md",
         kind: "skill",

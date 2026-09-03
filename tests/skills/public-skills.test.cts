@@ -23,6 +23,8 @@ const NAVIGATION_SKILL = "plugin-src/skills/kcoderag/SKILL.md";
 const NAVIGATION_METADATA = "plugin-src/skills/kcoderag/agents/openai.yaml";
 const MANAGEMENT_SKILL = "plugin-src/skills/kcoderag-manage/SKILL.md";
 const MANAGEMENT_METADATA = "plugin-src/skills/kcoderag-manage/agents/openai.yaml";
+const UPDATE_SKILL = "plugin-src/skills/kcoderag-update/SKILL.md";
+const UPDATE_METADATA = "plugin-src/skills/kcoderag-update/agents/openai.yaml";
 const FEEDBACK_SKILL = "plugin-src/skills/kcoderag-feedback/SKILL.md";
 const FEEDBACK_METADATA = "plugin-src/skills/kcoderag-feedback/agents/openai.yaml";
 const STYLE_SKILL = "plugin-src/capabilities/code-style-nudge/skill/SKILL.md";
@@ -72,6 +74,8 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
       NAVIGATION_METADATA,
       MANAGEMENT_SKILL,
       MANAGEMENT_METADATA,
+      UPDATE_SKILL,
+      UPDATE_METADATA,
       FEEDBACK_SKILL,
       FEEDBACK_METADATA,
     ],
@@ -86,13 +90,26 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
   );
 });
 
-test("the four public Skills have distinct authority boundaries and Codex metadata", () => {
+test("the five public Skills have distinct authority boundaries and Codex metadata", () => {
   const management = read(MANAGEMENT_SKILL);
   assert.match(management, /^name: kcoderag-manage$/mu);
   assert.match(management, /status/u);
   assert.match(management, /doctor/u);
-  assert.match(management, /`update` only when the user explicitly asks/iu);
+  assert.match(management, /load and follow `\$kcoderag-update`/u);
+  assert.doesNotMatch(management, /npx kcoderag-nav@latest update/u);
   assert.match(management, /Uninstall.*explicit user request/isu);
+
+  const update = read(UPDATE_SKILL);
+  assert.match(update, /^name: kcoderag-update$/mu);
+  assert.match(update, /<objective>[\s\S]*<\/objective>/u);
+  assert.match(update, /<quick_start>[\s\S]*<\/quick_start>/u);
+  assert.match(update, /<success_criteria>[\s\S]*<\/success_criteria>/u);
+  assert.match(update, /explicitly asks for an update/iu);
+  assert.match(update, /npx kcoderag-nav@latest update --target <absolute-project-root> --host <host> --yes/u);
+  assert.match(update, /exactly one host per CLI invocation/iu);
+  assert.match(update, /Never bypass the refusal or delete files manually/u);
+  assert.match(update, /MCP URLs.*headers.*Bearer.*tokens.*configuration bodies.*subprocess bodies/isu);
+  assert.doesNotMatch(update, /^\s*#{1,6}\s/mu);
 
   const feedback = read(FEEDBACK_SKILL);
   assert.match(feedback, /^name: kcoderag-feedback$/mu);
@@ -108,6 +125,7 @@ test("the four public Skills have distinct authority boundaries and Codex metada
 
   for (const [metadataPath, displayName, skillName] of [
     [MANAGEMENT_METADATA, "KCodeRag Manage", "$kcoderag-manage"],
+    [UPDATE_METADATA, "KCodeRag Update", "$kcoderag-update"],
     [FEEDBACK_METADATA, "KCodeRag Feedback", "$kcoderag-feedback"],
     [STYLE_METADATA, "KCodeRag Code Style", "$kcoderag-code-style"],
   ] as const) {

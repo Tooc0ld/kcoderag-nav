@@ -1,0 +1,6 @@
+interface:
+  display_name: "KCodeRag Update"
+  short_description: "Safely update one project-scoped KCodeRag host"
+  default_prompt: "Use $kcoderag-update to update this project's KCodeRag Nav installation for the selected host."
+policy:
+  allow_implicit_invocation: true

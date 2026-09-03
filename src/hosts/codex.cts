@@ -52,6 +52,7 @@ const CONFIG_PATH = ".codex/config.toml";
 const HOOKS_PATH = ".codex/hooks.json";
 const NAV_SKILL_ROOT = ".agents/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".agents/skills/kcoderag-manage";
+const UPDATE_SKILL_ROOT = ".agents/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".agents/skills/kcoderag-feedback";
 const CODE_STYLE_SKILL_ROOT = ".agents/skills/kcoderag-code-style";
 const HOOK_ROOT = ".codex/kcoderag-nav/qa/hooks";
@@ -251,6 +252,8 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       projectedFile(target, state, `${NAV_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/agents/openai.yaml"), false),
       projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
       projectedFile(target, state, `${MANAGE_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/agents/openai.yaml"), false),
+      projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/SKILL.md"), false),
+      projectedFile(target, state, `${UPDATE_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/agents/openai.yaml"), false),
       projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
       projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/agents/openai.yaml"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),

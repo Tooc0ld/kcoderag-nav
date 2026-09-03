@@ -16,7 +16,7 @@ Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；
 和共享 skill，OpenCode 使用项目 plugin；ZCode 同时使用项目 `.zcode/config.json` MCP 与 workspace Skill。
 五个宿主以各自原生成功后事件记录 secret-free、fail-open 的 KCodeRag 调用 marker；ZCode 通过
 项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。公开手动入口固定为 `$kcoderag`、
-`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style`；五宿主都获得手动代码规范 Skill，
+`$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 与 `$kcoderag-code-style`；五宿主都获得手动代码规范 Skill，
 只有冻结 PASS receipt 对应的 Claude Code `2.1.241` 叠加 native 自动写前提示。
 安装器同时提供 `status`、`doctor`、`update` 与 `uninstall`，并以 capability-scoped 所有权、
 全部变更命令的来源门禁、完整摘要硬停止和单宿主原子回滚保护项目与用户配置。
@@ -60,8 +60,8 @@ Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
 - ✓ `kcoderag-navigation` 支持五宿主；Phase 04.1 冻结 Claude Code `2.1.241` native PASS receipt，
   Phase 06 在不扩大 native 声明的前提下为五宿主提供手动 `code-style-nudge` Skill
-- ✓ 五宿主只投影 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与
-  `$kcoderag-code-style` 四个公开 Skill，无兼容别名；status/doctor 独立报告完整性证明的
+- ✓ 五宿主投影 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 与
+  `$kcoderag-code-style` 五个公开 Skill，无兼容别名；status/doctor 独立报告完整性证明的
   `manualSkill` 与 receipt 门禁的 `automaticNudge` — Phase 06
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
@@ -146,7 +146,7 @@ Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| **Exactly four public Skills**：公开入口固定为 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style`，不保留旧 Skill 别名 | 让用户可手动调用稳定、职责单一的入口，同时避免兼容面继续扩张 | Validated in Phase 06 |
+| **Five public Skills**：公开入口固定为 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 与 `$kcoderag-code-style`，不保留旧 Skill 别名 | 把显式 update mutation 从诊断型 manage 中拆出，同时保持入口职责单一 | Phase 06 four-Skill decision superseded by Quick 260903-nx3 |
 | **Manual base, native overlay**：五宿主均交付手动代码规范 Skill；只有 frozen PASS receipt 对应的 Claude Code `2.1.241` 叠加自动写前提示 | 手动可用性不应被宿主自动化能力绑架，native 声明仍必须由真实证据支持 | Validated in Phase 06 |
 | **Independent delivery diagnostics**：`manualSkill` 与 `automaticNudge` 分别由 current schema、完整所有权、摘要完整性与宿主支持计算 | 防止一个可用交付面掩盖另一个交付面的缺失、漂移或不支持 | Validated in Phase 06 |
 | **Exact ownership and complete source gate**：只有实际贡献者拥有的原生配置进入受管状态；当前及旧公开 Skill 路径全部进入变更前来源门禁 | 避免 style-only 安装误认无关配置所有权，并阻止手工重复来源被覆盖 | Validated in Phase 06 |
@@ -192,8 +192,9 @@ This document evolves at phase transitions and milestone boundaries. Phase 1–3
 QA/Dev migration、owned cleanup 和 exact Head 部署记录只保留为明确 historical facts；Phase 04.1
 以两个内置 capability、current schema v1、全 mutation source gate 和 receipt-bound support 取代其
 当前产品效力。Phase 04.2 又以中性公共身份、仓库内体验指南权威和 forward-only readiness 证据固定
-`0.3.0` 候选边界，但不执行发布，也不重写已经发生的不可变历史。Phase 06 进一步固定四个公开
-Skill、五宿主手动代码规范交付、Claude-only 自动提示边界，以及两种交付模式的独立诊断；Phase 05
+`0.3.0` 候选边界，但不执行发布，也不重写已经发生的不可变历史。Phase 06 最初固定四个公开
+Skill；Quick 260903-nx3 后续把显式更新拆为第五个 `$kcoderag-update`。五宿主手动代码规范交付、
+Claude-only 自动提示边界，以及两种交付模式的独立诊断保持不变；Phase 05
 authenticated LIVE evidence 仍独立未完成。
 
 ---

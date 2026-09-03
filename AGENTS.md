@@ -12,7 +12,7 @@ Cursor、OpenCode 与 ZCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 
 未指定宿主时交互选择 Codex、Claude Code、Cursor、OpenCode 或 ZCode；自动化使用
 `--host codex|claude|cursor|opencode|zcode`，一次调用只管理一个宿主。当前内置 capability 固定为
 `kcoderag-navigation` 与 `code-style-nudge`；公开手动入口固定为 `$kcoderag`、`$kcoderag-manage`、
-`$kcoderag-feedback` 与 `$kcoderag-code-style`。install 将显式选择加入已安装集合，跨宿主的项目级
+`$kcoderag-update`、`$kcoderag-feedback` 与 `$kcoderag-code-style`。install 将显式选择加入已安装集合，跨宿主的项目级
 安装可以共存。当前状态只接受 capability-scoped schema v1；旧 QA/Dev 状态、迁移、接管和自动清理
 不再是可执行产品能力。
 

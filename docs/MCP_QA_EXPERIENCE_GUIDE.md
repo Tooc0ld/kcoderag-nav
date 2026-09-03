@@ -75,10 +75,11 @@ AI 会按需要调用这些工具：
 - `get_call_chain`：查看调用方和被调用方。
 - `list_indexes`：检查当前可用的搜索索引。
 
-也可以手动调用四个公开 Skill：
+也可以手动调用五个公开 Skill：
 
 - `$kcoderag`：只读导航、上下文、调用链和索引查询。
-- `$kcoderag-manage`：默认只运行 `status`/`doctor`；更新或卸载必须有明确请求。
+- `$kcoderag-manage`：默认只运行 `status`/`doctor`；破坏性生命周期操作必须有明确请求。
+- `$kcoderag-update`：在明确更新请求下确认项目与单一宿主，通过公开 npx CLI 更新并复查状态。
 - `$kcoderag-feedback`：只针对真实查询结果提交 secret-safe 反馈。
 - `$kcoderag-code-style`：用自然语言准备 C/C++/Lua 修改，或执行
   `$kcoderag-code-style review <file or current changes>`。它没有公开 `apply` 操作。

@@ -41,6 +41,7 @@ const MCP_PATH = ".cursor/mcp.json";
 const HOOKS_PATH = ".cursor/hooks.json";
 const NAV_SKILL_ROOT = ".cursor/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".cursor/skills/kcoderag-manage";
+const UPDATE_SKILL_ROOT = ".cursor/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".cursor/skills/kcoderag-feedback";
 const RULE_PATH = ".cursor/rules/kcoderag-navigation.mdc";
 const CODE_STYLE_SKILL_ROOT = ".cursor/skills/kcoderag-code-style";
@@ -111,6 +112,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
     projectedFile(target, state, MCP_PATH, mcp.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true), projectedFile(target, state, RULE_PATH, sourceAsset(packageRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), false),
     projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag/SKILL.md"), false),
     projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-manage/SKILL.md"), false),
+    projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-update/SKILL.md"), false),
     projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-feedback/SKILL.md"), false),
     projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
   ]), sections: Object.freeze([section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.marker, hooksCurrent !== undefined)]) })); }

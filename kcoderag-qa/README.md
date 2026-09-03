@@ -7,8 +7,8 @@ or production npm dependencies.
 
 The package exposes exactly two built-in capabilities:
 
-- `kcoderag-navigation` provides the QA MCP projection, `$kcoderag`, `$kcoderag-manage`, and
-  `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a successful-call
+- `kcoderag-navigation` provides the QA MCP projection, `$kcoderag`, `$kcoderag-manage`,
+  `$kcoderag-update`, and `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a successful-call
   marker and offline update notice.
 - `code-style-nudge` provides the `$kcoderag-code-style` manual Skill on all five hosts. Only the
   exact Claude Code `2.1.241` PASS receipt adds native automatic pre-write delivery.

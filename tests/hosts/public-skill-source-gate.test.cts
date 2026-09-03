@@ -17,6 +17,7 @@ const NAVIGATION = "kcoderag-navigation";
 const SOURCE_NAMES = Object.freeze([
   "kcoderag",
   "kcoderag-manage",
+  "kcoderag-update",
   "kcoderag-feedback",
   "kcoderag-code-style",
   "kcoderag-nav",

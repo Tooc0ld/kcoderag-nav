@@ -55,6 +55,8 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "skills/kcoderag-feedback/agents/openai.yaml",
   "skills/kcoderag-manage/SKILL.md",
   "skills/kcoderag-manage/agents/openai.yaml",
+  "skills/kcoderag-update/SKILL.md",
+  "skills/kcoderag-update/agents/openai.yaml",
   "skills/kcoderag/SKILL.md",
   "skills/kcoderag/agents/openai.yaml",
 ]);
@@ -86,11 +88,11 @@ test("YAML source and generated metadata keep deterministic LF checkout bytes", 
   assert.match(attributes, /^\*\.yml text eol=lf$/mu);
 });
 
-test("QA non-document product is a closed deterministic thirty-three-file inventory", () => {
+test("QA non-document product is a closed deterministic thirty-five-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
   assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
-  assert.equal(actualNonDocument.length, 33);
+  assert.equal(actualNonDocument.length, 35);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));

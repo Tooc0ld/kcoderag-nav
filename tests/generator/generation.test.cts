@@ -128,6 +128,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag-update/SKILL.md",
+      "skills/kcoderag-update/agents/openai.yaml",
       "skills/kcoderag/SKILL.md",
       "skills/kcoderag/agents/openai.yaml",
     ],
@@ -144,6 +146,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag-update/SKILL.md",
+      "skills/kcoderag-update/agents/openai.yaml",
       "skills/kcoderag/SKILL.md",
       "skills/kcoderag/agents/openai.yaml",
     ],
@@ -182,6 +186,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag-update/SKILL.md",
+      "skills/kcoderag-update/agents/openai.yaml",
       "skills/kcoderag/SKILL.md",
       "skills/kcoderag/agents/openai.yaml",
     ],
@@ -203,6 +209,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-update/SKILL.md",
       "skills/kcoderag/SKILL.md",
     ],
     metadata: [".cursor-plugin/plugin.json", "mcp.json"],
@@ -215,6 +222,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-update/SKILL.md",
       "skills/kcoderag/SKILL.md",
     ],
     docs: ["README.md"],
@@ -231,6 +239,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-update/SKILL.md",
       "skills/kcoderag/SKILL.md",
     ],
   },
@@ -334,6 +343,8 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/skills/kcoderag/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag\"\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-manage/SKILL.md", "# KCodeRag Manage\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-manage/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Manage\"\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-update/SKILL.md", "<objective>Update KCodeRag Nav.</objective>\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-update/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Update\"\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-feedback/SKILL.md", "# KCodeRag Feedback\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Feedback\"\n");
   write(
@@ -545,7 +556,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 46);
+    assert.equal(first.writtenPaths.length, 49);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({

@@ -22,6 +22,7 @@ export type SourceScanMode = (typeof SOURCE_SCAN_MODES)[number];
 export const CONFLICTING_SKILL_SOURCE_NAMES = Object.freeze([
   "kcoderag",
   "kcoderag-manage",
+  "kcoderag-update",
   "kcoderag-feedback",
   "kcoderag-code-style",
   "kcoderag-nav",

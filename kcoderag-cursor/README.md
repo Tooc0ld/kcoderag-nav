@@ -9,7 +9,7 @@ install source.
 
 QA is the only public environment for MCP. The current package has two built-in capabilities:
 `kcoderag-navigation` and `code-style-nudge`. Cursor receives the `$kcoderag`, `$kcoderag-manage`,
-`$kcoderag-feedback`, and `$kcoderag-code-style` manual Skills. Cursor `3.17.8` has an exact
+`$kcoderag-update`, `$kcoderag-feedback`, and `$kcoderag-code-style` manual Skills. Cursor `3.17.8` has an exact
 `UNSUPPORTED` receipt only for native automatic pre-write delivery.
 
 ## Install capabilities into one project

@@ -8,7 +8,7 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 当前包只提供两个内置 capability：
 
 - `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置，并提供 `$kcoderag`、
-  `$kcoderag-manage`、`$kcoderag-feedback` 三个手动 Skill、成功调用 marker 与离线更新提示。
+  `$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 四个手动 Skill、成功调用 marker 与离线更新提示。
 - `code-style-nudge`：五宿主都安装 `$kcoderag-code-style` 手动 Skill；只有冻结 PASS receipt
   对应的 Claude Code `2.1.241` 叠加自动写前提示。
 
@@ -111,11 +111,11 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 
 | 宿主 | 项目级受管位置 | 当前行为 |
 | --- | --- | --- |
-| Codex | `.codex/`、`.agents/skills/` | 三个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 四个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
-| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 四个手动 Skill及 always-on navigation Rule/MCP；不声明等价代码规范 `PreToolUse` |
-| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 四个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
-| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 四个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
+| Codex | `.codex/`、`.agents/skills/` | 四个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
+| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 五个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
+| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 五个手动 Skill及 always-on navigation Rule/MCP；不声明等价代码规范 `PreToolUse` |
+| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 五个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
+| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 五个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
 
 ZCode 首次打开包含项目 Hook 的工作区时，还必须由用户在宿主中信任/批准 workspace Hook。
 安装器只写项目声明，不能替用户预授权或修改用户级 trust；未批准时 MCP 与 Skill 仍可能正常，

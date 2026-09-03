@@ -1,6 +1,6 @@
 ---
 name: kcoderag-manage
-description: Inspect and maintain a project-scoped KCodeRag Nav installation. Use for status, doctor, version checks, or an explicitly requested update; require separate explicit authorization before uninstalling or making another destructive lifecycle change.
+description: Inspect a project-scoped KCodeRag Nav installation and diagnose its health. Use for status, doctor, or version checks; route explicit update requests to $kcoderag-update and require separate authorization for destructive lifecycle changes.
 ---
 
 # KCodeRag Management
@@ -16,8 +16,8 @@ Start with read-only commands:
 - Report stable codes and safe paths only. Never expose MCP URLs, headers, bearer tokens,
   configuration bodies, or subprocess output.
 
-Run `update` only when the user explicitly asks to update. Confirm the target and host, then
-use the normal CLI so ownership, source-conflict, drift, and transaction gates remain active.
+For an explicit update request, load and follow `$kcoderag-update`. Do not duplicate its mutation
+workflow or treat management discovery as update authority.
 
 Uninstall or another destructive lifecycle action requires a separate explicit user request.
 Never infer mutation authority from this Skill being selected, and never bypass a refusal or
