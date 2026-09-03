@@ -83,7 +83,7 @@ test("required lanes execute every gate before the dependent publish job finaliz
     "npm run build",
     "npm run deps:audit",
     "npm run test:launcher",
-    "npm test",
+    "npm run test:ci",
     "npm run generate:check",
     "npm run docs:check",
     "npm run audit:retirement",
@@ -120,6 +120,7 @@ test("required lanes execute every gate before the dependent publish job finaliz
   assert.equal(source.match(/npm run docs:check/gu)?.length, 1);
   assert.equal(source.match(/npm run audit:retirement/gu)?.length, 1);
   assert.equal(source.match(/npm run smoke:required/gu)?.length, 1);
+  assert.doesNotMatch(requiredJob, /run:\s*npm test\s*(?:\r?\n|$)/u);
 });
 
 test("tag is checked against package version before any build or publication", () => {
