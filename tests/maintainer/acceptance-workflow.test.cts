@@ -97,6 +97,8 @@ function expectCode(call: () => unknown, code: string): void {
 
 test("acceptance workflow has one producer, four PACKAGED lanes and one protected exact-candidate LIVE lane", () => {
   const source = workflow();
+  assert.match(source, /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- "\*\*"\s*\r?\n\s+workflow_call:/mu);
+  assert.doesNotMatch(source, /^\s+pull_request(?:_target)?:/mu);
   assert.deepEqual(workflowContract.validateAcceptanceWorkflow(source), {
     schemaVersion: 1,
     producerJob: "package",
@@ -158,6 +160,7 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
 test("workflow validator fails closed for trust, identity, bypass and LIVE rebuild drift", () => {
   const source = workflow();
   const cases = [
+    [source.replace("  workflow_call:", "  pull_request:\n  workflow_call:"), "untrusted_event_trigger"],
     [source.replaceAll("candidateSha:", "candidateDigest:"), "candidate_input_missing"],
     [source.replaceAll("candidateRef:", "candidateBranch:"), "candidate_ref_input_missing"],
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],
