@@ -96,7 +96,12 @@ function expectCode(call: () => unknown, code: string): void {
 }
 
 function remove(root: string): void {
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === "win32" ? 5 : 0,
+    retryDelay: 50,
+  });
 }
 
 function statusBytes(root: string): Buffer {
