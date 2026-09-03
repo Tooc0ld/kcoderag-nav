@@ -80,6 +80,12 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
+test("YAML source and generated metadata keep deterministic LF checkout bytes", () => {
+  const attributes = fs.readFileSync(path.join(repositoryRoot, ".gitattributes"), "utf8");
+  assert.match(attributes, /^\*\.yaml text eol=lf$/mu);
+  assert.match(attributes, /^\*\.yml text eol=lf$/mu);
+});
+
 test("QA non-document product is a closed deterministic thirty-three-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
