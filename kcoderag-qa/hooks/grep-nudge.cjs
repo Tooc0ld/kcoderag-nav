@@ -2,14 +2,17 @@
 "use strict";
 /** Advisory, host-neutral KCodeRag lookup hook. Every boundary fails open. */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NUDGE = void 0;
+exports.INDEXED_NUDGE = exports.NUDGE = void 0;
 exports.looksLikeSymbolLookup = looksLikeSymbolLookup;
 exports.shellLookupPatterns = shellLookupPatterns;
 exports.lookupPatterns = lookupPatterns;
+exports.structuralLookupIntent = structuralLookupIntent;
 exports.hookOutput = hookOutput;
 exports.navigationContribution = navigationContribution;
 exports.main = main;
 const fs = require("node:fs");
+const feedback_nudge_cjs_1 = require("./feedback-nudge.cjs");
+const once_marker_cjs_1 = require("./once-marker.cjs");
 const updateCheck = (() => {
     try {
         return require("./update-check.cjs");
@@ -23,9 +26,11 @@ const updateCheck = (() => {
         };
     }
 })();
-exports.NUDGE = "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. " +
-    "Use local text search for exact strings, uncommitted edits, or explicit fallback " +
-    "when the index is unavailable or stale.";
+exports.NUDGE = "Structural lookup: use KCodeRag keyword search_code, context, or get_call_chain. " +
+    "Until list_indexes proves a usable index for this session, keep this degraded route. " +
+    "Use local text search for exact strings, uncommitted edits, or explicit fallback when the index is unavailable.";
+exports.INDEXED_NUDGE = "Structural lookup: a usable KCodeRag index is proven for this session; semantic or hybrid search_code is available. " +
+    "Use context or get_call_chain for relationships, and local text search only for exact verification.";
 const MAX_COMMAND_CHARS = 65_536;
 const MAX_COMMAND_SEGMENTS = 64;
 const MAX_INPUT_CHARS = 131_072;
@@ -56,6 +61,10 @@ const SEARCH_TOOLS = new Set([
     "rg", "ripgrep", "grep", "findstr", "select-string", "get-childitem", "gci",
 ]);
 const LOCAL_TEXT_DIRS = new Set(["log", "logs"]);
+const GENERATED_DIRS = new Set(["build", "dist", "gen", "generated", "out"]);
+const COMMON_LUA_GLOBALS = new Set([
+    "init", "onenter", "onexit", "oninit", "onload", "onstart", "ontick", "onupdate", "tick", "update",
+]);
 const SHELL_WRAPPER_OPTIONS = new Map([
     ["cmd", new Set(["/c", "/k"])],
     ["powershell", new Set(["-c", "-command"])],
@@ -110,6 +119,9 @@ function isSingleFileScope(scopes) {
     const scope = scopes[0];
     return scope !== undefined && !/[*?\[\]]/u.test(scope) && LOCAL_FILE_RE.test(scope);
 }
+function isExplicitFileSet(scopes) {
+    return scopes.length > 0 && scopes.every((scope) => !/[*?\[\]]/u.test(scope) && LOCAL_FILE_RE.test(scope));
+}
 function isLocalTextScope(scopes) {
     if (scopes.length !== 1 || scopes[0] === undefined)
         return false;
@@ -119,8 +131,19 @@ function isLocalTextScope(scopes) {
         .split("/")
         .some((part) => LOCAL_TEXT_DIRS.has(part));
 }
+function normalizedScopeParts(scope) {
+    return scope.replaceAll("\\", "/").split("/").filter((part) => part.length > 0 && part !== ".");
+}
+function isGeneratedScope(scopes) {
+    return scopes.some((scope) => normalizedScopeParts(scope).some((part) => GENERATED_DIRS.has(part.toLowerCase())));
+}
+function isDeepNarrowScope(scopes) {
+    return scopes.length === 1 && scopes[0] !== undefined &&
+        !/[*?\[\]]/u.test(scopes[0]) && normalizedScopeParts(scopes[0]).length >= 4;
+}
 function isLocalOnlyScope(scopes) {
-    return isSingleFileScope(scopes) || isLocalTextScope(scopes);
+    return isSingleFileScope(scopes) || isExplicitFileSet(scopes) || isLocalTextScope(scopes) ||
+        isGeneratedScope(scopes) || isDeepNarrowScope(scopes);
 }
 function simpleCommandSegments(command) {
     const segments = [];
@@ -222,6 +245,7 @@ function simpleShellLookupPatterns(command) {
     const explicitPatterns = [];
     const globPatterns = [];
     const positional = [];
+    let fixedString = false;
     let index = start;
     let optionsEnabled = true;
     while (index < tokens.length) {
@@ -234,6 +258,12 @@ function simpleShellLookupPatterns(command) {
         }
         if (!optionsEnabled) {
             positional.push(token);
+            index += 1;
+            continue;
+        }
+        if (token === "-F" || ["--fixed-strings", "-simplematch"].includes(option) ||
+            (tool === "findstr" && option === "/l")) {
+            fixedString = true;
             index += 1;
             continue;
         }
@@ -283,6 +313,8 @@ function simpleShellLookupPatterns(command) {
         positional.push(token);
         index += 1;
     }
+    if (fixedString)
+        return [];
     if (explicitPatterns.length > 0)
         return isLocalOnlyScope(positional) ? [] : explicitPatterns;
     if (tool === "get-childitem" || tool === "gci")
@@ -311,8 +343,47 @@ function lookupPatterns(toolInput) {
         : toolInput.command;
     return shellLookupPatterns(command);
 }
-function hookOutput(data, updateNotice) {
-    const context = navigationContribution(data, updateNotice);
+function directScopes(toolInput) {
+    const scopes = [];
+    for (const field of ["path", "glob"]) {
+        const value = toolInput[field];
+        if (typeof value === "string" && value.length > 0)
+            scopes.push(value);
+    }
+    for (const field of ["paths", "files"]) {
+        const value = toolInput[field];
+        if (Array.isArray(value) && value.length <= 64 && value.every((item) => typeof item === "string")) {
+            scopes.push(...value);
+        }
+    }
+    return Object.freeze(scopes);
+}
+function fixedStringInput(toolInput) {
+    return toolInput.fixed_string === true || toolInput.fixedStrings === true ||
+        toolInput.literal === true || toolInput.fixed === true;
+}
+function commonLuaGlobal(pattern) {
+    const candidate = pattern.trim();
+    return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(candidate) && COMMON_LUA_GLOBALS.has(candidate.toLowerCase());
+}
+/** Decide structural intent before any reminder claim or cache write. */
+function structuralLookupIntent(data) {
+    if (!isRecord(data) || typeof data.tool_name !== "string" || !SUPPORTED_TOOLS.has(data.tool_name))
+        return false;
+    if (!isRecord(data.tool_input) || fixedStringInput(data.tool_input))
+        return false;
+    const scopes = directScopes(data.tool_input);
+    if (isLocalOnlyScope(scopes))
+        return false;
+    const patterns = lookupPatterns(data.tool_input);
+    if (patterns.length === 0)
+        return false;
+    if (patterns.every(commonLuaGlobal))
+        return false;
+    return patterns.some((pattern) => looksLikeSymbolLookup(pattern));
+}
+function hookOutput(data, updateNotice, options) {
+    const context = navigationContribution(data, updateNotice, options);
     if (context === undefined)
         return undefined;
     return {
@@ -322,17 +393,31 @@ function hookOutput(data, updateNotice) {
         },
     };
 }
-function navigationContribution(data, updateNotice) {
-    if (!isRecord(data))
-        return undefined;
-    if (typeof data.tool_name === "string" && !SUPPORTED_TOOLS.has(data.tool_name))
-        return undefined;
-    if (!isRecord(data.tool_input))
-        return undefined;
-    const structural = lookupPatterns(data.tool_input).some((pattern) => looksLikeSymbolLookup(pattern));
+function navigationContribution(data, updateNotice, options) {
+    const structuralIntent = structuralLookupIntent(data);
+    let structural = structuralIntent;
+    if (structural && options !== undefined) {
+        const contextEpoch = (0, once_marker_cjs_1.contextEpochForSession)(data, {
+            host: options.host,
+            managedRoot: options.managedRoot,
+            capability: "kcoderag-navigation",
+            source: "resume",
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+        });
+        structural = contextEpoch !== undefined && (0, once_marker_cjs_1.claimReminder)(data, {
+            host: options.host,
+            managedRoot: options.managedRoot,
+            capability: "kcoderag-navigation",
+            reminderKind: "navigation",
+            contextEpoch,
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+            ...(options.now === undefined ? {} : { now: options.now }),
+        }).claimed;
+    }
     if (!structural && !updateNotice)
         return undefined;
-    const contexts = [structural ? exports.NUDGE : undefined, updateNotice].filter((context) => typeof context === "string" && context.length > 0);
+    const indexed = structural && options !== undefined && (0, feedback_nudge_cjs_1.indexAvailableForSession)(data, options);
+    const contexts = [structural ? (indexed ? exports.INDEXED_NUDGE : exports.NUDGE) : undefined, updateNotice].filter((context) => typeof context === "string" && context.length > 0);
     return contexts.join("\n\n").slice(0, 600);
 }
 function readBoundedStdin() {

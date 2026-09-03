@@ -9,7 +9,7 @@ interface PluginModule {
   KCodeRagNav(context: {
     readonly client: { readonly tui: { showToast(input: unknown): Promise<boolean> } };
     readonly directory: string;
-  }): Promise<Record<string, (input: unknown) => Promise<void>>>;
+  }): Promise<Record<string, (input: unknown, output?: unknown) => Promise<void>>>;
 }
 
 interface GlobalFixture {
@@ -21,7 +21,7 @@ function fixtureGlobal(): GlobalFixture {
   return (globalThis as unknown as { __kcoderagOpenCodeFixture: GlobalFixture }).__kcoderagOpenCodeFixture;
 }
 
-test("OpenCode after-event records success and shows one fail-open cached update toast", async () => {
+test("OpenCode after-event forwards closed facts and shows one fail-open cached update toast", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "kcoderag-opencode-update-"));
   try {
     const pluginPath = path.join(root, ".opencode", "plugins", "kcoderag-nav.mjs");
@@ -68,23 +68,32 @@ test("OpenCode after-event records success and shows one fail-open cached update
     const after = hooks["tool.execute.after"];
     assert.equal(typeof after, "function");
     if (after === undefined) throw new Error("missing tool.execute.after hook");
-    const input = { tool: "read", sessionID: "session-a", args: { token: "must-not-leak" } };
-    await after(input);
+    const input = { tool: "read", sessionID: "session-a", callID: "call-a", args: { token: "must-not-leak" } };
+    const output = { status: "completed", structuredContent: { token: "must-not-leak" } };
+    const fact = {
+      conversation_id: "session-a",
+      generation_id: "call-a",
+      tool: "read",
+      success: true,
+      structuredResultValid: true,
+    };
+    await after(input, output);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     assert.deepEqual(fixtureGlobal().calls, [
-      ["marker", input, { host: "opencode" }],
-      ["notice", "opencode", input, { cwd: root }],
-      ["refresh", "opencode", input, { cwd: root, runtimePath: "node" }],
+      ["marker", fact, { host: "opencode", cwd: root }],
+      ["notice", "opencode", fact, { cwd: root }],
+      ["refresh", "opencode", fact, { cwd: root, runtimePath: "node" }],
       ["toast", { body: { message: "KCodeRag Nav update available", variant: "warning" } }],
     ]);
 
     fixtureGlobal().calls = [];
     fixtureGlobal().fail = true;
-    await assert.doesNotReject(after(input));
+    await assert.doesNotReject(after(input, output));
     assert.deepEqual(fixtureGlobal().calls, [
-      ["marker", input, { host: "opencode" }],
-      ["notice", "opencode", input, { cwd: root }],
+      ["marker", fact, { host: "opencode", cwd: root }],
+      ["notice", "opencode", fact, { cwd: root }],
+      ["refresh", "opencode", fact, { cwd: root, runtimePath: "node" }],
     ]);
   } finally {
     delete (globalThis as unknown as { __kcoderagOpenCodeFixture?: GlobalFixture }).__kcoderagOpenCodeFixture;

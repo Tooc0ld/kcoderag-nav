@@ -1,0 +1,6 @@
+interface:
+  display_name: "KCodeRag Code Style"
+  short_description: "Prepare or review C/C++ and Lua changes safely"
+  default_prompt: "Use $kcoderag-code-style to prepare this code change before editing."
+policy:
+  allow_implicit_invocation: true

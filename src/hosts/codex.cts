@@ -1,6 +1,5 @@
 /** Codex capability projection with receipt-gated code-style support and path-only source findings. */
 
-const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
@@ -8,15 +7,16 @@ const path = require("node:path") as typeof import("node:path");
 
 import { composeCapabilitySet, type ProjectedCapabilityContribution, type ProjectedCapabilityFile, type ProjectedCapabilitySection } from "../capabilities/compose.cjs";
 import type { CapabilityId } from "../capabilities/contracts.cjs";
-import { getCapabilityProvider, resolveCapabilitySelection } from "../capabilities/registry.cjs";
+import { resolveCapabilitySelection } from "../capabilities/registry.cjs";
 import { InstallError, type InstallState, type OriginalRecord, type ProjectTarget, type StatusIssue } from "../core/contracts.cjs";
 import { normalizeRemoteMcpUrl } from "../core/mcp-endpoint.cjs";
 import { hasManagedRootResidue, validateManagedPath } from "../core/project-target.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
-import { createStatusResult, parseInstallState } from "../core/state.cjs";
+import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "../core/state.cjs";
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
+  CONFLICTING_SKILL_SOURCE_NAMES,
   createSourceFinding,
   createSourceScanResult,
   inspectNativeDirectory,
@@ -50,8 +50,10 @@ interface Extras { readonly selectedCapabilities?: readonly CapabilityId[]; read
 const STATE_PATH = ".codex/kcoderag-nav/install-state.json";
 const CONFIG_PATH = ".codex/config.toml";
 const HOOKS_PATH = ".codex/hooks.json";
-const NAV_SKILL_PATH = ".agents/skills/kcoderag-nav/SKILL.md";
-const CODE_STYLE_SKILL_ROOT = ".agents/skills/code-style-correction";
+const NAV_SKILL_ROOT = ".agents/skills/kcoderag";
+const MANAGE_SKILL_ROOT = ".agents/skills/kcoderag-manage";
+const FEEDBACK_SKILL_ROOT = ".agents/skills/kcoderag-feedback";
+const CODE_STYLE_SKILL_ROOT = ".agents/skills/kcoderag-code-style";
 const HOOK_ROOT = ".codex/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".codex", ".agents/skills"] as const);
 const NAVIGATION = "kcoderag-navigation" as const;
@@ -119,14 +121,15 @@ function verifyStateFiles(target: ProjectTarget, state: InstallState): void {
 }
 function detectCodex(context: { readonly target: ProjectTarget }): HostObservation {
   let bytes: Buffer | undefined;
+  let currentState: InstallState | undefined;
   try {
     bytes = readRegular(context.target, STATE_PATH);
     if (bytes === undefined) return Object.freeze({ host: "codex" as const, target: context.target, details: Object.freeze({}) });
-    const currentState = parseInstallState(bytes);
+    currentState = parseInstallState(bytes);
     verifyStateFiles(context.target, currentState);
     return Object.freeze({ host: "codex" as const, target: context.target, currentState, details: Object.freeze({ stateBytes: Buffer.from(bytes) }) });
   } catch (error) {
-    return Object.freeze({ host: "codex" as const, target: context.target, issues: Object.freeze([issueFrom(error)]), details: Object.freeze(bytes === undefined ? {} : { stateBytes: Buffer.from(bytes) }) });
+    return Object.freeze({ host: "codex" as const, target: context.target, ...(currentState === undefined ? {} : { currentState }), issues: Object.freeze([issueFrom(error)]), details: Object.freeze(bytes === undefined ? {} : { stateBytes: Buffer.from(bytes) }) });
   }
 }
 function refuseIssues(observation: HostObservation): void { const issue = observation.issues?.[0]; if (issue !== undefined) throw new InstallError(issue.code, issue.path); }
@@ -149,23 +152,11 @@ function selectedUninstall(context: HostUninstallContext): readonly CapabilityId
   const remove = new Set(resolveCapabilitySelection(removals).map((entry) => entry.id));
   return Object.freeze(state.capabilities.map((entry) => entry.id).filter((id) => !remove.has(id)));
 }
-function defaultVersion(): string | undefined {
-  try {
-    const result = childProcess.spawnSync("codex", ["--version"], { encoding: "utf8", timeout: 5_000, maxBuffer: 8_192, windowsHide: true });
-    if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== "string") return undefined;
-    return /^codex-cli (\d+\.\d+\.\d+)\r?\n?$/u.exec(result.stdout)?.[1];
-  } catch { return undefined; }
-}
-function assertSupport(selected: readonly CapabilityId[], context: HostInstallContext | HostUninstallContext, options: CodexAdapterOptions): void {
-  if (!selected.includes(CODE_STYLE)) return;
-  const extras = context as (HostInstallContext | HostUninstallContext) & Extras;
-  const hostVersion = extras.hostVersion ?? options.hostVersion ?? options.readHostVersion?.() ?? defaultVersion();
-  if (hostVersion === undefined) throw new InstallError("host_version_unsupported");
-  const decision = getCapabilityProvider(CODE_STYLE).evaluateSupport({ host: "codex", hostVersion, evidenceRoot: extras.evidenceRoot ?? options.evidenceRoot ?? context.packageRoot });
-  if (!decision.eligible) throw new InstallError(decision.code);
-}
-
-function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { readonly pre?: unknown; readonly post?: unknown } {
+function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): {
+  readonly start?: unknown;
+  readonly pre?: unknown;
+  readonly post?: unknown;
+} {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const hooks = isRecord(template.hooks) ? template.hooks : {};
   const render = (value: unknown, commands: { readonly command: string; readonly commandWindows: string }): unknown => {
@@ -176,8 +167,17 @@ function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): { 
     return copy;
   };
   const genericShell = process.platform === "win32" ? "windows" : "posix";
+  const advisoryCommands = renderProjectHookCommands("codex", "advisory", genericShell);
+  const startTemplate = Array.isArray(hooks.SessionStart)
+    ? hooks.SessionStart[0]
+    : Array.isArray(hooks.PreToolUse)
+      ? hooks.PreToolUse[0]
+      : undefined;
+  const start = startTemplate === undefined ? undefined : render(startTemplate, advisoryCommands);
+  if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
-    ...(selected.length === 0 || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], renderProjectHookCommands("codex", "advisory", genericShell)) }),
+    ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
+    ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], advisoryCommands) }),
     ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse) ? {} : { post: render(hooks.PostToolUse[0], renderProjectHookCommands("codex", "mcp-call-marker", genericShell)) }),
   });
 }
@@ -186,12 +186,16 @@ function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: 
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const managed = hookEntries(packageRoot, selected);
-  for (const event of ["PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", HOOKS_PATH);
     const unrelated = currentEntries.filter((entry) => !JSON.stringify(entry).includes("kcoderag-nav"));
     if (!owned && unrelated.length !== currentEntries.length) throw new InstallError("unmanaged_name_conflict", HOOKS_PATH);
-    const entry = event === "PreToolUse" ? managed.pre : managed.post;
+    const entry = event === "SessionStart"
+      ? managed.start
+      : event === "PreToolUse"
+        ? managed.pre
+        : managed.post;
     if (entry === undefined) { if (unrelated.length === 0) delete hooks[event]; else hooks[event] = unrelated; }
     else hooks[event] = [...unrelated, entry];
   }
@@ -229,7 +233,7 @@ function projectedFile(target: ProjectTarget, state: InstallState | undefined, r
 }
 function section(relativePath: string, id: string, value: unknown, fileExisted: boolean): ProjectedCapabilitySection { return Object.freeze({ relativePath, id, digest: sha256(JSON.stringify(value)), fileExisted, shared: true }); }
 const NAV_RUNTIME = Object.freeze([
-  ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"], ["dist/hooks/update-check.cjs", "update-check.cjs"], ["dist/hooks/update-notice.cjs", "update-notice.cjs"], ["dist/hooks/update-worker.cjs", "update-worker.cjs"], ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
+  ["dist/hooks/feedback-nudge.cjs", "feedback-nudge.cjs"], ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"], ["dist/hooks/update-check.cjs", "update-check.cjs"], ["dist/hooks/update-notice.cjs", "update-notice.cjs"], ["dist/hooks/update-worker.cjs", "update-worker.cjs"], ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
   ["kcoderag-qa/hooks/run_marker.cmd", "run_marker.cmd"], ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
   ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/code-style-nudge.cjs", "code-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
 ] as const);
@@ -237,25 +241,29 @@ const REFERENCES = Object.freeze(["cpp-lifetime-control-flow.md", "protocol-seri
 function contributions(target: ProjectTarget, packageRoot: string, selected: readonly CapabilityId[], projected: readonly CapabilityId[], state: InstallState | undefined): readonly ProjectedCapabilityContribution[] {
   const result: ProjectedCapabilityContribution[] = [];
   const hooksCurrent = readRegular(target, HOOKS_PATH);
-  const hooks = mergeHooks(hooksCurrent, packageRoot, selected, state !== undefined);
+  const hooks = mergeHooks(hooksCurrent, packageRoot, selected, previousFile(state, HOOKS_PATH) !== undefined);
   if (projected.includes(NAVIGATION)) {
     const configCurrent = readRegular(target, CONFIG_PATH);
-    const config = mergeToml(configCurrent, packageRoot, state !== undefined);
+    const config = mergeToml(configCurrent, packageRoot, previousFile(state, CONFIG_PATH) !== undefined);
     result.push(Object.freeze({ capabilityId: NAVIGATION, files: Object.freeze([
       projectedFile(target, state, CONFIG_PATH, config.bytes, true, true), projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
-      projectedFile(target, state, NAV_SKILL_PATH, sourceAsset(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md"), false),
+      projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md"), false),
+      projectedFile(target, state, `${NAV_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/agents/openai.yaml"), false),
+      projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
+      projectedFile(target, state, `${MANAGE_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/agents/openai.yaml"), false),
+      projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
+      projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/agents/openai.yaml"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ]), sections: Object.freeze([
-      section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
+      section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:session-start", hooks.start, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
     ]) }));
   }
   if (projected.includes(CODE_STYLE)) {
     result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
-      projectedFile(target, state, HOOKS_PATH, hooks.bytes, true, true),
       projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false),
+      projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml"), false),
       ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
-      projectedFile(target, state, `${HOOK_ROOT}/code-style-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/code-style-nudge.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.cmd`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.cmd"), true), projectedFile(target, state, `${HOOK_ROOT}/run_hook.sh`, sourceAsset(packageRoot, "kcoderag-qa/hooks/run_hook.sh"), true),
-    ]), sections: Object.freeze([section(HOOKS_PATH, "code-style:pre-tool", hooks.pre, hooksCurrent !== undefined)]) }));
+    ]), sections: Object.freeze([]) }));
   }
   return Object.freeze(result);
 }
@@ -269,8 +277,11 @@ function compose(context: HostInstallContext | HostUninstallContext, selected: r
 
 function codexStatus(context: HostStatusContext) {
   const issue = context.observation.issues?.[0];
-  if (issue !== undefined) return createStatusResult({ status: issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid", host: "codex", issues: [issue] });
-  if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "codex" });
+  if (issue !== undefined) {
+    const status = issue.code === "capability_drift" || issue.code === "managed_content_changed" ? "drifted" : "invalid";
+    return createStatusResult({ status, host: "codex", issues: [issue], codeStyle: deriveCodeStyleDelivery(context.observation.currentState, status) });
+  }
+  if (context.observation.currentState !== undefined) return createStatusResult({ status: "healthy", host: "codex", codeStyle: deriveCodeStyleDelivery(context.observation.currentState, "healthy") });
   const root = validateManagedPath(context.target, STATE_PATH, MANAGED_ROOTS);
   return hasManagedRootResidue(path.dirname(root.absolutePath)) ? createStatusResult({ status: "invalid", host: "codex", issues: [{ code: "orphaned_managed_root", path: ".codex/kcoderag-nav" }] }) : createStatusResult({ host: "codex" });
 }
@@ -287,7 +298,10 @@ function existingMetadata(homeDirectory: string): CodexUserSourceMetadata {
   const hookDirectory = inspectNativeDirectory(homeDirectory, ".codex/hooks");
   manualHookPaths.push(...hookDirectory.matches);
   if (hookDirectory.ambiguous) ambiguousPaths.push(".codex/hooks");
-  for (const relativePath of [".codex/plugins/local/kcoderag-nav", ".codex/skills/kcoderag-nav/SKILL.md"]) {
+  for (const relativePath of [
+    ".codex/plugins/local/kcoderag-nav",
+    ...CONFLICTING_SKILL_SOURCE_NAMES.map((name) => `.codex/skills/${name}/SKILL.md`),
+  ]) {
     const inspection = inspectNativePath(homeDirectory, relativePath);
     if (inspection !== "absent") ambiguousPaths.push(relativePath);
   }
@@ -315,8 +329,8 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): HostAdapt
   const homeDirectory = path.resolve(options.homeDirectory ?? os.homedir());
   const reader = options.readUserSources ?? (() => existingMetadata(homeDirectory));
   return Object.freeze({ id: "codex" as const, managedRoots: MANAGED_ROOTS, detect: detectCodex,
-    renderInstall: (context: HostInstallContext) => { refuseIssues(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); assertSupport(selected, context, options); return compose(context, selected, preservedForUpdate(context, selected)); },
-    renderUninstall: (context: HostUninstallContext) => { refuseIssues(context.observation); const selected = selectedUninstall(context); assertSupport(selected, context, options); return compose(context, selected); },
+    renderInstall: (context: HostInstallContext) => { refuseIssues(context.observation); if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH); const selected = selectedInstall(context); return compose(context, selected, preservedForUpdate(context, selected)); },
+    renderUninstall: (context: HostUninstallContext) => { refuseIssues(context.observation); const selected = selectedUninstall(context); return compose(context, selected); },
     status: codexStatus, scanUserSources: (context: HostSourceScanContext) => scanCodexSources(context, reader) });
 }
 export const codexAdapter: HostAdapter = createCodexAdapter();

@@ -19,7 +19,37 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
       },
       {
         id: "navigation:skill",
-        sourcePath: "plugin-src/skills/code-lookup-discipline/SKILL.md",
+        sourcePath: "plugin-src/skills/kcoderag/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:manage-skill",
+        sourcePath: "plugin-src/skills/kcoderag-manage/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:manage-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-manage/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:feedback-skill",
+        sourcePath: "plugin-src/skills/kcoderag-feedback/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:feedback-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml",
         kind: "skill",
         shared: false,
       },
@@ -27,6 +57,18 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         id: "navigation:pre-tool-handler",
         sourcePath: "dist/hooks/grep-nudge.cjs",
         kind: "handler",
+        shared: true,
+      },
+      {
+        id: "navigation:feedback-handler",
+        sourcePath: "dist/hooks/feedback-nudge.cjs",
+        kind: "handler",
+        shared: true,
+      },
+      {
+        id: "navigation:reminder-governor",
+        sourcePath: "dist/hooks/once-marker.cjs",
+        kind: "marker",
         shared: true,
       },
       {
@@ -92,6 +134,7 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
     ],
     sections: [
       { id: "navigation:mcp", kind: "mcp", shared: true },
+      { id: "navigation:session-start", kind: "session-start", shared: true },
       { id: "navigation:pre-tool", kind: "pre-tool", shared: true },
       { id: "navigation:post-tool", kind: "post-tool", shared: true },
     ],

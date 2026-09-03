@@ -33,6 +33,11 @@ import {
   type SourceScanMode,
   type SourceScanResult,
 } from "../hosts/user-sources.cjs";
+import {
+  readVersionStatus,
+  type UpdateCheckOptions,
+  type VersionCheckResult,
+} from "../hooks/update-check.cjs";
 
 const QA_ENVIRONMENT: CurrentEnvironmentId = "qa";
 
@@ -84,6 +89,12 @@ export interface CommandDependencies {
   ) => boolean | Promise<boolean>;
   readonly getAdapter?: (host: HostId) => HostAdapter;
   readonly mutationLockRoot?: string;
+  readonly updateCacheRoot?: string;
+  readonly versionNow?: () => number;
+  readonly versionStatusReader?: (
+    installedVersion: string | undefined,
+    options?: UpdateCheckOptions,
+  ) => VersionCheckResult;
 }
 
 function isCommand(value: string | undefined): value is CommandName {
@@ -314,6 +325,34 @@ function packageVersion(packageRoot: string): string | undefined {
   return undefined;
 }
 
+function commandVersionStatus(
+  installedVersion: string | undefined,
+  dependencies: CommandDependencies,
+): VersionCheckResult {
+  try {
+    const configured: { cacheRoot?: string; now?: () => number } = {};
+    if (dependencies.updateCacheRoot !== undefined) configured.cacheRoot = dependencies.updateCacheRoot;
+    if (dependencies.versionNow !== undefined) configured.now = dependencies.versionNow;
+    return (dependencies.versionStatusReader ?? readVersionStatus)(installedVersion, configured);
+  } catch {
+    return Object.freeze({
+      installedVersion: installedVersion ?? null,
+      latestVersion: null,
+      versionStatus: "unknown",
+      checkedAt: null,
+    });
+  }
+}
+
+function displayCheckedAt(checkedAt: number | null): string {
+  if (checkedAt === null) return "unknown";
+  try {
+    return new Date(checkedAt).toISOString();
+  } catch {
+    return "unknown";
+  }
+}
+
 function desiredStateIsCurrent(
   desired: DesiredState,
   preserveValidatedState: boolean,
@@ -356,6 +395,7 @@ function withRuntimeIssue(
     environment: status.environment ?? environment,
     issues: [...status.issues, issue],
     findings: status.findings,
+    codeStyle: status.codeStyle,
   });
 }
 
@@ -462,8 +502,9 @@ export async function executeCommand(
         environment: adapterStatus.environment ?? QA_ENVIRONMENT,
         issues: adapterStatus.issues,
         findings: sourceScan.findings,
+        codeStyle: adapterStatus.codeStyle,
       });
-      const status = withRuntimeIssue(
+      const baseStatus = withRuntimeIssue(
         normalizedStatus,
         runtimeStatusIssue(dependencies.nodeVersion ?? process.versions.node),
         host,
@@ -477,6 +518,17 @@ export async function executeCommand(
           : { lockRoot: dependencies.mutationLockRoot }),
       });
       const installedCapabilities = observation.currentState?.capabilities.map((entry) => entry.id) ?? [];
+      const version = commandVersionStatus(observation.currentState?.packageVersion, dependencies);
+      const status = baseStatus.status === "healthy" && version.versionStatus === "update_available"
+        ? createStatusResult({
+            status: "update_available",
+            host,
+            environment: QA_ENVIRONMENT,
+            issues: baseStatus.issues,
+            findings: baseStatus.findings,
+            codeStyle: baseStatus.codeStyle,
+          })
+        : baseStatus;
       const ok = status.status === "healthy" ||
         status.status === "not_installed" ||
         status.status === "update_available";
@@ -490,7 +542,12 @@ export async function executeCommand(
         status: status.status,
         issues: status.issues,
         findings: status.findings,
+        installedVersion: version.installedVersion,
+        latestVersion: version.latestVersion,
+        versionStatus: version.versionStatus,
+        versionCheckedAt: version.checkedAt,
         capabilities: capabilityResults(installedCapabilities, status.status),
+        codeStyle: status.codeStyle,
         maintenance: Object.freeze({
           mutationLock: lockInspection,
           manualCleanupRequired: lockInspection.status === "stale",
@@ -499,6 +556,12 @@ export async function executeCommand(
       if (args.json) writeJson(stdout, payload);
       else {
         stdout(`${args.command}: ${status.status} ${host} at ${target.root}`);
+        stdout(`installed_version: ${version.installedVersion ?? "not_installed"}`);
+        stdout(`latest_version: ${version.latestVersion ?? "unknown"}`);
+        stdout(`version_status: ${version.versionStatus}`);
+        stdout(`version_checked_at: ${displayCheckedAt(version.checkedAt)}`);
+        stdout(`code_style.manualSkill: ${status.codeStyle.manualSkill}`);
+        stdout(`code_style.automaticNudge: ${status.codeStyle.automaticNudge}`);
         for (const issue of status.issues) {
           stdout(`${issue.code}: ${issue.path}`);
         }
@@ -594,7 +657,7 @@ export async function executeCommand(
     };
     if (version !== undefined) payload.version = version;
     if (args.json) writeJson(stdout, payload);
-    else stdout(`${verb}: ${host} at ${target.root}`);
+    else stdout(`${verb}: ${host} at ${target.root}${version === undefined ? "" : ` (version ${version})`}`);
     return 0;
   } catch (error) {
     const safe = safeError(error);

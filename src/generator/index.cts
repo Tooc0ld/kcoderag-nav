@@ -57,6 +57,14 @@ export interface GenerationResult {
   readonly diagnostics: readonly string[];
 }
 
+export interface AssetSourceRoute {
+  readonly product: Product;
+  readonly output: string;
+  readonly canonicalSource: string;
+  readonly renderSource: string;
+  readonly kind: "compiled-copy" | "normalized-copy" | "template" | "hook-registration";
+}
+
 type EnvironmentId = "qa";
 
 interface EnvironmentMetadata {
@@ -137,7 +145,12 @@ const QA_METADATA_CONFIG = Object.freeze([
 ]);
 const QA_METADATA_GUIDANCE = Object.freeze([
   "agents/kcode-explorer.md",
-  "skills/code-lookup-discipline/SKILL.md",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag/agents/openai.yaml",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-manage/agents/openai.yaml",
+  "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-feedback/agents/openai.yaml",
 ]);
 const QA_DOCS = Object.freeze(["README.md"]);
 const QA_VERSION = Object.freeze([
@@ -148,17 +161,23 @@ const QA_VERSION = Object.freeze([
 const CURSOR_METADATA_CONFIG = Object.freeze([".cursor-plugin/plugin.json", "mcp.json"]);
 const CURSOR_METADATA_GUIDANCE = Object.freeze([
   "rules/kcoderag-navigation.mdc",
-  "skills/code-lookup-discipline/SKILL.md",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-feedback/SKILL.md",
 ]);
 const CURSOR_DOCS = Object.freeze(["README.md"]);
 const CURSOR_VERSION = Object.freeze([".cursor-plugin/plugin.json"]);
 const EMPTY_GROUP = Object.freeze([] as string[]);
 const CODE_STYLE_SKILL_PATHS = Object.freeze([
-  "skills/code-style-correction/SKILL.md",
-  "skills/code-style-correction/references/change-hygiene-self-review.md",
-  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/code-style-correction/references/lua-contracts.md",
-  "skills/code-style-correction/references/protocol-serialization-data.md",
+  "skills/kcoderag-code-style/SKILL.md",
+  "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+  "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+  "skills/kcoderag-code-style/references/lua-contracts.md",
+  "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+]);
+const CODE_STYLE_QA_SKILL_PATHS = Object.freeze([
+  ...CODE_STYLE_SKILL_PATHS,
+  "skills/kcoderag-code-style/agents/openai.yaml",
 ]);
 
 interface CanonicalGroupsInput {
@@ -187,8 +206,10 @@ function canonicalGroups(input: CanonicalGroupsInput): Readonly<Record<Canonical
 
 const NAVIGATION_QA_GROUPS = canonicalGroups({
   runtime: [
+    "hooks/feedback-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/mcp-call-marker.cjs",
+    "hooks/once-marker.cjs",
     "hooks/pre-tool-dispatcher.cjs",
     "hooks/update-check.cjs",
     "hooks/update-notice.cjs",
@@ -212,7 +233,7 @@ const CODE_STYLE_QA_GROUPS = canonicalGroups({
     "hooks/session-cleanup.cjs",
   ],
   registration: ["hooks/hooks.json", "hooks/run_hook.cmd", "hooks/run_hook.sh"],
-  guidance: CODE_STYLE_SKILL_PATHS,
+  guidance: CODE_STYLE_QA_SKILL_PATHS,
 });
 const CODE_STYLE_CURSOR_GROUPS = canonicalGroups({ guidance: CODE_STYLE_SKILL_PATHS });
 
@@ -296,6 +317,37 @@ function productGroups(product: Product): Readonly<Record<AssetGroup, readonly s
 
 export const ASSET_GROUP_PATHS: Readonly<Record<Product, Readonly<Record<AssetGroup, readonly string[]>>>> =
   Object.freeze({ qa: productGroups("qa"), cursor: productGroups("cursor") });
+
+export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze([
+  Object.freeze({ product: "cursor", output: "rules/kcoderag-navigation.mdc", canonicalSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", renderSource: "plugin-src/cursor/rules/kcoderag-navigation.mdc", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/hooks.json", canonicalSource: "plugin-src/hooks/hooks.json", renderSource: "plugin-src/hooks/hooks.json", kind: "hook-registration" }),
+  Object.freeze({ product: "qa", output: "hooks/mcp-call-marker.cjs", canonicalSource: "src/hooks/mcp-call-marker.cts", renderSource: "dist/hooks/mcp-call-marker.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/once-marker.cjs", canonicalSource: "src/hooks/once-marker.cts", renderSource: "dist/hooks/once-marker.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/pre-tool-dispatcher.cjs", canonicalSource: "src/hooks/pre-tool-dispatcher.cts", renderSource: "dist/hooks/pre-tool-dispatcher.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/session-cleanup.cjs", canonicalSource: "src/hooks/session-cleanup.cts", renderSource: "dist/hooks/session-cleanup.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "hooks/update-check.cjs", canonicalSource: "src/hooks/update-check.cts", renderSource: "dist/hooks/update-check.cjs", kind: "compiled-copy" }),
+  Object.freeze({ product: "qa", output: "opencode/kcoderag-nav.js", canonicalSource: "plugin-src/opencode/kcoderag-nav.js", renderSource: "plugin-src/opencode/kcoderag-nav.js", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag/SKILL.md", renderSource: "plugin-src/skills/kcoderag/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag/agents/openai.yaml", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-manage/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-manage/agents/openai.yaml", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", kind: "normalized-copy" }),
+]);
+
+const PHASE_05_ROUTE_BY_OUTPUT: ReadonlyMap<string, AssetSourceRoute> = new Map(
+  PHASE_05_ASSET_ROUTES.map((route) => [`${route.product}/${route.output}`, route]),
+);
+
+function phase05AssetRoute(product: Product, output: string): AssetSourceRoute | undefined {
+  return PHASE_05_ROUTE_BY_OUTPUT.get(`${product}/${output}`);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -639,20 +691,20 @@ function renderQaAsset(
   relativePath: string,
   capabilities: readonly CapabilityId[],
 ): Buffer {
-  if (relativePath === "hooks/grep-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/grep-nudge.cjs");
-  if (relativePath === "hooks/code-style-nudge.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/code-style-nudge.cjs");
-  if (relativePath === "hooks/mcp-call-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/mcp-call-marker.cjs");
-  if (relativePath === "hooks/once-marker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/once-marker.cjs");
-  if (relativePath === "hooks/pre-tool-dispatcher.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs");
-  if (relativePath === "hooks/session-cleanup.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/session-cleanup.cjs");
-  if (relativePath === "hooks/update-check.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-check.cjs");
+  const phase05Route = phase05AssetRoute("qa", relativePath);
+  if (phase05Route?.kind === "compiled-copy") {
+    return readBytes(inputs.sourceRoot, phase05Route.renderSource);
+  }
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
+  }
   if (relativePath === "hooks/update-notice.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-notice.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
   if (relativePath === "hooks/run_hook.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.sh");
   if (relativePath === "hooks/run_marker.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.cmd");
   if (relativePath === "hooks/run_marker.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_marker.sh");
-  if (relativePath === "hooks/hooks.json") {
+  if (phase05Route?.kind === "hook-registration") {
     const commands = renderProjectHookCommands("claude");
     const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
     const registration = readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json");
@@ -675,9 +727,6 @@ function renderQaAsset(
     if (!capabilities.includes("kcoderag-navigation")) delete hooks.PostToolUse;
     return canonicalJson({ ...rendered, hooks });
   }
-  if (relativePath === "opencode/kcoderag-nav.js") {
-    return normalizedText(inputs.sourceRoot, "plugin-src/opencode/kcoderag-nav.js");
-  }
   if (relativePath === ".mcp.json") return readBytes(inputs.sourceRoot, environment.mcp_source);
   if (relativePath === ".codex.mcp.json") {
     const connection = connectionDetails(inputs, environment);
@@ -696,19 +745,25 @@ function renderQaAsset(
       replacements,
     );
   }
-  if (relativePath === "skills/code-lookup-discipline/SKILL.md") {
+  if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
-      "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      "plugin-src/skills/kcoderag/SKILL.md",
       ["display_name", "routing_policy"],
       replacements,
     );
   }
-  if (relativePath === "skills/code-style-correction/SKILL.md") {
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
+  }
+  if (relativePath === "skills/kcoderag-code-style/SKILL.md") {
     return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/code-style-correction/".length);
+  if (relativePath === "skills/kcoderag-code-style/agents/openai.yaml") {
+    return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml");
+  }
+  if (relativePath.startsWith("skills/kcoderag-code-style/references/")) {
+    const reference = relativePath.slice("skills/kcoderag-code-style/".length);
     return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
@@ -725,13 +780,14 @@ function renderQaAsset(
 function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
   if (relativePath === ".cursor-plugin/plugin.json") return canonicalJson(cursorManifest(inputs));
   if (relativePath === "mcp.json") return canonicalJson(cursorMcp());
-  if (relativePath === "rules/kcoderag-navigation.mdc") {
-    return normalizedText(inputs.sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc");
+  const phase05Route = phase05AssetRoute("cursor", relativePath);
+  if (phase05Route?.kind === "normalized-copy") {
+    return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
   }
-  if (relativePath === "skills/code-lookup-discipline/SKILL.md") {
+  if (phase05Route?.kind === "template") {
     return renderTemplate(
       inputs.sourceRoot,
-      "plugin-src/skills/code-lookup-discipline/SKILL.md",
+      "plugin-src/skills/kcoderag/SKILL.md",
       ["display_name", "routing_policy"],
       {
         display_name: "KCodeRag QA",
@@ -744,11 +800,11 @@ function renderCursorAsset(inputs: LoadedInputs, relativePath: string): Buffer {
       },
     );
   }
-  if (relativePath === "skills/code-style-correction/SKILL.md") {
+  if (relativePath === "skills/kcoderag-code-style/SKILL.md") {
     return readBytes(inputs.sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   }
-  if (relativePath.startsWith("skills/code-style-correction/references/")) {
-    const reference = relativePath.slice("skills/code-style-correction/".length);
+  if (relativePath.startsWith("skills/kcoderag-code-style/references/")) {
+    const reference = relativePath.slice("skills/kcoderag-code-style/".length);
     return readBytes(inputs.sourceRoot, `plugin-src/capabilities/code-style-nudge/skill/${reference}`);
   }
   if (relativePath === "README.md") {
@@ -905,6 +961,54 @@ function inspectRetiredDevOutput(root: string): {
   }
 }
 
+function walkOutputFiles(root: string, relativeDirectory: string): readonly string[] {
+  const absoluteDirectory = path.resolve(root, ...relativeDirectory.split("/"));
+  if (!insideRoot(root, absoluteDirectory)) throw new GenerationError("path_escape", ".");
+  try {
+    const metadata = fs.lstatSync(absoluteDirectory);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) return Object.freeze([relativeDirectory]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return Object.freeze([]);
+    throw new GenerationError("unreadable_output", relativeDirectory);
+  }
+
+  const visit = (directory: string, prefix: string): string[] => {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      throw new GenerationError("unreadable_output", prefix);
+    }
+    return entries.flatMap((entry) => {
+      const relativePath = `${prefix}/${entry.name}`;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        return visit(path.join(directory, entry.name), relativePath);
+      }
+      return [relativePath];
+    });
+  };
+  return Object.freeze(visit(absoluteDirectory, relativeDirectory).sort(compareCodeUnits));
+}
+
+function inspectOrphanOutputs(
+  root: string,
+  rendered: ReturnType<typeof renderSelected>,
+): { readonly changedPaths: readonly string[]; readonly diagnostics: readonly string[] } {
+  if (rendered.group !== "all") {
+    return Object.freeze({ changedPaths: Object.freeze([]), diagnostics: Object.freeze([]) });
+  }
+  const expected = new Set(rendered.outputs.keys());
+  const changedPaths = PRODUCTS
+    .filter((product) => [...expected].some((entry) => entry.startsWith(`${PRODUCT_DIRECTORIES[product]}/`)))
+    .flatMap((product) => walkOutputFiles(root, PRODUCT_DIRECTORIES[product]))
+    .filter((relativePath) => !expected.has(relativePath))
+    .sort(compareCodeUnits);
+  return Object.freeze({
+    changedPaths: Object.freeze(changedPaths),
+    diagnostics: Object.freeze(changedPaths.map((relativePath) => `orphan: ${relativePath}`)),
+  });
+}
+
 function ensureParents(root: string, relativePath: string, createdDirectories: string[]): void {
   let current = root;
   for (const part of relativePath.split("/").slice(0, -1)) {
@@ -1051,11 +1155,12 @@ function result(
 export function checkGenerated(options: GeneratorOptions): GenerationResult {
   const rendered = renderSelected(options);
   const compared = inspectChanges(rendered.root, rendered.outputs);
+  const orphans = inspectOrphanOutputs(rendered.root, rendered);
   const retired = rendered.product === "all" && rendered.group === "all"
     ? inspectRetiredDevOutput(rendered.root)
     : { changedPaths: Object.freeze([] as string[]), diagnostics: Object.freeze([] as string[]) };
-  const changedPaths = sortedUnion(compared.changedPaths, retired.changedPaths);
-  const diagnostics = sortedUnion(compared.diagnostics, retired.diagnostics);
+  const changedPaths = sortedUnion(compared.changedPaths, orphans.changedPaths, retired.changedPaths);
+  const diagnostics = sortedUnion(compared.diagnostics, orphans.diagnostics, retired.diagnostics);
   return result(rendered, changedPaths, [], diagnostics, changedPaths.length === 0);
 }
 

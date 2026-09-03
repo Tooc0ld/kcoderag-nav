@@ -67,8 +67,8 @@ const REQUIRED_CHECKS = Object.freeze([
     command: "node",
     args: Object.freeze([
       "--test",
-      "dist-tests/skills/code-style-correction.test.cjs",
-      "dist-tests/skills/code-style-correction.behavior.test.cjs",
+      "dist-tests/skills/kcoderag-code-style.test.cjs",
+      "dist-tests/skills/kcoderag-code-style.behavior.test.cjs",
     ]),
     failureCode: "skill_tests_failed",
   }),

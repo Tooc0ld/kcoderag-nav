@@ -11,7 +11,8 @@ Cursor、OpenCode 与 ZCode。公共 npm CLI `kcoderag-nav` 将编译后的 CJS 
 
 未指定宿主时交互选择 Codex、Claude Code、Cursor、OpenCode 或 ZCode；自动化使用
 `--host codex|claude|cursor|opencode|zcode`，一次调用只管理一个宿主。当前内置 capability 固定为
-`kcoderag-navigation` 与 `code-style-nudge`；install 将显式选择加入已安装集合，跨宿主的项目级
+`kcoderag-navigation` 与 `code-style-nudge`；公开手动入口固定为 `$kcoderag`、`$kcoderag-manage`、
+`$kcoderag-feedback` 与 `$kcoderag-code-style`。install 将显式选择加入已安装集合，跨宿主的项目级
 安装可以共存。当前状态只接受 capability-scoped schema v1；旧 QA/Dev 状态、迁移、接管和自动清理
 不再是可执行产品能力。
 
@@ -40,14 +41,14 @@ install/update/uninstall 只修改 adapter 声明的受管
 - **成功调用记录**: Codex/Claude/ZCode `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
   `tool.execute.after` 共用 secret-free、有界、fail-open marker
 - **体验指南所有权**: 本仓库从 Phase 04.2 起独占维护 `docs/MCP_QA_EXPERIENCE_GUIDE.md`；兄弟 KCodeRag 仓库中的旧指南只允许作为一次性只读迁入来源，后续不得修改、同步或纳入 readiness 摘要
-- **代码规范支持**: 只允许冻结 PASS receipt 对应的 Claude Code `2.1.241`；Codex `0.146.1`、Cursor `3.17.8`、OpenCode `1.18.23`、ZCode 及未证明版本必须以 `host_version_unsupported` 零写拒绝，navigation 仍可用
+- **代码规范支持**: 五宿主均安装手动 `$kcoderag-code-style` Skill；只有冻结 PASS receipt 对应的 Claude Code `2.1.241` 获得 native 自动写前提示，其他宿主与未证明版本保持 manual-only
 - **代码规范完整性**: 写前提示前必须验证当前状态 composite digest 及全部受管文件摘要；缺失、损坏或漂移静默 fail-open，由 status/doctor 报 `capability_drift`
 - **D-19 marker**: 需要重置一次性提示时，先关闭所有相关宿主会话，再人工删除 OS cache 下 `kcoderag-nav/nudges`；status/doctor 不清理，删除失败也不阻断宿主
 - **发布**: 全部门禁通过后只验证 readiness，不在本阶段执行 publish；既有不可变版本只以前进版本修复
 - **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer — 明确接受内部测试阶段风险
-- **阶段边界**: Phase 05 Hook 精度、Phase 06 真实 MCP 查询、Phase 07 GSD Hook、Phase 08 身份/HTTPS/轮换均不得提前宣称完成
+- **阶段边界**: Phase 05 统一负责 Hook 精度、节流、真实宿主事件与 authenticated MCP 证据；全局 GSD Hook 和生产身份/HTTPS/轮换已移出当前 milestone，未来重新立项前不得宣称完成
 - **OpenCode**: 只允许项目级安装；JSON/JSONC 双配置硬停止；真机验收基线为 `1.18.23`
-- **ZCode**: 只允许项目级安装；管理 `.zcode/config.json` 的 MCP/Hook section、`.zcode/skills/` 与项目 Hook 运行时；CLI 不预授权 workspace trust，Phase 04.2 验收 packaged lifecycle/smoke，真机 trust/admission 与版本冻结留在 Phase 06
+- **ZCode**: 只允许项目级安装；管理 `.zcode/config.json` 的 MCP/Hook section、`.zcode/skills/` 与项目 Hook 运行时；CLI 不预授权 workspace trust，Phase 04.2 验收 packaged lifecycle/smoke，真机 trust/admission 与版本冻结并入 Phase 05
 - **变更保护**: 仓库已有未提交修改，初始化和后续实现不得覆盖或回退无关工作
 
 <!-- GSD:project-end -->
@@ -197,7 +198,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - ZCode is project-only; it owns bounded sections under `.zcode/config.json`, projects its workspace Skill/hooks, and never pre-authorizes workspace trust.
 - Canonical TypeScript/templates generate version-aligned QA CJS and host assets; generated trees are never hand-maintained.
 - Codex/Claude/ZCode hooks are advisory and non-blocking. Cursor intentionally uses Rule/skill/MCP instead of a false hook equivalent.
-- Code-style delivery is receipt-gated, not inferred from host shape: only Claude Code 2.1.241 is supported; Codex, Cursor, OpenCode, and ZCode remain navigation-only unless separately proven.
+- Code-style delivery has a manual base on all five hosts and a receipt-gated native overlay: only Claude Code 2.1.241 receives the automatic pre-write path.
 - All installed ownership is explicit, digest-backed, drift-aware, and recoverable without touching unrelated host configuration.
 
 ## Layers
@@ -249,7 +250,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - **Project scope:** Every resolved path must stay inside the explicit target and adapter-declared roots; reject traversal, symlinks, special files, and ambiguous ownership.
 - **State boundary:** Only the current capability-scoped schema is valid. Retired environment-shaped/Python records are invalid inputs with no migration, adoption, cleanup, or implicit conversion authority.
 - **Source authority:** Install/update/uninstall all hard-stop on selected-host manual or active duplicates before rendering. Sources are diagnostic-only and `status`/`doctor` remain read-only.
-- **Capability support:** Navigation is independent across all five hosts. Code-style guidance is eligible only for an exact checked-in PASS receipt digest; an unsupported selection returns `host_version_unsupported` before desired-state creation and makes zero writes.
+- **Capability support:** Navigation and manual code-style Skills are independent across all five hosts. Only an exact checked-in PASS receipt digest enables the native automatic overlay; unsupported automation never prevents manual Skill installation.
 - **Code-style integrity:** The advisory handler validates the nearest current state, its composite digest, and every managed file digest before claiming a once marker; any failure is silent and does not consume the reminder.
 - **Hook safety:** All malformed input, runtime failures, missing Node, and update failures exit 0 without blocking or contaminating stdout.
 - **Secret boundary:** MCP connection and authorization values are opaque; never expose them in output, diagnostics, tests, receipts, or documentation.
@@ -257,7 +258,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - **Runtime boundary:** Published/installed code is CJS on Node.js 22+ with no Python, runtime compiler, or production npm dependency.
 - **Release boundary:** Phase 04.2 advances the checked candidate to `0.3.0` and verifies five-host readiness against one exact tgz without tag or publish; any later immutable publication is separately authorized and fixes forward without unpublish or dist-tag rollback.
 - **Documentation boundary:** This repository exclusively owns `docs/MCP_QA_EXPERIENCE_GUIDE.md` from Phase 04.2 onward. The sibling KCodeRag guide is a one-time read-only import source only and is never updated or bound into readiness evidence.
-- **Deferred boundary:** Do not absorb Phase 05 Hook precision/marker consumption, Phase 06 authenticated real MCP queries plus OpenCode/ZCode true-host evidence, Phase 07 global GSD Hook work, or Phase 08 identity/HTTPS/token rotation.
+- **Deferred boundary:** Phase 05 owns Hook precision, reminder consumption, authenticated MCP queries, and OpenCode/ZCode true-host evidence. Global GSD Hook work and production identity/HTTPS/token rotation are outside the current milestone and require a future explicit phase.
 
 ## Anti-Patterns
 
@@ -281,7 +282,7 @@ Installed ZCode project files    -> skill + MCP + Pre/PostToolUse hooks
 - Narrow ownership and unrelated configuration preservation.
 - Secret-safe diagnostics and metadata-only evidence.
 - Node 22/24 and Windows/Linux parity.
-- Honest separation between Phase 04 deployment evidence and Phase 06 authenticated real-host MCP evidence.
+- Honest separation between Phase 04 deployment evidence and Phase 05 authenticated real-host MCP evidence.
 
 <!-- GSD:architecture-end -->
 

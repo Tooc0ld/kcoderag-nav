@@ -62,6 +62,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
     "runtime-cjs": [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -75,6 +76,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -90,6 +92,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
     runtime: [
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
@@ -115,22 +118,34 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
     "metadata-guidance": [
       "agents/kcode-explorer.md",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/agents/openai.yaml",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-feedback/agents/openai.yaml",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag/SKILL.md",
+      "skills/kcoderag/agents/openai.yaml",
     ],
     metadata: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".codex.mcp.json", ".mcp.json"],
     guidance: [
       "agents/kcode-explorer.md",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/agents/openai.yaml",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-feedback/agents/openai.yaml",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag/SKILL.md",
+      "skills/kcoderag/agents/openai.yaml",
     ],
     docs: ["README.md"],
     version: [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"],
@@ -142,6 +157,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "README.md",
       "agents/kcode-explorer.md",
       "hooks/code-style-nudge.cjs",
+      "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
       "hooks/mcp-call-marker.cjs",
@@ -156,12 +172,18 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
       "opencode/kcoderag-nav.js",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/agents/openai.yaml",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-feedback/agents/openai.yaml",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag-manage/agents/openai.yaml",
+      "skills/kcoderag/SKILL.md",
+      "skills/kcoderag/agents/openai.yaml",
     ],
   },
   cursor: {
@@ -174,22 +196,26 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     "metadata-config": [".cursor-plugin/plugin.json", "mcp.json"],
     "metadata-guidance": [
       "rules/kcoderag-navigation.mdc",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag/SKILL.md",
     ],
     metadata: [".cursor-plugin/plugin.json", "mcp.json"],
     guidance: [
       "rules/kcoderag-navigation.mdc",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag/SKILL.md",
     ],
     docs: ["README.md"],
     version: [".cursor-plugin/plugin.json"],
@@ -198,12 +224,14 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "README.md",
       "mcp.json",
       "rules/kcoderag-navigation.mdc",
-      "skills/code-lookup-discipline/SKILL.md",
-      "skills/code-style-correction/SKILL.md",
-      "skills/code-style-correction/references/change-hygiene-self-review.md",
-      "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "skills/code-style-correction/references/lua-contracts.md",
-      "skills/code-style-correction/references/protocol-serialization-data.md",
+      "skills/kcoderag-code-style/SKILL.md",
+      "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "skills/kcoderag-code-style/references/lua-contracts.md",
+      "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-feedback/SKILL.md",
+      "skills/kcoderag-manage/SKILL.md",
+      "skills/kcoderag/SKILL.md",
     ],
   },
 };
@@ -285,6 +313,7 @@ function createFixture(): Fixture {
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
   write(sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs", "module.exports={name:'dispatcher'};\n");
   write(sourceRoot, "dist/hooks/code-style-nudge.cjs", "module.exports={name:'style'};\n");
+  write(sourceRoot, "dist/hooks/feedback-nudge.cjs", "module.exports={name:'feedback'};\n");
   write(sourceRoot, "dist/hooks/once-marker.cjs", "module.exports={name:'once'};\n");
   write(sourceRoot, "dist/hooks/session-cleanup.cjs", "module.exports={name:'cleanup'};\n");
   write(sourceRoot, "dist/hooks/mcp-call-marker.cjs", "module.exports={name:'marker'};\n");
@@ -299,9 +328,14 @@ function createFixture(): Fixture {
   );
   write(
     sourceRoot,
-    "plugin-src/skills/code-lookup-discipline/SKILL.md",
-    "# {{display_name}}\r\n{{routing_policy}}\r\n",
+    "plugin-src/skills/kcoderag/SKILL.md",
+    "# KCodeRag QA\r\nUse the installed QA graph.\r\n",
   );
+  write(sourceRoot, "plugin-src/skills/kcoderag/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag\"\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-manage/SKILL.md", "# KCodeRag Manage\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-manage/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Manage\"\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-feedback/SKILL.md", "# KCodeRag Feedback\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Feedback\"\n");
   write(
     sourceRoot,
     "plugin-src/agents/kcode-explorer.md.tmpl",
@@ -310,6 +344,7 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/cursor/README.md.tmpl", "# Cursor {{plugin_version}}\r\n");
   write(sourceRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc", "alwaysApply: true\r\n");
   write(sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md", "# Canonical code style Skill\n");
+  write(sourceRoot, "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Code Style\"\n");
   for (const reference of [
     "cpp-lifetime-control-flow.md",
     "protocol-serialization-data.md",
@@ -385,11 +420,12 @@ test("renders isolated capability projections from explicit canonical groups", (
       "kcoderag-qa/hooks/run_hook.cmd",
       "kcoderag-qa/hooks/run_hook.sh",
       "kcoderag-qa/hooks/session-cleanup.cjs",
-      "kcoderag-qa/skills/code-style-correction/SKILL.md",
-      "kcoderag-qa/skills/code-style-correction/references/change-hygiene-self-review.md",
-      "kcoderag-qa/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "kcoderag-qa/skills/code-style-correction/references/lua-contracts.md",
-      "kcoderag-qa/skills/code-style-correction/references/protocol-serialization-data.md",
+      "kcoderag-qa/skills/kcoderag-code-style/SKILL.md",
+      "kcoderag-qa/skills/kcoderag-code-style/agents/openai.yaml",
+      "kcoderag-qa/skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "kcoderag-qa/skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "kcoderag-qa/skills/kcoderag-code-style/references/lua-contracts.md",
+      "kcoderag-qa/skills/kcoderag-code-style/references/protocol-serialization-data.md",
     ]);
 
     const cursor = generator.generatePackage({
@@ -401,11 +437,11 @@ test("renders isolated capability projections from explicit canonical groups", (
     });
     assert.deepEqual(cursor.capabilities, ["code-style-nudge"]);
     assert.deepEqual(cursor.writtenPaths, [
-      "kcoderag-cursor/skills/code-style-correction/SKILL.md",
-      "kcoderag-cursor/skills/code-style-correction/references/change-hygiene-self-review.md",
-      "kcoderag-cursor/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      "kcoderag-cursor/skills/code-style-correction/references/lua-contracts.md",
-      "kcoderag-cursor/skills/code-style-correction/references/protocol-serialization-data.md",
+      "kcoderag-cursor/skills/kcoderag-code-style/SKILL.md",
+      "kcoderag-cursor/skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+      "kcoderag-cursor/skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      "kcoderag-cursor/skills/kcoderag-code-style/references/lua-contracts.md",
+      "kcoderag-cursor/skills/kcoderag-code-style/references/protocol-serialization-data.md",
     ]);
 
     const canonicalSkillFiles = [
@@ -418,7 +454,7 @@ test("renders isolated capability projections from explicit canonical groups", (
     for (const product of ["kcoderag-qa", "kcoderag-cursor"] as const) {
       for (const relativePath of canonicalSkillFiles) {
         assert.equal(
-          fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "code-style-correction", ...relativePath.split("/"))).equals(
+          fs.readFileSync(path.join(fixture.outputRoot, product, "skills", "kcoderag-code-style", ...relativePath.split("/"))).equals(
             fs.readFileSync(path.join(fixture.sourceRoot, "plugin-src", "capabilities", "code-style-nudge", "skill", ...relativePath.split("/"))),
           ),
           true,
@@ -509,7 +545,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 37);
+    assert.equal(first.writtenPaths.length, 46);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({
@@ -832,7 +868,7 @@ test("CLI canonicalizes repeatable capability selection", () => {
     assert.equal(selected.status, 0, selected.stderr);
     const result = JSON.parse(selected.stdout) as GenerationResult;
     assert.deepEqual(result.capabilities, ["code-style-nudge"]);
-    assert.equal(result.writtenPaths.length, 5);
+    assert.equal(result.writtenPaths.length, 6);
   } finally {
     cleanup(fixture);
   }

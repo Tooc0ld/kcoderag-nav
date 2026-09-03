@@ -57,7 +57,7 @@ jobs:
     needs: change-scope
     if: ${{ needs.change-scope.outputs.scope == 'full' }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

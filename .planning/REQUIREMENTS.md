@@ -117,24 +117,28 @@
 
 ### Hook 精度与能力诚实性
 
-- [ ] **HOOK-06**: fixed-string、多明确文件、单文件、日志和生成文本等本地核对保持静默
-- [ ] **HOOK-07**: 深层窄目录与常见 Lua 全局处理器在明确 scope 下保留限定本地搜索，唯一 C++ 符号和限定 Lua 方法仍获得图优先建议
-- [ ] **HOOK-08**: 已使用 KCodeRag 后的同轮本地精确复核不会重复收到结构提醒；任何去重状态有界且 fail-open
-- [ ] **ROUT-05**: nudge、skill 和指南仅在索引真实可用时推荐 semantic/hybrid，否则默认 keyword/context/call-chain 并明确降级
+- [x] **HOOK-06**: fixed-string、多明确文件、单文件、日志和生成文本等本地核对保持静默
+- [x] **HOOK-07**: 深层窄目录与常见 Lua 全局处理器在明确 scope 下保留限定本地搜索，唯一 C++ 符号和限定 Lua 方法仍获得图优先建议
+- [x] **HOOK-08**: 已使用 KCodeRag 后的同轮本地精确复核不会重复收到结构提醒；任何去重状态有界且 fail-open
+- [x] **ROUT-05**: nudge、skill 和指南仅在索引真实可用时推荐 semantic/hybrid，否则默认 keyword/context/call-chain 并明确降级
 
 ### 真实宿主验证
 
-- [ ] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
-- [ ] **TEST-08**: 在干净 Claude Code 项目中，通过同一 exact npx 包真实验证 install/status、MCP、Grep/Glob/Bash hook、update 与 uninstall
-- [ ] **TEST-09**: 在干净 Cursor 项目中，通过同一 exact npx 包真实验证 install/status、必要 reload 后的 MCP/Rule/skill、update 与 uninstall
-- [ ] **TEST-11**: 在干净 ZCode 项目中，通过同一 exact npx 包真实验证 install/status、MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook、update 与 uninstall，并冻结受支持版本与 metadata-only delivery receipt
+- [x] **TEST-07**: 在干净项目和隔离 Codex 配置中，通过已发布的 exact `kcoderag-nav` npx 版本真实验证 install/status、direct MCP 工具注册、hook 出参、update 与 uninstall
+- [x] **TEST-08**: 在干净 Claude Code 项目中，通过同一 exact npx 包真实验证 install/status、MCP、Grep/Glob/Bash hook、update 与 uninstall
+- [x] **TEST-09**: 在干净 Cursor 项目中，通过同一 exact npx 包真实验证 install/status、必要 reload 后的 MCP/Rule/skill、update 与 uninstall
+- [x] **TEST-11**: 在干净 ZCode 项目中，通过同一 exact npx 包真实验证 install/status、MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook、update 与 uninstall，并冻结受支持版本与 metadata-only delivery receipt
 
 ### GSD 运行时与 Hook
+
+> Deferred outside the current KCodeRag Nav milestone; this belongs to GSD runtime maintenance.
 
 - [ ] **GSD-01**: GSD 在 Codex 中从安装 runtime marker 选择 orchestrator-worktree，并保留显式 Claude override 与可持久重放的回归保护
 - [ ] **GSD-02**: 全局 GSD context monitor 只在必要事件启动相应逻辑，不在无意义事件重复启动 Node
 
 ## v2 Requirements
+
+> Deferred until a future public production release is explicitly started; these remain hard release gates, not current milestone work.
 
 ### 凭据与传输
 
@@ -213,28 +217,29 @@
 | BRAND-02 | Phase 04.2 | Complete |
 | BRAND-03 | Phase 04.2 | Complete |
 | BRAND-04 | Phase 04.2 | Complete |
-| HOOK-06 | Phase 5 | Pending |
-| HOOK-07 | Phase 5 | Pending |
-| HOOK-08 | Phase 5 | Pending |
-| ROUT-05 | Phase 5 | Pending |
-| TEST-07 | Phase 6 | Pending |
-| TEST-08 | Phase 6 | Pending |
-| TEST-09 | Phase 6 | Pending |
-| TEST-11 | Phase 6 | Pending |
-| GSD-01 | Phase 7 | Pending |
-| GSD-02 | Phase 7 | Pending |
-| SEC-01 | Phase 8 | Pending |
-| SEC-02 | Phase 8 | Pending |
-| SEC-03 | Phase 8 | Pending |
-| REL-01 | Phase 8 | Pending |
-| REL-02 | Phase 8 | Pending |
+| HOOK-06 | Phase 5 | Complete |
+| HOOK-07 | Phase 5 | Complete |
+| HOOK-08 | Phase 5 | Complete |
+| ROUT-05 | Phase 5 | Complete |
+| TEST-07 | Phase 5 | Complete |
+| TEST-08 | Phase 5 | Complete |
+| TEST-09 | Phase 5 | Complete |
+| TEST-11 | Phase 5 | Complete |
+| GSD-01 | Deferred | Outside KCodeRag Nav milestone |
+| GSD-02 | Deferred | Outside KCodeRag Nav milestone |
+| SEC-01 | Deferred | Required before future production release |
+| SEC-02 | Deferred | Required before future production release |
+| SEC-03 | Deferred | Required before future production release |
+| REL-01 | Deferred | Required before future production release |
+| REL-02 | Deferred | Required before future production release |
 
 **Coverage:**
 
 - v1 + v1.1 requirements: 56 total
 - v2 requirements scheduled: 5 total
-- Mapped to phases: 61
-- Unmapped: 0
+- Mapped to active phases: 54
+- Explicitly deferred outside current milestone: 7
+- Unaccounted: 0
 
 ---
 *Requirements defined: 2026-08-20*

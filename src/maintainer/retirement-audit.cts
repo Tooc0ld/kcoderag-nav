@@ -99,6 +99,14 @@ const RETIRED_WORKFLOW_PATHS = Object.freeze([
   "scripts/svn-review.cjs",
 ]);
 
+const RETIRED_PUBLIC_SKILL_PATHS = Object.freeze([
+  ["plugin-src", "skills", ["code", "lookup", "discipline"].join("-"), "SKILL.md"].join("/"),
+  ["kcoderag-qa", "skills", ["code", "lookup", "discipline"].join("-"), "SKILL.md"].join("/"),
+  ["kcoderag-cursor", "skills", ["code", "lookup", "discipline"].join("-"), "SKILL.md"].join("/"),
+  ["kcoderag-qa", "skills", ["code", "style", "correction"].join("-"), "SKILL.md"].join("/"),
+  ["kcoderag-cursor", "skills", ["code", "style", "correction"].join("-"), "SKILL.md"].join("/"),
+]);
+
 const ACTIVE_SOURCE_ROOTS = Object.freeze([
   "src",
   "plugin-src",
@@ -634,6 +642,8 @@ function scanActiveRetirementPolicy(root: string): void {
     "cleanup_authority_remains");
   failUnless(RETIRED_WORKFLOW_PATHS.every((relativePath) => !pathExists(root, relativePath)),
     "retired_workflow_remains");
+  failUnless(RETIRED_PUBLIC_SKILL_PATHS.every((relativePath) => !pathExists(root, relativePath)),
+    "retired_public_skill_remains");
   scanPackagePolicy(root);
 
   for (const relativePath of collectActiveFiles(root)) {

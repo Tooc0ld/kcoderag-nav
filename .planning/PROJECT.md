@@ -15,8 +15,9 @@ Cursor、OpenCode 或 ZCode；自动化使用 `--host codex|claude|cursor|openco
 Codex、Claude Code 与 ZCode 使用 advisory、fail-open 的 PreToolUse hook；Cursor 使用 always-on Rule
 和共享 skill，OpenCode 使用项目 plugin；ZCode 同时使用项目 `.zcode/config.json` MCP 与 workspace Skill。
 五个宿主以各自原生成功后事件记录 secret-free、fail-open 的 KCodeRag 调用 marker；ZCode 通过
-项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。只有冻结 PASS
-receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；其他四宿主保持 navigation-only。
+项目 `PostToolUse` 记录并通过 `PreToolUse` 提供离线更新提示。公开手动入口固定为 `$kcoderag`、
+`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style`；五宿主都获得手动代码规范 Skill，
+只有冻结 PASS receipt 对应的 Claude Code `2.1.241` 叠加 native 自动写前提示。
 安装器同时提供 `status`、`doctor`、`update` 与 `uninstall`，并以 capability-scoped 所有权、
 全部变更命令的来源门禁、完整摘要硬停止和单宿主原子回滚保护项目与用户配置。
 
@@ -49,16 +50,19 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
   删除。其最近受管状态、三宿主来源诊断与真实 Head 0.2.2 验收仍是历史证据 — historical Phase 04 /
   superseded in Phase 04.1
 - ✓ OpenCode 项目级 adapter 支持 JSON/JSONC 生命周期，四宿主成功调用事件统一写入 secret-free
-  marker；OpenCode `1.18.23` 真机与公开制品证据仍留给 Phase 6 — Quick 260826-dut
+  marker；OpenCode `1.18.23` 真机与公开制品证据并入 Phase 5 — Quick 260826-dut
 - ✓ ZCode 项目级 adapter 支持 `.zcode/config.json` MCP 与 `.zcode/skills/` lifecycle；早期基于错误
   宿主假设未投影 Hook 的边界已由 Quick 260827-nuo 取代 — Quick 260827-fch / superseded
 - ✓ ZCode 项目 `hooks.events` 投影 advisory/fail-open `PreToolUse`、成功调用 `PostToolUse` marker 与
-  离线更新提示，并保持代码规范能力 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
+  离线更新提示，并保持代码规范自动提示 unsupported；packaged handler contract 已通过，但真宿主还要求用户批准
   workspace Hook — Quick 260827-nuo / Quick 260827-onf
 - ✓ 两个内置 capability 使用 current schema v1、contributor-scoped 文件/section 与 composite
   digest 原子组合；旧环境状态无迁移、接管或清理权 — Phase 04.1
-- ✓ `kcoderag-navigation` 支持五宿主；`code-style-nudge` 仅 Claude Code `2.1.241` 的冻结 PASS
-  receipt 可用，其他宿主零写拒绝且保留 navigation — Phase 04.1 / Quick 260827-fch
+- ✓ `kcoderag-navigation` 支持五宿主；Phase 04.1 冻结 Claude Code `2.1.241` native PASS receipt，
+  Phase 06 在不扩大 native 声明的前提下为五宿主提供手动 `code-style-nudge` Skill
+- ✓ 五宿主只投影 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与
+  `$kcoderag-code-style` 四个公开 Skill，无兼容别名；status/doctor 独立报告完整性证明的
+  `manualSkill` 与 receipt 门禁的 `automaticNudge` — Phase 06
 - ✓ install/update/uninstall 全部在 render/transaction 前执行 manual/active source gate；status/doctor
   只读，CLI 不提供来源清理或 marker 清理命令 — Phase 04.1
 - ✓ 从 `0.3.0` 起，公共源码、生成资产、npm 候选包和本仓库体验指南统一采用中性代码规范身份；
@@ -70,12 +74,10 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 - [ ] 降低 fixed-string、多文件本地复核、窄目录和常见 Lua 全局处理器的 hook 误报，并按
   实际索引能力推荐检索模式 — Phase 5
 - [ ] 在真实 Codex、Claude Code 与 Cursor 上用干净项目和公共 npx 包留下可复跑的生命周期、
-  MCP、hook/Rule 证据，并关闭 live QA 旧 protocol/content-only 部署漂移 — Phase 6
-- [ ] 在 OpenCode `1.18.23` 上完成公共制品的项目安装、MCP、`tool.execute.after` 与卸载真机证据 — Phase 6
+  MCP、hook/Rule 证据，并关闭 live QA 旧 protocol/content-only 部署漂移 — Phase 5
+- [ ] 在 OpenCode `1.18.23` 上完成公共制品的项目安装、MCP、`tool.execute.after` 与卸载真机证据 — Phase 5
 - [ ] 在 ZCode 上完成公共制品的项目安装、MCP、Skill、Pre/Post Hook 与卸载真机证据，并冻结受支持版本；
-  当前真机已证明 MCP/Skill，但工作区 Hook 未获 trust/admission，未出现动态提示或 marker — Phase 6
-- [ ] 固化 GSD Codex runtime/isolation，并缩窄全局 GSD hook 事件范围 — Phase 7
-- [ ] 引入生产级身份、HTTPS、凭据轮换与宿主兼容淘汰策略 — Phase 8
+  当前真机已证明 MCP/Skill，但工作区 Hook 未获 trust/admission，未出现动态提示或 marker — Phase 5
 
 ### Out of Scope
 
@@ -84,8 +86,8 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
   这些来源只允许 secret-safe 诊断，用户在 CLI 外人工处理后重试
 - 恢复旧环境 decoder、legacy authority、owned-source cleanup flag、自动 scanner 或第六个公共命令
 - 修改 KCodeRag MCP 服务、解析流水线、Neo4j 数据或接口实现；本仓库只负责项目集成和导航策略
-- Phase 05 的 Hook 精度、Phase 06 的真实 MCP 查询、Phase 07 的 GSD 全局 Hook、Phase 08 的
-  身份/HTTPS/凭据轮换
+- Phase 05 之外的全局 GSD runtime/hook 整理；它属于 GSD 自身维护，不是 KCodeRag Nav 产品能力
+- 生产身份、HTTPS、凭据轮换与自动发布；这些仅在未来决定公开生产发布时重新立项，且解决前不得宣称生产安全
 - Codex、Claude Code、Cursor、OpenCode 或 ZCode marketplace/plugin 分发；用户入口统一为 npm/npx 项目集成
 
 ## Context
@@ -107,7 +109,7 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
   install/update/uninstall 自行执行同一完整来源门禁；任何 manual/active/ambiguous 来源都在首次
   写入前硬停止。
 - Phase 04 已完成真实 Head 三宿主项目状态与 Hook/Rule 边界验收；干净宿主、authenticated MCP
-  工具注册/UI 和 live QA protocol 结构证据仍留在 Phase 6。
+  工具注册/UI 和 live QA protocol 结构证据并入 Phase 5。
 
 ## Constraints
 
@@ -119,9 +121,9 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 - **所有权**: update/uninstall 遇到漂移、symlink、特殊文件或模糊所有权必须写前硬停止并保持原子回滚
 - **来源**: install/update/uninstall 全部对 raw/manual/ambiguous/旧来源写前硬停止；CLI 不提供迁移、接管或自动清理权
 - **生命周期**: install 使用 `installed ∪ selected`；update 默认全部已安装能力并可筛选；uninstall 必须显式选择 capability 或 `--all`
-- **支持证据**: navigation 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
+- **支持证据**: navigation 与手动代码规范 Skill 独立支持五宿主；统一 smoke 的 `runtimeContract.layer: packaged` 只证明实际 tgz
   安装后的处理器合同，不证明真宿主接纳；ZCode 真机 MCP/Skill 已工作但 Hook trust/admission 尚未通过，
-  版本仍待 Phase 6 冻结；代码规范能力仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 unsupported
+  版本仍待 Phase 5 冻结；代码规范 native 自动路径仅冻结 Claude Code `2.1.241` PASS row，其他宿主均 manual-only
 - **代码规范 marker**: 重置一次性提示只能在关闭所有相关宿主会话后人工删除 OS cache 的 `kcoderag-nav/nudges`；status/doctor 只读，清理错误 fail-open
 - **Hook**: Codex/Claude/ZCode 仅提供 advisory context，定位和运行异常全部 fail-open，不阻断本地工具
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
@@ -130,15 +132,24 @@ receipt 对应的 Claude Code `2.1.241` 可以安装代码规范写前提示；�
 - **诊断**: `status`/`doctor` 只读且 JSON 单文档；只输出稳定码、scope、source type 和安全路径，不读取或显示凭据值
 - **发布**: `0.2.0` 仅在实现、测试、审查、四通道 CI、pack/public artifact 全通过后自动发布；发布后不可变，真实缺陷只以前进版本修复，本阶段接受版本为 `0.2.2`
 - **体验指南所有权**: Phase 04.2 起由本仓库独占维护 `docs/MCP_QA_EXPERIENCE_GUIDE.md`；兄弟 KCodeRag 仓库中的旧指南只作为一次性只读迁入来源，后续不再修改、同步或绑定其摘要
-- **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换留给 Phase 08
+- **凭据**: 当前内部 QA 阶段允许装即用的内置 Bearer；生产身份与轮换在未来公开生产发布前重新立项并作为硬门禁
 - **OpenCode**: 仅项目级安装；同时存在 `opencode.json`/`opencode.jsonc` 时硬停止；真机基线为 `1.18.23`
 - **ZCode**: 仅项目级安装；管理 `.zcode/config.json` 中 `mcp.servers`/`hooks.events`、`.zcode/skills/`
   与项目 Hook 运行时；首次加载必须由用户批准 workspace Hook，CLI 不预授权 user trust；PreToolUse 仅
   advisory，PostToolUse 仅记录成功 marker，不声称代码规范 pre-write；
-  真机基线待 Phase 6
+  真机基线待 Phase 5
 - **变更保护**: 不覆盖或回退工作区中的无关未提交工作
 
 ## Key Decisions
+
+### Current Phase 06 decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| **Exactly four public Skills**：公开入口固定为 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style`，不保留旧 Skill 别名 | 让用户可手动调用稳定、职责单一的入口，同时避免兼容面继续扩张 | Validated in Phase 06 |
+| **Manual base, native overlay**：五宿主均交付手动代码规范 Skill；只有 frozen PASS receipt 对应的 Claude Code `2.1.241` 叠加自动写前提示 | 手动可用性不应被宿主自动化能力绑架，native 声明仍必须由真实证据支持 | Validated in Phase 06 |
+| **Independent delivery diagnostics**：`manualSkill` 与 `automaticNudge` 分别由 current schema、完整所有权、摘要完整性与宿主支持计算 | 防止一个可用交付面掩盖另一个交付面的缺失、漂移或不支持 | Validated in Phase 06 |
+| **Exact ownership and complete source gate**：只有实际贡献者拥有的原生配置进入受管状态；当前及旧公开 Skill 路径全部进入变更前来源门禁 | 避免 style-only 安装误认无关配置所有权，并阻止手工重复来源被覆盖 | Validated in Phase 06 |
 
 ### Current Phase 04.2 decisions
 
@@ -181,7 +192,9 @@ This document evolves at phase transitions and milestone boundaries. Phase 1–3
 QA/Dev migration、owned cleanup 和 exact Head 部署记录只保留为明确 historical facts；Phase 04.1
 以两个内置 capability、current schema v1、全 mutation source gate 和 receipt-bound support 取代其
 当前产品效力。Phase 04.2 又以中性公共身份、仓库内体验指南权威和 forward-only readiness 证据固定
-`0.3.0` 候选边界，但不执行发布，也不重写已经发生的不可变历史。
+`0.3.0` 候选边界，但不执行发布，也不重写已经发生的不可变历史。Phase 06 进一步固定四个公开
+Skill、五宿主手动代码规范交付、Claude-only 自动提示边界，以及两种交付模式的独立诊断；Phase 05
+authenticated LIVE evidence 仍独立未完成。
 
 ---
-*Last updated: 2026-08-30 after Phase 04.2 public-debranding completion*
+*Last updated: 2026-09-03 after Phase 06 public-skill delivery completion*

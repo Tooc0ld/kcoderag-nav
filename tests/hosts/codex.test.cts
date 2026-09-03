@@ -33,36 +33,59 @@ test("Codex bootstrap accepts only the closed neutral capability inventory", () 
   assert.equal(source.includes(["j", "x3-style-nudge"].join("")), false);
 });
 
-test("Codex rejects unsupported code-style nudge before desired state while navigation remains complete", async () => {
+test("Codex installs manual code-style while keeping native automation navigation-only", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-codex-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
     const adapter = codex.createCodexAdapter({ hostVersion: "0.146.1", evidenceRoot: PACKAGE_ROOT });
     const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
 
-    assert.throws(
-      () => adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE])),
-      (error: any) => error?.code === "host_version_unsupported",
-    );
-    assert.deepEqual(fs.readdirSync(root), []);
-
-    const desired = adapter.renderInstall(context(target, observation, [NAVIGATION]));
+    const desired = adapter.renderInstall(context(target, observation, [NAVIGATION, CODE_STYLE]));
     await transaction.applyTransaction(desired);
     const state = JSON.parse(fs.readFileSync(path.join(root, ".codex/kcoderag-nav/install-state.json"), "utf8"));
-    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
+    const style = state.capabilities.find((entry: any) => entry.id === CODE_STYLE);
+    assert.deepEqual(style.sections, []);
+    assert.equal(style.files.some((file: string) => file.endsWith("code-style-nudge.cjs")), false);
     assert.equal(fs.existsSync(path.join(root, ".codex/config.toml")), true);
     const config = fs.readFileSync(path.join(root, ".codex/config.toml"), "utf8");
     const remoteUrl = config.match(/^url\s*=\s*"([^"]+)"$/mu)?.[1];
     assert.equal(typeof remoteUrl, "string");
     assert.equal(remoteUrl?.endsWith("/"), false);
     assert.equal(fs.existsSync(path.join(root, ".codex/hooks.json")), true);
-    assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag-nav/SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".codex/kcoderag-nav/qa/hooks/update-notice.cjs")), true);
     assert.equal(fs.existsSync(path.join(root, ".codex/kcoderag-nav/qa/hooks/pre-tool-dispatcher.cjs")), true);
-    assert.equal(fs.existsSync(path.join(root, ".agents/skills/code-style-correction/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag-code-style/SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(root, ".agents/skills/kcoderag-code-style/agents/openai.yaml")), true);
     const hooks = JSON.parse(fs.readFileSync(path.join(root, ".codex/hooks.json"), "utf8"));
     assert.match(JSON.stringify(hooks), /PreToolUse/u);
     assert.match(JSON.stringify(hooks), /PostToolUse/u);
+    const status = adapter.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: adapter.detect({ target, packageRoot: PACKAGE_ROOT }) });
+    assert.deepEqual(status.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex can add navigation after a manual-only code-style install", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-codex-reverse-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = codex.createCodexAdapter({ hostVersion: "0.146.1", evidenceRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [NAVIGATION],
+    )));
+    const state = JSON.parse(fs.readFileSync(path.join(root, ".codex/kcoderag-nav/install-state.json"), "utf8"));
+    assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION, CODE_STYLE]);
+    assert.equal(fs.existsSync(path.join(root, ".codex/config.toml")), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

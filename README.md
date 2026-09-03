@@ -7,9 +7,10 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 
 当前包只提供两个内置 capability：
 
-- `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置；五个宿主
-  额外提供成功调用 marker 与离线更新提示。
-- `code-style-nudge`：C/C++/Lua 结构化写入前的短提示与 `$code-style-correction` Skill。
+- `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置，并提供 `$kcoderag`、
+  `$kcoderag-manage`、`$kcoderag-feedback` 三个手动 Skill、成功调用 marker 与离线更新提示。
+- `code-style-nudge`：五宿主都安装 `$kcoderag-code-style` 手动 Skill；只有冻结 PASS receipt
+  对应的 Claude Code `2.1.241` 叠加自动写前提示。
 
 QA 是唯一公开 MCP 环境；capability 不是环境选择。旧 QA/Dev 状态、Python 安装、手工 MCP/Hook、
 plugin 或其他来源没有迁移、接管或自动清理入口。发现它们时，CLI 只做 secret-safe 报告并在
@@ -37,7 +38,7 @@ npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
   --capability code-style-nudge --yes
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
-npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host zcode --capability code-style-nudge --yes
 ```
 
 目标默认为当前目录；`--target PATH` 指向另一个精确项目。CLI 不向上推断 Git/SVN 根，也不要求
@@ -48,18 +49,19 @@ npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --
 
 代码规范能力的支持结论来自 checked-in、digest-bound 的宿主 receipt，不从 Hook 名称、Skill 是否打包、toast
 或 after-event 推断。ZCode navigation 当前由项目级 adapter contract 与 synthetic lifecycle smoke
-覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 06。
+覆盖，真实宿主与已认证 MCP 证据仍留给 Phase 05。
 
-| 宿主与冻结版本 | `kcoderag-navigation` | `code-style-nudge` | 代码规范结论 |
+| 宿主与冻结版本 | 导航与管理 Skill | 手动代码规范 Skill | 自动写前提示 |
 | --- | --- | --- | --- |
-| Codex `0.146.1` | 支持 | 不支持 | exact `UNSUPPORTED`；选择后返回 `host_version_unsupported` |
+| Codex `0.146.1` | 支持 | 支持 | exact `UNSUPPORTED` |
 | Claude Code `2.1.241` | 支持 | 支持 | exact `PASS`，native model-visible pre-write |
-| Cursor `3.17.8` | 支持 | 不支持 | exact `UNSUPPORTED`；Rule/Skill/after-event 不冒充 pre-write |
-| OpenCode `1.18.23` | 支持 | 不支持 | exact `UNSUPPORTED`；toast/after-event 不冒充 pre-write |
-| ZCode（真机版本待验收） | 支持 | 不支持 | 无代码规范 PASS receipt；选择后返回 `host_version_unsupported` |
+| Cursor `3.17.8` | 支持 | 支持 | exact `UNSUPPORTED`；Rule/Skill/after-event 不冒充 pre-write |
+| OpenCode `1.18.23` | 支持 | 支持 | exact `UNSUPPORTED`；toast/after-event 不冒充 pre-write |
+| ZCode（真机版本待验收） | 支持 | 支持 | 无代码规范 PASS receipt，`UNSUPPORTED` |
 
-未列出的版本也不自动继承代码规范支持。unsupported host 选择 `code-style-nudge` 时，在 desired-state render 和
-transaction 之前稳定零写拒绝；已经安装的 navigation 保持健康、可用。
+五个宿主都可以选择 `code-style-nudge` 并手动调用 `$kcoderag-code-style`；未列出的版本不会
+自动继承 native 写前提示。`status`/`doctor` 分别报告 `manualSkill` 与 `automaticNudge`，因此
+手动 Skill 健康、自动提示 unsupported 是正常的 manual-only 状态。
 
 ## 五个生命周期命令
 
@@ -81,7 +83,7 @@ npx kcoderag-nav@latest uninstall --host claude --capability kcoderag-navigation
   绝不默认全删。
 
 install、update、uninstall 都需要确认精确 target，并对本次完整 capability 集合先做统一预检。
-任何一项不支持、冲突或漂移都会整组零写失败，不做部分成功。status 与 doctor 不需要 `--yes`；
+任何一项冲突或漂移都会整组零写失败，不做部分成功。status 与 doctor 不需要 `--yes`；
 `--json` 只输出一个稳定、可解析且 secret-safe 的 JSON 值。
 
 ## 来源门禁、所有权与完整性
@@ -109,11 +111,11 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 
 | 宿主 | 项目级受管位置 | 当前行为 |
 | --- | --- | --- |
-| Codex | `.codex/`、`.agents/skills/` | advisory/fail-open navigation `PreToolUse`；code-style unsupported |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | navigation 与 receipt-supported code-style guidance 共用 native `PreToolUse` dispatcher |
-| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | always-on navigation Rule/Skill/MCP；不声明等价 `PreToolUse` |
-| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | project plugin + MCP；code-style unsupported |
-| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | project MCP + Skill；`hooks.enabled: true` 的 advisory/fail-open `PreToolUse`、`PostToolUse` marker 与更新提示；code-style unsupported |
+| Codex | `.codex/`、`.agents/skills/` | 三个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
+| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 四个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
+| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 四个手动 Skill及 always-on navigation Rule/MCP；不声明等价代码规范 `PreToolUse` |
+| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 四个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
+| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 四个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
 
 ZCode 首次打开包含项目 Hook 的工作区时，还必须由用户在宿主中信任/批准 workspace Hook。
 安装器只写项目声明，不能替用户预授权或修改用户级 trust；未批准时 MCP 与 Skill 仍可能正常，
@@ -170,8 +172,8 @@ Cursor 与 ZCode 暂无稳定的无界面命令入口，因此 optional-live 明
 `NOT_RUN / headless_host_unsupported`，由人工 UAT 补充真机接纳证据。这里的 PASS 证明真实宿主调用了
 本机合成 MCP，不等于已访问生产 KCodeRag 服务；生产身份、HTTPS 和真实服务查询仍属于后续阶段。
 
-Phase 04.1 的 packed smoke 证明 Claude 双顺序完整 lifecycle、三个 unsupported host 的 navigation
-保留与代码规范能力零写拒绝，以及 metadata-only receipt。optional-live 补充真实宿主对 loopback stub 的
+Phase 06 的 PACKAGED smoke 证明五宿主手动代码规范 Skill、exact-Claude native overlay、完整 lifecycle
+和 metadata-only receipt。optional-live 补充真实宿主对 loopback stub 的
 调用证据，但不声称已完成 authenticated production MCP query evidence。
 
 维护源码是 strict TypeScript `.cts`，构建为 Node.js 22+ 可直接执行的 CJS，生产依赖为零。生成

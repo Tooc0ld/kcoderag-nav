@@ -30,6 +30,15 @@ interface UpdateCheckModule {
   readonly SESSIONLESS_MARKER_TTL_MS: number;
   readonly RENEWAL_TOKEN_TTL_MS: number;
   readonly MAX_SESSION_MARKERS: number;
+  readVersionStatus(
+    installedVersion: string | undefined,
+    options?: UpdateCheckOptions,
+  ): Readonly<{
+    installedVersion: string | null;
+    latestVersion: string | null;
+    versionStatus: "up_to_date" | "update_available" | "unknown";
+    checkedAt: number | null;
+  }>;
   readUpdateHint(installedVersion: string | undefined, options?: UpdateCheckOptions): string | undefined;
   scheduleRefresh(hookPayload: unknown, options?: UpdateCheckOptions): boolean;
   readInstalledVersion(statePath?: string): string | undefined;
@@ -145,6 +154,25 @@ test("fresh validated cache produces only an exact newer-version npx hint", () =
   const files = new MemoryFiles();
   const now = 2_000_000_000_000;
   files.put(cachePath, cache(now - update.CACHE_TTL_MS + 1, "0.1.5"));
+
+  assert.deepEqual(update.readVersionStatus("0.1.4", { cacheRoot, files, now: () => now }), {
+    installedVersion: "0.1.4",
+    latestVersion: "0.1.5",
+    versionStatus: "update_available",
+    checkedAt: now - update.CACHE_TTL_MS + 1,
+  });
+  assert.deepEqual(update.readVersionStatus("0.1.5", { cacheRoot, files, now: () => now }), {
+    installedVersion: "0.1.5",
+    latestVersion: "0.1.5",
+    versionStatus: "up_to_date",
+    checkedAt: now - update.CACHE_TTL_MS + 1,
+  });
+  assert.deepEqual(update.readVersionStatus("0.1.6", { cacheRoot, files, now: () => now }), {
+    installedVersion: "0.1.6",
+    latestVersion: "0.1.5",
+    versionStatus: "unknown",
+    checkedAt: now - update.CACHE_TTL_MS + 1,
+  });
 
   assert.equal(
     update.readUpdateHint("0.1.4", { cacheRoot, files, now: () => now }),
@@ -410,7 +438,24 @@ test("invalid cache, clock skew, races, permissions, and spawn failures fail ope
     const files = new MemoryFiles();
     files.put(cachePath, invalidCache);
     assert.equal(update.readUpdateHint("0.1.4", { cacheRoot, files, now: () => now }), undefined);
+    assert.deepEqual(update.readVersionStatus("0.1.4", { cacheRoot, files, now: () => now }), {
+      installedVersion: "0.1.4",
+      latestVersion: null,
+      versionStatus: "unknown",
+      checkedAt: null,
+    });
   }
+
+  assert.deepEqual(update.readVersionStatus(undefined, {
+    cacheRoot,
+    files: new MemoryFiles(),
+    now: () => now,
+  }), {
+    installedVersion: null,
+    latestVersion: null,
+    versionStatus: "unknown",
+    checkedAt: null,
+  });
 
   const unreadable = new MemoryFiles();
   unreadable.failReads = true;

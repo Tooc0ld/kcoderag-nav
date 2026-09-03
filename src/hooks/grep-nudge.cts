@@ -2,6 +2,9 @@
 /** Advisory, host-neutral KCodeRag lookup hook. Every boundary fails open. */
 
 const fs = require("node:fs") as typeof import("node:fs");
+import type { HostId } from "../core/contracts.cjs";
+import { indexAvailableForSession } from "./feedback-nudge.cjs";
+import { claimReminder, contextEpochForSession } from "./once-marker.cjs";
 interface UpdateCheckModule {
   readInstalledVersion(): string | undefined;
   readInstalledHost(): "codex" | "claude" | "cursor" | "opencode" | undefined;
@@ -26,9 +29,13 @@ const updateCheck: UpdateCheckModule = (() => {
 })();
 
 export const NUDGE =
-  "Structural lookup: prefer KCodeRag search_code, context, or get_call_chain. " +
-  "Use local text search for exact strings, uncommitted edits, or explicit fallback " +
-  "when the index is unavailable or stale.";
+  "Structural lookup: use KCodeRag keyword search_code, context, or get_call_chain. " +
+  "Until list_indexes proves a usable index for this session, keep this degraded route. " +
+  "Use local text search for exact strings, uncommitted edits, or explicit fallback when the index is unavailable.";
+
+export const INDEXED_NUDGE =
+  "Structural lookup: a usable KCodeRag index is proven for this session; semantic or hybrid search_code is available. " +
+  "Use context or get_call_chain for relationships, and local text search only for exact verification.";
 
 const MAX_COMMAND_CHARS = 65_536;
 const MAX_COMMAND_SEGMENTS = 64;
@@ -62,6 +69,10 @@ const SEARCH_TOOLS = new Set([
   "rg", "ripgrep", "grep", "findstr", "select-string", "get-childitem", "gci",
 ]);
 const LOCAL_TEXT_DIRS = new Set(["log", "logs"]);
+const GENERATED_DIRS = new Set(["build", "dist", "gen", "generated", "out"]);
+const COMMON_LUA_GLOBALS = new Set([
+  "init", "onenter", "onexit", "oninit", "onload", "onstart", "ontick", "onupdate", "tick", "update",
+]);
 const SHELL_WRAPPER_OPTIONS = new Map<string, ReadonlySet<string>>([
   ["cmd", new Set(["/c", "/k"])],
   ["powershell", new Set(["-c", "-command"])],
@@ -77,6 +88,13 @@ const VALUE_OPTIONS = new Set([
   "--threads", "--type", "--type-not",
 ]);
 const SUPPORTED_TOOLS = new Set(["Grep", "Glob", "Bash"]);
+
+export interface NavigationContributionOptions {
+  readonly host: HostId;
+  readonly managedRoot: string;
+  readonly cacheRoot?: string;
+  readonly now?: () => number;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -113,6 +131,11 @@ function isSingleFileScope(scopes: readonly string[]): boolean {
   return scope !== undefined && !/[*?\[\]]/u.test(scope) && LOCAL_FILE_RE.test(scope);
 }
 
+function isExplicitFileSet(scopes: readonly string[]): boolean {
+  return scopes.length > 0 && scopes.every((scope) =>
+    !/[*?\[\]]/u.test(scope) && LOCAL_FILE_RE.test(scope));
+}
+
 function isLocalTextScope(scopes: readonly string[]): boolean {
   if (scopes.length !== 1 || scopes[0] === undefined) return false;
   return scopes[0]
@@ -122,8 +145,22 @@ function isLocalTextScope(scopes: readonly string[]): boolean {
     .some((part) => LOCAL_TEXT_DIRS.has(part));
 }
 
+function normalizedScopeParts(scope: string): readonly string[] {
+  return scope.replaceAll("\\", "/").split("/").filter((part) => part.length > 0 && part !== ".");
+}
+
+function isGeneratedScope(scopes: readonly string[]): boolean {
+  return scopes.some((scope) => normalizedScopeParts(scope).some((part) => GENERATED_DIRS.has(part.toLowerCase())));
+}
+
+function isDeepNarrowScope(scopes: readonly string[]): boolean {
+  return scopes.length === 1 && scopes[0] !== undefined &&
+    !/[*?\[\]]/u.test(scopes[0]) && normalizedScopeParts(scopes[0]).length >= 4;
+}
+
 function isLocalOnlyScope(scopes: readonly string[]): boolean {
-  return isSingleFileScope(scopes) || isLocalTextScope(scopes);
+  return isSingleFileScope(scopes) || isExplicitFileSet(scopes) || isLocalTextScope(scopes) ||
+    isGeneratedScope(scopes) || isDeepNarrowScope(scopes);
 }
 
 function simpleCommandSegments(command: string): readonly string[] {
@@ -223,6 +260,7 @@ function simpleShellLookupPatterns(command: string): readonly string[] {
   const explicitPatterns: string[] = [];
   const globPatterns: string[] = [];
   const positional: string[] = [];
+  let fixedString = false;
   let index = start;
   let optionsEnabled = true;
   while (index < tokens.length) {
@@ -235,6 +273,14 @@ function simpleShellLookupPatterns(command: string): readonly string[] {
     }
     if (!optionsEnabled) {
       positional.push(token);
+      index += 1;
+      continue;
+    }
+    if (
+      token === "-F" || ["--fixed-strings", "-simplematch"].includes(option) ||
+      (tool === "findstr" && option === "/l")
+    ) {
+      fixedString = true;
       index += 1;
       continue;
     }
@@ -285,6 +331,7 @@ function simpleShellLookupPatterns(command: string): readonly string[] {
     index += 1;
   }
 
+  if (fixedString) return [];
   if (explicitPatterns.length > 0) return isLocalOnlyScope(positional) ? [] : explicitPatterns;
   if (tool === "get-childitem" || tool === "gci") return globPatterns.slice(0, 1).length > 0 ? globPatterns.slice(0, 1) : positional.slice(0, 1);
   if (lowered.includes("--files")) return globPatterns;
@@ -308,8 +355,49 @@ export function lookupPatterns(toolInput: unknown): readonly string[] {
   return shellLookupPatterns(command);
 }
 
-export function hookOutput(data: unknown, updateNotice?: string): Record<string, unknown> | undefined {
-  const context = navigationContribution(data, updateNotice);
+function directScopes(toolInput: Readonly<Record<string, unknown>>): readonly string[] {
+  const scopes: string[] = [];
+  for (const field of ["path", "glob"] as const) {
+    const value = toolInput[field];
+    if (typeof value === "string" && value.length > 0) scopes.push(value);
+  }
+  for (const field of ["paths", "files"] as const) {
+    const value = toolInput[field];
+    if (Array.isArray(value) && value.length <= 64 && value.every((item) => typeof item === "string")) {
+      scopes.push(...value as string[]);
+    }
+  }
+  return Object.freeze(scopes);
+}
+
+function fixedStringInput(toolInput: Readonly<Record<string, unknown>>): boolean {
+  return toolInput.fixed_string === true || toolInput.fixedStrings === true ||
+    toolInput.literal === true || toolInput.fixed === true;
+}
+
+function commonLuaGlobal(pattern: string): boolean {
+  const candidate = pattern.trim();
+  return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(candidate) && COMMON_LUA_GLOBALS.has(candidate.toLowerCase());
+}
+
+/** Decide structural intent before any reminder claim or cache write. */
+export function structuralLookupIntent(data: unknown): boolean {
+  if (!isRecord(data) || typeof data.tool_name !== "string" || !SUPPORTED_TOOLS.has(data.tool_name)) return false;
+  if (!isRecord(data.tool_input) || fixedStringInput(data.tool_input)) return false;
+  const scopes = directScopes(data.tool_input);
+  if (isLocalOnlyScope(scopes)) return false;
+  const patterns = lookupPatterns(data.tool_input);
+  if (patterns.length === 0) return false;
+  if (patterns.every(commonLuaGlobal)) return false;
+  return patterns.some((pattern) => looksLikeSymbolLookup(pattern));
+}
+
+export function hookOutput(
+  data: unknown,
+  updateNotice?: string,
+  options?: NavigationContributionOptions,
+): Record<string, unknown> | undefined {
+  const context = navigationContribution(data, updateNotice, options);
   if (context === undefined) return undefined;
   return {
     hookSpecificOutput: {
@@ -319,13 +407,34 @@ export function hookOutput(data: unknown, updateNotice?: string): Record<string,
   };
 }
 
-export function navigationContribution(data: unknown, updateNotice?: string): string | undefined {
-  if (!isRecord(data)) return undefined;
-  if (typeof data.tool_name === "string" && !SUPPORTED_TOOLS.has(data.tool_name)) return undefined;
-  if (!isRecord(data.tool_input)) return undefined;
-  const structural = lookupPatterns(data.tool_input).some((pattern) => looksLikeSymbolLookup(pattern));
+export function navigationContribution(
+  data: unknown,
+  updateNotice?: string,
+  options?: NavigationContributionOptions,
+): string | undefined {
+  const structuralIntent = structuralLookupIntent(data);
+  let structural = structuralIntent;
+  if (structural && options !== undefined) {
+    const contextEpoch = contextEpochForSession(data, {
+      host: options.host,
+      managedRoot: options.managedRoot,
+      capability: "kcoderag-navigation",
+      source: "resume",
+      ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+    });
+    structural = contextEpoch !== undefined && claimReminder(data, {
+      host: options.host,
+      managedRoot: options.managedRoot,
+      capability: "kcoderag-navigation",
+      reminderKind: "navigation",
+      contextEpoch,
+      ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    }).claimed;
+  }
   if (!structural && !updateNotice) return undefined;
-  const contexts = [structural ? NUDGE : undefined, updateNotice].filter(
+  const indexed = structural && options !== undefined && indexAvailableForSession(data, options);
+  const contexts = [structural ? (indexed ? INDEXED_NUDGE : NUDGE) : undefined, updateNotice].filter(
     (context): context is string => typeof context === "string" && context.length > 0,
   );
   return contexts.join("\n\n").slice(0, 600);

@@ -7,6 +7,7 @@ const path = require("node:path") as typeof import("node:path");
 import type { HostId } from "../core/contracts.cjs";
 import {
   nudgeMarkerKey,
+  reminderMarkerKeysForSession,
   stableSessionIdentity,
   type OnceMarkerScope,
   type StableSessionField,
@@ -52,10 +53,21 @@ export function cleanupSessionClaim(
     const isProven = options.receiptProvesSessionEnd ??
       ((host: HostId): boolean => sessionEndCleanupProven(host));
     if (!isProven(options.host, identity.field)) return false;
-    const key = nudgeMarkerKey(payload, options);
-    if (key === undefined) return false;
-    const markerPath = path.join(path.resolve(options.cacheRoot), "nudges", `${key}.claim`);
-    return (options.remove ?? removeExactFile)(markerPath);
+    const keys = [...reminderMarkerKeysForSession(payload, options)];
+    const legacyKey = nudgeMarkerKey(payload, options);
+    if (legacyKey !== undefined && !keys.includes(legacyKey)) keys.push(legacyKey);
+    if (keys.length === 0) return false;
+    const remove = options.remove ?? removeExactFile;
+    let removed = false;
+    for (const key of keys) {
+      const markerPath = path.join(path.resolve(options.cacheRoot), "nudges", `${key}.claim`);
+      try {
+        removed = remove(markerPath) || removed;
+      } catch {
+        continue;
+      }
+    }
+    return removed;
   } catch {
     return false;
   }

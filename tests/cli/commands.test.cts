@@ -61,11 +61,12 @@ function runPublicCli(
   target: string,
   homeDirectory: string,
   args: readonly string[],
+  json = true,
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
   const versionPreload = supportedClaudeVersionPreload(homeDirectory);
   const result = childProcess.spawnSync(
     process.execPath,
-    [PUBLIC_CLI, ...args, "--target", target, "--yes", "--json"],
+    [PUBLIC_CLI, ...args, "--target", target, "--yes", ...(json ? ["--json"] : [])],
     {
       cwd: target,
       encoding: "utf8",
@@ -74,6 +75,9 @@ function runPublicCli(
         HOME: homeDirectory,
         USERPROFILE: homeDirectory,
         XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+        XDG_CACHE_HOME: path.join(homeDirectory, ".cache"),
+        LOCALAPPDATA: path.join(homeDirectory, "AppData", "Local"),
+        KCODERAG_NAV_UPDATE_CHECK: "1",
         NODE_OPTIONS: `--require=${JSON.stringify(versionPreload)}`,
       },
       timeout: 20_000,
@@ -81,6 +85,22 @@ function runPublicCli(
     },
   );
   return Object.freeze({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+}
+
+function updateCacheRoot(homeDirectory: string): string {
+  return process.platform === "win32"
+    ? path.join(homeDirectory, "AppData", "Local", "kcoderag-nav")
+    : path.join(homeDirectory, ".cache", "kcoderag-nav");
+}
+
+function seedUpdateCache(homeDirectory: string, latest: string, checkedAt = Date.now()): void {
+  const root = updateCacheRoot(homeDirectory);
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, "remote-cache.json"), JSON.stringify({
+    schemaVersion: 1,
+    checkedAt,
+    latest,
+  }), "utf8");
 }
 
 function copyPackageFixture(root: string): string {
@@ -144,6 +164,8 @@ function runInstalledClaudeLauncher(
     HOME: homeDirectory,
     USERPROFILE: homeDirectory,
     XDG_CONFIG_HOME: path.join(homeDirectory, ".config"),
+    XDG_CACHE_HOME: path.join(homeDirectory, ".cache"),
+    LOCALAPPDATA: path.join(homeDirectory, "AppData", "Local"),
     KCODERAG_NAV_UPDATE_CHECK: "0",
   };
   const result = process.platform === "win32"
@@ -913,8 +935,8 @@ test("compiled public CLI installs Claude capabilities additively in both orders
         assert.equal(parseOnlyJson(result.stdout).ok, true);
       }
       assert.deepEqual(installedCapabilities(item.target, "claude"), [NAVIGATION, CODE_STYLE]);
-      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md")), true);
-      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/code-style-correction/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag/SKILL.md")), true);
+      assert.equal(fs.existsSync(path.join(item.target, ".claude/skills/kcoderag-code-style/SKILL.md")), true);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -1009,7 +1031,7 @@ test("installed Claude launcher keeps code-style nudge operational without the n
       assert.equal(launched.stderr, "");
       const output = parseOnlyJson(launched.stdout);
       assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
-      assert.match(output.hookSpecificOutput.additionalContext, /\$code-style-correction/u);
+      assert.match(output.hookSpecificOutput.additionalContext, /\$kcoderag-code-style/u);
     } finally {
       fs.rmSync(item.root, { recursive: true, force: true });
     }
@@ -1039,7 +1061,7 @@ test("duplicate additive install is byte and mtime stable without a transaction 
   }
 });
 
-test("unsupported second capability add is zero-write and preserves the healthy first capability", () => {
+test("manual style adds cleanly to Codex while native automation remains unsupported", () => {
   const item = fixture();
   const homeDirectory = path.join(item.root, "home");
   fs.mkdirSync(homeDirectory);
@@ -1048,14 +1070,13 @@ test("unsupported second capability add is zero-write and preserves the healthy 
       "install", "--host", "codex", "--capability", NAVIGATION,
     ]);
     assert.equal(first.status, 0, first.stderr || first.stdout);
-    const before = projectSnapshot(item.target);
-    const refused = runPublicCli(item.target, homeDirectory, [
+    const added = runPublicCli(item.target, homeDirectory, [
       "install", "--host", "codex", "--capability", CODE_STYLE,
     ]);
-    assert.equal(refused.status, 1, refused.stderr || refused.stdout);
-    assert.equal(parseOnlyJson(refused.stdout).error.code, "host_version_unsupported");
-    assert.deepEqual(installedCapabilities(item.target, "codex"), [NAVIGATION]);
-    assert.deepEqual(projectSnapshot(item.target), before);
+    assert.equal(added.status, 0, added.stderr || added.stdout);
+    assert.deepEqual(installedCapabilities(item.target, "codex"), [NAVIGATION, CODE_STYLE]);
+    const status = parseOnlyJson(runPublicCli(item.target, homeDirectory, ["status", "--host", "codex"]).stdout);
+    assert.deepEqual(status.codeStyle, { manualSkill: "available", automaticNudge: "unsupported" });
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -1106,11 +1127,11 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
   fs.mkdirSync(homeDirectory);
   const packageRoot = copyPackageFixture(item.root);
   const statePath = path.join(item.target, ".claude/kcoderag-nav/install-state.json");
-  const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/code-lookup-discipline/SKILL.md");
+  const navigationSource = path.join(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md");
   const codeStyleSource = path.join(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md");
   const hooksSource = path.join(packageRoot, "kcoderag-qa/hooks/hooks.json");
-  const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag-nav/SKILL.md");
-  const codeStyleInstalled = path.join(item.target, ".claude/skills/code-style-correction/SKILL.md");
+  const navigationInstalled = path.join(item.target, ".claude/skills/kcoderag/SKILL.md");
+  const codeStyleInstalled = path.join(item.target, ".claude/skills/kcoderag-code-style/SKILL.md");
   try {
     const installed = await runClaudeCommand(item.target, homeDirectory, packageRoot, [
       "install", "--host", "claude", "--capability", NAVIGATION, "--capability", CODE_STYLE, "--yes", "--json",
@@ -1146,8 +1167,8 @@ test("capability-filtered update preserves unselected bytes, ownership digest, a
     assert.deepEqual(output.capabilities, [NAVIGATION, CODE_STYLE]);
     assert.deepEqual(output.selectedCapabilities, [NAVIGATION]);
     assert.equal(output.changed, true);
-    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-nav/SKILL.md"), true);
-    assert.equal(output.changedPaths.includes(".claude/skills/code-style-correction/SKILL.md"), false);
+    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag/SKILL.md"), true);
+    assert.equal(output.changedPaths.includes(".claude/skills/kcoderag-code-style/SKILL.md"), false);
 
     assert.equal(fs.readFileSync(navigationInstalled).equals(beforeNavigation), false);
     assert.equal(fs.readFileSync(navigationInstalled).equals(fs.readFileSync(navigationSource)), true);
@@ -1195,9 +1216,11 @@ test("status and doctor report every built-in capability without writing", () =>
   const homeDirectory = path.join(item.root, "home");
   fs.mkdirSync(homeDirectory);
   try {
-    assert.equal(runPublicCli(item.target, homeDirectory, [
+    const installed = runPublicCli(item.target, homeDirectory, [
       "install", "--host", "claude", "--capability", NAVIGATION,
-    ]).status, 0);
+    ]);
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const installedVersion = parseOnlyJson(installed.stdout).version;
     const before = projectSnapshot(item.target);
     for (const command of ["status", "doctor"] as const) {
       const result = runPublicCli(item.target, homeDirectory, [command, "--host", "claude"]);
@@ -1207,8 +1230,60 @@ test("status and doctor report every built-in capability without writing", () =>
         { id: NAVIGATION, installed: true, status: "healthy" },
         { id: CODE_STYLE, installed: false, status: "not_installed" },
       ]);
+      assert.equal(output.installedVersion, installedVersion);
+      assert.equal(output.latestVersion, null);
+      assert.equal(output.versionStatus, "unknown");
+      assert.equal(output.versionCheckedAt, null);
       assert.deepEqual(projectSnapshot(item.target), before);
     }
+  } finally {
+    fs.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+test("status and doctor expose cached latest-version state without writing", () => {
+  const item = fixture();
+  const homeDirectory = path.join(item.root, "home");
+  fs.mkdirSync(homeDirectory);
+  try {
+    const installed = runPublicCli(item.target, homeDirectory, [
+      "install", "--host", "claude", "--capability", NAVIGATION,
+    ]);
+    assert.equal(installed.status, 0, installed.stderr || installed.stdout);
+    const installedVersion = parseOnlyJson(installed.stdout).version as string;
+    const parts = installedVersion.split(".").map(Number);
+    const latestVersion = `${parts[0]}.${parts[1]}.${(parts[2] ?? 0) + 1}`;
+    const checkedAt = Date.now() - 1_000;
+    seedUpdateCache(homeDirectory, latestVersion, checkedAt);
+    const before = projectSnapshot(item.target);
+
+    const status = runPublicCli(item.target, homeDirectory, ["status", "--host", "claude"]);
+    assert.equal(status.status, 0, status.stderr || status.stdout);
+    const output = parseOnlyJson(status.stdout);
+    assert.equal(output.ok, true);
+    assert.equal(output.status, "update_available");
+    assert.equal(output.installedVersion, installedVersion);
+    assert.equal(output.latestVersion, latestVersion);
+    assert.equal(output.versionStatus, "update_available");
+    assert.equal(output.versionCheckedAt, checkedAt);
+    assert.deepEqual(output.capabilities, [
+      { id: NAVIGATION, installed: true, status: "healthy" },
+      { id: CODE_STYLE, installed: false, status: "not_installed" },
+    ]);
+
+    const doctor = runPublicCli(
+      item.target,
+      homeDirectory,
+      ["doctor", "--host", "claude"],
+      false,
+    );
+    assert.equal(doctor.status, 0, doctor.stderr || doctor.stdout);
+    assert.match(doctor.stdout, /^doctor: update_available claude at /u);
+    assert.match(doctor.stdout, new RegExp(`^installed_version: ${installedVersion}$`, "mu"));
+    assert.match(doctor.stdout, new RegExp(`^latest_version: ${latestVersion}$`, "mu"));
+    assert.match(doctor.stdout, /^version_status: update_available$/mu);
+    assert.match(doctor.stdout, /^version_checked_at: \d{4}-\d{2}-\d{2}T/mu);
+    assert.deepEqual(projectSnapshot(item.target), before);
   } finally {
     fs.rmSync(item.root, { recursive: true, force: true });
   }
@@ -1238,9 +1313,10 @@ test("status reports conservative per-capability drift and doctor reports stale 
     assert.equal(driftOutput.status, "drifted");
     assert.equal(driftOutput.issues[0].code, "capability_drift");
     assert.deepEqual(driftOutput.capabilities, [
-      { id: NAVIGATION, installed: null, status: "capability_drift" },
-      { id: CODE_STYLE, installed: null, status: "capability_drift" },
+      { id: NAVIGATION, installed: true, status: "capability_drift" },
+      { id: CODE_STYLE, installed: true, status: "capability_drift" },
     ]);
+    assert.deepEqual(driftOutput.codeStyle, { manualSkill: "drifted", automaticNudge: "drifted" });
 
     const child = childProcess.spawnSync(process.execPath, [
       "-e",

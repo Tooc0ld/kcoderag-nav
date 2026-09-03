@@ -30,6 +30,7 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".mcp.json",
   "agents/kcode-explorer.md",
   "hooks/code-style-nudge.cjs",
+  "hooks/feedback-nudge.cjs",
   "hooks/grep-nudge.cjs",
   "hooks/hooks.json",
   "hooks/mcp-call-marker.cjs",
@@ -44,12 +45,18 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   "hooks/update-notice.cjs",
   "hooks/update-worker.cjs",
   "opencode/kcoderag-nav.js",
-  "skills/code-lookup-discipline/SKILL.md",
-  "skills/code-style-correction/SKILL.md",
-  "skills/code-style-correction/references/change-hygiene-self-review.md",
-  "skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-  "skills/code-style-correction/references/lua-contracts.md",
-  "skills/code-style-correction/references/protocol-serialization-data.md",
+  "skills/kcoderag-code-style/SKILL.md",
+  "skills/kcoderag-code-style/agents/openai.yaml",
+  "skills/kcoderag-code-style/references/change-hygiene-self-review.md",
+  "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+  "skills/kcoderag-code-style/references/lua-contracts.md",
+  "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+  "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-feedback/agents/openai.yaml",
+  "skills/kcoderag-manage/SKILL.md",
+  "skills/kcoderag-manage/agents/openai.yaml",
+  "skills/kcoderag/SKILL.md",
+  "skills/kcoderag/agents/openai.yaml",
 ]);
 
 function compare(left: string, right: string): number {
@@ -73,11 +80,17 @@ function sha256(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
-test("QA non-document product is a closed deterministic twenty-six-file inventory", () => {
+test("YAML source and generated metadata keep deterministic LF checkout bytes", () => {
+  const attributes = fs.readFileSync(path.join(repositoryRoot, ".gitattributes"), "utf8");
+  assert.match(attributes, /^\*\.yaml text eol=lf$/mu);
+  assert.match(attributes, /^\*\.yml text eol=lf$/mu);
+});
+
+test("QA non-document product is a closed deterministic thirty-three-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
   assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
-  assert.equal(actualNonDocument.length, 26);
+  assert.equal(actualNonDocument.length, 33);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));
@@ -109,7 +122,7 @@ test("QA style handler and five Markdown assets are byte-identical to canonical 
   );
   for (const member of CODE_STYLE_SKILL_MEMBERS) {
     assert.equal(
-      sha256(path.join(qaRoot, "skills", "code-style-correction", ...member.split("/"))),
+      sha256(path.join(qaRoot, "skills", "kcoderag-code-style", ...member.split("/"))),
       sha256(path.join(
         repositoryRoot,
         "plugin-src",
@@ -123,11 +136,19 @@ test("QA style handler and five Markdown assets are byte-identical to canonical 
   }
 });
 
-test("QA Hook manifest retains one bounded advisory lane and one success-marker lane", () => {
+test("QA Hook manifest retains bounded lifecycle, advisory, and success-marker lanes", () => {
   const registration = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", "hooks", "hooks.json"), "utf8"),
   ) as {
     hooks?: {
+      SessionStart?: readonly {
+        hooks?: readonly {
+          additionalContextLimit?: unknown;
+          command?: unknown;
+          commandWindows?: unknown;
+        }[];
+        matcher?: unknown;
+      }[];
       PreToolUse?: readonly {
         hooks?: readonly {
           additionalContextLimit?: unknown;
@@ -146,16 +167,22 @@ test("QA Hook manifest retains one bounded advisory lane and one success-marker 
     };
   };
   assert.deepEqual(Object.keys(registration), ["hooks"]);
-  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse", "SessionStart"]);
+  assert.equal(registration.hooks?.SessionStart?.length, 1);
   assert.equal(registration.hooks?.PreToolUse?.length, 1);
   assert.equal(registration.hooks?.PostToolUse?.length, 1);
+  const lifecycle = registration.hooks?.SessionStart?.[0]?.hooks?.[0];
   const advisory = registration.hooks?.PreToolUse?.[0]?.hooks?.[0];
   const marker = registration.hooks?.PostToolUse?.[0]?.hooks?.[0];
+  assert.equal(lifecycle?.additionalContextLimit, 600);
+  assert.equal(typeof lifecycle?.command, "string");
+  assert.equal(typeof lifecycle?.commandWindows, "string");
   assert.equal(advisory?.additionalContextLimit, 600);
   assert.equal(typeof advisory?.command, "string");
   assert.equal(typeof advisory?.commandWindows, "string");
   assert.equal(typeof marker?.command, "string");
   assert.equal(typeof marker?.commandWindows, "string");
+  assert.equal(registration.hooks?.SessionStart?.[0]?.matcher, "^(startup|resume|clear|compact)$");
   assert.equal(registration.hooks?.PreToolUse?.[0]?.matcher, "^(Grep|Glob|Bash|Write|Edit|MultiEdit|apply_patch)$");
   assert.equal(registration.hooks?.PostToolUse?.[0]?.matcher, "^mcp__kcoderag[-_]qa__.*$");
 });
@@ -179,11 +206,11 @@ test("QA guidance and registration expose only the current QA product", () => {
   const activeText = [
     "agents/kcode-explorer.md",
     "hooks/hooks.json",
-    "skills/code-lookup-discipline/SKILL.md",
-    "skills/code-style-correction/SKILL.md",
+    "skills/kcoderag/SKILL.md",
+    "skills/kcoderag-code-style/SKILL.md",
   ].map((member) => fs.readFileSync(path.join(repositoryRoot, "kcoderag-qa", ...member.split("/")), "utf8")).join("\n");
   assert.match(activeText, /QA/u);
   assert.match(activeText, /run_hook/u);
-  assert.match(activeText, /code-style-correction/u);
+  assert.match(activeText, /kcoderag-code-style/u);
   assert.doesNotMatch(activeText, /kcoderag-dev|--environment\s+dev|mcp__plugin_kcoderag-dev/iu);
 });

@@ -5,6 +5,7 @@ const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const zlib = require("node:zlib") as typeof import("node:zlib");
 
 type PlatformLaneId = "linux-node22" | "linux-node24" | "windows-node22" | "windows-node24";
 
@@ -38,7 +39,12 @@ interface ReadinessWorkflowModule {
     readonly artifactSha256: string;
     readonly memberCount: number;
   }): {
-    readonly artifact: { readonly sha256: string; readonly memberCount: number };
+    readonly artifact: {
+      readonly name: "kcoderag-nav";
+      readonly version: string;
+      readonly sha256: string;
+      readonly memberCount: number;
+    };
     dispose(): void;
   };
   parsePlatformLaneReceipt(value: unknown): PlatformLaneReceipt;
@@ -54,7 +60,12 @@ interface ReadinessWorkflowModule {
 }
 
 const workflowContract = require("../../dist/maintainer/readiness-workflow.cjs") as ReadinessWorkflowModule;
+const hostSmoke = require("../../dist/smoke/host-smoke.cjs") as Record<string, any>;
 const repositoryRoot = path.resolve(__dirname, "../..");
+const packageVersion = (JSON.parse(
+  fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+) as { readonly version: string }).version;
+const packageArtifactName = `kcoderag-nav-${packageVersion}.tgz`;
 const workflowPath = path.join(repositoryRoot, ".github", "workflows", "readiness.yml");
 const actionRoot = path.join(repositoryRoot, ".github", "actions", "readiness-upload");
 const actionManifestPath = path.join(actionRoot, "action.yml");
@@ -142,6 +153,31 @@ function receiptSet(candidateSubject: string, workflowBlobOid: string): readonly
 function expectCode(call: () => unknown, code: string): void {
   assert.throws(call, (error: unknown) =>
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
+}
+
+function rewritePackageManifest(bytes: Buffer, needle: string, replacement: string): Buffer {
+  assert.equal(Buffer.byteLength(needle), Buffer.byteLength(replacement));
+  const tar = zlib.gunzipSync(bytes);
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const zero = header.indexOf(0);
+    const name = header.subarray(0, zero < 0 ? 100 : zero).toString("utf8");
+    const sizeText = header.subarray(124, 136).toString("ascii").replace(/\0.*$/u, "").trim();
+    const size = Number.parseInt(sizeText, 8);
+    assert.ok(Number.isSafeInteger(size) && size >= 0);
+    const bodyStart = offset + 512;
+    const body = tar.subarray(bodyStart, bodyStart + size);
+    if (name === "package/package.json") {
+      const found = body.indexOf(Buffer.from(needle, "utf8"));
+      assert.notEqual(found, -1);
+      Buffer.from(replacement, "utf8").copy(body, found);
+      return zlib.gzipSync(tar);
+    }
+    offset = bodyStart + Math.ceil(size / 512) * 512;
+  }
+  assert.fail("package/package.json not found");
 }
 
 function jobNames(source: string): readonly string[] {
@@ -249,6 +285,170 @@ test("missing artifact runtime inputs fail before a request or workflow output i
     assert.equal(result.stderr, "");
     assert.equal(fs.statSync(outputPath).size, 0);
     assert.equal(fs.existsSync(requestMarkerPath), false);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("exact Phase 05 workflow_dispatch provenance reaches artifact authentication", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-dispatch-provenance-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const candidateSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const candidateRef = `refs/heads/phase05-live-candidate-${candidateSha.slice(0, 7)}`;
+  const workflowBlobSha = git(repositoryRoot, [
+    "rev-parse",
+    `${candidateSha}:.github/workflows/acceptance.yml`,
+  ]);
+  fs.writeFileSync(outputPath, "", "utf8");
+  const env = { ...process.env };
+  delete env.ACTIONS_RESULTS_URL;
+  delete env.ACTIONS_RUNTIME_TOKEN;
+  Object.assign(env, {
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: candidateRef,
+    GITHUB_SHA: candidateSha,
+    READINESS_PROVENANCE_PROFILE: "acceptance",
+    READINESS_CANDIDATE_SHA: candidateSha,
+    READINESS_CANDIDATE_REF: candidateRef,
+    READINESS_WORKFLOW_COMMIT: candidateSha,
+    READINESS_WORKFLOW_BLOB_SHA: workflowBlobSha,
+    GITHUB_OUTPUT: outputPath,
+  });
+
+  try {
+    const result = childProcess.spawnSync(process.execPath, [
+      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+      "package-upload",
+    ], {
+      cwd: repositoryRoot,
+      env,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      schemaVersion: 1,
+      status: "FAIL",
+      reason: "artifact_auth_invalid",
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(fs.statSync(outputPath).size, 0);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("acceptance push provenance binds the branch head and committed workflow", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-push-provenance-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const candidateSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const candidateRef = "refs/heads/feature/acceptance-provenance";
+  fs.writeFileSync(outputPath, "", "utf8");
+  const env = { ...process.env };
+  delete env.ACTIONS_RESULTS_URL;
+  delete env.ACTIONS_RUNTIME_TOKEN;
+  Object.assign(env, {
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: candidateRef,
+    GITHUB_SHA: candidateSha,
+    READINESS_PROVENANCE_PROFILE: "acceptance",
+    READINESS_CANDIDATE_SHA: candidateSha,
+    READINESS_CANDIDATE_REF: candidateRef,
+    READINESS_WORKFLOW_COMMIT: candidateSha,
+    GITHUB_OUTPUT: outputPath,
+  });
+
+  try {
+    const result = childProcess.spawnSync(process.execPath, [
+      path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+      "package-upload",
+    ], {
+      cwd: repositoryRoot,
+      env,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      schemaVersion: 1,
+      status: "FAIL",
+      reason: "artifact_auth_invalid",
+    });
+    assert.equal(result.stderr, "");
+    assert.equal(fs.statSync(outputPath).size, 0);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("acceptance dispatch provenance rejects every candidate ref and workflow identity mismatch", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-acceptance-provenance-drift-"));
+  const outputPath = path.join(temporaryRoot, "github-output.txt");
+  const candidateSha = git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const candidateRef = `refs/heads/phase05-live-candidate-${candidateSha.slice(0, 7)}`;
+  const workflowBlobSha = git(repositoryRoot, [
+    "rev-parse",
+    `${candidateSha}:.github/workflows/acceptance.yml`,
+  ]);
+  const base: NodeJS.ProcessEnv = {
+    ...process.env,
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: candidateRef,
+    GITHUB_SHA: candidateSha,
+    READINESS_PROVENANCE_PROFILE: "acceptance",
+    READINESS_CANDIDATE_SHA: candidateSha,
+    READINESS_CANDIDATE_REF: candidateRef,
+    READINESS_WORKFLOW_COMMIT: candidateSha,
+    READINESS_WORKFLOW_BLOB_SHA: workflowBlobSha,
+    GITHUB_OUTPUT: outputPath,
+  };
+  delete base.ACTIONS_RESULTS_URL;
+  delete base.ACTIONS_RUNTIME_TOKEN;
+  const cases = [
+    { READINESS_PROVENANCE_PROFILE: "" },
+    { READINESS_CANDIDATE_SHA: "b".repeat(40) },
+    { READINESS_CANDIDATE_REF: "refs/heads/phase05-live-candidate-deadbee" },
+    { READINESS_WORKFLOW_COMMIT: "b".repeat(40) },
+    { READINESS_WORKFLOW_BLOB_SHA: "b".repeat(40) },
+    {
+      GITHUB_REF: "refs/heads/feature/not-a-dedicated-candidate",
+      READINESS_CANDIDATE_REF: "refs/heads/feature/not-a-dedicated-candidate",
+    },
+  ] as const;
+
+  try {
+    for (const patch of cases) {
+      fs.writeFileSync(outputPath, "", "utf8");
+      const result = childProcess.spawnSync(process.execPath, [
+        path.join(repositoryRoot, "dist", "maintainer", "readiness-workflow.cjs"),
+        "package-upload",
+      ], {
+        cwd: repositoryRoot,
+        env: { ...base, ...patch },
+        encoding: "utf8",
+        timeout: 300_000,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.signal, null);
+      assert.equal(result.status, 1);
+      assert.deepEqual(JSON.parse(result.stdout.trim()), {
+        schemaVersion: 1,
+        status: "FAIL",
+        reason: "workflow_provenance_invalid",
+      });
+      assert.equal(result.stderr, "");
+      assert.equal(fs.statSync(outputPath).size, 0);
+    }
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -419,7 +619,7 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
     return workflowContract.openDownloadedLease({
       laneId: "linux-node22",
       artifactRoot,
-      artifactName: "kcoderag-nav-0.3.0.tgz",
+      artifactName: packageArtifactName,
       artifactSha256,
       memberCount,
     });
@@ -444,6 +644,87 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
     }
     expectCode(() => open(["service-derived-name"], Buffer.from("not-a-tarball", "utf8")),
       "downloaded_artifact_archive_invalid");
+  } finally {
+    if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+    else process.env.RUNNER_TEMP = previousRunnerTemp;
+    fs.rmSync(runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test(`downloaded ${packageVersion} lease derives and validates package identity before PACKAGED smoke`, async () => {
+  const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as Record<string, any>;
+  const sourceLease = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["workflow-upload"],
+  });
+  let candidateBytes: Buffer;
+  let memberCount: number;
+  try {
+    const fixtureArtifact = releaseReadiness.withCandidatePackageBytes(
+      sourceLease,
+      "workflow-upload",
+      (bytes: Buffer, artifact: { readonly memberCount: number }) => ({
+        bytes: Buffer.from(bytes),
+        memberCount: artifact.memberCount,
+      }),
+    );
+    candidateBytes = fixtureArtifact.bytes;
+    memberCount = fixtureArtifact.memberCount;
+  } finally {
+    sourceLease.dispose();
+  }
+
+  const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-download-"));
+  const previousRunnerTemp = process.env.RUNNER_TEMP;
+  process.env.RUNNER_TEMP = runnerTemp;
+  const open = (bytes: Buffer, artifactName = packageArtifactName) => {
+    const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
+    fs.writeFileSync(path.join(artifactRoot, "downloaded"), bytes);
+    return workflowContract.openDownloadedLease({
+      laneId: "linux-node22",
+      artifactRoot,
+      artifactName,
+      artifactSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      memberCount,
+    });
+  };
+
+  try {
+    const lease = open(candidateBytes);
+    const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-smoke-"));
+    try {
+      assert.equal(lease.artifact.name, "kcoderag-nav");
+      assert.equal(lease.artifact.version, packageVersion);
+      const smoke = await hostSmoke.runHostSmoke({
+        mode: "required-contract",
+        artifactLease: lease,
+        repositoryRoot,
+        temporaryRoot: smokeRoot,
+        hosts: ["codex"],
+      });
+      assert.equal(smoke.status, "PASS");
+      assert.equal(smoke.provenance?.resolvedVersion, packageVersion);
+    } finally {
+      lease.dispose();
+      fs.rmSync(smokeRoot, { recursive: true, force: true });
+    }
+
+    expectCode(
+      () => open(rewritePackageManifest(candidateBytes, "kcoderag-nav", "kcoderag-naz")),
+      "downloaded_artifact_package_invalid",
+    );
+    expectCode(
+      () => open(rewritePackageManifest(candidateBytes, packageVersion, "0.3.x")),
+      "downloaded_artifact_package_invalid",
+    );
+    let mismatchedNameLease: ReturnType<typeof open> | undefined;
+    try {
+      expectCode(() => {
+        mismatchedNameLease = open(candidateBytes, "kcoderag-nav-0.3.0.tgz");
+      }, "downloaded_artifact_name_invalid");
+    } finally {
+      mismatchedNameLease?.dispose();
+    }
   } finally {
     if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
     else process.env.RUNNER_TEMP = previousRunnerTemp;

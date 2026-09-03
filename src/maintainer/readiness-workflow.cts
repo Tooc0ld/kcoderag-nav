@@ -75,9 +75,16 @@ const RECEIPT_KEYS = Object.freeze([
 ] as const);
 const CANDIDATE_REF = "refs/heads/readiness/04.2-candidate" as const;
 const WORKFLOW_PATH = ".github/workflows/readiness.yml";
+const ACCEPTANCE_WORKFLOW_PATH = ".github/workflows/acceptance.yml";
+const ACCEPTANCE_PROFILE = "acceptance" as const;
+const PHASE05_REF_PREFIX = "refs/heads/phase05-live-candidate-";
+const BRANCH_REF_RE = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,239}$/u;
 const OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
+const PACKAGE_VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
+const PACKAGE_NAME = "kcoderag-nav" as const;
 const MAX_RECEIPT_BYTES = 16 * 1024;
+const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = tarArchive.DEFAULT_TAR_ARCHIVE_LIMITS.maxArchiveBytes;
 const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
   "downloaded_artifact_environment_invalid",
@@ -87,6 +94,7 @@ const SAFE_DOWNLOADED_ARTIFACT_CODES = Object.freeze([
   "downloaded_artifact_open_invalid",
   "downloaded_artifact_archive_invalid",
   "downloaded_artifact_identity_invalid",
+  "downloaded_artifact_package_invalid",
 ] as const);
 const SAFE_UPLOAD_STAGES = Object.freeze([
   "create_artifact", "stage_block", "commit_block_list", "finalize_artifact",
@@ -118,6 +126,37 @@ export function hostedLaneFailureAnnotation(reason: string, enabled: boolean): s
 
 function isRecord(value: unknown): value is JsonMap {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function downloadedPackageIdentity(entries: readonly import("./tar-archive.cjs").TarArchiveEntry[]): {
+  readonly name: typeof PACKAGE_NAME;
+  readonly version: string;
+} {
+  const manifests = entries.filter((entry) => entry.path === "package.json");
+  failUnless(
+    manifests.length === 1
+      && manifests[0]?.type === "file"
+      && manifests[0].body.length > 0
+      && manifests[0].body.length <= MAX_PACKAGE_MANIFEST_BYTES,
+    "downloaded_artifact_package_invalid",
+  );
+  let parsed: unknown;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(manifests[0].body);
+    failUnless(!text.includes("\ufeff"), "downloaded_artifact_package_invalid");
+    parsed = JSON.parse(text);
+  } catch (error) {
+    if (error instanceof ReadinessWorkflowError) throw error;
+    throw new ReadinessWorkflowError("downloaded_artifact_package_invalid");
+  }
+  failUnless(
+    isRecord(parsed)
+      && parsed.name === PACKAGE_NAME
+      && typeof parsed.version === "string"
+      && PACKAGE_VERSION_RE.test(parsed.version),
+    "downloaded_artifact_package_invalid",
+  );
+  return Object.freeze({ name: PACKAGE_NAME, version: parsed.version });
 }
 
 function hasExactKeys(value: unknown, keys: readonly string[]): value is JsonMap {
@@ -279,20 +318,63 @@ export function verifyPlatformLaneSet(
   return Object.freeze(ordered);
 }
 
+function acceptanceDispatchRefMatches(triggerRef: string, candidateSubject: string): boolean {
+  if (!triggerRef.startsWith(PHASE05_REF_PREFIX)) return false;
+  const suffix = triggerRef.slice(PHASE05_REF_PREFIX.length);
+  return /^[0-9a-f]{7,40}$/u.test(suffix) && candidateSubject.startsWith(suffix);
+}
+
+function acceptanceWorkflowBlobMatches(
+  root: string,
+  candidateSubject: string,
+  expectedBlob: string,
+  requireExplicitBlob: boolean,
+): boolean {
+  if (requireExplicitBlob && !OBJECT_ID_RE.test(expectedBlob)) return false;
+  if (!requireExplicitBlob && expectedBlob.length > 0 && !OBJECT_ID_RE.test(expectedBlob)) return false;
+  try {
+    const actualBlob = gitObject(root, candidateSubject, ACCEPTANCE_WORKFLOW_PATH);
+    return expectedBlob.length === 0 || expectedBlob === actualBlob;
+  } catch {
+    return false;
+  }
+}
+
 function assertWorkflowProvenance(): { readonly root: string; readonly candidateSubject: string } {
   const root = path.resolve(__dirname, "../..");
   const eventName = process.env.GITHUB_EVENT_NAME ?? "";
   const triggerRef = process.env.GITHUB_REF ?? "";
   const headSha = process.env.GITHUB_SHA ?? "";
   const workflowCommit = process.env.READINESS_WORKFLOW_COMMIT ?? "";
-  failUnless(
+  const legacyReadiness =
     eventName === "push"
       && triggerRef === CANDIDATE_REF
       && OBJECT_ID_RE.test(headSha)
-      && workflowCommit === headSha,
-    "workflow_provenance_invalid",
-  );
-  return Object.freeze({ root, candidateSubject: headSha });
+      && workflowCommit === headSha;
+  if (legacyReadiness) return Object.freeze({ root, candidateSubject: headSha });
+
+  const candidateSubject = process.env.READINESS_CANDIDATE_SHA ?? "";
+  const expectedRef = process.env.READINESS_CANDIDATE_REF ?? "";
+  const expectedWorkflowBlob = process.env.READINESS_WORKFLOW_BLOB_SHA ?? "";
+  const acceptanceEvent = eventName === "push" || eventName === "workflow_dispatch";
+  const dispatchRefValid = eventName !== "workflow_dispatch"
+    || acceptanceDispatchRefMatches(triggerRef, candidateSubject);
+  const acceptance = process.env.READINESS_PROVENANCE_PROFILE === ACCEPTANCE_PROFILE
+    && acceptanceEvent
+    && BRANCH_REF_RE.test(triggerRef)
+    && expectedRef === triggerRef
+    && dispatchRefValid
+    && OBJECT_ID_RE.test(headSha)
+    && candidateSubject === headSha
+    && workflowCommit === headSha
+    && acceptanceWorkflowBlobMatches(
+      root,
+      candidateSubject,
+      expectedWorkflowBlob,
+      eventName === "workflow_dispatch",
+    );
+  failUnless(acceptance, "workflow_provenance_invalid");
+  return Object.freeze({ root, candidateSubject });
 }
 
 function appendOutput(key: string, value: string | number): void {
@@ -455,10 +537,16 @@ export function openDownloadedLease(input: ReturnType<typeof parseLaneArguments>
         && entries.length === input.memberCount,
       "downloaded_artifact_identity_invalid",
     );
+    const packageIdentity = downloadedPackageIdentity(entries);
+    failUnless(
+      input.artifactName === path.basename(input.artifactName)
+        && input.artifactName === `${packageIdentity.name}-${packageIdentity.version}.tgz`,
+      "downloaded_artifact_name_invalid",
+    );
     const lease = new releaseReadiness.CandidatePackageArtifactLease({
       artifact: Object.freeze({
-        name: "kcoderag-nav" as const,
-        version: "0.3.0",
+        name: packageIdentity.name,
+        version: packageIdentity.version,
         sha256: digest,
         memberCount: entries.length,
         dryRunCount: 1 as const,

@@ -22,10 +22,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: 已部署项目与安装来源可靠性** - 交付 QA-only `0.2.0`、稳定最近项目 Hook 根、selected-host 来源诊断，并用公开 exact 制品迁移实际 Head。 (completed 2026-08-26)
 - [x] **Phase 04.1: 多能力安装平台与代码规范提示** - 将导航 CLI 重构为可独立管理导航与写前规范提示的多能力项目安装平台。 (completed 2026-08-27)
 - [x] **Phase 04.2: 公开版本去品牌化** - 从 `0.3.0` 起以中性名称发布代码规范能力，并以源码与 npm 制品零命中门禁防止品牌词回归。 (completed 2026-08-30)
-- [ ] **Phase 5: 低误报 Hook 与诚实路由** - 精确区分结构搜索和本地复核，并让 Lua 与索引能力提示符合实际。
-- [ ] **Phase 6: 真实宿主兼容与发布证据** - 在干净项目中用公共 npx 包在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 真宿主上固化生命周期、工具注册和 hook/Rule/plugin 证据。
-- [ ] **Phase 7: GSD 运行时与全局 Hook 整理** - 固化 Codex runtime 解析并缩窄全局 GSD hook 事件范围。
-- [ ] **Phase 8: 生产安全与自动化发布** - 交付身份、HTTPS、凭据轮换、版本化制品和宿主兼容矩阵。
+- [ ] **Phase 5: 统一 Hook 策略与真实宿主验证** - 统一低打扰提示与节流策略，并以五宿主原生事件证明 exact package 的真实行为。
+- [x] **Phase 6: 四 Skill 公共接口与宿主交付模式** - 为五宿主交付四个稳定公开 Skill，并分离报告手动 Skill 与证据门禁的自动提示。 (completed 2026-09-03)
 
 ## Phase Details
 
@@ -423,76 +421,64 @@ Plans:
 - 中性化不改变D-01–D-18、BRAND-01–04、tasks、commands或evidence语义。
 - D-02：Phase04.2 SUMMARY artifacts自身进入immutable Git zero-hit，无planning例外。
 
-### Phase 5: 低误报 Hook 与诚实路由
+### Phase 5: 统一 Hook 策略与真实宿主验证
 
-**Goal:** hook 只在宽范围结构查找时提醒；精确文本、本地复核、常见 Lua 全局处理器和不可用索引都有低打扰且真实的路由。
+**Goal:** 用户在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 中获得统一但宿主诚实的低打扰导航策略；每一种项目级提示、成功 marker、更新行为和 MCP 路径都由同一 exact package 的契约测试与真实宿主事件留下可审计证据。
 **Mode:** mvp
-**Requirements**: HOOK-06, HOOK-07, HOOK-08, ROUT-05
+**Requirements**: HOOK-06, HOOK-07, HOOK-08, ROUT-05, TEST-07, TEST-08, TEST-09, TEST-11
 **Depends on:** Phase 04.2
 **Success Criteria** (what must be TRUE):
 
-  1. `-F/--fixed-strings` 配合多个明确文件、单文件及生成/日志文本核对保持静默；宽范围唯一 C++ 符号和限定 Lua 方法仍获得图优先建议。
-  2. 深层窄目录和 `OnEvent`、`Update`、`OnLButtonClick` 等常见 Lua 全局处理器在明确 Lua scope 下保持限定本地搜索，不把用户引向已知同名碰撞。
-  3. 已调用 KCodeRag 后的本地精确复核不会在同一轮反复收到结构提醒；若采用 PostToolUse 状态，其状态必须有界、环境无关且全异常 fail-open。
-  4. nudge、skill 和权威指南默认推荐 `keyword`、`context`、`get_call_chain`；`semantic`/`hybrid` 仅在 `list_indexes` 证明确实可用时推荐，否则说明降级而不夸大能力。
-  5. QA/Dev 共享回归同时覆盖 Codex Bash 与 Claude Grep/Glob，所有 advisory 保持非阻断和短超时。
+  1. 具备受支持 `SessionStart` 生命周期的宿主在 `startup`、`resume`、`clear` 与 `compact` 后恢复有界、条件化的 KCodeRag 使用方式、离线更新信息与受支持代码规范；Cursor/OpenCode 只投影其真实 Rule/plugin 能力，不伪装等价 Hook。
+  2. 导航、代码规范和 `submit_feedback` 提示只在对应语义首次命中时出现，后续匹配静默；任何按会话、context epoch、时间或语义次数重新武装的政策都必须有界、secret-free、并发安全且全异常 fail-open，不能按原始工具总调用数刷屏。
+  3. `-F/--fixed-strings`、多个明确文件、单文件、生成/日志文本、深层窄目录及常见 Lua 全局处理器保持限定本地搜索；宽范围唯一 C++ 符号和限定 Lua 方法获得图优先建议，且只有 `list_indexes` 证明可用时才推荐 `semantic`/`hybrid`。
+  4. 同一 exact tgz 或公开 exact npx 版本在干净项目中完成五宿主 install/status/update/uninstall、MCP、Hook/Rule/plugin、成功 marker 与更新路径；live PASS 必须由真实宿主触发原生事件，直接执行 launcher 只算 packaged contract，`NOT_RUN` 或 skipped 不得完成阶段。
+  5. Windows/Linux 适用 runner 可复跑 exact package 与宿主证据；authenticated QA 协商目标 MCP protocol 并返回合规结构化工具结果，所有 receipt、日志和制品保持 metadata-only 且不泄露 URL、Header、Bearer、工具参数或响应正文。
 
-**Plans**: TBD
+**Plans:** 5/6 plans executed
 
-### Phase 6: 真实宿主兼容与发布证据
+Plans:
 
-**Goal:** 用户通过公共 npx 包安装到实际 Codex、Claude Code、Cursor、OpenCode 或 ZCode 后，可用可审计证据确认 MCP 工具名、hook/Rule/plugin 和完整项目生命周期真实工作。
-**Mode:** mvp
-**Requirements**: TEST-07, TEST-08, TEST-09, TEST-11
-**Depends on:** Phase 5
+- [x] 05-01-PLAN.md
+- [x] 05-02-PLAN.md
+- [x] 05-03-PLAN.md
+- [x] 05-04-PLAN.md
+- [x] 05-05-PLAN.md
+- [ ] 05-06-PLAN.md
+
+- [x] `05-01-PLAN.md` — 以 Codex exact-tgz SessionStart tracer 建立统一事件、governor、精度、索引门禁与 feedback 状态机
+- [x] `05-02-PLAN.md` — 将共享策略诚实投影到 Claude、Cursor、OpenCode 与 ZCode 的真实原生表面
+- [x] `05-03-PLAN.md` — 从 canonical source 确定性生成 QA runtime/config/guidance family
+- [x] `05-04-PLAN.md` — 关闭 PASS/FAIL/NOT_RUN receipt、五宿主 coordinator 与 independently passing actual tgz
+- [x] `05-05-PLAN.md` — 建立受保护 exact-artifact workflow 并在 dispatch 前封存 immutable candidate
+- [ ] `05-06-PLAN.md` — 消费已授权 exact candidate run，仅提交五宿主 authenticated LIVE evidence 与宿主诚实指南
+
+### Phase 6: 四 Skill 公共接口与宿主交付模式
+
+**Goal:** 用户可在 Codex、Claude Code、Cursor、OpenCode 与 ZCode 中直接调用四个名称稳定、职责清晰的 KCodeRag Skill；代码规范手动 Skill 对五宿主可用，自动写前提示仍只由真实宿主证据门禁启用，并由 status/doctor 分别报告两种交付模式。
+**Requirements**: None — Phase 06 was added without mapped requirement IDs; locked CONTEXT decisions are the acceptance source.
+**Depends on:** None for implementation execution — the user explicitly authorized Phase 06 to run before Phase 05 LIVE closure on 2026-09-03. Phase 05 evidence remains independently incomplete and must not be claimed by this phase.
 **Success Criteria** (what must be TRUE):
 
-  1. 在干净临时项目和隔离的 Codex 配置中，用已发布的 exact `kcoderag-nav` npx 版本真实执行 install/status/update/uninstall，验证 direct server map 工具注册和 hook advisory；不依赖开发者现有全局配置或 marketplace。
-  2. Claude Code 在干净项目中通过同一 exact npx 包完成 project install/status/update/uninstall，验证 MCP 工具注册名与 Grep/Glob/Bash hook 出参。
-  3. Cursor 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，并在必要的项目 reload 后验证 MCP、Rule 与 skill 可见性；不依赖 user-local plugin 或 Team 订阅。
-  4. OpenCode `1.18.23` 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，验证项目 MCP、skill、稳定 1.x plugin API 与 `tool.execute.after` 成功调用 marker。
-  5. ZCode 在干净项目中通过同一 exact npx 包完成 install/status/update/uninstall，验证项目 MCP、workspace Skill、用户批准 trust 后的 Pre/Post Hook 与成功 marker，并冻结可复现的受支持版本证据。
-  6. required CI 明确区分 loopback stub 契约与 authenticated host smoke；具备 runner 时可复跑 Windows/Linux launcher、exact package acquisition 和受支持宿主版本，不把 skipped 记作 PASS。
-  7. 宿主证据、日志和制品扫描不泄露 URL header 或凭据值。
-  8. authenticated QA 验证要求服务端与客户端协商目标 MCP protocol，并返回该协议要求的结构化工具结果；Phase 04 观察到的旧 protocol/content-only 部署漂移在此关闭后续证据。
+  1. 五宿主安装后只暴露 `$kcoderag`、`$kcoderag-manage`、`$kcoderag-feedback` 与 `$kcoderag-code-style` 四个公开 Skill，不保留 `code-lookup-discipline` 或 `code-style-correction` 兼容别名。
+  2. `$kcoderag` 只负责只读代码导航；`$kcoderag-manage` 默认只读 status/doctor、仅在明确要求时 update，且默认不 cleanup/uninstall；`$kcoderag-feedback` 通过反馈接口提交真实查询评价；`$kcoderag-code-style` 支持自然语言写前指导和 `review <文件或当前变更>`，不提供 `apply` 子命令。
+  3. 内部 capability 仍固定为 `kcoderag-navigation` 与 `code-style-nudge`；五宿主均可安装手动代码规范 Skill，仅冻结 PASS receipt 对应的 Claude Code 2.1.241 投影自动写前提示。
+  4. status/doctor 以 secret-safe、状态完整性可证明的方式分别报告 `manualSkill` 与 `automaticNudge`，更新/卸载按所有权安全重组旧 Skill 路径并保留无关文件。
+  5. Codex 的四个 Skill 均包含一致的 `agents/openai.yaml`，生成、打包、五宿主 smoke、文档和完整 CI 对四公开 Skill/两内部 capability 模型达成一致。
 
-**Plans**: TBD
+**Plans:** 1/1 plans complete
 
-### Phase 7: GSD 运行时与全局 Hook 整理
+Plans:
+**Wave 1**
 
-**Goal:** Codex 中的 GSD 始终选择正确 runtime/isolation，且全局 GSD hook 只在真正需要的生命周期事件启动对应逻辑。
-**Mode:** mvp
-**Requirements**: GSD-01, GSD-02
-**Depends on:** Phase 6
-**Success Criteria** (what must be TRUE):
+- [x] 06-01-PLAN.md — 采用既有 RED 与 staged GREEN，在首次实现提交前一次性收敛 canonical、generated、五宿主、文档、审计、pack 与 smoke，并通过真实 pre-commit
 
-  1. 默认 Codex 安装从 `.gsd-runtime` 解析为 `codex/orchestrator-worktree`，显式 `GSD_RUNTIME=claude` 仍解析为 `claude/harness-worktree`。
-  2. runtime 修复具有上游 issue/patch 或可在 GSD 更新后自动验证并安全重放的持久方案，不依赖不可见的一次性本地编辑。
-  3. `gsd-context-monitor` 仅在 PostToolUse 注入上下文；PreCompact/Stop 只做必要状态落盘，其他事件不启动无效 Node 进程。
-  4. `gsd-check-update` 保持独立的 SessionStart 职责，KCodeRag 的异步更新检查不与 GSD 全局 hook 混为同一所有者。
-
-**Plans**: TBD
-
-### Phase 8: 生产安全与自动化发布
-
-**Goal:** 在不破坏内部 QA 装即用主路径的前提下，建立生产级身份、加密传输、可轮换凭据和可重复发布证据。
-**Mode:** mvp
-**Requirements**: SEC-01, SEC-02, SEC-03, REL-01, REL-02
-**Depends on:** Phase 7
-**Success Criteria** (what must be TRUE):
-
-  1. 用户通过个人或组织身份取得短期凭据，公开或长期分发包不再包含共享 Bearer。
-  2. MCP 使用 HTTPS 并验证服务身份，凭据可独立轮换而无需重新发布整个插件代码树。
-  3. `package.json` 版本与 matching `vX.Y.Z` 标签触发 GitHub Actions 重新测试、构建、审计并发布公共 npm 包；普通 `master` push 只测试、不发布。
-  4. 支持的 Codex、Claude Code、Cursor、OpenCode、Node.js 22/24 与 Windows/Linux 组合具有自动兼容矩阵和明确淘汰策略。
-  5. 四个宿主继续通过统一 npx 项目集成保留低门槛安装、只读诊断、显式更新和安全卸载路径。
-
-**Plans**: TBD
+**Dependency notes:** 旧 13-plan 集合已由 `06-SUPERSEDED.md` 明确取代并从可执行 PLAN 扫描中移除。仓库 pre-commit 对任一 managed staged path 都检查完整 canonical/generated 集合并运行全局门禁，因此中间实现提交无法在不绕过 Hook 的情况下成立；`06-01-PLAN.md` 保留 `c821975` RED 提交并以一个正常 Hook 验证的 GREEN 提交闭合全部 D-01–D-13。
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 → 5 → 6 → 7 → 8
+计划顺序为 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 → 5 → 6；经用户在 2026-09-03 明确授权，Phase 6 已先于 Phase 5 的 LIVE 收口执行完成，Phase 5 仍保持独立未完成。
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -503,7 +489,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 03.1 → 4 → 04.1 → 04.2 
 | 4. 已部署项目与安装来源可靠性 | 19/19 | Complete    | 2026-08-26 |
 | 04.1. 多能力安装平台与代码规范提示 | 13/13 | Complete    | 2026-08-27 |
 | 04.2. 公开版本去品牌化 | 45/45 | Complete    | 2026-08-30 |
-| 5. 低误报 Hook 与诚实路由 | 0/TBD | Not planned | - |
-| 6. 真实宿主兼容与发布证据 | 0/TBD | Not planned | - |
-| 7. GSD 运行时与全局 Hook 整理 | 0/TBD | Not planned | - |
-| 8. 生产安全与自动化发布 | 0/TBD | Not planned | - |
+| 5. 统一 Hook 策略与真实宿主验证 | 5/6 | In Progress |  |
+| 6. 四 Skill 公共接口与宿主交付模式 | 1/1 | Complete | 2026-09-03 |

@@ -1,6 +1,7 @@
 const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
+const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
@@ -91,7 +92,7 @@ test("direct ZCode process invocation emits strict advisory context and fails op
     const result = childProcess.spawnSync(process.execPath, [compiledDispatcher, "zcode"], {
       input: JSON.stringify({
         hook_event_name: "PreToolUse",
-        session_id: "zcode-session",
+        session_id: `zcode-session-${crypto.randomUUID()}`,
         cwd: root,
         tool_name: "Grep",
         tool_input: { pattern: "LoginMgr", path: "src" },

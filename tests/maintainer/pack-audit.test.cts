@@ -65,19 +65,29 @@ interface ReleaseReadinessModule {
   }): CandidatePackageArtifactLease;
 }
 
+interface GeneratorModule {
+  readonly PHASE_05_ASSET_ROUTES: readonly Readonly<Record<string, string>>[];
+}
+
 const packAudit = require("../../dist/maintainer/pack-audit.cjs") as PackAuditModule;
 const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as ReleaseReadinessModule;
 const tarArchive = require("../../dist/maintainer/tar-archive.cjs") as TarArchiveModule;
+const generator = require("../../dist/generator/index.cjs") as GeneratorModule;
 const repositoryRoot = path.resolve(__dirname, "../..");
 const RETIREMENT_AUDITOR_PATH = "dist/maintainer/retirement-audit.cjs";
 const PRE_RELEASE_EVIDENCE_PATH = "dist/maintainer/pre-release-evidence.cjs";
 const HEAD_ACCEPTANCE_PATH = "dist/maintainer/head-acceptance.cjs";
+const NATIVE_HOST_DRIVER_PATH = "dist/maintainer/native-host-driver.cjs";
 const SCRUB_BASELINE_PATH = "dist/maintainer/scrub-baseline.cjs";
 const HOST_DELIVERY_FIXTURE_PATH = "dist/fixtures/host-delivery.cjs";
 const HOST_VERSION_SUPPORT_PATH = "dist/hosts/host-version-support.cjs";
 const MUTATION_LOCK_PATH = "dist/core/mutation-lock.cjs";
 const CAPABILITY_REGISTRY_PATH = "dist/capabilities/registry.cjs";
 const DISPATCHER_PATH = "dist/hooks/pre-tool-dispatcher.cjs";
+const FEEDBACK_NUDGE_PATH = "dist/hooks/feedback-nudge.cjs";
+const ACCEPTANCE_RECEIPT_PATH = "dist/smoke/acceptance-receipt.cjs";
+const HOST_SMOKE_PATH = "dist/smoke/host-smoke.cjs";
+const LIVE_COORDINATOR_PATH = "dist/smoke/live-host-coordinator.cjs";
 const CODE_STYLE_RUNTIME_PATHS = Object.freeze([
   "dist/hooks/code-style-nudge.cjs",
   "dist/hooks/once-marker.cjs",
@@ -85,6 +95,7 @@ const CODE_STYLE_RUNTIME_PATHS = Object.freeze([
 ]);
 const CODE_STYLE_SKILL_PATHS = Object.freeze([
   "plugin-src/capabilities/code-style-nudge/skill/SKILL.md",
+  "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml",
   "plugin-src/capabilities/code-style-nudge/skill/references/change-hygiene-self-review.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
   "plugin-src/capabilities/code-style-nudge/skill/references/lua-contracts.md",
@@ -247,6 +258,67 @@ test("requires the capability registry, dispatcher runtime, and canonical code s
   }
 });
 
+test("closes the Phase 05 public receipt runtime and Cursor generated family", () => {
+  const exact = baseline();
+  for (const required of [
+    FEEDBACK_NUDGE_PATH,
+    ACCEPTANCE_RECEIPT_PATH,
+    HOST_SMOKE_PATH,
+    LIVE_COORDINATOR_PATH,
+    "kcoderag-cursor/rules/kcoderag-navigation.mdc",
+    "kcoderag-cursor/skills/kcoderag/SKILL.md",
+  ]) {
+    assert.equal(exact.packageJson.files.includes(required), true, required);
+    assert.equal(exact.expectedPaths.includes(required), true, required);
+    assert.equal(exact.archiveEntries.has(required), true, required);
+  }
+
+  assert.equal(
+    fs.readFileSync(path.join(repositoryRoot, "plugin-src/cursor/rules/kcoderag-navigation.mdc"), "utf8"),
+    fs.readFileSync(path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"), "utf8"),
+  );
+  assert.deepEqual(
+    generator.PHASE_05_ASSET_ROUTES.find((route) =>
+      route.product === "cursor" && route.output === "skills/kcoderag/SKILL.md"),
+    {
+      product: "cursor",
+      output: "skills/kcoderag/SKILL.md",
+      canonicalSource: "plugin-src/skills/kcoderag/SKILL.md",
+      renderSource: "plugin-src/skills/kcoderag/SKILL.md",
+    kind: "normalized-copy",
+    },
+  );
+  const routing = fs.readFileSync(
+    path.join(repositoryRoot, "kcoderag-cursor/rules/kcoderag-navigation.mdc"),
+    "utf8",
+  );
+  assert.match(routing, /list_indexes/iu);
+  assert.match(routing, /semantic.*hybrid/isu);
+  assert.match(routing, /keyword.*context.*get_call_chain/isu);
+});
+
+test("two actual packs from one tree have identical SHA and closed member inventory", () => {
+  const first = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["pack-audit"],
+  });
+  const second = releaseReadiness.createCandidatePackageArtifact({
+    root: repositoryRoot,
+    consumers: ["pack-audit"],
+  });
+  try {
+    const firstAudit = packAudit.auditPackArtifact(first, { root: repositoryRoot });
+    const secondAudit = packAudit.auditPackArtifact(second, { root: repositoryRoot });
+    assert.equal(first.artifact.sha256, second.artifact.sha256);
+    assert.equal(first.artifact.memberCount, second.artifact.memberCount);
+    assert.equal(firstAudit.artifactSha256, secondAudit.artifactSha256);
+    assert.equal(firstAudit.memberCount, secondAudit.memberCount);
+  } finally {
+    first.dispose();
+    second.dispose();
+  }
+});
+
 test("rejects the explicitly non-publishable retirement auditor at every pure inventory boundary", () => {
   const declared = packageJson();
   if (!declared.files.includes(RETIREMENT_AUDITOR_PATH)) {
@@ -311,6 +383,7 @@ test("publishes host support runtime and keeps repository-only evidence outputs 
     HOST_DELIVERY_FIXTURE_PATH,
     PRE_RELEASE_EVIDENCE_PATH,
     HEAD_ACCEPTANCE_PATH,
+    NATIVE_HOST_DRIVER_PATH,
   ]) {
     for (const boundary of ["declared", "expected", "archive"] as const) {
       const current = baseline();

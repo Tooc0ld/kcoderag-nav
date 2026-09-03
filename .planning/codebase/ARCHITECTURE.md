@@ -24,10 +24,10 @@ and ZCode. The public composition root is one npm CLI. Every invocation selects 
 the adapter renders a complete desired state without writing, and the shared transaction is the
 only installation filesystem writer.
 
-The package contains two capabilities: `kcoderag-navigation` and `code-style-nudge`. Navigation is
-available on all five hosts. Code-style guidance is enabled only by an exact checked-in PASS receipt;
-the frozen supported row is Claude Code `2.1.241`, while unsupported or unproved rows fail before
-desired-state creation without affecting navigation.
+The package contains two capabilities: `kcoderag-navigation` and `code-style-nudge`. Navigation
+owns the `kcoderag`, `kcoderag-manage`, and `kcoderag-feedback` manual Skill trees; code style owns
+`kcoderag-code-style` plus four references. All five hosts receive the manual trees. Only an exact
+checked-in PASS receipt enables the native overlay, frozen to Claude Code `2.1.241`.
 
 ## Component Responsibilities
 
@@ -121,8 +121,9 @@ readiness evidence.
    nearest boundary fails open and never falls through to an outer project.
 3. The dispatcher validates schema, composite digest, and every managed file digest before routing
    capability handlers.
-4. Navigation emits bounded advice only for eligible structural searches. Code-style guidance also
-   requires a supported receipt row, an eligible structured write, and a stable session identity.
+4. Navigation emits bounded advice only for eligible structural searches. Manual code-style use is
+   host-invoked; the automatic route additionally requires a supported receipt row, an eligible
+   structured write, and a stable session identity.
 5. The first eligible event may schedule a detached registry refresh; foreground execution reads
    local bounded state only.
 6. Codex/Claude/ZCode `PostToolUse`, Cursor `afterMCPExecution`, and OpenCode
@@ -161,8 +162,8 @@ launchers derived from canonical sources and the root package version.
   symlinks, special files, and ambiguous ownership are rejected.
 - MCP URL, authorization, headers, and connection bodies are opaque sensitive values and never enter
   diagnostics, documentation, tests, or receipts.
-- Unsupported code-style selections return `host_version_unsupported` before rendering and make zero
-  writes; navigation eligibility remains independent.
+- Manual code-style selection is supported on all five hosts. An unsupported native decision renders
+  no handler, dispatcher registration, launcher, or automatic reminder while preserving the Skill.
 - Marker creation follows full managed-tree integrity verification; drift cannot consume a valid
   one-time reminder.
 - OpenCode and ZCode are project-only. OpenCode rejects simultaneous JSON and JSONC roots. ZCode does

@@ -53,6 +53,8 @@ Python is not part of the current runtime, build, test, migration, or installati
 - `src/core/transaction.cts` is the only installation filesystem commit boundary.
 - `plugin-src/` is the canonical deterministic template/config source for
   `kcoderag-navigation` and `code-style-nudge`.
+- The public manual Skill trees are exactly `kcoderag`, `kcoderag-manage`, `kcoderag-feedback`,
+  and `kcoderag-code-style`; Codex metadata uses quoted `agents/openai.yaml` values.
 - `kcoderag-qa/` and `kcoderag-cursor/` are generated products, not independent sources.
 - MCP configuration may contain credentials; values are never inspected for documentation,
   diagnostics, snapshots, or receipts.
@@ -61,11 +63,11 @@ Python is not part of the current runtime, build, test, migration, or installati
 
 | Host | Project configuration |
 |------|-----------------------|
-| Codex | `.codex/`, `.agents/skills/` |
-| Claude Code | `.claude/settings.json`, `.claude/skills/`, root `.mcp.json` |
-| Cursor | `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, `.cursor/hooks.json` |
-| OpenCode | exactly one root JSON/JSONC config plus `.opencode/` |
-| ZCode | `.zcode/config.json`, `.zcode/skills/`, project hook runtime |
+| Codex | `.codex/`, `.agents/skills/` with four Skills and metadata |
+| Claude Code | `.claude/settings.json`, `.claude/skills/` with four Skills, root `.mcp.json` |
+| Cursor | `.cursor/rules/`, four `.cursor/skills/` trees, `.cursor/mcp.json`, `.cursor/hooks.json` |
+| OpenCode | exactly one root JSON/JSONC config plus four Skills under `.opencode/` |
+| ZCode | `.zcode/config.json`, four `.zcode/skills/` trees, project navigation hook runtime |
 
 ## Build and Assurance
 

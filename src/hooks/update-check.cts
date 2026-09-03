@@ -65,6 +65,15 @@ interface UpdateCache {
   readonly latest: string;
 }
 
+export type VersionCheckStatus = "up_to_date" | "update_available" | "unknown";
+
+export interface VersionCheckResult {
+  readonly installedVersion: string | null;
+  readonly latestVersion: string | null;
+  readonly versionStatus: VersionCheckStatus;
+  readonly checkedAt: number | null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -183,6 +192,13 @@ function isNewerVersion(installed: string, latest: string): boolean {
   return false;
 }
 
+function sameVersion(left: string, right: string): boolean {
+  const leftParts = versionParts(left);
+  const rightParts = versionParts(right);
+  return leftParts !== undefined && rightParts !== undefined &&
+    leftParts.every((part, index) => part === rightParts[index]);
+}
+
 function readCache(files: UpdateCheckFiles, cacheRoot: string): UpdateCache | undefined {
   const raw = files.readText(path.join(cacheRoot, "remote-cache.json"));
   if (raw === undefined || raw.length > MAX_CACHE_CHARS) return undefined;
@@ -203,8 +219,55 @@ function isFresh(cache: UpdateCache | undefined, now: number): cache is UpdateCa
   return cache !== undefined && now >= cache.checkedAt && now - cache.checkedAt < CACHE_TTL_MS;
 }
 
+/** Read a fresh, validated local cache without performing foreground network I/O. */
+export function readVersionStatus(
+  installedVersion: string | undefined,
+  options: UpdateCheckOptions = {},
+): VersionCheckResult {
+  const installed = isSimpleVersion(installedVersion) ? installedVersion : null;
+  const unknown = (latest: UpdateCache | undefined = undefined): VersionCheckResult => Object.freeze({
+    installedVersion: installed,
+    latestVersion: latest?.latest ?? null,
+    versionStatus: "unknown" as const,
+    checkedAt: latest?.checkedAt ?? null,
+  });
+  try {
+    if (process.env.KCODERAG_NAV_UPDATE_CHECK === "0") return unknown();
+    const now = validNow(options.now);
+    if (now === undefined) return unknown();
+    const files = options.files ?? nodeFiles;
+    const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
+    const latest = readCache(files, cacheRoot);
+    if (!isFresh(latest, now) || installed === null) return unknown();
+    return Object.freeze({
+      installedVersion: installed,
+      latestVersion: latest.latest,
+      versionStatus: isNewerVersion(installed, latest.latest)
+        ? "update_available" as const
+        : sameVersion(installed, latest.latest)
+          ? "up_to_date" as const
+          : "unknown" as const,
+      checkedAt: latest.checkedAt,
+    });
+  } catch {
+    return unknown();
+  }
+}
+
 function relevantPayload(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
+  if (!isRecord(value)) return false;
+  if (
+    value.hook_event_name === "SessionStart" &&
+    (value.source === "startup" || value.source === "resume" || value.source === "clear" ||
+      value.source === "compact")
+  ) {
+    return ["session_id", "thread_id", "conversation_id"].some((field) => {
+      const identity = value[field];
+      return typeof identity === "string" && identity.length > 0 && identity.length <= 512 &&
+        identity.trim().length > 0;
+    });
+  }
+  return typeof value.tool_name === "string" && RELEVANT_TOOLS.has(value.tool_name) &&
     isRecord(value.tool_input);
 }
 
@@ -216,9 +279,9 @@ function sessionMarker(payload: Record<string, unknown>): {
   for (const field of ["session_id", "thread_id", "conversation_id"] as const) {
     const candidate = payload[field];
     if ((typeof candidate === "string" || typeof candidate === "number") && typeof candidate !== "boolean") {
-      const normalized = String(candidate).trim().slice(0, 512);
-      if (normalized.length > 0) {
-        material = `${field}\0${normalized}`;
+      const exact = String(candidate);
+      if (exact.length > 0 && exact.length <= 512 && exact.trim().length > 0) {
+        material = `${field}\0${exact}`;
         break;
       }
     }
@@ -337,20 +400,18 @@ export function readUpdateHint(
   options: UpdateCheckOptions = {},
 ): string | undefined {
   try {
-    if (process.env.KCODERAG_NAV_UPDATE_CHECK === "0" || !isSimpleVersion(installedVersion)) return undefined;
+    const version = readVersionStatus(installedVersion, options);
+    if (version.versionStatus !== "update_available" || version.latestVersion === null) return undefined;
     const now = validNow(options.now);
     if (now === undefined) return undefined;
     const files = options.files ?? nodeFiles;
     const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
-    const latest = readCache(files, cacheRoot);
-    if (!isFresh(latest, now)) return undefined;
     if (options.hookPayload !== undefined) {
       if (!relevantPayload(options.hookPayload) || !claimSession(files, cacheRoot, options.hookPayload, now)) {
         return undefined;
       }
     }
-    if (!isNewerVersion(installedVersion, latest.latest)) return undefined;
-    return `KCodeRag Nav update available: ${installedVersion} -> ${latest.latest}. ` +
+    return `KCodeRag Nav update available: ${installedVersion} -> ${version.latestVersion}. ` +
       `Ask the user first; do not update automatically. Run: ${updateCommand(options.host)}`;
   } catch {
     return undefined;

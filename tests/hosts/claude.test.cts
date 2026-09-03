@@ -218,12 +218,12 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
     for (const relativePath of [
       ".mcp.json",
       ".claude/settings.json",
-      ".claude/skills/kcoderag-nav/SKILL.md",
-      ".claude/skills/code-style-correction/SKILL.md",
-      ".claude/skills/code-style-correction/references/cpp-lifetime-control-flow.md",
-      ".claude/skills/code-style-correction/references/protocol-serialization-data.md",
-      ".claude/skills/code-style-correction/references/lua-contracts.md",
-      ".claude/skills/code-style-correction/references/change-hygiene-self-review.md",
+      ".claude/skills/kcoderag/SKILL.md",
+      ".claude/skills/kcoderag-code-style/SKILL.md",
+      ".claude/skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
+      ".claude/skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      ".claude/skills/kcoderag-code-style/references/lua-contracts.md",
+      ".claude/skills/kcoderag-code-style/references/change-hygiene-self-review.md",
       ".claude/kcoderag-nav/qa/hooks/code-style-nudge.cjs",
       ".claude/kcoderag-nav/qa/hooks/pre-tool-dispatcher.cjs",
       ".claude/kcoderag-nav/qa/hooks/once-marker.cjs",
@@ -242,8 +242,8 @@ test("Claude 2.1.241 renders and partially removes the complete receipt-backed c
     await transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, installed, [CODE_STYLE])));
     state = JSON.parse(fs.readFileSync(statePath, "utf8"));
     assert.deepEqual(state.capabilities.map((entry: any) => entry.id), [NAVIGATION]);
-    assert.equal(fs.existsSync(path.join(root, ".claude/skills/code-style-correction/SKILL.md")), false);
-    assert.equal(fs.existsSync(path.join(root, ".claude/skills/kcoderag-nav/SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(root, ".claude/skills/kcoderag-code-style/SKILL.md")), false);
+    assert.equal(fs.existsSync(path.join(root, ".claude/skills/kcoderag/SKILL.md")), true);
     assert.equal(fs.existsSync(path.join(root, ".claude/kcoderag-nav/qa/hooks/update-notice.cjs")), true);
     assert.equal(fs.existsSync(path.join(root, ".mcp.json")), true);
   } finally {
@@ -283,25 +283,72 @@ test("Claude additive navigation install refuses an unmanaged same-name project 
   }
 });
 
-test("Claude support is exact and managed code-style drift is capability_drift", async () => {
+test("Claude style-only state does not claim an unmanaged same-name Hook file", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-hook-ownership-"));
+  try {
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.242", evidenceRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(
+      target,
+      adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    const settingsPath = path.join(root, ".claude", "settings.json");
+    const statePath = path.join(root, ".claude", "kcoderag-nav", "install-state.json");
+    const original = `${JSON.stringify({
+      hooks: {
+        PreToolUse: [{
+          matcher: "Write",
+          hooks: [{ type: "command", command: "node .claude/kcoderag-nav/manual-hook.cjs" }],
+        }],
+      },
+    }, null, 2)}\n`;
+    fs.writeFileSync(settingsPath, original, "utf8");
+    const stateBefore = fs.readFileSync(statePath);
+
+    assert.throws(
+      () => adapter.renderInstall(context(
+        target,
+        adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
+        [NAVIGATION],
+      )),
+      (error: any) => error?.code === "unmanaged_name_conflict" &&
+        error?.safePath === ".claude/settings.json",
+    );
+    assert.equal(fs.readFileSync(settingsPath, "utf8"), original);
+    assert.deepEqual(fs.readFileSync(statePath), stateBefore);
+    assert.equal(fs.existsSync(path.join(root, ".claude/skills/kcoderag/SKILL.md")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude manual style is universal while exact receipt gates native automation and drift", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-cap-claude-drift-"));
   try {
     const target = projectTarget.resolveProjectTarget(root);
     const unsupported = claude.createClaudeAdapter({ hostVersion: "2.1.242", evidenceRoot: PACKAGE_ROOT });
-    assert.throws(
-      () => unsupported.renderInstall(context(
-        target,
-        unsupported.detect({ target, packageRoot: PACKAGE_ROOT }),
-        [CODE_STYLE],
-      )),
-      (error: any) => error?.code === "host_version_unsupported",
-    );
-    assert.deepEqual(fs.readdirSync(root), []);
+    await transaction.applyTransaction(unsupported.renderInstall(context(
+      target,
+      unsupported.detect({ target, packageRoot: PACKAGE_ROOT }),
+      [CODE_STYLE],
+    )));
+    let installed = unsupported.detect({ target, packageRoot: PACKAGE_ROOT });
+    assert.deepEqual(unsupported.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: installed }).codeStyle, {
+      manualSkill: "available",
+      automaticNudge: "unsupported",
+    });
+    assert.equal(fs.existsSync(path.join(root, ".claude/kcoderag-nav/qa/hooks/code-style-nudge.cjs")), false);
 
     const adapter = claude.createClaudeAdapter({ hostVersion: "2.1.241", evidenceRoot: PACKAGE_ROOT });
-    const observation = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
-    await transaction.applyTransaction(adapter.renderInstall(context(target, observation, [CODE_STYLE])));
-    const reference = ".claude/skills/code-style-correction/references/lua-contracts.md";
+    installed = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    await transaction.applyTransaction(adapter.renderInstall(context(target, installed, [CODE_STYLE])));
+    const native = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    assert.deepEqual(adapter.status({ target, packageRoot: PACKAGE_ROOT, environment: "qa", observation: native }).codeStyle, {
+      manualSkill: "available",
+      automaticNudge: "available",
+    });
+    const reference = ".claude/skills/kcoderag-code-style/references/lua-contracts.md";
     fs.appendFileSync(path.join(root, ...reference.split("/")), "\ndrift\n");
     const drifted = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
     assert.deepEqual(drifted.issues, [{ code: "capability_drift", path: reference }]);
@@ -321,7 +368,7 @@ test("Claude extra code-style overrides are visible read-only as capability drif
       adapter.detect({ target, packageRoot: PACKAGE_ROOT }),
       [CODE_STYLE],
     )));
-    const extra = ".claude/skills/code-style-correction/override.md";
+    const extra = ".claude/skills/kcoderag-code-style/override.md";
     fs.writeFileSync(path.join(root, ...extra.split("/")), "override\n");
     assert.deepEqual(adapter.detect({ target, packageRoot: PACKAGE_ROOT }).issues, [
       { code: "capability_drift", path: extra },
@@ -362,7 +409,7 @@ test("neutral Claude tracer from actual tgz", async () => {
       readonly capabilities: readonly { readonly id: string }[];
     };
     assert.deepEqual(state.capabilities.map((capability) => capability.id), [CODE_STYLE]);
-    const skillPath = path.join(target, ".claude", "skills", "code-style-correction", "SKILL.md");
+    const skillPath = path.join(target, ".claude", "skills", "kcoderag-code-style", "SKILL.md");
     const handlerPath = path.join(target, ".claude", "kcoderag-nav", "qa", "hooks", "code-style-nudge.cjs");
     assert.equal(fs.statSync(skillPath).isFile(), true);
     assert.equal(fs.statSync(handlerPath).isFile(), true);
@@ -384,7 +431,7 @@ test("neutral Claude tracer from actual tgz", async () => {
     };
     const advisory = response.hookSpecificOutput?.additionalContext;
     assert.equal(typeof advisory, "string");
-    assert.match(advisory ?? "", /\$code-style-correction/u);
+    assert.match(advisory ?? "", /\$kcoderag-code-style/u);
     assert.ok((advisory?.length ?? 0) > 0 && (advisory?.length ?? 0) <= 600);
     assert.equal(markerInventory(cacheRoot).filter((name) => name.endsWith(".claim")).length, 1);
 
@@ -393,7 +440,6 @@ test("neutral Claude tracer from actual tgz", async () => {
     assert.equal(repeated.stdout, "");
     assert.equal(repeated.stderr, "");
 
-    const unsupportedBefore = projectSnapshot(unsupportedTarget);
     const unsupported = await runInstalledClaudeCommand(
       packedRoot,
       unsupportedTarget,
@@ -401,8 +447,9 @@ test("neutral Claude tracer from actual tgz", async () => {
       "2.1.242",
       ["install", "--host", "claude", "--capability", CODE_STYLE, "--target", unsupportedTarget, "--yes", "--json"],
     );
-    assert.notEqual(unsupported.exitCode, 0);
-    assert.deepEqual(projectSnapshot(unsupportedTarget), unsupportedBefore);
+    assert.equal(unsupported.exitCode, 0);
+    assert.equal(fs.existsSync(path.join(unsupportedTarget, ".claude/skills/kcoderag-code-style/SKILL.md")), true);
+    assert.equal(fs.existsSync(path.join(unsupportedTarget, ".claude/kcoderag-nav/qa/hooks/code-style-nudge.cjs")), false);
 
     const formerCapability = ["jx", "3-style-nudge"].join("");
     const stateDocument = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, any>;

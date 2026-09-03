@@ -41,11 +41,20 @@ export interface StatusIssue {
   readonly path: string;
 }
 
+export type CapabilityDeliveryStatus = "available" | "unsupported" | "absent" | "drifted" | "unknown";
+
+/** Integrity-derived delivery modes for the public code-style Skill. */
+export interface CodeStyleDeliveryStatus {
+  readonly manualSkill: CapabilityDeliveryStatus;
+  readonly automaticNudge: CapabilityDeliveryStatus;
+}
+
 export interface StatusResult {
   readonly schemaVersion: typeof CORE_SCHEMA_VERSION;
   readonly status: InstallStatus;
   readonly host?: HostId;
   readonly environment?: CurrentEnvironmentId;
+  readonly codeStyle: CodeStyleDeliveryStatus;
   readonly issues: readonly StatusIssue[];
   readonly findings: readonly SourceFinding[];
 }

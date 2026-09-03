@@ -523,7 +523,7 @@ test("rejects short, extra, cross-group, and ignored-local-state generator write
 
 test("real repository snapshot dry-run tolerates local GSD state and preserves exact status", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-release-real-"));
-  childProcess.execFileSync("git", ["clone", "--quiet", "--no-local", repositoryRoot, root], {
+  childProcess.execFileSync("git", ["clone", "--quiet", "--no-local", "--no-tags", repositoryRoot, root], {
     stdio: "ignore",
   });
   for (const localState of [".planning", ".gsd"]) {

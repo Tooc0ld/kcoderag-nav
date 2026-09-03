@@ -19,6 +19,12 @@ const CODE_STYLE_REQUIREMENTS: CapabilityContribution = copyCapabilityContributi
       shared: false,
     },
     {
+      id: "code-style:skill-openai",
+      sourcePath: "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml",
+      kind: "skill",
+      shared: false,
+    },
+    {
       id: "code-style:skill-cpp-lifetime-control-flow",
       sourcePath:
         "plugin-src/capabilities/code-style-nudge/skill/references/cpp-lifetime-control-flow.md",
@@ -92,16 +98,18 @@ function evaluateCodeStyleSupport(
         context.hostVersion,
         context.evidenceRoot,
       );
-  if (!result.codeStyleNudge || result.receiptDigest === undefined) {
-    return Object.freeze({
-      eligible: false,
-      code: "host_version_unsupported" as const,
-    });
-  }
   return Object.freeze({
     eligible: true,
-    deliveryMode: "native_pre_write" as const,
-    evidenceDigest: result.receiptDigest,
+    deliveryMode: "manual_skill" as const,
+    automaticNudge: result.codeStyleNudge && result.receiptDigest !== undefined
+      ? Object.freeze({
+          eligible: true as const,
+          evidenceDigest: result.receiptDigest,
+        })
+      : Object.freeze({
+          eligible: false as const,
+          code: "host_version_unsupported" as const,
+        }),
   });
 }
 

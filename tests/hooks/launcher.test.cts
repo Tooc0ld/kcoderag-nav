@@ -1,10 +1,15 @@
-const { test } = require("node:test") as typeof import("node:test");
+const { after, test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+
+const launcherCacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-launcher-cache-"));
+after(() => {
+  fs.rmSync(launcherCacheRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 
 const sourceHooks = path.resolve("plugin-src/hooks");
 const sourceRegistration = path.resolve("plugin-src/hooks/hooks.json");
@@ -40,11 +45,14 @@ const codex = require("../../dist/hosts/codex.cjs") as {
 const claude = require("../../dist/hosts/claude.cjs") as {
   claudeAdapter: Record<string, any>;
 };
-const structuralPayload = JSON.stringify({
-  hook_event_name: "PreToolUse",
-  tool_name: "Bash",
-  tool_input: { command: "rg KPlayer::GetLevel src" },
-});
+function structuralPayload(): string {
+  return JSON.stringify({
+    hook_event_name: "PreToolUse",
+    session_id: `launcher-${crypto.randomUUID()}`,
+    tool_name: "Bash",
+    tool_input: { command: "rg KPlayer::GetLevel src" },
+  });
+}
 
 interface Deployment {
   readonly root: string;
@@ -210,7 +218,7 @@ function assertMarkerResult(
 function runRenderedWindows(
   command: string,
   cwd: string,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -228,7 +236,7 @@ function runRenderedPosix(
   shellExecutable: string,
   command: string,
   cwd: string,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   return childProcess.spawnSync(shellExecutable, ["-c", command], {
@@ -252,6 +260,7 @@ function deployment(): Deployment {
   for (const name of [
     "grep-nudge.cjs",
     "code-style-nudge.cjs",
+    "feedback-nudge.cjs",
     "once-marker.cjs",
     "pre-tool-dispatcher.cjs",
   ]) {
@@ -263,6 +272,8 @@ function deployment(): Deployment {
 function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    LOCALAPPDATA: launcherCacheRoot,
+    XDG_CACHE_HOME: launcherCacheRoot,
     KCODERAG_NAV_UPDATE_CHECK: "0",
     ...overrides,
   };
@@ -270,7 +281,7 @@ function environment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 function runWindows(
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -289,7 +300,7 @@ interface AsyncLauncherResult {
 
 function runWindowsAsync(
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): Promise<AsyncLauncherResult> {
   const comspec = process.env.COMSPEC ?? "cmd.exe";
@@ -327,7 +338,7 @@ function posixShell(): string | undefined {
 function runPosix(
   shell: string,
   fixture: Deployment,
-  input = structuralPayload,
+  input = structuralPayload(),
   env = environment(),
 ): ReturnType<typeof childProcess.spawnSync> {
   return childProcess.spawnSync(shell, [path.join(fixture.hooks, "run_hook.sh")], {
@@ -394,9 +405,19 @@ function decodeEmbeddedBootstrap(command: string): string {
   return bootstrap;
 }
 
-test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToolUse marker", () => {
+test("hook registration keeps bounded SessionStart, advisory PreToolUse, and exact KCodeRag PostToolUse", () => {
   const registration = readHookRegistration(sourceRegistration);
-  assert.deepEqual(Object.keys(registration.hooks), ["PreToolUse", "PostToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks), ["SessionStart", "PreToolUse", "PostToolUse"]);
+  assert.equal(registration.hooks.SessionStart?.length, 1);
+  assert.equal(registration.hooks.SessionStart?.[0]?.matcher, "^(startup|resume|clear|compact)$");
+  assert.equal(
+    registration.hooks.SessionStart?.[0]?.hooks[0]?.command,
+    "{{project_hook_command_posix}}",
+  );
+  assert.equal(
+    registration.hooks.SessionStart?.[0]?.hooks[0]?.commandWindows,
+    "{{project_hook_command_windows}}",
+  );
   assert.equal(registration.hooks.PreToolUse?.length, 1);
   assert.equal(
     registration.hooks.PreToolUse?.[0]?.matcher,
@@ -417,7 +438,7 @@ test("hook registration keeps the advisory PreToolUse and exact KCodeRag PostToo
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 
-  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);
@@ -484,9 +505,9 @@ test("popup guard recognizes known interactive Windows hook launchers", () => {
 
 test("generated hook product rejects popup-capable or asynchronous Windows registrations", () => {
   const registration = readHookRegistration(generatedRegistration);
-  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart"]);
 
-  for (const eventName of ["PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);
@@ -537,7 +558,7 @@ test("installed Codex and Claude commands run from project root and a Unicode de
       }
     }
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -620,7 +641,7 @@ test("complete project copies and renames keep root and deep registered commands
         assertSilentSuccess(runRenderedWindows(
           installed.command.commandWindows,
           moved,
-          structuralPayload,
+          structuralPayload(),
           environment({ PATH: commandProcessorDirectory }),
         ));
       }
@@ -641,7 +662,7 @@ test("complete project copies and renames keep root and deep registered commands
           shellExecutable,
           installed.command.command,
           moved,
-          structuralPayload,
+          structuralPayload(),
           environment({ PATH: emptyPath }),
         );
         if (host === "codex" && process.platform === "win32") {
@@ -802,7 +823,7 @@ if (process.platform === "win32") {
       assertUnavailableRuntimeFailsOpen(runRenderedWindows(
         installed.command.command,
         deep,
-        structuralPayload,
+        structuralPayload(),
         environment({ PATH: emptyPath }),
       ));
       assert.deepEqual(fs.readdirSync(deep), deepBefore);
@@ -831,7 +852,7 @@ if (process.platform === "win32") {
     try {
       const emptyPath = path.join(fixture.root, "empty-path");
       fs.mkdirSync(emptyPath);
-      assertSilentSuccess(runWindows(fixture, structuralPayload, environment({ PATH: emptyPath })));
+      assertSilentSuccess(runWindows(fixture, structuralPayload(), environment({ PATH: emptyPath })));
 
       fs.writeFileSync(path.join(fixture.hooks, "grep-nudge.cjs"), "process.stdout.write('must-not-leak'); process.exit(7);\n");
       assertSilentSuccess(runWindows(fixture));
@@ -884,7 +905,7 @@ if (shell !== undefined) {
     try {
       const emptyPath = path.join(fixture.root, "empty-path");
       fs.mkdirSync(emptyPath);
-      assertSilentSuccess(runPosix(shell, fixture, structuralPayload, environment({ PATH: emptyPath })));
+      assertSilentSuccess(runPosix(shell, fixture, structuralPayload(), environment({ PATH: emptyPath })));
 
       fs.writeFileSync(path.join(fixture.hooks, "grep-nudge.cjs"), "process.stdout.write('must-not-leak'); process.exit(7);\n");
       assertSilentSuccess(runPosix(shell, fixture));

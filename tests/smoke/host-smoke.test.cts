@@ -58,7 +58,9 @@ interface SupportedCapabilityLifecycle {
   readonly schemaVersion: 1;
   readonly branch: "supported";
   readonly hostVersion: string;
-  readonly receiptDigest: string;
+  readonly manualSkill: "available";
+  readonly automaticNudge: "available" | "unsupported";
+  readonly receiptDigest?: string;
   readonly navigationThenStyle: boolean;
   readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
@@ -79,17 +81,7 @@ interface SupportedCapabilityLifecycle {
   readonly sessionEndReceiptBound: boolean;
 }
 
-interface UnsupportedCapabilityLifecycle {
-  readonly schemaVersion: 1;
-  readonly branch: "unsupported";
-  readonly hostVersion: string;
-  readonly navigationInstalled: boolean;
-  readonly refusalCode: "host_version_unsupported";
-  readonly zeroWrite: boolean;
-  readonly navigationPreserved: boolean;
-}
-
-type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
 interface HostSmokeResult {
   readonly schemaVersion: 1;
@@ -97,6 +89,10 @@ interface HostSmokeResult {
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
   readonly reason: string;
+  readonly evidenceLevel: "PACKAGED" | "LIVE";
+  readonly stage: string;
+  readonly reasonCode: string;
+  readonly receipt: Readonly<Record<string, unknown>>;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
   readonly runtimeContract?: HostRuntimeContract;
@@ -398,6 +394,12 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
   });
   assert.equal(passing.status, "PASS");
   assert.equal(passing.reason, "verified");
+  assert.equal(passing.evidenceLevel, "PACKAGED");
+  assert.equal(passing.stage, "evidence_integrity");
+  assert.equal(passing.reasonCode, "none");
+  assert.equal(passing.receipt.status, "PASS");
+  assert.equal(passing.receipt.evidenceLevel, "PACKAGED");
+  assert.equal((passing.receipt.observations as any).common.nativeHostProcess, false);
   assert.equal(smoke.smokeExitCode(passing), 0);
 
   for (const key of smoke.EVIDENCE_KEYS) {
@@ -415,9 +417,11 @@ test("required contract has an explicit all-evidence PASS matrix", () => {
   const unavailable = smoke.evaluateHostEvidence({
     host: "cursor",
     mode: "required-contract",
-    unavailableReason: "package_unavailable",
+    unavailableReason: "runner_unavailable",
   });
   assert.equal(unavailable.status, "NOT_RUN");
+  assert.equal(unavailable.stage, "environment");
+  assert.equal(unavailable.reasonCode, "runner_unavailable");
   assert.equal(smoke.smokeExitCode(unavailable), 1);
 });
 
@@ -515,9 +519,11 @@ test("live command specs support disposable non-git projects and require the MCP
   assert.ok(codex.args.includes("hooks"));
   assert.ok(!codex.args.includes("--ignore-user-config"));
   assert.ok(codex.args.includes("--dangerously-bypass-hook-trust"));
-  assert.ok(codex.args.includes("--approve-for-me"));
+  assert.ok(!codex.args.includes("--approve-for-me"));
   assert.ok(!codex.args.includes("--dangerously-bypass-approvals-and-sandbox"));
-  assert.ok(!codex.args.includes("--sandbox"));
+  assert.ok(codex.args.includes("--sandbox"));
+  assert.ok(codex.args.includes("read-only"));
+  assert.ok(codex.args.includes('approval_policy="never"'));
   assert.equal(codex.args.at(-1), smoke.LIVE_PROMPT);
 
   const claude = smoke.liveCommandSpec("claude", projectRoot);
@@ -548,7 +554,7 @@ test("live smoke bypasses machine proxies for its loopback-only MCP transport", 
   }
 });
 
-test("KSCC keeps the native home while its Claude config and caches remain isolated", () => {
+test("KSCC and OpenCode keep native login homes while declared caches remain isolated", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-live-kscc-env-"));
   try {
     const environment = smoke.liveEnvironment("claude", root);
@@ -556,6 +562,10 @@ test("KSCC keeps the native home while its Claude config and caches remain isola
     assert.equal(environment.LOCALAPPDATA, path.join(root, "local-app-data"));
     if (process.env.USERPROFILE !== undefined) assert.equal(environment.USERPROFILE, process.env.USERPROFILE);
     if (process.env.HOME !== undefined) assert.equal(environment.HOME, process.env.HOME);
+    const openCodeEnvironment = smoke.liveEnvironment("opencode", root);
+    if (process.env.USERPROFILE !== undefined) assert.equal(openCodeEnvironment.USERPROFILE, process.env.USERPROFILE);
+    assert.equal(openCodeEnvironment.LOCALAPPDATA, path.join(root, "local-app-data"));
+    assert.equal(openCodeEnvironment.XDG_CACHE_HOME, path.join(root, "xdg-cache"));
     const codexEnvironment = smoke.liveEnvironment("codex", root);
     if (process.platform === "win32") assert.equal(codexEnvironment.USERPROFILE, path.join(root, "host-home"));
   } finally {
@@ -570,6 +580,11 @@ test("live credential projection copies only bounded host material into the disp
     const runtimeRoot = path.join(root, "runtime");
     fs.mkdirSync(sourceRoot, { recursive: true });
     fs.writeFileSync(path.join(sourceRoot, "auth.json"), "synthetic-auth", "utf8");
+    fs.writeFileSync(path.join(sourceRoot, "opencode.json"), JSON.stringify({
+      provider: { provider: { models: { model: {} }, options: { apiKey: "opaque" } } },
+      plugin: ["must-not-copy"],
+      instructions: ["must-not-copy"],
+    }), "utf8");
     fs.writeFileSync(path.join(sourceRoot, "config.toml"), "must-not-copy", "utf8");
 
     assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), true);
@@ -579,7 +594,35 @@ test("live credential projection copies only bounded host material into the disp
     );
     assert.equal(fs.existsSync(path.join(runtimeRoot, "host-home", "config.toml")), false);
     assert.equal(smoke.projectLiveCredential("codex", runtimeRoot, sourceRoot), false);
-    assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), false);
+    assert.equal(smoke.projectLiveCredential("opencode", runtimeRoot, sourceRoot), true);
+    assert.equal(
+      fs.readFileSync(path.join(runtimeRoot, "host-home", ".local", "share", "opencode", "auth.json"), "utf8"),
+      "synthetic-auth",
+    );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(runtimeRoot, "host-home", ".config", "opencode", "opencode.json"), "utf8")),
+      { model: "provider/model", provider: { provider: { models: { model: {} }, options: { apiKey: "opaque" } } } },
+    );
+
+    const zcodeSourceRoot = path.join(root, "zcode-source");
+    const zcodeRuntimeRoot = path.join(root, "zcode-runtime");
+    fs.mkdirSync(zcodeSourceRoot, { recursive: true });
+    fs.writeFileSync(path.join(zcodeSourceRoot, "credentials.json"), "encrypted-device-credential", "utf8");
+    fs.writeFileSync(path.join(zcodeSourceRoot, "config.json"), "provider-configuration", "utf8");
+    fs.writeFileSync(path.join(zcodeSourceRoot, "telemetry-state.json"), "must-not-copy", "utf8");
+    assert.equal(smoke.projectLiveCredential("zcode", zcodeRuntimeRoot, zcodeSourceRoot), true);
+    assert.equal(
+      fs.readFileSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "credentials.json"), "utf8"),
+      "encrypted-device-credential",
+    );
+    assert.equal(
+      fs.readFileSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "config.json"), "utf8"),
+      "provider-configuration",
+    );
+    assert.equal(
+      fs.existsSync(path.join(zcodeRuntimeRoot, "host-home", ".zcode", "v2", "telemetry-state.json")),
+      false,
+    );
 
     const claudeSourceRoot = path.join(root, "claude-source");
     const claudeRuntimeRoot = path.join(root, "claude-runtime");
@@ -747,8 +790,9 @@ test("package acquisition failure occurs before any host project is created", as
         },
       },
     );
-    assert.equal(result.status, "NOT_RUN");
-    assert.equal(smoke.smokeExitCode(result), 0);
+    assert.equal(result.status, "FAIL");
+    assert.equal(result.hosts.every((host) => host.stage === "package" && host.reasonCode === "package_acquisition_failed"), true);
+    assert.equal(smoke.smokeExitCode(result), 1);
     assert.deepEqual(fs.readdirSync(root), []);
     assert.doesNotMatch(JSON.stringify(result), /private detail|Bearer|Authorization/iu);
   } finally {
@@ -809,7 +853,7 @@ test("public acquisition strips inherited npm controls and rejects redirected or
             },
           },
         );
-        assert.equal(result.status, "NOT_RUN", fixture);
+        assert.equal(result.status, "FAIL", fixture);
         assert.equal(result.provenance, undefined, fixture);
         assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture);
         assert.equal(npmCalls, fixture === "integrity-mismatch" ? 2 : 1, fixture);
@@ -851,7 +895,7 @@ test("public registry artifact drift during npm install fails before any host pr
       },
     );
     assert.equal(replaced, true);
-    assert.equal(result.status, "NOT_RUN");
+    assert.equal(result.status, "FAIL");
     assert.equal(result.provenance, undefined);
     assert.equal(fs.existsSync(path.join(root, "projects")), false);
     assert.doesNotMatch(JSON.stringify(result), /registry-install-drift|verified-artifacts|node_modules/iu);
@@ -879,7 +923,7 @@ test("required readiness rejects exact and latest candidates before public acqui
           },
         },
       );
-      assert.equal(result.status, "NOT_RUN");
+      assert.equal(result.status, "FAIL");
       assert.equal(smoke.smokeExitCode(result), 1);
       assert.equal(result.provenance, undefined);
       assert.equal(npmCalls, 0);
@@ -958,29 +1002,29 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       assert.equal(host.status, "PASS", host.host);
       assert.equal(host.provenance, result.provenance);
       assert.equal(host.runtimeContract?.layer, "packaged");
+      if (host.host === "cursor") {
+        assert.equal(host.runtimeContract?.kind, "cursor_events");
+        assert.equal(host.runtimeContract?.hookEvent, true);
+        assert.equal(host.runtimeContract?.successMarker, true);
+        assert.equal(host.runtimeContract?.updateNotice, false);
+        assert.equal(host.runtimeContract?.updateRefresh, false);
+      }
+      assert.equal(host.capabilityLifecycle?.branch, "supported");
+      assert.equal(host.capabilityLifecycle?.manualSkill, "available");
+      assert.equal(
+        host.capabilityLifecycle?.automaticNudge,
+        host.host === "claude" ? "available" : "unsupported",
+      );
+      assert.equal(host.capabilityLifecycle?.nativeFirstWrite, host.host === "claude");
       if (host.host === "claude") {
-        assert.equal(host.capabilityLifecycle?.branch, "supported");
         assert.equal(host.capabilityLifecycle?.hostVersion, "2.1.241");
+        assert.match(host.capabilityLifecycle?.receiptDigest ?? "", /^[a-f0-9]{64}$/u);
       } else {
-        assert.deepEqual(host.capabilityLifecycle, {
-          schemaVersion: 1,
-          branch: "unsupported",
-          hostVersion: host.host === "codex"
-            ? "0.146.1"
-            : host.host === "cursor"
-              ? "3.17.8"
-              : host.host === "opencode"
-                ? "1.18.23"
-                : "0.0.0",
-          navigationInstalled: true,
-          refusalCode: "host_version_unsupported",
-          zeroWrite: true,
-          navigationPreserved: true,
-        });
+        assert.equal(host.capabilityLifecycle?.receiptDigest, undefined);
       }
     }
     assert.equal("publicRegistryArtifact" in (result.provenance ?? {}), false);
-    assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust|admission/iu);
+    assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust(?:Value|Body)|admission(?:Payload|Body)/iu);
   } finally {
     lease.dispose();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1018,8 +1062,8 @@ test("public specifier validation fails before acquisition or host project write
           },
         },
       );
-      assert.equal(result.status, "NOT_RUN", packageSpec);
-      assert.equal(smoke.smokeExitCode(result), 0);
+      assert.equal(result.status, "FAIL", packageSpec);
+      assert.equal(smoke.smokeExitCode(result), 1);
       assert.equal(acquisitions, 0, packageSpec);
       assert.deepEqual(fs.readdirSync(root), [], packageSpec);
     } finally {
@@ -1049,7 +1093,7 @@ test("public expected-version rules reject exact disagreement and latest omissio
         },
         { acquirePackage: async () => { acquisitions += 1; throw new Error("must not run"); } },
       );
-      assert.equal(result.status, "NOT_RUN");
+      assert.equal(result.status, "FAIL");
       assert.equal(acquisitions, 0);
       assert.deepEqual(fs.readdirSync(root), []);
     } finally {
@@ -1083,7 +1127,7 @@ test("real installed manifests reject exact mismatches, latest races, and wrong 
         },
         { runNpm: publicRegistryRunner(packedFixture.tarball, "1.2.3") },
       );
-      assert.equal(result.status, "NOT_RUN", fixture.name);
+      assert.equal(result.status, "FAIL", fixture.name);
       assert.equal(result.provenance, undefined, fixture.name);
       assert.equal(fs.existsSync(path.join(root, "projects")), false, fixture.name);
       assert.doesNotMatch(JSON.stringify(result), /not-kcoderag-nav|1\.2\.2|1\.2\.4|manifest-fixture/iu);

@@ -1,5 +1,7 @@
 # Generator checks exact bytes; canonical and generated text must check out identically.
 *.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
 *.md text eol=lf
 *.mdc text eol=lf
 *.tmpl text eol=lf

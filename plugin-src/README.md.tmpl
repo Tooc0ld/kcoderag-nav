@@ -7,11 +7,11 @@ or production npm dependencies.
 
 The package exposes exactly two built-in capabilities:
 
-- `kcoderag-navigation` provides the QA MCP projection and graph-first guidance on five hosts.
-  All five hosts receive a successful-call marker and offline
-  update notice.
-- `code-style-nudge` provides a short structured pre-write advisory and the canonical
-  `$code-style-correction` Skill where exact host evidence supports native delivery.
+- `kcoderag-navigation` provides the QA MCP projection, `$kcoderag`, `$kcoderag-manage`, and
+  `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a successful-call
+  marker and offline update notice.
+- `code-style-nudge` provides the `$kcoderag-code-style` manual Skill on all five hosts. Only the
+  exact Claude Code `2.1.241` PASS receipt adds native automatic pre-write delivery.
 
 QA is the only public environment for MCP. Capabilities are not environment choices. Retired QA/Dev
 state, Python installs, handwritten MCP/Hook, plugins, and other manual sources have no migration,
@@ -33,7 +33,7 @@ npx kcoderag-nav@latest install --host claude --capability kcoderag-navigation `
   --capability code-style-nudge --yes
 npx kcoderag-nav@latest install --host cursor --capability kcoderag-navigation --yes
 npx kcoderag-nav@latest install --host opencode --capability kcoderag-navigation --yes
-npx kcoderag-nav@latest install --host zcode --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host zcode --capability code-style-nudge --yes
 ```
 
 The target is exactly the current directory unless `--target PATH` names another project. The CLI
@@ -50,19 +50,19 @@ Native project locations are `.codex/` plus `.agents/skills/` for Codex;
 ## Exact support matrix
 
 Code-style guidance support comes only from checked-in digest-bound receipts. ZCode navigation currently has
-project adapter-contract and synthetic lifecycle coverage; real-host evidence remains Phase 06:
+project adapter-contract and synthetic lifecycle coverage; real-host evidence remains Phase 05:
 
-| Frozen host row | Navigation | Code-style nudge | Evidence verdict |
+| Frozen host row | Navigation family | Manual style Skill | Automatic nudge |
 | --- | --- | --- | --- |
-| Codex `0.146.1` | supported | unsupported | exact `UNSUPPORTED` |
+| Codex `0.146.1` | supported | supported | exact `UNSUPPORTED` |
 | Claude Code `2.1.241` | supported | supported | exact `PASS`, native model-visible pre-write |
-| Cursor `3.17.8` | supported | unsupported | exact `UNSUPPORTED` |
-| OpenCode `1.18.23` | supported | unsupported | exact `UNSUPPORTED` |
-| ZCode (real-host version pending) | supported | unsupported | no code-style PASS receipt; exact refusal |
+| Cursor `3.17.8` | supported | supported | exact `UNSUPPORTED` |
+| OpenCode `1.18.23` | supported | supported | exact `UNSUPPORTED` |
+| ZCode (real-host version pending) | supported | supported | no PASS receipt; `UNSUPPORTED` |
 
-Unlisted versions do not inherit code-style guidance support. Selecting `code-style-nudge` on an unsupported host returns
-`host_version_unsupported` before desired-state rendering or transaction work and writes nothing;
-an existing navigation install stays healthy.
+All five hosts provide the manual code-style-nudge Skill. Native automatic pre-write is available
+only on Claude Code `2.1.241`; unlisted versions do not inherit it. `status` and `doctor` report
+`manualSkill` and `automaticNudge` independently, so manual-only delivery remains healthy.
 
 ## Five project lifecycle commands
 
@@ -85,7 +85,7 @@ npx kcoderag-nav@latest uninstall --host claude --capability kcoderag-navigation
   It never defaults to removing everything.
 
 Every mutation preflights the complete selected set and commits one host transaction. One
-unsupported capability, conflict, or drift makes the entire request fail with zero writes; there
+conflict or drift makes the entire request fail with zero writes; there
 is no partial success. `status` and `doctor` need no `--yes`, while mutation commands confirm the
 exact target. `--json` emits one stable secret-safe JSON value.
 
@@ -176,9 +176,9 @@ installing the real tgz and executing its registered handlers. That proves notic
 and refresh scheduling, but not that a native host loaded or trusted the registration; optional-live
 or a manual UAT receipt must prove native admission and real MCP use separately.
 
-Phase 04.1 packed evidence covers the complete supported Claude dual-order lifecycle and exact
-unsupported-host zero-write refusal while navigation remains usable. Authenticated real-host MCP
-query evidence remains Phase 06 work; offline or loopback checks do not claim that result.
+Phase 06 PACKAGED evidence covers manual style delivery on all five hosts, the exact-Claude native
+overlay, and complete lifecycle preservation. Authenticated real-host MCP
+query evidence remains Phase 05 work; offline or loopback checks do not claim that result.
 
 Connection and authorization values remain opaque. Generation, install, status, doctor, tests,
 receipts, logs, and documentation expose metadata only. Production identity, HTTPS, and rotation

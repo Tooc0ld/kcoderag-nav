@@ -19,17 +19,18 @@ npx kcoderag-nav@latest install
 然后按提示选择宿主和功能：
 
 - `kcoderag-navigation`：代码搜索、上下文和调用链查询。五个宿主都可以安装。
-- `code-style-nudge`：写 C/C++/Lua 前提醒加载代码规范。目前只支持 Claude Code `2.1.241`，其他宿主当前不要选择。
+- `code-style-nudge`：写 C/C++/Lua 前提醒加载代码规范。
 
-如果不想交互选择，可以直接指定宿主。下面以 Codex 为例：
+如果不想交互选择，可以直接指定宿主。五个宿主都可以安装两个 capability；下面以 Codex 为例：
 
 ```powershell
 npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation --yes
+npx kcoderag-nav@latest install --host codex --capability code-style-nudge --yes
 ```
 
 `--host` 可选值是 `codex`、`claude`、`cursor`、`opencode` 和 `zcode`。
 
-Claude Code `2.1.241` 可以同时安装两个功能：
+五个宿主都会安装手动代码规范 Skill；Claude Code `2.1.241` 还会获得自动写前提示：
 
 ```powershell
 npx kcoderag-nav@latest install --host claude `
@@ -55,7 +56,9 @@ npx kcoderag-nav@latest status --host codex
 npx kcoderag-nav@latest doctor --host codex
 ```
 
-把 `codex` 换成实际宿主。`status` 用于快速检查安装状态，`doctor` 用于进一步排查配置冲突。状态正常后，重新打开宿主会话。
+把 `codex` 换成实际宿主。`status` 用于快速检查安装状态，`doctor` 用于进一步排查配置冲突。
+代码规范状态会分别显示 `manualSkill` 和 `automaticNudge`；手动可用、自动 unsupported 是正常的
+manual-only 安装。状态正常后，重新打开宿主会话。
 
 ## 日常使用
 
@@ -71,6 +74,18 @@ AI 会按需要调用这些工具：
 - `context`：查看符号上下文。
 - `get_call_chain`：查看调用方和被调用方。
 - `list_indexes`：检查当前可用的搜索索引。
+
+也可以手动调用四个公开 Skill：
+
+- `$kcoderag`：只读导航、上下文、调用链和索引查询。
+- `$kcoderag-manage`：默认只运行 `status`/`doctor`；更新或卸载必须有明确请求。
+- `$kcoderag-feedback`：只针对真实查询结果提交 secret-safe 反馈。
+- `$kcoderag-code-style`：用自然语言准备 C/C++/Lua 修改，或执行
+  `$kcoderag-code-style review <file or current changes>`。它没有公开 `apply` 操作。
+
+Claude Code `2.1.241` 是冻结的 native row；all five hosts provide the manual `code-style-nudge`
+Skill, while native automatic pre-write currently only supports `code-style-nudge` on Claude.
+Other hosts should not select it as an automatic path.
 
 ## 更新
 
@@ -97,7 +112,8 @@ npx kcoderag-nav@latest uninstall --host codex --capability kcoderag-navigation
 ## 常见问题
 
 - 看不到 KCodeRag 工具：运行 `status` 和 `doctor`，然后重新打开宿主会话。
-- 出现 `host_version_unsupported`：当前宿主不能安装 `code-style-nudge`，只安装 `kcoderag-navigation`。
+- `automaticNudge` 显示 `unsupported`：当前宿主没有冻结的 native 写前提示证据；仍可手动调用
+  `$kcoderag-code-style`。
 - 出现 `source_conflict`：项目里已有另一份手工或旧版接入。先人工确认并移除重复来源，再重新安装。
 - 出现 `capability_drift`：受管文件被修改。先恢复这些修改，再运行更新。
 - ZCode 没有执行 Hook：确认已经信任当前工作区，并重新打开会话。

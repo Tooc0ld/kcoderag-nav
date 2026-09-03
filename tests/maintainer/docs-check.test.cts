@@ -90,12 +90,13 @@ function completePublicContract(): string {
     "Close every related host session, remove kcoderag-nav/nudges, then reopen. status and doctor remain read-only; failure is fail-open.",
     "Claude Code 2.1.241 is supported with PASS.",
     "Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.",
+    "All five hosts provide the manual style Skill. status reports manualSkill and automaticNudge independently.",
     "Codex and Claude find the nearest state; a damaged boundary never falls through; complete project move works.",
     "Cursor uses an always-on Rule and does not use an equivalent PreToolUse Hook.",
     "ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`; users must trust the workspace Hook.",
     "Automatic update is automatic version awareness only; it never runs install/update and the explicit update command remains required.",
     "runtimeContract.layer: `packaged` does not prove native host admission.",
-    "Phase 06 owns authenticated real-host MCP query evidence.",
+    "Phase 05 owns authenticated real-host MCP query evidence.",
     "",
     "```powershell",
     "npx kcoderag-nav@latest install --host codex --capability kcoderag-navigation",
@@ -117,7 +118,7 @@ function completeUserGuide(): string {
     "install, status, doctor, update, and uninstall are the five lifecycle commands.",
     "Run status and doctor, then reopen the host session.",
     "Daily use calls search_code, context, get_call_chain, and list_indexes.",
-    "Claude Code 2.1.241 is supported for code-style-nudge; other hosts are not enabled and users should not select it.",
+    "All five hosts provide the manual code-style-nudge Skill; native automatic pre-write is available only on Claude Code 2.1.241.",
     "",
   ].join("\n");
 }
@@ -230,6 +231,7 @@ test("canonical public contract requires capability lifecycle, support, integrit
       ["Current state binds one composite digest and every managed file; drift reports capability_drift.", "Current state records files.", "missing_topic_complete_integrity"],
       ["Close every related host session, remove kcoderag-nav/nudges, then reopen. status and doctor remain read-only; failure is fail-open.", "Markers are cached.", "missing_topic_d19_manual_reset"],
       ["Codex 0.146.1 is UNSUPPORTED; Cursor 3.17.8 is UNSUPPORTED; OpenCode 1.18.23 is UNSUPPORTED.", "Other hosts vary.", "missing_topic_exact_host_support"],
+      ["All five hosts provide the manual style Skill. status reports manualSkill and automaticNudge independently.", "Style delivery varies.", "missing_topic_manual_style_delivery"],
       ["a damaged boundary never falls through; complete project move works", "a boundary exists", "missing_topic_nearest_state"],
       ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary", "plugin-src/cursor/README.md.tmpl"],
       ["ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`; users must trust the workspace Hook.", "ZCode uses project files.", "missing_topic_zcode_boundary"],
@@ -240,8 +242,25 @@ test("canonical public contract requires capability lifecycle, support, integrit
       writeCanonicalContract(root);
       const target = path.join(root, ...relativePath.split("/"));
       fs.writeFileSync(target, fs.readFileSync(target, "utf8").replace(before, after), "utf8");
-      assert.ok(codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root })).includes(expectedCode));
+      assert.ok(
+        codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root })).includes(expectedCode),
+        `expected ${expectedCode} after replacing ${before}`,
+      );
     }
+
+    writeCanonicalContract(root);
+    const staleBoundary = path.join(root, "plugin-src", "README.md.tmpl");
+    fs.writeFileSync(
+      staleBoundary,
+      fs.readFileSync(staleBoundary, "utf8")
+        .replace("Phase 05 owns authenticated real-host MCP query evidence.",
+          "Phase 06 owns authenticated real-host MCP query evidence."),
+      "utf8",
+    );
+    assert.ok(
+      codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }))
+        .includes("stale_completed_phase_evidence_boundary"),
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -282,10 +301,14 @@ test("active docs reject retired authorities, scanner claims, unsupported code-s
       ["codex plugin remove PLUGIN@MARKETPLACE --json", "retired_cleanup_command"],
       ["Run the code-style scanner and report scanner passed.", "scanner_claim"],
       ["Cursor supports native pre-write code-style guidance.", "unsupported_code_style_claim"],
+      ["ZCode supports automatic pre-write code-style guidance.", "unsupported_code_style_claim"],
     ];
     for (const [instruction, expectedCode] of fixtures) {
       write(root, "README.md", `# Install\n\n${instruction}\n`);
-      assert.ok(codes(docsCheck.checkDocs(["README.md"], "user-docs", { repoRoot: root })).includes(expectedCode));
+      assert.ok(
+        codes(docsCheck.checkDocs(["README.md"], "user-docs", { repoRoot: root })).includes(expectedCode),
+        `expected ${expectedCode} for ${instruction}`,
+      );
     }
 
     write(root, "README.md", [

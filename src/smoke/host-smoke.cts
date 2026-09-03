@@ -21,6 +21,19 @@ import {
   SYNTHETIC_TOOL,
   type StubReceipt,
 } from "./stub-mcp-server.cjs";
+import {
+  aggregateHostReceipts,
+  completeCommonObservations,
+  completeHostObservations,
+  createHostReceipt,
+  emptyCommonObservations,
+  emptyHostObservations,
+  type AggregateVerdict,
+  type EvidenceLevel,
+  type HostReceipt,
+  type ReceiptReasonCode,
+  type ReceiptStage,
+} from "./acceptance-receipt.cjs";
 
 export type SmokeMode = "required-contract" | "optional-live";
 export type SmokeStatus = "PASS" | "FAIL" | "NOT_RUN";
@@ -73,7 +86,9 @@ export interface SupportedCapabilityLifecycle {
   readonly schemaVersion: 1;
   readonly branch: "supported";
   readonly hostVersion: string;
-  readonly receiptDigest: string;
+  readonly manualSkill: "available";
+  readonly automaticNudge: "available" | "unsupported";
+  readonly receiptDigest?: string;
   readonly navigationThenStyle: boolean;
   readonly styleThenNavigation: boolean;
   readonly duplicateNoop: boolean;
@@ -94,17 +109,7 @@ export interface SupportedCapabilityLifecycle {
   readonly sessionEndReceiptBound: boolean;
 }
 
-export interface UnsupportedCapabilityLifecycle {
-  readonly schemaVersion: 1;
-  readonly branch: "unsupported";
-  readonly hostVersion: string;
-  readonly navigationInstalled: boolean;
-  readonly refusalCode: "host_version_unsupported";
-  readonly zeroWrite: boolean;
-  readonly navigationPreserved: boolean;
-}
-
-export type CapabilityLifecycle = SupportedCapabilityLifecycle | UnsupportedCapabilityLifecycle;
+export type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
 export interface HostSmokeResult {
   readonly schemaVersion: 1;
@@ -112,6 +117,10 @@ export interface HostSmokeResult {
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
   readonly reason: string;
+  readonly evidenceLevel: EvidenceLevel;
+  readonly stage: ReceiptStage;
+  readonly reasonCode: ReceiptReasonCode;
+  readonly receipt: HostReceipt;
   readonly evidence: SmokeEvidence;
   readonly navigationContract?: NavigationContract;
   readonly runtimeContract?: HostRuntimeContract;
@@ -141,6 +150,7 @@ export interface SmokeRunResult {
   readonly schemaVersion: 1;
   readonly mode: SmokeMode;
   readonly status: SmokeStatus;
+  readonly verdict: AggregateVerdict;
   readonly provenance?: PackageProvenance;
   readonly hosts: readonly HostSmokeResult[];
 }
@@ -296,6 +306,128 @@ function normalizeEvidence(value: Partial<SmokeEvidence> | undefined): SmokeEvid
   return Object.freeze(evidence) as SmokeEvidence;
 }
 
+function receiptFailure(
+  evidence: SmokeEvidence,
+  unavailableReason: string | undefined,
+  failureReason: string | undefined,
+): { readonly status: SmokeStatus; readonly stage: ReceiptStage; readonly reasonCode: ReceiptReasonCode } {
+  if (unavailableReason !== undefined) {
+    if (unavailableReason === "auth_missing") {
+      return { status: "NOT_RUN", stage: "admission", reasonCode: "protected_environment_denied" };
+    }
+    if (unavailableReason === "node_version_unsupported") {
+      return { status: "NOT_RUN", stage: "environment", reasonCode: "node_version_unsupported" };
+    }
+    return {
+      status: "NOT_RUN",
+      stage: "environment",
+      reasonCode: unavailableReason === "runner_unavailable" ? "runner_unavailable" : "host_unavailable",
+    };
+  }
+  if (failureReason === "package_acquisition_failed") {
+    return { status: "FAIL", stage: "package", reasonCode: "package_acquisition_failed" };
+  }
+  if (failureReason === "artifact_integrity_failed") {
+    return { status: "FAIL", stage: "package", reasonCode: "package_hash_mismatch" };
+  }
+  if (failureReason === "install_failed") {
+    return { status: "FAIL", stage: "install", reasonCode: "install_failed" };
+  }
+  if (failureReason === "host_execution_failed" || failureReason === "live_execution_failed") {
+    return { status: "FAIL", stage: "native_event", reasonCode: "native_event_failed" };
+  }
+  if (failureReason !== undefined) {
+    return { status: "FAIL", stage: "evidence_integrity", reasonCode: "receipt_invalid" };
+  }
+  if (!evidence.install) return { status: "FAIL", stage: "install", reasonCode: "install_failed" };
+  if (!evidence.status) return { status: "FAIL", stage: "install", reasonCode: "status_unhealthy" };
+  if (!evidence.toolRegistration) return { status: "FAIL", stage: "mcp", reasonCode: "mcp_registration_missing" };
+  if (!evidence.mcpList) return { status: "FAIL", stage: "mcp", reasonCode: "list_indexes_unavailable" };
+  if (!evidence.mcpCall || !evidence.stubReceipt) return { status: "FAIL", stage: "mcp", reasonCode: "mcp_call_failed" };
+  if (!evidence.navigation || !evidence.hostRuntime) {
+    return { status: "FAIL", stage: "prompt_semantics", reasonCode: "prompt_missing" };
+  }
+  if (!evidence.update) return { status: "FAIL", stage: "install", reasonCode: "update_failed" };
+  if (!evidence.uninstall) return { status: "FAIL", stage: "install", reasonCode: "uninstall_failed" };
+  return { status: "PASS", stage: "evidence_integrity", reasonCode: "none" };
+}
+
+function smokeReceipt(input: {
+  readonly host: HostId;
+  readonly mode: SmokeMode;
+  readonly evidence: SmokeEvidence;
+  readonly unavailableReason?: string;
+  readonly failureReason?: string;
+  readonly provenance?: PackageProvenance;
+}): HostReceipt {
+  let terminal = receiptFailure(input.evidence, input.unavailableReason, input.failureReason);
+  const requiredEvidence = input.mode === "required-contract" ? EVIDENCE_KEYS : OPTIONAL_LIVE_EVIDENCE_KEYS;
+  if (terminal.status === "PASS" && requiredEvidence.some((key) => !input.evidence[key])) {
+    terminal = { status: "FAIL", stage: "evidence_integrity", reasonCode: "receipt_invalid" };
+  }
+  const evidenceLevel: EvidenceLevel = input.mode === "required-contract" ? "PACKAGED" : "LIVE";
+  const packageSha256 = input.provenance?.lifecycleTarballSha256 ?? "0".repeat(64);
+  const packageMemberDigest = crypto.createHash("sha256")
+    .update(`${packageSha256}:${input.provenance?.artifactMemberCount ?? 0}`, "utf8")
+    .digest("hex");
+  const common = terminal.status === "NOT_RUN"
+    ? emptyCommonObservations()
+    : terminal.status === "PASS"
+      ? completeCommonObservations({
+          nativeHostProcess: evidenceLevel === "LIVE",
+          sessionBaselineObserved: evidenceLevel === "LIVE",
+        })
+      : Object.freeze({
+          ...emptyCommonObservations(),
+          packageInstalled: input.evidence.install,
+          statusHealthy: input.evidence.status,
+          updateIdempotent: input.evidence.update,
+          uninstallRestored: input.evidence.uninstall,
+          nativeHostProcess: evidenceLevel === "LIVE" && input.evidence.navigation,
+          sessionBaselineObserved: evidenceLevel === "LIVE" && input.evidence.navigation,
+          mcpRegistered: input.evidence.toolRegistration,
+          listIndexesSucceeded: input.evidence.mcpList,
+          searchCodeSucceeded: input.evidence.mcpCall,
+          structuredResultValid: input.evidence.mcpCall && input.evidence.stubReceipt,
+          feedbackReminderObserved: input.evidence.hostRuntime,
+          submitFeedbackSucceeded: input.evidence.hostRuntime,
+          feedbackSuppressed: input.evidence.hostRuntime,
+          malformedFailOpen: input.evidence.hostRuntime,
+          successMarkerRecorded: input.evidence.navigation,
+          processTreeCleaned: input.evidence.uninstall,
+        });
+  const hostObservations = terminal.status === "NOT_RUN" || evidenceLevel === "PACKAGED"
+    ? emptyHostObservations(input.host)
+    : terminal.status === "PASS"
+      ? completeHostObservations(input.host)
+      : emptyHostObservations(input.host);
+  const timestamp = new Date().toISOString();
+  return createHostReceipt({
+    schemaVersion: 1,
+    host: input.host,
+    hostVersion: RECEIPT_HOST_VERSIONS[input.host],
+    os: process.platform === "win32" ? "windows" : "linux",
+    nodeVersion: process.versions.node,
+    evidenceLevel,
+    status: terminal.status,
+    stage: terminal.stage,
+    reasonCode: terminal.reasonCode,
+    attempted: terminal.status !== "NOT_RUN",
+    candidateSha: packageSha256,
+    packageSha256,
+    packageMemberDigest,
+    workflowRunId: input.mode === "required-contract" ? "local-packaged" : "local-optional-live",
+    startedAt: timestamp,
+    completedAt: timestamp,
+    durationMs: 0,
+    artifactDigest: packageSha256,
+    logDigest: crypto.createHash("sha256")
+      .update(`${input.host}:${terminal.status}:${terminal.stage}:${terminal.reasonCode}`, "utf8")
+      .digest("hex"),
+    observations: Object.freeze({ common, host: hostObservations }),
+  });
+}
+
 export function evaluateHostEvidence(input: {
   readonly host: HostId;
   readonly mode: SmokeMode;
@@ -308,6 +440,14 @@ export function evaluateHostEvidence(input: {
   readonly provenance?: PackageProvenance;
 }): HostSmokeResult {
   const evidence = normalizeEvidence(input.evidence);
+  const receipt = smokeReceipt({
+    host: input.host,
+    mode: input.mode,
+    evidence,
+    ...(input.unavailableReason === undefined ? {} : { unavailableReason: input.unavailableReason }),
+    ...(input.failureReason === undefined ? {} : { failureReason: input.failureReason }),
+    ...(input.provenance === undefined ? {} : { provenance: input.provenance }),
+  });
   const provenance = input.provenance === undefined ? {} : { provenance: input.provenance };
   const navigation = input.navigationContract === undefined ? {} : { navigationContract: input.navigationContract };
   const runtime = input.runtimeContract === undefined ? {} : { runtimeContract: input.runtimeContract };
@@ -317,8 +457,12 @@ export function evaluateHostEvidence(input: {
       schemaVersion: 1,
       host: input.host,
       mode: input.mode,
-      status: "NOT_RUN",
+      status: receipt.status,
       reason: input.unavailableReason,
+      evidenceLevel: receipt.evidenceLevel,
+      stage: receipt.stage,
+      reasonCode: receipt.reasonCode,
+      receipt,
       evidence,
       ...navigation,
       ...runtime,
@@ -327,13 +471,17 @@ export function evaluateHostEvidence(input: {
     });
   }
   const requiredKeys = input.mode === "required-contract" ? EVIDENCE_KEYS : OPTIONAL_LIVE_EVIDENCE_KEYS;
-  const complete = requiredKeys.every((key) => evidence[key]);
+  const complete = requiredKeys.every((key) => evidence[key]) && receipt.status === "PASS";
   return Object.freeze({
     schemaVersion: 1,
     host: input.host,
     mode: input.mode,
-    status: complete ? "PASS" : "FAIL",
+    status: receipt.status,
     reason: complete ? "verified" : (input.failureReason ?? "evidence_incomplete"),
+    evidenceLevel: receipt.evidenceLevel,
+    stage: receipt.stage,
+    reasonCode: receipt.reasonCode,
+    receipt,
     evidence,
     ...navigation,
     ...runtime,
@@ -405,16 +553,16 @@ childProcess.execFile = function(executable, args, options, callback) {
 }
 
 function completeCapabilityLifecycle(value: CapabilityLifecycle): boolean {
-  if (value.branch === "unsupported") {
-    return value.navigationInstalled && value.refusalCode === "host_version_unsupported" &&
-      value.zeroWrite && value.navigationPreserved;
-  }
-  return value.navigationThenStyle && value.styleThenNavigation && value.duplicateNoop &&
+  const nativeEvidence = value.automaticNudge === "available"
+    ? value.nativeFirstWrite && typeof value.receiptDigest === "string" && /^[a-f0-9]{64}$/u.test(value.receiptDigest)
+    : !value.nativeFirstWrite && value.receiptDigest === undefined;
+  return value.manualSkill === "available" && nativeEvidence &&
+    value.navigationThenStyle && value.styleThenNavigation && value.duplicateNoop &&
     value.failedSecondAddPreserved && value.update && value.conflictUninstallBlocked &&
-    value.partialUninstall && value.finalUninstall && value.nativeFirstWrite && value.singleTransaction &&
+    value.partialUninstall && value.finalUninstall && value.singleTransaction &&
     value.unrelatedTreePreserved && value.rollbackRestored && value.concurrentLoserBlocked &&
     value.assetDriftFailOpen && value.patchEnvelope && value.missingStableIdSilent &&
-    value.markerSaturationSilent && value.sessionEndReceiptBound && /^[a-f0-9]{64}$/u.test(value.receiptDigest);
+    value.markerSaturationSilent && value.sessionEndReceiptBound;
 }
 
 export function safeEnvironment(
@@ -494,10 +642,10 @@ function runProcess(
   };
 }
 
-/** Keep KSCC's native home lookup intact while isolating its Claude config and all smoke caches. */
+/** Keep hosts that bind login state to their native home intact while isolating declared caches. */
 export function liveEnvironment(host: HostId, root: string): NodeJS.ProcessEnv {
   const environment = safeEnvironment(root);
-  if (host !== "claude") return environment;
+  if (host !== "claude" && host !== "opencode") return environment;
   for (const key of ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"] as const) {
     const value = process.env[key];
     if (value !== undefined) environment[key] = value;
@@ -1276,9 +1424,15 @@ function runCommandHook(
   });
 }
 
-function runRegisteredHook(command: string, cwd: string, runtimeRoot: string): CommandResult {
+function runRegisteredHook(
+  command: string,
+  cwd: string,
+  runtimeRoot: string,
+  sessionId: string,
+): CommandResult {
   return runCommandHook(command, cwd, runtimeRoot, JSON.stringify({
     hook_event_name: "PreToolUse",
+    session_id: sessionId,
     tool_name: "Bash",
     tool_input: { command: "rg -n SyntheticSymbol src" },
   }));
@@ -1350,28 +1504,32 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (host === "cursor") {
     try {
       const ruleBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "rules", "kcoderag-navigation.mdc"));
-      const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag-nav", "SKILL.md"));
+      const skillBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "skills", "kcoderag", "SKILL.md"));
       const mcpBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "mcp.json"));
       const hooksBytes = fs.readFileSync(path.join(projectRoot, ".cursor", "hooks.json"));
-      const updateNoticeBytes = fs.readFileSync(path.join(
-        projectRoot, ".cursor", "kcoderag-nav", "hooks", "update-notice.cjs",
+      const markerBytes = fs.readFileSync(path.join(
+        projectRoot, ".cursor", "kcoderag-nav", "hooks", "mcp-call-marker.cjs",
       ));
       const rule = ruleBytes.toString("utf8");
       const skill = skillBytes.toString("utf8");
       const hooks: unknown = JSON.parse(hooksBytes.toString("utf8"));
-      const postToolUse = isRecord(hooks) && isRecord(hooks.hooks) && Array.isArray(hooks.hooks.postToolUse)
-        ? hooks.hooks.postToolUse
+      const afterMcpExecution = isRecord(hooks) && isRecord(hooks.hooks) &&
+        Array.isArray(hooks.hooks.afterMCPExecution)
+        ? hooks.hooks.afterMCPExecution
         : [];
-      const updateCommand = "node .cursor/kcoderag-nav/hooks/update-notice.cjs cursor";
+      const markerCommand = "node .cursor/kcoderag-nav/hooks/mcp-call-marker.cjs cursor";
+      const unsupportedEventsAbsent = isRecord(hooks) && isRecord(hooks.hooks) &&
+        !Object.hasOwn(hooks.hooks, "SessionStart") && !Object.hasOwn(hooks.hooks, "PreToolUse") &&
+        !Object.hasOwn(hooks.hooks, "postToolUse");
       const valid = /alwaysApply:\s*true/u.test(rule) && rule.includes("search_code") && skill.includes("KCodeRag") &&
-        postToolUse.some((entry) => isRecord(entry) && entry.command === updateCommand) &&
-        updateNoticeBytes.includes(Buffer.from("additional_context", "utf8"));
+        afterMcpExecution.some((entry) => isRecord(entry) && entry.command === markerCommand) &&
+        markerBytes.includes(Buffer.from("mcp-calls", "utf8")) && unsupportedEventsAbsent;
       return Object.freeze({
         kind: "rule_skill_mcp" as const,
         root: valid,
         deep: valid,
         sameProject: valid && path.relative(projectRoot, deepRoot).split(path.sep).every((part) => part !== ".."),
-        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes, hooksBytes, updateNoticeBytes]),
+        fingerprint: sha256Parts([ruleBytes, skillBytes, mcpBytes, hooksBytes, markerBytes]),
       });
     } catch {
       return undefined;
@@ -1380,7 +1538,7 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (host === "opencode") {
     try {
       const pluginBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "plugins", "kcoderag-nav.js"));
-      const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag-nav", "SKILL.md"));
+      const skillBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "skills", "kcoderag", "SKILL.md"));
       const markerBytes = fs.readFileSync(path.join(projectRoot, ".opencode", "kcoderag-nav", "hooks", "mcp-call-marker.cjs"));
       const updateNoticeBytes = fs.readFileSync(path.join(
         projectRoot, ".opencode", "kcoderag-nav", "hooks", "update-notice.cjs",
@@ -1403,7 +1561,7 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
     try {
       const configBytes = fs.readFileSync(path.join(projectRoot, ".zcode", "config.json"));
       const skillBytes = fs.readFileSync(path.join(
-        projectRoot, ".zcode", "skills", "kcoderag-nav", "SKILL.md",
+        projectRoot, ".zcode", "skills", "kcoderag", "SKILL.md",
       ));
       const dispatcherBytes = fs.readFileSync(path.join(
         projectRoot, ".zcode", "kcoderag-nav", "hooks", "pre-tool-dispatcher.cjs",
@@ -1411,13 +1569,20 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
       const document: unknown = JSON.parse(configBytes.toString("utf8"));
       const hook = readZCodeProcessHook(projectRoot);
       if (hook === undefined) return undefined;
-      const payload = JSON.stringify({
+      const rootPayload = JSON.stringify({
         hook_event_name: "PreToolUse",
+        session_id: `${host}-navigation-root`,
         tool_name: "Bash",
         tool_input: { command: "rg -n SyntheticSymbol src" },
       });
-      const rootResult = runZCodeProcessHook(hook, projectRoot, projectRoot, runtimeRoot, payload);
-      const deepResult = runZCodeProcessHook(hook, projectRoot, deepRoot, runtimeRoot, payload);
+      const deepPayload = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: `${host}-navigation-deep`,
+        tool_name: "Bash",
+        tool_input: { command: "rg -n SyntheticSymbol src" },
+      });
+      const rootResult = runZCodeProcessHook(hook, projectRoot, projectRoot, runtimeRoot, rootPayload);
+      const deepResult = runZCodeProcessHook(hook, projectRoot, deepRoot, runtimeRoot, deepPayload);
       const root = validHookOutput(rootResult);
       const deep = validHookOutput(deepResult);
       const valid = isRecord(document) && isRecord(document.mcp) && isRecord(document.mcp.servers) &&
@@ -1438,8 +1603,8 @@ function navigationEvidence(host: HostId, projectRoot: string, runtimeRoot: stri
   if (command === undefined) return undefined;
   try {
     const stateBytes = fs.readFileSync(statePath(host, projectRoot));
-    const rootResult = runRegisteredHook(command, projectRoot, runtimeRoot);
-    const deepResult = runRegisteredHook(command, deepRoot, runtimeRoot);
+    const rootResult = runRegisteredHook(command, projectRoot, runtimeRoot, `${host}-navigation-root`);
+    const deepResult = runRegisteredHook(command, deepRoot, runtimeRoot, `${host}-navigation-deep`);
     const root = validHookOutput(rootResult);
     const deep = validHookOutput(deepResult);
     const rootDigest = sha256Parts([rootResult.stdout]);
@@ -1478,14 +1643,14 @@ interface OpenCodePluginModule {
 
 function navigationSkillPath(host: HostId, projectRoot: string): string {
   const relativePath = host === "codex"
-    ? ".agents/skills/kcoderag-nav/SKILL.md"
+    ? ".agents/skills/kcoderag/SKILL.md"
     : host === "claude"
-      ? ".claude/skills/kcoderag-nav/SKILL.md"
+      ? ".claude/skills/kcoderag/SKILL.md"
       : host === "cursor"
-        ? ".cursor/skills/kcoderag-nav/SKILL.md"
+        ? ".cursor/skills/kcoderag/SKILL.md"
         : host === "opencode"
-          ? ".opencode/skills/kcoderag-nav/SKILL.md"
-          : ".zcode/skills/kcoderag-nav/SKILL.md";
+          ? ".opencode/skills/kcoderag/SKILL.md"
+          : ".zcode/skills/kcoderag/SKILL.md";
   return path.join(projectRoot, ...relativePath.split("/"));
 }
 
@@ -1629,17 +1794,16 @@ async function withProcessEnvironmentAsync<T>(environment: NodeJS.ProcessEnv, ac
 
 function readCursorHookCommand(
   projectRoot: string,
-  event: "afterMCPExecution" | "postToolUse",
 ): string | undefined {
   try {
     const hooksPath = path.join(projectRoot, ".cursor", "hooks.json");
     const metadata = fs.lstatSync(hooksPath);
     if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) return undefined;
     const document: unknown = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
-    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks[event])) {
+    if (!isRecord(document) || !isRecord(document.hooks) || !Array.isArray(document.hooks.afterMCPExecution)) {
       return undefined;
     }
-    const commands = document.hooks[event].flatMap((entry: unknown) =>
+    const commands = document.hooks.afterMCPExecution.flatMap((entry: unknown) =>
       isRecord(entry) && typeof entry.command === "string" && entry.command.length <= 64 * 1024
         ? [entry.command]
         : []);
@@ -1693,7 +1857,7 @@ function updateRefreshEvidence(
 }
 
 function commandRuntimeContract(
-  host: "codex" | "claude" | "cursor" | "zcode",
+  host: "codex" | "claude" | "zcode",
   projectRoot: string,
   runtimeRoot: string,
 ): HostRuntimeContract | undefined {
@@ -1721,12 +1885,7 @@ function commandRuntimeContract(
       session_id: `${host}-notice-contract`,
       cwd: projectRoot,
     });
-    const markerPayload = JSON.stringify(host === "cursor" ? {
-      hook_event_name: "afterMCPExecution",
-      mcp_server_name: "kcoderag-qa",
-      conversation_id: `${host}-marker-contract`,
-      cwd: projectRoot,
-    } : {
+    const markerPayload = JSON.stringify({
       hook_event_name: "PostToolUse",
       tool_name: host === "zcode" ? "krag.search_code/1" : "mcp__kcoderag-qa__search_code",
       tool_input: { query: "SyntheticSymbol" },
@@ -1748,15 +1907,6 @@ function commandRuntimeContract(
       markerResult = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, markerPayload, update.environment);
       malformedNotice = runZCodeProcessHook(pre, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
       malformedMarker = runZCodeProcessHook(post, projectRoot, projectRoot, runtimeRoot, "{", update.environment);
-    } else if (host === "cursor") {
-      const notice = readCursorHookCommand(projectRoot, "postToolUse");
-      const marker = readCursorHookCommand(projectRoot, "afterMCPExecution");
-      if (notice === undefined || marker === undefined) return undefined;
-      registration = true;
-      noticeResult = runCommandHook(notice, projectRoot, runtimeRoot, prePayload, update.environment);
-      markerResult = runCommandHook(marker, projectRoot, runtimeRoot, markerPayload, update.environment);
-      malformedNotice = runCommandHook(notice, projectRoot, runtimeRoot, "{", update.environment);
-      malformedMarker = runCommandHook(marker, projectRoot, runtimeRoot, "{", update.environment);
     } else {
       const pre = readRegisteredHookCommand(host, projectRoot, "PreToolUse");
       const post = readRegisteredHookCommand(host, projectRoot, "PostToolUse");
@@ -1767,14 +1917,14 @@ function commandRuntimeContract(
       malformedNotice = runCommandHook(pre, projectRoot, runtimeRoot, "{", update.environment);
       malformedMarker = runCommandHook(post, projectRoot, runtimeRoot, "{", update.environment);
     }
-    const context = additionalContext(noticeResult, host === "cursor");
+    const context = additionalContext(noticeResult);
     const hookEvent = context !== undefined;
     const updateNotice = context?.includes(`npx kcoderag-nav@latest update --host ${host}`) === true;
     const successMarker = silentSuccess(markerResult) && markerEvidence(update.cacheRoot);
     const failOpen = silentSuccess(malformedNotice) && silentSuccess(malformedMarker);
     const installedAssets = registration && skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
     const updateRefresh = updateRefreshEvidence(host, paths, runtimeRoot, update.environment);
-    const kind = host === "cursor" ? "cursor_events" as const : "advisory_hooks" as const;
+    const kind = "advisory_hooks" as const;
     return Object.freeze({
       schemaVersion: 1 as const,
       layer: "packaged" as const,
@@ -1791,6 +1941,66 @@ function commandRuntimeContract(
         markerBytes as Buffer,
         updateBytes as Buffer,
         workerBytes as Buffer,
+        skillBytes as Buffer,
+        stateBytes as Buffer,
+        String(installedAssets),
+        String(hookEvent),
+        String(successMarker),
+        String(updateNotice),
+        String(updateRefresh),
+        String(failOpen),
+      ]),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function cursorRuntimeContract(
+  projectRoot: string,
+  runtimeRoot: string,
+): HostRuntimeContract | undefined {
+  const host = "cursor" as const;
+  const paths = runtimePaths(host, projectRoot);
+  const markerBytes = readSmallRegular(paths.marker);
+  const skillBytes = readSmallRegular(paths.skill);
+  const stateBytes = readSmallRegular(paths.state);
+  if ([markerBytes, skillBytes, stateBytes].some((bytes) => bytes === undefined)) return undefined;
+  try {
+    const marker = readCursorHookCommand(projectRoot);
+    if (marker === undefined) return undefined;
+    const update = updateEnvironment(runtimeRoot, projectRoot);
+    const markerPayload = JSON.stringify({
+      hook_event_name: "afterMCPExecution",
+      mcp_server_name: "kcoderag-qa",
+      tool_name: "search_code",
+      success: true,
+      conversation_id: `${host}-marker-contract`,
+      cwd: projectRoot,
+    });
+    const markerResult = runCommandHook(marker, projectRoot, runtimeRoot, markerPayload, update.environment);
+    const malformedMarker = runCommandHook(marker, projectRoot, runtimeRoot, "{", update.environment);
+    const installedAssets = skillBytes?.includes(Buffer.from("KCodeRag", "utf8")) === true;
+    const hookEvent = true;
+    const successMarker = silentSuccess(markerResult) && markerEvidence(update.cacheRoot);
+    const updateNotice = false;
+    const updateRefresh = false;
+    const failOpen = silentSuccess(malformedMarker);
+    const kind = "cursor_events" as const;
+    return Object.freeze({
+      schemaVersion: 1 as const,
+      layer: "packaged" as const,
+      kind,
+      installedAssets,
+      hookEvent,
+      successMarker,
+      updateNotice,
+      updateRefresh,
+      failOpen,
+      fingerprint: sha256Parts([
+        kind,
+        host,
+        markerBytes as Buffer,
         skillBytes as Buffer,
         stateBytes as Buffer,
         String(installedAssets),
@@ -1910,9 +2120,13 @@ async function openCodeRuntimeContract(
 }
 
 function completeRuntimeContract(contract: HostRuntimeContract | undefined): boolean {
-  return contract !== undefined && contract.installedAssets && contract.hookEvent &&
-    contract.successMarker && contract.updateNotice && contract.updateRefresh && contract.failOpen &&
-    /^[a-f0-9]{64}$/u.test(contract.fingerprint);
+  if (contract === undefined || !contract.installedAssets || !contract.hookEvent ||
+    !contract.successMarker || !contract.failOpen || !/^[a-f0-9]{64}$/u.test(contract.fingerprint)) {
+    return false;
+  }
+  return contract.kind === "cursor_events"
+    ? !contract.updateNotice && !contract.updateRefresh
+    : contract.updateNotice && contract.updateRefresh;
 }
 
 async function hostRuntimeEvidence(
@@ -1922,6 +2136,8 @@ async function hostRuntimeEvidence(
 ): Promise<HostRuntimeContract | undefined> {
   return host === "opencode"
     ? await openCodeRuntimeContract(projectRoot, runtimeRoot)
+    : host === "cursor"
+      ? cursorRuntimeContract(projectRoot, runtimeRoot)
     : commandRuntimeContract(host, projectRoot, runtimeRoot);
 }
 
@@ -2046,7 +2262,7 @@ function installSyntheticSourceConflict(host: HostId, runtimeRoot: string): stri
       : host === "opencode"
         ? ".config/opencode/plugins/kcoderag-nav.js"
         : host === "zcode"
-          ? ".zcode/skills/kcoderag-nav/SKILL.md"
+          ? ".zcode/skills/kcoderag/SKILL.md"
           : ".cursor/plugins/local/kcoderag-nav";
   const conflictPath = path.join(hostHome, ...relativePath.split("/"));
   fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
@@ -2071,11 +2287,11 @@ function isConflictFailure(result: PackageCliResult): boolean {
 }
 
 function codeStyleSkillPath(host: HostId): string {
-  if (host === "codex") return ".agents/skills/code-style-correction/SKILL.md";
-  if (host === "claude") return ".claude/skills/code-style-correction/SKILL.md";
-  if (host === "cursor") return ".cursor/skills/code-style-correction/SKILL.md";
-  if (host === "opencode") return ".opencode/skills/code-style-correction/SKILL.md";
-  return ".zcode/skills/code-style-correction/SKILL.md";
+  if (host === "codex") return ".agents/skills/kcoderag-code-style/SKILL.md";
+  if (host === "claude") return ".claude/skills/kcoderag-code-style/SKILL.md";
+  if (host === "cursor") return ".cursor/skills/kcoderag-code-style/SKILL.md";
+  if (host === "opencode") return ".opencode/skills/kcoderag-code-style/SKILL.md";
+  return ".zcode/skills/kcoderag-code-style/SKILL.md";
 }
 
 function isCliError(result: PackageCliResult, code: string): boolean {
@@ -2345,67 +2561,50 @@ async function runRequiredHost(
     const navigationInstall = runPackageCli(
       artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION] },
     );
-    let supportedNavigationThenStyle = false;
-    let supportedStyleThenNavigation = false;
-    let supportedDuplicateNoop = false;
-    let supportedFailedSecondAdd = false;
-    let unsupportedRefusal = false;
-    let unsupportedZeroWrite = false;
-    let unsupportedNavigationPreserved = false;
-    if (receipt !== undefined) {
-      const addStyle = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      supportedNavigationThenStyle = navigationInstall !== undefined && addStyle !== undefined &&
-        exactCapabilities(host, projectRoot, [NAVIGATION, CODE_STYLE]);
-      const beforeDuplicate = treeFingerprint(projectRoot);
-      const duplicate = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE, NAVIGATION] },
-      );
-      supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
-        duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
-      runtimeEvidence = installedRuntimeEvidence(
-        host, runtimePackageRoot, projectRoot, artifact, projectsRoot, runNpm,
-      );
+    const addStyle = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const supportedNavigationThenStyle = navigationInstall !== undefined && addStyle !== undefined &&
+      exactCapabilities(host, projectRoot, [NAVIGATION, CODE_STYLE]);
+    const beforeDuplicate = treeFingerprint(projectRoot);
+    const duplicate = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE, NAVIGATION] },
+    );
+    const supportedDuplicateNoop = duplicate?.changed === false && Array.isArray(duplicate.changedPaths) &&
+      duplicate.changedPaths.length === 0 && treeFingerprint(projectRoot) === beforeDuplicate;
+    runtimeEvidence = installedRuntimeEvidence(
+      host, runtimePackageRoot, projectRoot, artifact, projectsRoot, runNpm,
+    );
 
-      const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
-      const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
-      fs.mkdirSync(reverseRoot, { recursive: true });
-      const reverseStyle = runPackageCli(
-        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      const reverseNavigation = runPackageCli(
-        artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
-      );
-      supportedStyleThenNavigation = reverseStyle !== undefined && reverseNavigation !== undefined &&
-        exactCapabilities(host, reverseRoot, [NAVIGATION, CODE_STYLE]);
+    const reverseRoot = path.join(projectsRoot, `${host}-reverse-order`);
+    const reverseRuntime = path.join(projectsRoot, `${host}-reverse-runtime`);
+    fs.mkdirSync(reverseRoot, { recursive: true });
+    const reverseStyle = runPackageCli(
+      artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const reverseNavigation = runPackageCli(
+      artifact, reverseRoot, reverseRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+    );
+    const supportedStyleThenNavigation = reverseStyle !== undefined && reverseNavigation !== undefined &&
+      exactCapabilities(host, reverseRoot, [NAVIGATION, CODE_STYLE]);
 
-      const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
-      const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
-      fs.mkdirSync(failedRoot, { recursive: true });
-      const failedNavigation = runPackageCli(
-        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
-      );
-      const conflictPath = path.join(failedRoot, ...codeStyleSkillPath(host).split("/"));
-      fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
-      fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
-      const beforeFailedAdd = treeFingerprint(failedRoot);
-      const failedAdd = runPackageCliResult(
-        artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      supportedFailedSecondAdd = failedNavigation !== undefined &&
-        isCliError(failedAdd, "unmanaged_name_conflict") &&
-        treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
-      evidence.install = supportedNavigationThenStyle;
-    } else {
-      evidence.install = navigationInstall !== undefined && exactCapabilities(host, projectRoot, [NAVIGATION]);
-      const beforeRefusal = treeFingerprint(projectRoot);
-      const refused = runPackageCliResult(
-        artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
-      );
-      unsupportedRefusal = isCliError(refused, "host_version_unsupported");
-      unsupportedZeroWrite = unsupportedRefusal && treeFingerprint(projectRoot) === beforeRefusal;
-    }
+    const failedRoot = path.join(projectsRoot, `${host}-failed-second-add`);
+    const failedRuntime = path.join(projectsRoot, `${host}-failed-runtime`);
+    fs.mkdirSync(failedRoot, { recursive: true });
+    const failedNavigation = runPackageCli(
+      artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [NAVIGATION] },
+    );
+    const conflictPath = path.join(failedRoot, ...codeStyleSkillPath(host).split("/"));
+    fs.mkdirSync(path.dirname(conflictPath), { recursive: true });
+    fs.writeFileSync(conflictPath, "unmanaged fixture\n", "utf8");
+    const beforeFailedAdd = treeFingerprint(failedRoot);
+    const failedAdd = runPackageCliResult(
+      artifact, failedRoot, failedRuntime, "install", host, runNpm, { capabilities: [CODE_STYLE] },
+    );
+    const supportedFailedSecondAdd = failedNavigation !== undefined &&
+      isCliError(failedAdd, "unmanaged_name_conflict") &&
+      treeFingerprint(failedRoot) === beforeFailedAdd && exactCapabilities(host, failedRoot, [NAVIGATION]);
+    evidence.install = supportedNavigationThenStyle;
     installed = evidence.install;
     if (!installed) return evaluateHostEvidence({
       host,
@@ -2417,10 +2616,13 @@ async function runRequiredHost(
     });
     const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
     const doctor = runPackageCli(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
-    evidence.status = status?.status === "healthy" && status.environment === "qa";
-    evidence.doctor = doctor?.status === "healthy" && doctor.environment === "qa";
-    unsupportedNavigationPreserved = receipt === undefined && unsupportedRefusal &&
-      status?.status === "healthy" && exactCapabilities(host, projectRoot, [NAVIGATION]);
+    const expectedAutomaticNudge = receipt === undefined ? "unsupported" : "available";
+    evidence.status = status?.status === "healthy" && status.environment === "qa" &&
+      status.codeStyle?.manualSkill === "available" &&
+      status.codeStyle?.automaticNudge === expectedAutomaticNudge;
+    evidence.doctor = doctor?.status === "healthy" && doctor.environment === "qa" &&
+      doctor.codeStyle?.manualSkill === "available" &&
+      doctor.codeStyle?.automaticNudge === expectedAutomaticNudge;
     const connection = readConnection(host, projectRoot);
     const packagedConnection = connection?.serverName === expectedServerName(host)
       && typeof connection.url === "string"
@@ -2462,35 +2664,24 @@ async function runRequiredHost(
 
     fs.unlinkSync(sourceConflictPath);
     sourceConflictPath = undefined;
-    let partialUninstall = false;
-    if (receipt !== undefined) {
-      const partial = runPackageCli(
-        artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [CODE_STYLE], all: false },
-      );
-      const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
-      partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
-        exactCapabilities(host, projectRoot, [NAVIGATION]);
-    }
+    const partial = runPackageCli(
+      artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { capabilities: [CODE_STYLE], all: false },
+    );
+    const partialStatus = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
+    const partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
+      partialStatus.codeStyle?.manualSkill === "absent" && exactCapabilities(host, projectRoot, [NAVIGATION]);
     const uninstall = runPackageCli(
       artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { all: true },
     );
     evidence.uninstall = uninstall !== undefined && uninstall.environment === "qa" &&
       !fs.existsSync(statePath(host, projectRoot));
-    capabilityLifecycle = receipt === undefined
-      ? Object.freeze({
-          schemaVersion: 1 as const,
-          branch: "unsupported" as const,
-          hostVersion,
-          navigationInstalled: evidence.install,
-          refusalCode: "host_version_unsupported" as const,
-          zeroWrite: unsupportedZeroWrite,
-          navigationPreserved: unsupportedNavigationPreserved,
-        })
-      : Object.freeze({
+    capabilityLifecycle = Object.freeze({
           schemaVersion: 1 as const,
           branch: "supported" as const,
           hostVersion,
-          receiptDigest: receipt.receiptDigest,
+          manualSkill: "available" as const,
+          automaticNudge: receipt === undefined ? "unsupported" as const : "available" as const,
+          ...(receipt === undefined ? {} : { receiptDigest: receipt.receiptDigest }),
           navigationThenStyle: supportedNavigationThenStyle,
           styleThenNavigation: supportedStyleThenNavigation,
           duplicateNoop: supportedDuplicateNoop,
@@ -2584,7 +2775,8 @@ export function liveCommandSpec(host: HostId, projectRoot: string): LiveCommandS
   if (host === "codex") {
     return Object.freeze({ executable: "codex", args: Object.freeze([
       "exec", "--enable", "hooks", "--ephemeral", "--dangerously-bypass-hook-trust",
-      "--approve-for-me", "--skip-git-repo-check", "--json",
+      "--sandbox", "read-only", "-c", 'approval_policy="never"',
+      "--skip-git-repo-check", "--json",
       "--cd", projectRoot, LIVE_PROMPT,
     ]) });
   }
@@ -2668,25 +2860,88 @@ function safeKsccSettings(bytes: Buffer): Buffer | undefined {
   }
 }
 
+function safeOpenCodeSettings(bytes: Buffer): Buffer | undefined {
+  try {
+    const source = parseJsoncObject(bytes.toString("utf8"));
+    const projected: Record<string, unknown> = {};
+    for (const key of ["model", "small_model", "provider", "enabled_providers", "disabled_providers"] as const) {
+      if (source[key] !== undefined) projected[key] = source[key];
+    }
+    if (projected.model === undefined && isRecord(source.provider)) {
+      const provider = Object.entries(source.provider)
+        .find(([name, value]) => /^[A-Za-z0-9._-]{1,128}$/u.test(name) && isRecord(value) && isRecord(value.models));
+      const models = provider === undefined || !isRecord(provider[1]) ? undefined : provider[1].models;
+      const model = !isRecord(models) ? undefined : Object.keys(models)
+        .find((name) => /^[A-Za-z0-9._-]{1,128}$/u.test(name));
+      if (provider !== undefined && model !== undefined) projected.model = `${provider[0]}/${model}`;
+    }
+    return Object.keys(projected).length === 0
+      ? undefined
+      : Buffer.from(`${JSON.stringify(projected, null, 2)}\n`, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /** Copy only the credential material needed by the disposable host; never import hooks, plugins, or history. */
 export function projectLiveCredential(host: HostId, runtimeRoot: string, sourceRoot?: string): boolean {
   const credentialName = host === "codex"
     ? "auth.json"
     : host === "claude"
       ? "settings.json"
-      : undefined;
+      : host === "opencode"
+        ? "auth.json"
+        : host === "zcode"
+          ? "credentials.json"
+          : undefined;
   if (credentialName === undefined) return false;
   const selectedSourceRoot = sourceRoot ?? (host === "codex"
     ? (process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"))
-    : (process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude")));
-  const sourcePath = path.join(selectedSourceRoot, credentialName);
-  const targetRoot = path.join(runtimeRoot, "host-home");
-  const targetPath = path.join(targetRoot, credentialName);
-  const bytes = readBoundedRegularFile(sourcePath);
-  if (bytes === undefined) return false;
-  if (path.resolve(sourcePath) === path.resolve(targetPath)) return true;
-  const projected = host === "claude" ? safeKsccSettings(bytes) : bytes;
-  return projected !== undefined && writeExclusivePrivateFile(targetPath, projected);
+    : host === "claude"
+      ? (process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"))
+      : host === "opencode"
+        ? path.join(os.homedir(), ".local", "share", "opencode")
+        : path.join(os.homedir(), ".zcode", "v2"));
+  const relativeTargetRoot = host === "opencode"
+    ? path.join("host-home", ".local", "share", "opencode")
+    : host === "zcode"
+      ? path.join("host-home", ".zcode", "v2")
+      : "host-home";
+  const projectedNames = host === "zcode" ? [credentialName, "config.json"] : [credentialName];
+  const projectedPaths: string[] = [];
+  try {
+    for (const name of projectedNames) {
+      const sourcePath = path.join(selectedSourceRoot, name);
+      const targetPath = path.join(runtimeRoot, relativeTargetRoot, name);
+      const bytes = readBoundedRegularFile(sourcePath);
+      if (bytes === undefined) throw new Error("credential_unavailable");
+      if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+      const projected = host === "claude" ? safeKsccSettings(bytes) : bytes;
+      if (projected === undefined || !writeExclusivePrivateFile(targetPath, projected)) {
+        throw new Error("credential_projection_failed");
+      }
+      projectedPaths.push(targetPath);
+    }
+    if (host === "opencode") {
+      const configSourceRoot = sourceRoot ?? path.join(os.homedir(), ".config", "opencode");
+      const configName = ["opencode.json", "opencode.jsonc"]
+        .find((name) => readBoundedRegularFile(path.join(configSourceRoot, name)) !== undefined);
+      if (configName !== undefined) {
+        const configBytes = readBoundedRegularFile(path.join(configSourceRoot, configName));
+        const projected = configBytes === undefined ? undefined : safeOpenCodeSettings(configBytes);
+        if (projected === undefined) throw new Error("credential_projection_failed");
+        const targetPath = path.join(runtimeRoot, "host-home", ".config", "opencode", "opencode.json");
+        if (!writeExclusivePrivateFile(targetPath, projected)) throw new Error("credential_projection_failed");
+        projectedPaths.push(targetPath);
+      }
+    }
+    return true;
+  } catch {
+    for (const projectedPath of projectedPaths) {
+      try { fs.rmSync(projectedPath, { force: true }); } catch { /* disposable projection only */ }
+    }
+    return false;
+  }
 }
 
 async function runLiveCommand(host: HostId, projectRoot: string, runtimeRoot: string): Promise<CommandResult> {
@@ -2832,6 +3087,10 @@ function aggregate(
     schemaVersion: 1,
     mode,
     status,
+    verdict: aggregateHostReceipts(hosts.map((result) => result.receipt), {
+      requiredHosts: hosts.map((result) => result.host),
+      ...(provenance === undefined ? {} : { candidateSha: provenance.lifecycleTarballSha256 }),
+    }),
     ...(provenance === undefined ? {} : { provenance }),
     hosts: Object.freeze([...hosts]),
   });
@@ -2921,7 +3180,7 @@ export async function runHostSmoke(
     return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
       host,
       mode: options.mode,
-      unavailableReason: "package_unavailable",
+      failureReason: "package_acquisition_failed",
     })));
   }
   if (
@@ -2931,7 +3190,7 @@ export async function runHostSmoke(
     return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
       host,
       mode: options.mode,
-      unavailableReason: "package_unavailable",
+      failureReason: "package_acquisition_failed",
     })));
   }
   let request: NormalizedPackageRequest | undefined;
@@ -2942,7 +3201,7 @@ export async function runHostSmoke(
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
         host,
         mode: options.mode,
-        unavailableReason: "package_unavailable",
+        failureReason: "package_acquisition_failed",
       })));
     }
   }
@@ -2970,7 +3229,7 @@ export async function runHostSmoke(
         return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
           host,
           mode: options.mode,
-          unavailableReason: "package_unavailable",
+          failureReason: "package_acquisition_failed",
         })));
       }
     }
@@ -2998,7 +3257,7 @@ export async function runHostSmoke(
       return aggregate(options.mode, hosts.map((host) => evaluateHostEvidence({
         host,
         mode: options.mode,
-        unavailableReason: "package_unavailable",
+        failureReason: "package_acquisition_failed",
       })));
     }
     return await executeAcquiredSmoke(

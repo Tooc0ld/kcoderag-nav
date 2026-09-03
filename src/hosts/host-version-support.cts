@@ -11,6 +11,7 @@ export interface HostVersionSupportRow {
 
 export interface HostVersionSupportResult {
   readonly navigation: true;
+  /** Compatibility name for the automatic native nudge decision. */
   readonly codeStyleNudge: boolean;
   readonly code?: "host_version_unsupported";
   readonly receiptDigest?: string;

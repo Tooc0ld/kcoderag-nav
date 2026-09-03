@@ -2,14 +2,14 @@
 /** Bounded structured-write classifier for the nav-managed code-style Skill reminder. */
 
 import type { HostId } from "../core/contracts.cjs";
-import { claimNudgeOnce } from "./once-marker.cjs";
+import { claimReminder, contextEpochForSession } from "./once-marker.cjs";
 
 const crypto = require("node:crypto") as typeof import("node:crypto");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 
 export const CODE_STYLE_NUDGE =
-  "Code-style source change: before writing, load and follow $code-style-correction and its compact checklist. " +
+  "Code-style source change: before writing, load and follow $kcoderag-code-style and its compact checklist. " +
   "Explicit user and project instructions take precedence. Before finishing, review only the regions changed in this task.";
 
 export const CODE_STYLE_SOURCE_EXTENSIONS = Object.freeze([
@@ -48,6 +48,8 @@ export interface CodeStyleIntegrityOptions {
 
 export interface CodeStyleIntegrityResult {
   readonly ok: boolean;
+  readonly manualSkill?: "available";
+  readonly automaticNudge?: "available" | "unsupported";
   readonly finding?: {
     readonly code: "capability_drift";
     readonly path: string;
@@ -146,18 +148,19 @@ function unexpectedSkillPath(root: string, skillPath: string): string | undefine
   const referencesRoot = path.join(skillRoot, "references");
   try {
     const skillEntries = fs.readdirSync(skillRoot, { withFileTypes: true });
-    const expectedSkillEntries = new Set(["SKILL.md", "references"]);
+    const expectedSkillEntries = new Set(["SKILL.md", "references", "agents"]);
     for (const entry of skillEntries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (
         !expectedSkillEntries.has(entry.name) ||
         entry.isSymbolicLink() ||
         (entry.name === "SKILL.md" && !entry.isFile()) ||
-        (entry.name === "references" && !entry.isDirectory())
+        (entry.name === "references" && !entry.isDirectory()) ||
+        (entry.name === "agents" && !entry.isDirectory())
       ) {
         return path.relative(root, path.join(skillRoot, entry.name)).split(path.sep).join("/");
       }
     }
-    if (skillEntries.length !== expectedSkillEntries.size) return skillPath;
+    if (skillEntries.length < 2 || skillEntries.length > expectedSkillEntries.size) return skillPath;
 
     const referenceEntries = fs.readdirSync(referencesRoot, { withFileTypes: true });
     const expectedReferences = new Set<string>(REQUIRED_REFERENCE_NAMES);
@@ -167,6 +170,13 @@ function unexpectedSkillPath(root: string, skillPath: string): string | undefine
       }
     }
     if (referenceEntries.length !== expectedReferences.size) return skillPath;
+    const agentsEntry = skillEntries.find((entry) => entry.name === "agents");
+    if (agentsEntry !== undefined) {
+      const agentEntries = fs.readdirSync(path.join(skillRoot, "agents"), { withFileTypes: true });
+      if (agentEntries.length !== 1 || agentEntries[0]?.name !== "openai.yaml" || !agentEntries[0].isFile() || agentEntries[0].isSymbolicLink()) {
+        return path.relative(root, path.join(skillRoot, "agents")).split(path.sep).join("/");
+      }
+    }
     return undefined;
   } catch {
     return skillPath;
@@ -211,20 +221,33 @@ export function evaluateCodeStyleIntegrity(options: CodeStyleIntegrityOptions): 
       return drift(expectedStateRelativePath);
     }
     const capabilityPaths = capability.files as string[];
-    const skillPath = singlePathEnding(capabilityPaths, "/SKILL.md");
+    const skillPath = singlePathEnding(capabilityPaths, "/kcoderag-code-style/SKILL.md");
     const handlerPath = singlePathEnding(capabilityPaths, "/code-style-nudge.cjs");
     const dispatcherPath = singlePathEnding(capabilityPaths, "/pre-tool-dispatcher.cjs");
     const referencePaths = REQUIRED_REFERENCE_NAMES.map((name) =>
       singlePathEnding(capabilityPaths, `/references/${name}`));
     if (
       skillPath === undefined ||
-      handlerPath === undefined ||
-      dispatcherPath === undefined ||
       referencePaths.some((value) => value === undefined)
     ) {
       return drift(expectedStateRelativePath);
     }
-    const requiredPaths = [skillPath, ...referencePaths, handlerPath, dispatcherPath] as string[];
+    const capabilitySections = Array.isArray(capability.sections) && capability.sections.every(safeRelativePath)
+      ? capability.sections as string[]
+      : undefined;
+    if (capabilitySections === undefined) return drift(expectedStateRelativePath);
+    const automaticSections = capabilitySections.filter((reference) => reference.endsWith("#code-style:pre-tool"));
+    const hasAutomaticAssets = handlerPath !== undefined || dispatcherPath !== undefined || automaticSections.length > 0;
+    const automaticNudge = handlerPath !== undefined && dispatcherPath !== undefined && automaticSections.length === 1
+      ? "available"
+      : "unsupported";
+    if (hasAutomaticAssets && automaticNudge !== "available") return drift(expectedStateRelativePath);
+    if (automaticNudge === "unsupported" && capabilitySections.length !== 0) return drift(expectedStateRelativePath);
+    const requiredPaths = [
+      skillPath,
+      ...referencePaths,
+      ...(automaticNudge === "available" ? [handlerPath, dispatcherPath] : []),
+    ] as string[];
     const managedRecords = new Map<string, Readonly<{
       digest: string;
       contributors: readonly string[];
@@ -270,7 +293,7 @@ export function evaluateCodeStyleIntegrity(options: CodeStyleIntegrityOptions): 
     }
     const extraPath = unexpectedSkillPath(root, skillPath);
     if (extraPath !== undefined) return drift(extraPath);
-    return Object.freeze({ ok: true });
+    return Object.freeze({ ok: true, manualSkill: "available", automaticNudge });
   } catch {
     return drift();
   }
@@ -399,11 +422,21 @@ export function codeStyleContribution(
     if (options === undefined || !structuredMutationPaths(payload).some(isCodeStyleSourcePath)) {
       return undefined;
     }
-    if (!evaluateCodeStyleIntegrity(options).ok) return undefined;
-    const claim = claimNudgeOnce(payload, {
+    if (evaluateCodeStyleIntegrity(options).automaticNudge !== "available") return undefined;
+    const contextEpoch = contextEpochForSession(payload, {
       host: options.host,
       managedRoot: options.managedRoot,
       capability: "code-style-nudge",
+      source: "resume",
+      ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+    });
+    if (contextEpoch === undefined) return undefined;
+    const claim = claimReminder(payload, {
+      host: options.host,
+      managedRoot: options.managedRoot,
+      capability: "code-style-nudge",
+      reminderKind: "code-style",
+      contextEpoch,
       ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
     });
     return claim.claimed ? CODE_STYLE_NUDGE : undefined;
