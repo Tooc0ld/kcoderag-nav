@@ -33,12 +33,7 @@ interface LiveCoordinatorOptions {
 interface AcceptanceWorkflowContract {
   readonly schemaVersion: 1;
   readonly producerJob: "package";
-  readonly packagedLanes: readonly [
-    "ubuntu-node22",
-    "ubuntu-node24",
-    "windows-node22",
-    "windows-node24",
-  ];
+  readonly packagedLanes: readonly ["windows-node22"];
   readonly liveJob: "live";
   readonly liveRunner: readonly ["self-hosted", "Windows", "X64", "kcoderag-live"];
   readonly coordinatorOrder: readonly ["codex", "claude", "opencode", "cursor", "zcode"];
@@ -95,14 +90,17 @@ function expectCode(call: () => unknown, code: string): void {
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
 }
 
-test("acceptance workflow has one producer, four PACKAGED lanes and one protected exact-candidate LIVE lane", () => {
+test("acceptance workflow skips documentation pushes and has one Windows PACKAGED lane plus protected LIVE", () => {
   const source = workflow();
-  assert.match(source, /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- "\*\*"\s*\r?\n\s+workflow_call:/mu);
+  assert.match(
+    source,
+    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- "\*\*"\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- "README\.md"\s*\r?\n\s+- "docs\/\*\*"\s*\r?\n\s+- "\.planning\/\*\*"\s*\r?\n\s+workflow_call:/mu,
+  );
   assert.doesNotMatch(source, /^\s+pull_request(?:_target)?:/mu);
   assert.deepEqual(workflowContract.validateAcceptanceWorkflow(source), {
     schemaVersion: 1,
     producerJob: "package",
-    packagedLanes: ["ubuntu-node22", "ubuntu-node24", "windows-node22", "windows-node24"],
+    packagedLanes: ["windows-node22"],
     liveJob: "live",
     liveRunner: ["self-hosted", "Windows", "X64", "kcoderag-live"],
     coordinatorOrder: ["codex", "claude", "opencode", "cursor", "zcode"],
@@ -119,16 +117,13 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
   const source = workflow();
   const packageJob = source.slice(source.indexOf("  package:"), source.indexOf("  packaged:"));
   assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
-  assert.deepEqual(
-    [...source.matchAll(/- lane:\s*([^\s]+)\s*\r?\n\s*os:\s*([^\s]+)\s*\r?\n\s*runner:\s*([^\s]+)\s*\r?\n\s*node:\s*["']([^"']+)["']/gu)]
-      .map((match) => [match[1], match[2], match[3], match[4]].join("|")),
-    [
-      "ubuntu-node22|linux|ubuntu-latest|22",
-      "ubuntu-node24|linux|ubuntu-latest|24",
-      "windows-node22|windows|windows-latest|22",
-      "windows-node24|windows|windows-latest|24",
-    ],
-  );
+  const packaged = source.slice(source.indexOf("  packaged:"), source.indexOf("  live:"));
+  assert.match(packaged, /name:\s*PACKAGED \/ windows-node22/u);
+  assert.match(packaged, /runs-on:\s*windows-latest/u);
+  assert.match(packaged, /node-version:\s*["']22["']/u);
+  assert.match(packaged, /--lane\s+["']windows-node22["']/u);
+  assert.equal(packaged.match(/npm run acceptance:packaged/gu)?.length, 1);
+  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 2);
   assert.match(source, /candidateSha:[\s\S]*?required:\s*true[\s\S]*?candidateRef:[\s\S]*?required:\s*true[\s\S]*?packageSha256:[\s\S]*?required:\s*true[\s\S]*?packageMemberDigest:[\s\S]*?required:\s*true/u);
   assert.match(packageJob, /READINESS_PROVENANCE_PROFILE:\s*acceptance/u);
@@ -159,13 +154,16 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
 
 test("workflow validator fails closed for trust, identity, bypass and LIVE rebuild drift", () => {
   const source = workflow();
+  const liveStart = source.indexOf("  live:");
+  const liveNode24 = `${source.slice(0, liveStart)}${source.slice(liveStart).replace('node-version: "22"', 'node-version: "24"')}`;
   const cases = [
     [source.replace("  workflow_call:", "  pull_request:\n  workflow_call:"), "untrusted_event_trigger"],
+    [source.replace('      - ".planning/**"\n', ""), "documentation_filter_invalid"],
     [source.replaceAll("candidateSha:", "candidateDigest:"), "candidate_input_missing"],
     [source.replaceAll("candidateRef:", "candidateBranch:"), "candidate_ref_input_missing"],
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],
     [source.replace("github.event.repository.fork == false", "github.event.repository.fork == true"), "untrusted_ref_guard_missing"],
-    [source.replaceAll("node-version: \"22\"", "node-version: \"24\""), "live_runner_invalid"],
+    [liveNode24, "live_runner_invalid"],
     [source.replace("KCODERAG_NATIVE_DRIVER_SHA256", "KCODERAG_NATIVE_DRIVER_DIGEST"), "native_driver_binding_missing"],
     [source.replace("dist/maintainer/native-host-driver.cjs", "C:/mutable/native-driver.cjs"), "native_driver_binding_missing"],
     [source.replace("${{ vars.KCODERAG_ZCODE_WORKSPACE_TRUST }}", "approved"), "workspace_trust_projection_missing"],

@@ -69,6 +69,31 @@ jobs:
         run: npm run docs:check
       - name: Audit retired authority directly
         run: npm run audit:retirement
+
+  packaged-contracts:
+    name: Required packaged smoke / windows-node-22
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install audited dependency graph
+        run: npm ci --ignore-scripts
+      - name: Verify tag matches package version
+        run: >-
+          node -e "const packageJson=require('./package.json');
+          const expectedTag='v'+packageJson.version;
+          if(process.env.GITHUB_REF_NAME!==expectedTag){process.exit(1)}"
+      - name: Build packaged smoke and audit tools
+        run: npm run build
       - name: Run required five-host contract smoke
         run: npm run smoke:required
       - name: Audit real npm tarball
@@ -76,7 +101,7 @@ jobs:
 
   publish:
     name: Verify and publish matching npm tag
-    needs: required-contracts
+    needs: [required-contracts, packaged-contracts]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

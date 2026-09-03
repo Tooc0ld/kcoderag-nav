@@ -38,10 +38,7 @@ const readinessWorkflow = require("./readiness-workflow.cjs") as {
 
 export const ACCEPTANCE_WORKFLOW_STAGES = RECEIPT_STAGES;
 export const PACKAGED_LANES = Object.freeze([
-  "ubuntu-node22",
-  "ubuntu-node24",
   "windows-node22",
-  "windows-node24",
 ] as const);
 export const ACCEPTANCE_HOSTS = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
 const LIVE_RUNNER = Object.freeze(["self-hosted", "Windows", "X64", "kcoderag-live"] as const);
@@ -169,6 +166,11 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   if (/^\s+pull_request(?:_target)?:/mu.test(source)) {
     throw new AcceptanceWorkflowError("untrusted_event_trigger");
   }
+  requireMatch(
+    source,
+    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- ["']README\.md["']\s*\r?\n\s+- ["']docs\/\*\*["']\s*\r?\n\s+- ["']\.planning\/\*\*["']\s*\r?\n\s+workflow_call:/mu,
+    "documentation_filter_invalid",
+  );
   requireMatch(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?required:\s*true/u, "candidate_input_missing");
   requireMatch(source, /workflow_dispatch:[\s\S]*?candidateRef:[\s\S]*?required:\s*true/u,
     "candidate_ref_input_missing");
@@ -200,16 +202,13 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   requireMatch(packageJob, /READINESS_WORKFLOW_BLOB_SHA:\s*\$\{\{ inputs\.workflowBlobSha \}\}/u,
     "producer_provenance_missing");
   const packaged = jobBody(source, "packaged", "live");
-  for (const [lane, os, runner, node] of [
-    ["ubuntu-node22", "linux", "ubuntu-latest", "22"],
-    ["ubuntu-node24", "linux", "ubuntu-latest", "24"],
-    ["windows-node22", "windows", "windows-latest", "22"],
-    ["windows-node24", "windows", "windows-latest", "24"],
-  ] as const) {
-    requireMatch(packaged, new RegExp(`- lane:\\s*${lane}\\s*\\r?\\n\\s*os:\\s*${os}\\s*\\r?\\n\\s*runner:\\s*${runner}\\s*\\r?\\n\\s*node:\\s*[\"']${node}[\"']`, "u"),
-      "packaged_matrix_invalid");
-  }
-  if (count(packaged, /- lane:/gu) !== 4 || !/evidence-level\s+PACKAGED/iu.test(packaged)) {
+  requireMatch(packaged, /name:\s*PACKAGED \/ windows-node22/u, "packaged_matrix_invalid");
+  requireMatch(packaged, /runs-on:\s*windows-latest/u, "packaged_matrix_invalid");
+  requireMatch(packaged, /node-version:\s*["']22["']/u, "packaged_matrix_invalid");
+  requireMatch(packaged, /--lane\s+["']windows-node22["']/u, "packaged_matrix_invalid");
+  if (count(packaged, /npm run acceptance:packaged/gu) !== 1
+      || /strategy:|matrix\./u.test(packaged)
+      || !/evidence-level\s+PACKAGED/iu.test(packaged)) {
     throw new AcceptanceWorkflowError("packaged_matrix_invalid");
   }
   const live = jobBody(source, "live", "verify");

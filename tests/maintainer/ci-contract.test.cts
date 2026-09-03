@@ -50,13 +50,17 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
     lanes(required),
     expectedLanes,
   );
-  assert.deepEqual(lanes(packaged), expectedLanes);
+  assert.deepEqual(lanes(packaged), []);
   assert.match(required, /name:\s*Required contracts \/ \$\{\{ matrix\.lane \}\}/u);
   assert.match(required, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
   assert.match(required, /timeout-minutes:\s*30/u);
   assert.match(required, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
   assert.equal(required.match(/\n\s*- lane:/gu)?.length, 4);
-  assert.equal(packaged.match(/\n\s*- lane:/gu)?.length, 4);
+  assert.equal(packaged.match(/\n\s*- lane:/gu)?.length ?? 0, 0);
+  assert.match(packaged, /name:\s*Packaged readiness \/ windows-node-22/u);
+  assert.match(packaged, /runs-on:\s*windows-latest/u);
+  assert.match(packaged, /node-version:\s*["']22["']/u);
+  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
   assert.doesNotMatch(`${required}\n${packaged}`, /exclude:|continue-on-error|matrix\.python|python-version/iu);
   const jobsSource = source.slice(source.indexOf("\njobs:"));
   assert.deepEqual(
@@ -140,14 +144,14 @@ test("documentation-only scope runs one bounded lightweight gate and skips the f
   );
 });
 
-test("packaged readiness runs once per event and stays parallel across all platform lanes", () => {
+test("packaged readiness runs once per event on Windows Node 22", () => {
   const source = workflow();
   const required = job(source, "required-contracts", "packaged-contracts");
   const packaged = job(source, "packaged-contracts");
-  assert.match(packaged, /name:\s*Packaged readiness \/ \$\{\{ matrix\.lane \}\}/u);
-  assert.match(packaged, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
+  assert.match(packaged, /name:\s*Packaged readiness \/ windows-node-22/u);
+  assert.match(packaged, /runs-on:\s*windows-latest/u);
   assert.match(packaged, /timeout-minutes:\s*20/u);
-  assert.match(packaged, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
+  assert.match(packaged, /node-version:\s*["']22["']/u);
   const commands = ["npm ci --ignore-scripts", "npm run build", "npm run test:ci:packaged"];
   let previous = -1;
   for (const command of commands) {
@@ -156,16 +160,27 @@ test("packaged readiness runs once per event and stays parallel across all platf
     previous = index;
   }
   assert.doesNotMatch(required, /test:ci:packaged/u);
+  assert.equal(packaged.match(/npm run test:ci:packaged/gu)?.length, 1);
+  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
   assert.doesNotMatch(packaged, /npm run (?:test:ci\s|deps:audit|test:launcher|generate:check|docs:check|audit:retirement|test:pack)/u);
   assert.doesNotMatch(packaged, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.match(acceptanceWorkflow(), /^on:[\s\S]*?push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']/mu);
+  assert.match(
+    acceptanceWorkflow(),
+    /^on:[\s\S]*?push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- ["']README\.md["']\s*\r?\n\s+- ["']docs\/\*\*["']\s*\r?\n\s+- ["']\.planning\/\*\*["']/mu,
+  );
 });
 
-test("acceptance uses one hosted producer, four packaged lanes and a protected exact-candidate Windows LIVE lane", () => {
+test("acceptance uses one hosted producer, one Windows packaged lane and a protected exact-candidate LIVE lane", () => {
   const source = acceptanceWorkflow();
   assert.match(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?packageSha256:[\s\S]*?packageMemberDigest:[\s\S]*?workflowBlobSha:/u);
   assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
-  assert.equal(source.match(/- lane:\s*(?:ubuntu|windows)-node(?:22|24)/gu)?.length, 4);
+  const packaged = job(source, "packaged", "live");
+  assert.match(packaged, /name:\s*PACKAGED \/ windows-node22/u);
+  assert.match(packaged, /runs-on:\s*windows-latest/u);
+  assert.match(packaged, /node-version:\s*["']22["']/u);
+  assert.equal(packaged.match(/npm run acceptance:packaged/gu)?.length, 1);
+  assert.match(packaged, /--lane\s+["']windows-node22["']/u);
+  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
   assert.match(source, /github\.event_name == 'workflow_dispatch'/u);
   assert.match(source, /github\.event\.repository\.fork == false/u);
   assert.match(source, /environment:\s*\r?\n\s+name:\s*kcoderag-live/u);

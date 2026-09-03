@@ -31,12 +31,14 @@ test("release workflow runs only for matching semantic version tags with minimal
   assert.doesNotMatch(source, /continue-on-error/iu);
 });
 
-test("publish depends on every required Windows and Linux Node 22 and 24 lane", () => {
+test("publish depends on the four-platform required matrix and one Windows packaged gate", () => {
   const source = workflow();
   const requiredStart = position(source, "  required-contracts:");
+  const packagedStart = position(source, "  packaged-contracts:");
   const publishStart = position(source, "  publish:");
-  assert.ok(requiredStart < publishStart);
-  const requiredJob = source.slice(requiredStart, publishStart);
+  assert.ok(requiredStart < packagedStart && packagedStart < publishStart);
+  const requiredJob = source.slice(requiredStart, packagedStart);
+  const packagedJob = source.slice(packagedStart, publishStart);
   const publishJob = source.slice(publishStart);
 
   assert.deepEqual(laneTuples(requiredJob), [
@@ -51,31 +53,37 @@ test("publish depends on every required Windows and Linux Node 22 and 24 lane", 
   assert.match(requiredJob, /fail-fast:\s*false/u);
   assert.equal(requiredJob.match(/\n\s*- lane:/gu)?.length, 4);
   assert.doesNotMatch(requiredJob, /exclude:|continue-on-error/iu);
-  assert.match(publishJob, /needs:\s*required-contracts/u);
+  assert.match(packagedJob, /name:\s*Required packaged smoke \/ windows-node-22/u);
+  assert.match(packagedJob, /runs-on:\s*windows-latest/u);
+  assert.match(packagedJob, /node-version:\s*["']22["']/u);
+  assert.doesNotMatch(packagedJob, /strategy:|matrix\./u);
+  assert.match(publishJob, /needs:\s*\[required-contracts, packaged-contracts\]/u);
   assert.doesNotMatch(requiredJob, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/u);
   assert.equal(publishJob.match(/npm publish/gu)?.length, 1);
 });
 
-test("release has only gate and publish jobs and every checkout binds the tag subject SHA", () => {
+test("release has two required gates and publish, all bound to the tag subject SHA", () => {
   const source = workflow();
   const jobsSource = source.slice(source.indexOf("\njobs:"));
   assert.deepEqual(
     [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["required-contracts", "publish"],
+    ["required-contracts", "packaged-contracts", "publish"],
   );
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 2);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 2);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 2);
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 3);
+  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 3);
 });
 
-test("required lanes execute every gate before the dependent publish job finalizes the package", () => {
+test("ordinary and packaged gates execute once before publish finalizes the package", () => {
   const source = workflow();
   assert.match(source, /actions\/checkout@[0-9a-f]{40}/u);
   assert.match(source, /actions\/setup-node@[0-9a-f]{40}/u);
   assert.doesNotMatch(source, /uses:\s*[^\n]+@(main|master|v[0-9]+)(?:\s|$)/iu);
 
   const publishStart = position(source, "  publish:");
-  const requiredJob = source.slice(position(source, "  required-contracts:"), publishStart);
+  const packagedStart = position(source, "  packaged-contracts:");
+  const requiredJob = source.slice(position(source, "  required-contracts:"), packagedStart);
+  const packagedJob = source.slice(packagedStart, publishStart);
   const publishJob = source.slice(publishStart);
   const requiredGates = [
     "npm ci --ignore-scripts",
@@ -87,8 +95,6 @@ test("required lanes execute every gate before the dependent publish job finaliz
     "npm run generate:check",
     "npm run docs:check",
     "npm run audit:retirement",
-    "npm run smoke:required",
-    "npm run pack:audit",
   ];
   let previous = -1;
   for (const command of requiredGates) {
@@ -96,6 +102,22 @@ test("required lanes execute every gate before the dependent publish job finaliz
     assert.ok(current > previous, `${command} must follow the prior gate`);
     previous = current;
   }
+
+  const packagedGates = [
+    "npm ci --ignore-scripts",
+    "Verify tag matches package version",
+    "npm run build",
+    "npm run smoke:required",
+    "npm run pack:audit",
+  ];
+  previous = -1;
+  for (const command of packagedGates) {
+    const current = position(packagedJob, command);
+    assert.ok(current > previous, `${command} must follow the prior packaged gate`);
+    previous = current;
+  }
+  assert.doesNotMatch(requiredJob, /npm run (?:smoke:required|pack:audit)/u);
+  assert.equal(packagedJob.match(/npm run smoke:required/gu)?.length, 1);
 
   const publishSteps = [
     "npm ci --ignore-scripts",

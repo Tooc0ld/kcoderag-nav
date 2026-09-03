@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - "**"
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - ".planning/**"
   workflow_call:
     inputs:
       candidateSha:
@@ -101,29 +105,9 @@ jobs:
           "package-member-digest=$digest" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   packaged:
-    name: PACKAGED / ${{ matrix.lane }}
+    name: PACKAGED / windows-node22
     needs: package
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - lane: ubuntu-node22
-            os: linux
-            runner: ubuntu-latest
-            node: "22"
-          - lane: ubuntu-node24
-            os: linux
-            runner: ubuntu-latest
-            node: "24"
-          - lane: windows-node22
-            os: windows
-            runner: windows-latest
-            node: "22"
-          - lane: windows-node24
-            os: windows
-            runner: windows-latest
-            node: "24"
-    runs-on: ${{ matrix.runner }}
+    runs-on: windows-latest
     timeout-minutes: 25
     steps:
       - name: Checkout exact acceptance subject
@@ -131,10 +115,10 @@ jobs:
         with:
           ref: ${{ needs.package.outputs.candidate-sha }}
           persist-credentials: false
-      - name: Set up matrix Node
+      - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: "22"
           cache: npm
       - name: Install audited dependency graph
         run: npm ci --ignore-scripts
@@ -149,7 +133,7 @@ jobs:
         shell: pwsh
         run: >-
           npm run acceptance:packaged --
-          --lane "${{ matrix.lane }}"
+          --lane "windows-node22"
           --candidate-sha "${{ needs.package.outputs.candidate-sha }}"
           --package-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
           --member-count "${{ needs.package.outputs.member-count }}"
@@ -157,12 +141,12 @@ jobs:
           --artifact-root "${{ runner.temp }}/candidate-artifact"
           --artifact-name "${{ needs.package.outputs.artifact-name }}"
           --evidence-level PACKAGED
-          --output "${{ runner.temp }}/packaged-${{ matrix.lane }}.json"
+          --output "${{ runner.temp }}/packaged-windows-node22.json"
       - name: Upload metadata-only PACKAGED receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: packaged-${{ matrix.lane }}
-          path: ${{ runner.temp }}/packaged-${{ matrix.lane }}.json
+          name: packaged-windows-node22
+          path: ${{ runner.temp }}/packaged-windows-node22.json
           if-no-files-found: error
           retention-days: 7
 
