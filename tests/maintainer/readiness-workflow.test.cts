@@ -62,6 +62,10 @@ interface ReadinessWorkflowModule {
 const workflowContract = require("../../dist/maintainer/readiness-workflow.cjs") as ReadinessWorkflowModule;
 const hostSmoke = require("../../dist/smoke/host-smoke.cjs") as Record<string, any>;
 const repositoryRoot = path.resolve(__dirname, "../..");
+const packageVersion = (JSON.parse(
+  fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+) as { readonly version: string }).version;
+const packageArtifactName = `kcoderag-nav-${packageVersion}.tgz`;
 const workflowPath = path.join(repositoryRoot, ".github", "workflows", "readiness.yml");
 const actionRoot = path.join(repositoryRoot, ".github", "actions", "readiness-upload");
 const actionManifestPath = path.join(actionRoot, "action.yml");
@@ -615,7 +619,7 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
     return workflowContract.openDownloadedLease({
       laneId: "linux-node22",
       artifactRoot,
-      artifactName: "kcoderag-nav-0.3.1.tgz",
+      artifactName: packageArtifactName,
       artifactSha256,
       memberCount,
     });
@@ -647,7 +651,7 @@ test("downloaded lease authenticates exactly one direct raw file independent of 
   }
 });
 
-test("downloaded 0.3.1 lease derives and validates package identity before PACKAGED smoke", async () => {
+test(`downloaded ${packageVersion} lease derives and validates package identity before PACKAGED smoke`, async () => {
   const releaseReadiness = require("../../dist/maintainer/release-readiness.cjs") as Record<string, any>;
   const sourceLease = releaseReadiness.createCandidatePackageArtifact({
     root: repositoryRoot,
@@ -673,7 +677,7 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
   const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-download-"));
   const previousRunnerTemp = process.env.RUNNER_TEMP;
   process.env.RUNNER_TEMP = runnerTemp;
-  const open = (bytes: Buffer, artifactName = "kcoderag-nav-0.3.1.tgz") => {
+  const open = (bytes: Buffer, artifactName = packageArtifactName) => {
     const artifactRoot = fs.mkdtempSync(path.join(runnerTemp, "candidate-artifact-"));
     fs.writeFileSync(path.join(artifactRoot, "downloaded"), bytes);
     return workflowContract.openDownloadedLease({
@@ -690,7 +694,7 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
     const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-031-smoke-"));
     try {
       assert.equal(lease.artifact.name, "kcoderag-nav");
-      assert.equal(lease.artifact.version, "0.3.1");
+      assert.equal(lease.artifact.version, packageVersion);
       const smoke = await hostSmoke.runHostSmoke({
         mode: "required-contract",
         artifactLease: lease,
@@ -699,7 +703,7 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
         hosts: ["codex"],
       });
       assert.equal(smoke.status, "PASS");
-      assert.equal(smoke.provenance?.resolvedVersion, "0.3.1");
+      assert.equal(smoke.provenance?.resolvedVersion, packageVersion);
     } finally {
       lease.dispose();
       fs.rmSync(smokeRoot, { recursive: true, force: true });
@@ -710,7 +714,7 @@ test("downloaded 0.3.1 lease derives and validates package identity before PACKA
       "downloaded_artifact_package_invalid",
     );
     expectCode(
-      () => open(rewritePackageManifest(candidateBytes, "0.3.1", "0.3.x")),
+      () => open(rewritePackageManifest(candidateBytes, packageVersion, "0.3.x")),
       "downloaded_artifact_package_invalid",
     );
     let mismatchedNameLease: ReturnType<typeof open> | undefined;
