@@ -29,36 +29,47 @@ function lanes(source: string): readonly string[] {
   )].map((match) => [match[1], match[2], match[3], match[4]].join("|"));
 }
 
+function quotedOption(command: string | undefined, option: string): string {
+  if (command === undefined) assert.fail(`missing command for --${option}`);
+  const match = command.match(new RegExp(`--${option}="([^"]+)"`, "u"));
+  assert.notEqual(match, null, `missing --${option}`);
+  return match?.[1] ?? "";
+}
+
 test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () => {
   const source = workflow();
-  const required = job(source, "required-contracts");
+  const required = job(source, "required-contracts", "packaged-contracts");
+  const packaged = job(source, "packaged-contracts");
+  const expectedLanes = [
+    "ubuntu-node-22|ubuntu|ubuntu-latest|22",
+    "ubuntu-node-24|ubuntu|ubuntu-latest|24",
+    "windows-node-22|windows|windows-latest|22",
+    "windows-node-24|windows|windows-latest|24",
+  ];
   assert.deepEqual(
     lanes(required),
-    [
-      "ubuntu-node-22|ubuntu|ubuntu-latest|22",
-      "ubuntu-node-24|ubuntu|ubuntu-latest|24",
-      "windows-node-22|windows|windows-latest|22",
-      "windows-node-24|windows|windows-latest|24",
-    ],
+    expectedLanes,
   );
+  assert.deepEqual(lanes(packaged), expectedLanes);
   assert.match(required, /name:\s*Required contracts \/ \$\{\{ matrix\.lane \}\}/u);
   assert.match(required, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
   assert.match(required, /timeout-minutes:\s*30/u);
   assert.match(required, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
   assert.equal(required.match(/\n\s*- lane:/gu)?.length, 4);
-  assert.doesNotMatch(required, /exclude:|continue-on-error|matrix\.python|python-version/iu);
+  assert.equal(packaged.match(/\n\s*- lane:/gu)?.length, 4);
+  assert.doesNotMatch(`${required}\n${packaged}`, /exclude:|continue-on-error|matrix\.python|python-version/iu);
   const jobsSource = source.slice(source.indexOf("\njobs:"));
   assert.deepEqual(
     [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["change-scope", "required-contracts"],
+    ["change-scope", "required-contracts", "packaged-contracts"],
   );
 });
 
 test("every CI checkout is pinned and acceptance checkouts bind the exact producer subject", () => {
   const source = `${workflow()}\n${acceptanceWorkflow()}`;
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 5);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 5);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 2);
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 6);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 6);
+  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
   assert.equal(source.match(/ref:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/gu)?.length ?? 0, 1);
   assert.equal(source.match(/ref:\s*\$\{\{ needs\.package\.outputs\.candidate-sha \}\}/gu)?.length ?? 0, 1);
   assert.equal(source.match(/ref:\s*\$\{\{ inputs\.candidateSha \}\}/gu)?.length ?? 0, 1);
@@ -66,13 +77,13 @@ test("every CI checkout is pinned and acceptance checkouts bind the exact produc
 
 test("every required lane installs the lock without scripts and runs all gates", () => {
   const source = workflow();
-  const required = job(source, "required-contracts");
+  const required = job(source, "required-contracts", "packaged-contracts");
   const commands = [
     "npm ci --ignore-scripts",
     "npm run build",
     "npm run deps:audit",
     "npm run test:launcher",
-    "npm test",
+    "npm run test:ci",
     "npm run generate:check",
     "npm run docs:check",
     "npm run audit:retirement",
@@ -85,7 +96,7 @@ test("every required lane installs the lock without scripts and runs all gates",
     previous = index;
   }
   assert.doesNotMatch(required, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.doesNotMatch(required, /run:\s*npm run test:smoke/u);
+  assert.doesNotMatch(required, /run:\s*npm (?:test|run test:(?:smoke|ci:packaged))\s*$/mu);
   assert.doesNotMatch(
     required,
     /npm run (?:audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2)/u,
@@ -95,7 +106,8 @@ test("every required lane installs the lock without scripts and runs all gates",
 test("documentation-only scope runs one bounded lightweight gate and skips the full matrix", () => {
   const source = workflow();
   const scopeJob = job(source, "change-scope", "required-contracts");
-  const required = job(source, "required-contracts");
+  const required = job(source, "required-contracts", "packaged-contracts");
+  const packaged = job(source, "packaged-contracts");
   assert.match(scopeJob, /outputs:\s*\r?\n\s+scope:\s*\$\{\{ steps\.scope\.outputs\.scope \}\}/u);
   assert.match(scopeJob, /fetch-depth:\s*0/u);
   assert.match(scopeJob, /node-version:\s*["']24["']/u);
@@ -121,6 +133,32 @@ test("documentation-only scope runs one bounded lightweight gate and skips the f
   assert.doesNotMatch(scopeJob, /npm test|test:launcher|generate:check|audit:retirement|test:smoke/u);
   assert.match(required, /needs:\s*change-scope/u);
   assert.match(required, /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' \}\}/u);
+  assert.match(packaged, /needs:\s*change-scope/u);
+  assert.match(
+    packaged,
+    /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' && github\.event_name != 'push' \}\}/u,
+  );
+});
+
+test("packaged readiness runs once per event and stays parallel across all platform lanes", () => {
+  const source = workflow();
+  const required = job(source, "required-contracts", "packaged-contracts");
+  const packaged = job(source, "packaged-contracts");
+  assert.match(packaged, /name:\s*Packaged readiness \/ \$\{\{ matrix\.lane \}\}/u);
+  assert.match(packaged, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
+  assert.match(packaged, /timeout-minutes:\s*20/u);
+  assert.match(packaged, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
+  const commands = ["npm ci --ignore-scripts", "npm run build", "npm run test:ci:packaged"];
+  let previous = -1;
+  for (const command of commands) {
+    const index = packaged.indexOf(command);
+    assert.ok(index > previous, `${command} must be present in packaged order`);
+    previous = index;
+  }
+  assert.doesNotMatch(required, /test:ci:packaged/u);
+  assert.doesNotMatch(packaged, /npm run (?:test:ci\s|deps:audit|test:launcher|generate:check|docs:check|audit:retirement|test:pack)/u);
+  assert.doesNotMatch(packaged, /continue-on-error|\|\|\s*true|allow_failure/iu);
+  assert.match(acceptanceWorkflow(), /^on:[\s\S]*?push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']/mu);
 });
 
 test("acceptance uses one hosted producer, four packaged lanes and a protected exact-candidate Windows LIVE lane", () => {
@@ -192,6 +230,19 @@ test("third-party actions are immutable pins and no CI script can publish", () =
   assert.match(packageJson.scripts.test ?? "", /--require \.\/dist-tests\/test-bootstrap\.cjs/u);
   assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
   assert.match(packageJson.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
+  assert.doesNotMatch(packageJson.scripts.test ?? "", /test-(?:skip|name)-pattern/u);
+  const ordinaryPattern = quotedOption(packageJson.scripts["test:ci"], "test-skip-pattern");
+  const packagedPattern = quotedOption(packageJson.scripts["test:ci:packaged"], "test-name-pattern");
+  assert.equal(ordinaryPattern, packagedPattern);
+  assert.equal(
+    ordinaryPattern,
+    "^readiness artifact drives all five packaged hosts from the same injected SHA and member count$",
+  );
+  assert.match(packageJson.scripts["test:ci"] ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
+  assert.match(
+    packageJson.scripts["test:ci:packaged"] ?? "",
+    /dist-tests\/smoke\/host-smoke\.test\.cjs/u,
+  );
   assert.doesNotMatch(
     packageJson.scripts["ci:local"] ?? "",
     /publish|release|audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2/iu,

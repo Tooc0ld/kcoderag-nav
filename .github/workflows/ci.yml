@@ -98,7 +98,7 @@ jobs:
       - name: Run platform launcher smoke
         run: npm run test:launcher
       - name: Run complete Node test suite
-        run: npm test
+        run: npm run test:ci
       - name: Check deterministic generated products
         run: npm run generate:check
       - name: Validate canonical docs and secret scans
@@ -107,3 +107,47 @@ jobs:
         run: npm run audit:retirement
       - name: Test npm package contract
         run: npm run test:pack
+
+  packaged-contracts:
+    name: Packaged readiness / ${{ matrix.lane }}
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.scope == 'full' && github.event_name != 'push' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: ubuntu-node-22
+            os: ubuntu
+            runner: ubuntu-latest
+            node: "22"
+          - lane: ubuntu-node-24
+            os: ubuntu
+            runner: ubuntu-latest
+            node: "24"
+          - lane: windows-node-22
+            os: windows
+            runner: windows-latest
+            node: "22"
+          - lane: windows-node-24
+            os: windows
+            runner: windows-latest
+            node: "24"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install audited dependency graph
+        run: npm ci --ignore-scripts
+      - name: Build packaged readiness test
+        run: npm run build
+      - name: Run packaged readiness test
+        run: npm run test:ci:packaged

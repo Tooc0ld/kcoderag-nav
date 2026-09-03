@@ -119,6 +119,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
     "test": "node --require ./dist-tests/test-bootstrap.cjs --test --test-concurrency=1 \"dist-tests/**/*.test.cjs\"",
+    "test:ci": "node --require ./dist-tests/test-bootstrap.cjs --test --test-concurrency=1 --test-skip-pattern=\"^readiness artifact drives all five packaged hosts from the same injected SHA and member count$\" \"dist-tests/**/*.test.cjs\"",
+    "test:ci:packaged": "node --require ./dist-tests/test-bootstrap.cjs --test --test-name-pattern=\"^readiness artifact drives all five packaged hosts from the same injected SHA and member count$\" dist-tests/smoke/host-smoke.test.cjs",
     "deps:audit": "node dist/maintainer/dependency-audit.cjs",
     "test:dependency-audit": "node --test dist-tests/maintainer/dependency-audit.test.cjs",
     "test:transaction": "node --test dist-tests/core/transaction.test.cjs",
