@@ -56,6 +56,21 @@ interface RequiredTopic {
   readonly pattern: RegExp;
 }
 
+const PUBLIC_SKILLS_TOPIC: RequiredTopic = Object.freeze({
+  code: "missing_topic_public_skills",
+  pattern: /(?=[\s\S]*\$kcoderag(?![-\w]))(?=[\s\S]*\$kcoderag-manage\b)(?=[\s\S]*\$kcoderag-update\b)(?=[\s\S]*\$kcoderag-feedback\b)(?=[\s\S]*\$kcoderag-code-style\b)/u,
+});
+
+const NAVIGATION_USAGE_TOPIC: RequiredTopic = Object.freeze({
+  code: "missing_topic_navigation_usage",
+  pattern: /(?=[\s\S]*\$kcoderag\s+help\b)(?=[\s\S]*\$kcoderag\s+find\s+<query>)(?=[\s\S]*\$kcoderag\s+context\s+<symbol>)(?=[\s\S]*\$kcoderag\s+callers\s+<symbol>)(?=[\s\S]*\$kcoderag\s+callees\s+<symbol>)(?=[\s\S]*\$kcoderag\s+indexes\b)(?=[\s\S]*\$kcoderag\s+impact\s+<symbol-or-change>)/u,
+});
+
+const CURSOR_UPDATE_BOUNDARY_TOPIC: RequiredTopic = Object.freeze({
+  code: "missing_topic_cursor_update_boundary",
+  pattern: /(?=[\s\S]*Cursor)(?=[\s\S]*\$kcoderag-update\b)(?=[\s\S]*Cursor[^\n]{0,220}(?:has\s+no|does\s+not|doesn't|without|不提供|不会|没有)[^\n]{0,160}(?:automatic[^\n]{0,40}(?:update|notice)|update\s+notice|自动更新提示|自动提示))/iu,
+});
+
 const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   {
     code: "missing_topic_qa_only",
@@ -69,6 +84,8 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     code: "missing_topic_capabilities",
     pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*code-style-nudge)/u,
   },
+  PUBLIC_SKILLS_TOPIC,
+  NAVIGATION_USAGE_TOPIC,
   {
     code: "missing_topic_lifecycle",
     pattern: /npx\s+kcoderag-nav@latest\s+install[\s\S]*npx\s+kcoderag-nav@latest\s+status[\s\S]*npx\s+kcoderag-nav@latest\s+doctor[\s\S]*npx\s+kcoderag-nav@latest\s+update[\s\S]*npx\s+kcoderag-nav@latest\s+uninstall/iu,
@@ -116,6 +133,7 @@ const COMMON_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 ]);
 
 const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  CURSOR_UPDATE_BOUNDARY_TOPIC,
   {
     code: "missing_topic_manual_style_delivery",
     pattern: /(?=[\s\S]*(?:five hosts?|all five hosts?|五个宿主|五宿主)[^\n]{0,180}(?:manual|手动)[^\n]{0,100}(?:code-style-nudge|代码规范|style))(?=[\s\S]*(?:manualSkill))(?=[\s\S]*(?:automaticNudge))/iu,
@@ -139,6 +157,7 @@ const OVERVIEW_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
 ]);
 
 const CURSOR_PUBLIC_TOPICS = Object.freeze<readonly RequiredTopic[]>([
+  CURSOR_UPDATE_BOUNDARY_TOPIC,
   {
     code: "missing_topic_cursor_boundary",
     pattern: /always-on\s+Rule[\s\S]{0,240}(?:does\s+not|doesn't|不使用|不声明)[\s\S]{0,120}PreToolUse/iu,
@@ -154,6 +173,8 @@ const USER_GUIDE_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     code: "missing_topic_capabilities",
     pattern: /(?=[\s\S]*kcoderag-navigation)(?=[\s\S]*code-style-nudge)/u,
   },
+  PUBLIC_SKILLS_TOPIC,
+  NAVIGATION_USAGE_TOPIC,
   {
     code: "missing_topic_five_hosts",
     pattern: /(?=[\s\S]*Codex)(?=[\s\S]*Claude\s+Code)(?=[\s\S]*Cursor)(?=[\s\S]*OpenCode)(?=[\s\S]*ZCode)/u,
@@ -166,6 +187,15 @@ const USER_GUIDE_TOPICS = Object.freeze<readonly RequiredTopic[]>([
     code: "missing_topic_verify_restart",
     pattern: /(?=[\s\S]*\bstatus\b)(?=[\s\S]*\bdoctor\b)(?=[\s\S]*(?:restart|reopen|重新打开)[^\n]{0,100}(?:host|session|宿主|会话))/iu,
   },
+  {
+    code: "missing_topic_version_status",
+    pattern: /(?=[\s\S]*installed_version)(?=[\s\S]*latest_version)(?=[\s\S]*version_status)(?=[\s\S]*up_to_date)(?=[\s\S]*update_available)(?=[\s\S]*unknown)/u,
+  },
+  {
+    code: "missing_topic_manual_update",
+    pattern: /(?=[\s\S]*\$kcoderag-update\b)(?=[\s\S]*(?:explicit|明确|显式)[^\n]{0,160}(?:single-host|one\s+host|单宿主|一个宿主))(?=[\s\S]*npx\s+kcoderag-nav@latest\s+update\s+--host\s+(?:codex|claude|cursor|opencode|zcode))/iu,
+  },
+  CURSOR_UPDATE_BOUNDARY_TOPIC,
   {
     code: "missing_topic_daily_use",
     pattern: /(?=[\s\S]*search_code)(?=[\s\S]*context)(?=[\s\S]*get_call_chain)(?=[\s\S]*list_indexes)/u,

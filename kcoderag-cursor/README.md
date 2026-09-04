@@ -1,8 +1,8 @@
 # KCodeRag Nav for Cursor
 
 This generated tree is the Cursor asset set consumed by the public `kcoderag-nav` project
-installer. It contains the QA MCP projection, graph-first navigation Rule/Skill, update and
-successful-call hooks, plus the canonical code-style knowledge files used by supported host
+installer. It contains the QA MCP projection, graph-first navigation Rule/Skill, manual update
+Skill, successful-call hook, and the canonical code-style knowledge files used by supported host
 projections.
 Asset presence is not host-delivery evidence. This tree is not a marketplace or user-directory
 install source.
@@ -69,11 +69,31 @@ Complete integrity is checked before any native code-style once claim: current s
 digest, and every managed file digest must match. Missing or edited manual assets appear as
 `capability_drift` in status/doctor; Cursor remains silent on the automatic path.
 
+## Manual navigation usage
+
+`$kcoderag` accepts natural language. A bare invocation or `$kcoderag help` shows these action
+forms before any MCP call:
+
+```text
+$kcoderag find <query>
+$kcoderag context <symbol>
+$kcoderag callers <symbol>
+$kcoderag callees <symbol>
+$kcoderag indexes
+$kcoderag impact <symbol-or-change>
+```
+
+These forms express intent rather than raw MCP JSON. For example, use
+`$kcoderag find login timeout handling`; the Skill maps it to Cursor's exposed tool schema.
+
 ## Cursor capability boundary
 
-Cursor navigation uses its always-on Rule, three navigation-family Skills, QA MCP configuration, `postToolUse` update
-notice, and `afterMCPExecution` successful-call marker. It does not use or claim native
-Codex/Claude `PreToolUse` delivery. The manual `$kcoderag-code-style` Skill is available, but a Rule,
+Cursor navigation uses its always-on Rule and does not use native Codex/Claude `PreToolUse`
+delivery. It installs four navigation-family Skills, QA MCP configuration, and an
+`afterMCPExecution` successful-call marker. Cursor has no automatic update notice; use
+`$kcoderag-update` or the explicit single-host command
+`npx kcoderag-nav@latest update --host cursor` when an update is requested. The manual
+`$kcoderag-code-style` Skill is available, but a Rule,
 packaged Skill, toast, or after-event is not
 model-visible native pre-write evidence.
 
@@ -82,14 +102,12 @@ receipt while still installing the manual style Skill. `status`/`doctor` report
 `manualSkill: available` and `automaticNudge: unsupported`. Exact strings, current edits, and an
 unavailable or stale index remain valid reasons to use scoped local search.
 
-The `afterMCPExecution` marker and update notice store no MCP arguments, results, URL, headers, or
-Bearer. The foreground update path reads only bounded local cache; a stale cache can detach the npm
-Registry worker but never waits for network I/O, blocks a tool, or updates automatically. A known
-notice suggests `npx kcoderag-nav@latest update --host cursor`.
-Automatic update means automatic version awareness only: the worker never runs install/update, and
-the explicit update command remains required.
+The `afterMCPExecution` marker stores no MCP arguments, results, URL, headers, or Bearer. Cursor
+does not register SessionStart, PreToolUse, or postToolUse update hooks. On hosts that support it,
+automatic update means automatic version awareness only: the worker never runs install/update,
+and the explicit update command remains required.
 
-Cursor does not use the Codex/Claude ancestor launcher. Its Rule, Skills, MCP, `postToolUse`, and
+Cursor does not use the Codex/Claude ancestor launcher. Its Rule, Skills, MCP, and
 `afterMCPExecution` files move with a complete project copy or rename. Restart Cursor or run
 **Developer: Reload Window** after install/update.
 

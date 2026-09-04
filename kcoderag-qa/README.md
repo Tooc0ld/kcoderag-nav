@@ -8,8 +8,8 @@ or production npm dependencies.
 The package exposes exactly two built-in capabilities:
 
 - `kcoderag-navigation` provides the QA MCP projection, `$kcoderag`, `$kcoderag-manage`,
-  `$kcoderag-update`, and `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a successful-call
-  marker and offline update notice.
+  `$kcoderag-update`, and `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a
+  successful-call marker; hosts with a supported native event also receive offline update awareness.
 - `code-style-nudge` provides the `$kcoderag-code-style` manual Skill on all five hosts. Only the
   exact Claude Code `2.1.241` PASS receipt adds native automatic pre-write delivery.
 
@@ -64,6 +64,23 @@ All five hosts provide the manual code-style-nudge Skill. Native automatic pre-w
 only on Claude Code `2.1.241`; unlisted versions do not inherit it. `status` and `doctor` report
 `manualSkill` and `automaticNudge` independently, so manual-only delivery remains healthy.
 
+## Manual navigation usage
+
+`$kcoderag` accepts natural language. A bare invocation or `$kcoderag help` shows these action
+forms before any MCP call:
+
+```text
+$kcoderag find <query>
+$kcoderag context <symbol>
+$kcoderag callers <symbol>
+$kcoderag callees <symbol>
+$kcoderag indexes
+$kcoderag impact <symbol-or-change>
+```
+
+These forms express intent rather than raw MCP JSON. For example, use
+`$kcoderag find login timeout handling`; the Skill maps it to the current host's tool schema.
+
 ## Five project lifecycle commands
 
 ```powershell
@@ -116,8 +133,8 @@ rule summary.
   `submit_feedback`.
 - Codex and Claude Code navigation is advisory and fail-open. Only the exact supported Claude row
   adds code-style guidance to the native `PreToolUse` dispatcher.
-- Cursor uses an always-on Rule, shared navigation Skill, MCP, `postToolUse` update notice, and
-  `afterMCPExecution` success marker. It does not claim equivalent code-style `PreToolUse` delivery.
+- Cursor uses an always-on Rule, shared navigation Skill, MCP, and `afterMCPExecution` success
+  marker. It does not claim equivalent code-style `PreToolUse` delivery.
 - OpenCode uses a project plugin and MCP. Its toast and `tool.execute.after` event do not claim
   model-visible pre-write delivery.
 - ZCode uses project MCP and `hooks.events` with `hooks.enabled: true` in `.zcode/config.json` plus a workspace Skill. Its
@@ -165,17 +182,19 @@ capacity-pruning, or deletion failures are fail-open and never block the origina
 
 ## Update and evidence boundaries
 
-All five hosts share an offline foreground update checker. It reads bounded local state and may
-detach an npm Registry refresh, but never waits for the network or updates automatically. Codex
-and Claude Code add a known notice to eligible context, Cursor returns `additional_context`, and
-OpenCode displays a warning toast; ZCode adds the same short notice through project `PreToolUse`.
-Each session/project cycle is deduplicated and every failure is silent. The notice only suggests an
-explicit update command such as `npx kcoderag-nav@latest update --host zcode`. This follows ZCode's official
+The foreground update checker reads bounded local state and may detach an npm Registry refresh,
+but never waits for the network or updates automatically. Codex, Claude Code, and ZCode can add a
+known notice to host context, while OpenCode displays a warning toast after a successful tool event.
+Cursor has no automatic update notice; use `$kcoderag-update` or the explicit single-host command
+`npx kcoderag-nav@latest update --host cursor` when an update is requested. Cached latest data is
+reused for up to 24 hours, so the first event after expiry may only schedule a background refresh;
+a later eligible event or a new session can surface the result. This follows ZCode's official
 [MCP](https://zcode.z.ai/en/docs/mcp-services), [Skill](https://zcode.z.ai/en/docs/skill), and
 [Hook](https://zcode.z.ai/en/docs/hooks) contracts.
 
 “Automatic update” means automatic version awareness only: the detached worker refreshes bounded
-cache and never runs install/update. Required smoke reports `runtimeContract.layer: packaged` after
+cache and never runs install/update. An explicit update remains required. Required smoke reports
+`runtimeContract.layer: packaged` after
 installing the real tgz and executing its registered handlers. That proves notice, marker, fail-open,
 and refresh scheduling, but not that a native host loaded or trusted the registration; optional-live
 or a manual UAT receipt must prove native admission and real MCP use separately.

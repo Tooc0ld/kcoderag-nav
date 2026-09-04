@@ -3,39 +3,69 @@ name: kcoderag
 description: Navigate code with read-only KCodeRag MCP lookups. Use for symbols, behavior, context, callers, callees, indexes, graph relations, dependencies, or change impact; use local search for exact text, current edits, or unavailable-index fallback.
 ---
 
-# KCodeRag Navigation
+<objective>
+Use the installed KCodeRag QA knowledge graph for read-only structural code questions. Accept a
+short action form or ordinary natural language, select the narrowest suitable MCP lookup, and read
+the located source before relying on graph results because the graph is a snapshot.
+</objective>
 
-Use the installed KCodeRag knowledge graph for structural code questions. Tool
-names differ by host, so use the names exposed by the current host.
+<quick_start>
+Text after `$kcoderag` is a navigation intent, not a strict CLI flag or raw MCP JSON payload.
+Support these concise forms:
 
-This package supplies the **KCodeRag QA** environment.
+```text
+$kcoderag help
+$kcoderag find <query>
+$kcoderag context <symbol>
+$kcoderag callers <symbol>
+$kcoderag callees <symbol>
+$kcoderag indexes
+$kcoderag impact <symbol-or-change>
+```
 
-## QA routing
+Natural language is equally valid, for example `$kcoderag 找到登录超时的实现` or
+`$kcoderag 查看 SessionManager 的调用方`.
 
-Use the installed KCodeRag QA service. If its graph data is unavailable or stale,
-fall back to local search and say that the graph result could not be confirmed.
+If the invocation contains no actionable request or asks for help, return the usage block above
+with one short example for each action before any MCP call. If `find`, `context`, `callers`,
+`callees`, or `impact` has no target, ask one concise question for the missing target.
+</quick_start>
 
-## Route the lookup
-
-| Need | Use |
+<routing>
+| User action | Tool route |
 | --- | --- |
-| Find a symbol or behavior | `search_code` |
-| Inspect a symbol in context | `context` |
-| Trace callers or callees | `get_call_chain` |
-| Check available projects or indexes | `list_indexes` |
-| Traverse custom read-only graph relations | `cypher` |
-| Find exact text in current local edits | local Read/Grep/Glob |
+| `find <query>` or a symbol/behavior question | Start with `search_code` |
+| `context <symbol>` | Resolve ambiguity with `search_code` if needed, then call `context` |
+| `callers <symbol>` | Call `get_call_chain` in the caller direction exposed by the host schema |
+| `callees <symbol>` | Call `get_call_chain` in the callee direction exposed by the host schema |
+| `indexes` | Call `list_indexes` |
+| `impact <symbol-or-change>` | Combine `search_code`, `context`, and `get_call_chain`; use `cypher` only for a custom read-only relation |
+| Exact text in current local edits | Use local Read/Grep/Glob |
 
-Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.
-Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.
+Tool names and parameter schemas can differ by host. Use the schema exposed by the current host;
+do not ask the user to construct MCP JSON.
+</routing>
 
-## Workflow
+<process>
+1. Interpret the action or infer it from natural language.
+2. Ask for a target only when the chosen action requires one and none was provided.
+3. Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.
+   Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.
+4. Ask the narrowest useful graph question, inspect the best match, and traverse relationships only
+   when needed.
+5. Read the located source before acting. If graph data is unavailable or stale, fall back to local
+   search and state that the graph result could not be confirmed.
+</process>
 
-1. Ask the narrowest useful structural question.
-2. Locate candidates with `search_code` and inspect the best match with `context`.
-3. Traverse relationships with `get_call_chain` or `cypher` when needed.
-4. Read the located source before acting because the graph is a snapshot.
+<boundaries>
+This Skill is read-only. It does not change files, manage installation lifecycle, or send feedback.
+Use `cypher` only for read-only graph relations and prefer the standard tools when they answer the
+request directly.
+</boundaries>
 
-Fall back to local search when the index is unavailable or stale, or when the
-request is literal text search. State the fallback when it affects confidence.
-This Skill does not change files, manage installation lifecycle, or send feedback.
+<success_criteria>
+- A bare or help invocation returns actionable usage without calling MCP.
+- A concise action and natural-language request route to the same appropriate read-only tool.
+- Missing required targets produce one focused clarification rather than a guessed query.
+- Results identify the graph as a snapshot and verify located code locally when correctness matters.
+</success_criteria>

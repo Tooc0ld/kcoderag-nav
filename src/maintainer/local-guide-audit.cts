@@ -55,7 +55,7 @@ const REQUIRED_TOPICS = Object.freeze<readonly RequiredTopic[]>([
   },
   {
     code: "missing_topic_code_style_support",
-    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:目前只支持|currently\s+only\s+supports?|is\s+supported\s+for)[^\n]{0,160}(?:code-style-nudge|Claude))(?=[\s\S]*(?:其他宿主|other hosts?)[^\n]{0,120}(?:不要选择|未启用|do not select|not enabled|should not select))/iu,
+    pattern: /(?=[\s\S]*Claude(?:\s+Code)?[^\n]{0,100}2\.1\.241)(?=[\s\S]*(?:five hosts?|all five hosts?|五个宿主|五宿主)[^\n]{0,180}(?:manual|手动)[^\n]{0,100}(?:code-style-nudge|代码规范|style))(?=[\s\S]*(?:native|自动)[^\n]{0,180}(?:only|仅)[^\n]{0,100}Claude)/iu,
   },
 ]);
 

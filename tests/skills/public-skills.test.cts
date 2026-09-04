@@ -52,13 +52,24 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
   }
   assert.match(skill, /local (?:Read\/Grep\/Glob|search)/u);
   assert.match(skill, /snapshot/u);
+  assert.match(skill, /<objective>[\s\S]*<\/objective>/u);
+  assert.match(skill, /<quick_start>[\s\S]*<\/quick_start>/u);
+  assert.match(skill, /<success_criteria>[\s\S]*<\/success_criteria>/u);
+  assert.match(skill, /\$kcoderag help/u);
+  for (const usage of ["find <query>", "context <symbol>", "callers <symbol>", "callees <symbol>", "indexes", "impact <symbol-or-change>"]) {
+    assert.ok(skill.includes(`$kcoderag ${usage}`), usage);
+  }
+  assert.match(skill, /no actionable request or asks for help[\s\S]*before any MCP call/iu);
+  assert.doesNotMatch(skill, /^\s*#{1,6}\s/mu);
   assert.doesNotMatch(skill, /\b(?:update|uninstall|submit_feedback|apply_patch)\b/u);
 
   const metadata = read(NAVIGATION_METADATA);
   assert.equal(quotedYamlValue(metadata, "display_name"), "KCodeRag");
   const shortDescription = quotedYamlValue(metadata, "short_description");
   assert.ok(shortDescription.length >= 25 && shortDescription.length <= 64);
-  assert.match(quotedYamlValue(metadata, "default_prompt"), /\$kcoderag\b/u);
+  const defaultPrompt = quotedYamlValue(metadata, "default_prompt");
+  assert.match(defaultPrompt, /\$kcoderag find <symbol, behavior, or question>/u);
+  assert.match(defaultPrompt, /\$kcoderag help\b/u);
   assert.match(metadata, /^\s*allow_implicit_invocation:\s*true\s*$/mu);
 
   const contribution = registry

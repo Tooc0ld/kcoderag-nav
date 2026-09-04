@@ -82,6 +82,8 @@ function completePublicContract(): string {
     "# Install capabilities into one project",
     "QA is the only public environment for MCP. The current directory is the exact project target.",
     "The built-ins are kcoderag-navigation and code-style-nudge.",
+    "The public Skills are $kcoderag, $kcoderag-manage, $kcoderag-update, $kcoderag-feedback, and $kcoderag-code-style.",
+    "Invoke $kcoderag help to see $kcoderag find <query>, $kcoderag context <symbol>, $kcoderag callers <symbol>, $kcoderag callees <symbol>, $kcoderag impact <symbol-or-change>, and $kcoderag indexes.",
     "Install composes installed ∪ selected. Uninstall needs an explicit capability or --all and never defaults to everything.",
     "status is a fast read-only project check; doctor is a read-only deep source scan.",
     "An active source is source_conflict with ok: false. The same source gate covers all mutations before writes.",
@@ -95,6 +97,7 @@ function completePublicContract(): string {
     "Cursor uses an always-on Rule and does not use an equivalent PreToolUse Hook.",
     "ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`; users must trust the workspace Hook.",
     "Automatic update is automatic version awareness only; it never runs install/update and the explicit update command remains required.",
+    "Cursor has no automatic update notice; use $kcoderag-update or the explicit single-host npx update command.",
     "runtimeContract.layer: `packaged` does not prove native host admission.",
     "Phase 05 owns authenticated real-host MCP query evidence.",
     "",
@@ -117,6 +120,11 @@ function completeUserGuide(): string {
     "Codex, Claude Code, Cursor, OpenCode, and ZCode are supported hosts.",
     "install, status, doctor, update, and uninstall are the five lifecycle commands.",
     "Run status and doctor, then reopen the host session.",
+    "status reports installed_version, latest_version, and version_status as up_to_date, update_available, or unknown.",
+    "The public Skills are $kcoderag, $kcoderag-manage, $kcoderag-update, $kcoderag-feedback, and $kcoderag-code-style.",
+    "Invoke $kcoderag help to see $kcoderag find <query>, $kcoderag context <symbol>, $kcoderag callers <symbol>, $kcoderag callees <symbol>, $kcoderag impact <symbol-or-change>, and $kcoderag indexes.",
+    "Use $kcoderag-update only for an explicit single-host update request; it confirms the host and runs `npx kcoderag-nav@latest update --host codex`.",
+    "Cursor has no automatic update notice; request $kcoderag-update explicitly.",
     "Daily use calls search_code, context, get_call_chain, and list_indexes.",
     "All five hosts provide the manual code-style-nudge Skill; native automatic pre-write is available only on Claude Code 2.1.241.",
     "",
@@ -225,6 +233,8 @@ test("canonical public contract requires capability lifecycle, support, integrit
     const cases: readonly [string, string, string, string?][] = [
       ["status is a fast read-only project check; doctor is a read-only deep source scan.", "status and doctor are commands.", "missing_topic_status_doctor"],
       ["The built-ins are kcoderag-navigation and code-style-nudge.", "The built-ins are navigation only.", "missing_topic_capabilities"],
+      ["The public Skills are $kcoderag, $kcoderag-manage, $kcoderag-update, $kcoderag-feedback, and $kcoderag-code-style.", "Public Skills are available.", "missing_topic_public_skills"],
+      ["Invoke $kcoderag help to see $kcoderag find <query>, $kcoderag context <symbol>, $kcoderag callers <symbol>, $kcoderag callees <symbol>, $kcoderag impact <symbol-or-change>, and $kcoderag indexes.", "Invoke $kcoderag for navigation.", "missing_topic_navigation_usage"],
       ["Install composes installed ∪ selected.", "Install replaces selection.", "missing_topic_additive_lifecycle"],
       ["The same source gate covers all mutations before writes.", "Sources are listed.", "missing_topic_all_mutation_gate"],
       ["The CLI does not migrate, adopt, or automatically clean manual sources.", "Sources are listed.", "missing_topic_no_source_authority"],
@@ -236,6 +246,7 @@ test("canonical public contract requires capability lifecycle, support, integrit
       ["does not use an equivalent PreToolUse Hook", "uses integrations", "missing_topic_cursor_boundary", "plugin-src/cursor/README.md.tmpl"],
       ["ZCode uses .zcode/config.json with hooks.enabled, advisory PreToolUse, PostToolUse, and `npx kcoderag-nav@latest update --host zcode`; users must trust the workspace Hook.", "ZCode uses project files.", "missing_topic_zcode_boundary"],
       ["Automatic update is automatic version awareness only; it never runs install/update and the explicit update command remains required.", "Updates exist.", "missing_topic_update_awareness"],
+      ["Cursor has no automatic update notice; use $kcoderag-update or the explicit single-host npx update command.", "Cursor supports updates.", "missing_topic_cursor_update_boundary"],
       ["runtimeContract.layer: `packaged` does not prove native host admission.", "Runtime is tested.", "missing_topic_packaged_native_boundary"],
     ];
     for (const [before, after, expectedCode, relativePath = "plugin-src/README.md.tmpl"] of cases) {
@@ -275,11 +286,23 @@ test("the user guide requires actionable onboarding without maintainer-only evid
     assert.equal(/receipt|digest|runtimeContract|Phase\s+0/iu.test(source), false);
     assert.deepEqual(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }).diagnostics, []);
 
-    fs.writeFileSync(guide, source.replace("search_code", "find_code"), "utf8");
-    assert.ok(
-      codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root }))
-        .includes("missing_topic_daily_use"),
-    );
+    const cases: readonly [string, string, string][] = [
+      ["search_code", "find_code", "missing_topic_daily_use"],
+      ["$kcoderag-feedback", "$feedback", "missing_topic_public_skills"],
+      ["$kcoderag help", "$kcoderag", "missing_topic_navigation_usage"],
+      ["installed_version", "package_version", "missing_topic_version_status"],
+      ["Use $kcoderag-update only for an explicit single-host update request; it confirms the host and runs `npx kcoderag-nav@latest update --host codex`.", "Updates can be requested.", "missing_topic_manual_update"],
+      ["Cursor has no automatic update notice; request $kcoderag-update explicitly.", "Cursor supports updates.", "missing_topic_cursor_update_boundary"],
+    ];
+    for (const [before, after, expectedCode] of cases) {
+      writeCanonicalContract(root);
+      const current = fs.readFileSync(guide, "utf8");
+      fs.writeFileSync(guide, current.replace(before, after), "utf8");
+      assert.ok(
+        codes(docsCheck.checkCanonicalPublicDocs({ repoRoot: root })).includes(expectedCode),
+        `expected ${expectedCode} after replacing ${before}`,
+      );
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

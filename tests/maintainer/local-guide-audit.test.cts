@@ -36,7 +36,7 @@ function completeGuide(): string {
     "install, status, doctor, update, and uninstall are the five lifecycle commands.",
     "Run status and doctor, then reopen the host session.",
     "Daily use calls search_code, context, get_call_chain, and list_indexes.",
-    "Claude Code 2.1.241 is supported for code-style-nudge; other hosts are not enabled and users should not select it.",
+    "All five hosts provide the manual code-style-nudge Skill; native automatic pre-write is available only on Claude Code 2.1.241.",
     "",
   ].join("\n");
 }
@@ -92,6 +92,11 @@ test("fails safely for absent, empty, oversized, and incomplete local guides", (
       (error: unknown) =>
         errorCode(error) === "missing_topic_daily_use" &&
         !(error as Error).message.includes("find_code"),
+    );
+    writeGuide(root, completeGuide().replace("All five hosts provide the manual code-style-nudge Skill", "Style delivery varies"));
+    assert.throws(
+      () => audit.auditLocalGuide({ root }),
+      (error: unknown) => errorCode(error) === "missing_topic_code_style_support",
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

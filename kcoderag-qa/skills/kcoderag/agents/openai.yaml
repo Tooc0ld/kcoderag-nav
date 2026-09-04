@@ -1,6 +1,6 @@
 interface:
   display_name: "KCodeRag"
   short_description: "Navigate code through read-only KCodeRag graph lookups"
-  default_prompt: "Use $kcoderag to locate this symbol and trace its callers."
+  default_prompt: "Use $kcoderag find <symbol, behavior, or question>; use $kcoderag help to list every action."
 policy:
   allow_implicit_invocation: true

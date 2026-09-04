@@ -8,7 +8,8 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 当前包只提供两个内置 capability：
 
 - `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置，并提供 `$kcoderag`、
-  `$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 四个手动 Skill、成功调用 marker 与离线更新提示。
+  `$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 四个导航族手动 Skill、成功调用 marker；
+  支持原生事件的宿主还会提供离线更新提示。
 - `code-style-nudge`：五宿主都安装 `$kcoderag-code-style` 手动 Skill；只有冻结 PASS receipt
   对应的 Claude Code `2.1.241` 叠加自动写前提示。
 
@@ -86,6 +87,43 @@ install、update、uninstall 都需要确认精确 target，并对本次完整 c
 任何一项冲突或漂移都会整组零写失败，不做部分成功。status 与 doctor 不需要 `--yes`；
 `--json` 只输出一个稳定、可解析且 secret-safe 的 JSON 值。
 
+### 在宿主界面和终端确认安装
+
+重新打开宿主后，在支持 Skill/命令列表展示的界面中通常能看到五个公开入口：`$kcoderag`、`$kcoderag-manage`、
+`$kcoderag-update`、`$kcoderag-feedback` 和 `$kcoderag-code-style`。它们分别用于导航查询、只读诊断、
+明确发起更新、反馈和代码规范。部分宿主不提供统一列表；安装健康仍以项目目录中的 `status` 为准。
+
+`$kcoderag` 接受自然语言，也提供一组容易发现的动作写法；裸调用或 `help` 会先显示帮助，不会立即查询 MCP：
+
+```text
+$kcoderag help
+$kcoderag find <query>
+$kcoderag context <symbol>
+$kcoderag callers <symbol>
+$kcoderag callees <symbol>
+$kcoderag indexes
+$kcoderag impact <symbol-or-change>
+```
+
+这些是意图提示，不是要求用户拼 MCP JSON 的严格命令行参数。例如可以直接输入
+`$kcoderag find 登录超时的实现`。
+
+`status` 和 `doctor` 都会显示版本信息，例如当前公开版本安装且 cache 已刷新时：
+
+```text
+installed_version: 0.3.5
+latest_version: 0.3.5
+version_status: up_to_date
+```
+
+- `up_to_date`：已安装版本与 cache 中的 npm latest 一致。
+- `update_available`：存在更高版本，可明确调用 `$kcoderag-update`，或运行所选单宿主的
+  `npx kcoderag-nav@latest update --host codex`。
+- `unknown`：暂时没有可信的 latest cache；这不等于安装失败，可稍后重新打开宿主或再次运行检查。
+
+JSON 输出使用 `installedVersion`、`latestVersion` 和 `versionStatus`。更新始终一次确认一个宿主，
+不会因为发现新版本自动改写项目。
+
 ## 来源门禁、所有权与完整性
 
 所选宿主的 active plugin、raw MCP、manual Hook/Rule、旧 Python 安装或 ambiguous source 都是
@@ -113,7 +151,7 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 | --- | --- | --- |
 | Codex | `.codex/`、`.agents/skills/` | 四个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
 | Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 五个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
-| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 五个手动 Skill及 always-on navigation Rule/MCP；不声明等价代码规范 `PreToolUse` |
+| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 五个手动 Skill、always-on navigation Rule/MCP 与成功 marker；不提供自动更新提示，也不声明等价代码规范 `PreToolUse` |
 | OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 五个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
 | ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 五个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
 
@@ -155,13 +193,18 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 
 ## 更新提示、证据与维护者门禁
 
-五个宿主共享一个离线前台更新检查器：前台只读有界 cache，过期时分离启动 npm Registry worker，
-不等待网络、不自动更新。Codex/Claude 将已知提示加入首次符合条件的上下文；Cursor 返回
-`additional_context`；OpenCode 显示 warning toast；ZCode 通过项目 `PreToolUse` 注入相同的短提示。
-所有异常 fail-open，提示只建议运行所选宿主的显式更新命令，例如
-`npx kcoderag-nav@latest update --host zcode`。
+更新检查前台只读有界 cache，过期时分离启动 npm Registry worker，不等待网络、不自动更新。
+Codex、Claude Code 与 ZCode 可在宿主上下文中加入已知更新提示，OpenCode 在成功工具事件后显示 warning
+toast。Cursor 不提供自动更新提示；需要时请明确调用 `$kcoderag-update`，或运行所选单宿主的
+`npx kcoderag-nav@latest update --host cursor`。
+
+cache 最长复用 24 小时。首次遇到过期 cache 的事件通常只负责后台刷新，因此新提示可能在后续符合条件的
+事件或下一次宿主会话中出现，而不是发布后立即“推送”。提示只报告已安装版本、latest 和显式单宿主命令，
+并要求先征得用户同意；`$kcoderag-update` 同样只在用户明确提出更新时确认项目与宿主、执行公开 npx CLI，
+然后复查 `status`。
 
 这里的“自动更新”仅表示自动感知新版本：后台 worker 只刷新版本 cache，绝不运行 install/update。
+显式更新仍是必需步骤。
 required smoke 的 `runtimeContract.layer: packaged` 会从实际 tgz 安装后执行注册处理器，验证提示、
 marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任这些注册。Windows self-hosted acceptance
 还会运行 optional-live：Codex、KSCC 驱动的 Claude Code 和 OpenCode 各自在临时项目里连接仅监听
@@ -188,8 +231,8 @@ npm run generate:check
 npm run pack:audit
 ```
 
-Phase 04.2 最初验证并发布了 `0.3.0`。当前前进修复版本为 annotated tag `v0.3.1`；
-它已通过 Release workflow 并发布为 `kcoderag-nav@0.3.1`，npm `latest` 指向 `0.3.1`。
+Phase 04.2 最初验证并发布了 `0.3.0`。当前公开版本为 annotated tag `v0.3.5`；
+它已通过 Release workflow 并发布为 `kcoderag-nav@0.3.5`，npm `latest` 指向 `0.3.5`。
 已发布版本不 unpublish 或回退 dist-tag，只通过新版本继续修复。
 
 当前内部 QA profile 的连接材料视为不透明敏感输入。生成、CLI、状态、测试、receipt 与文档只处理
