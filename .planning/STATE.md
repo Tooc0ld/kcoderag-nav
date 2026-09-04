@@ -4,10 +4,10 @@ current_phase: 5
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: "Ready to execute Phase 05 plan 05-06"
 stopped_at: Phase 06 complete, ready to execute Phase 05 plan 05-06
-last_updated: "2026-09-03T16:10:02.9673658Z"
-last_activity: 2026-09-03
-last_activity_desc: "Reduced CI packaged smoke to one Windows Node 22 lane and skipped documentation-only acceptance; Phase 05 remains 5/6"
-state_head: 68a56904e2a8f9adbc6e2969d2561b483a804986
+last_updated: "2026-09-04T07:51:22.702Z"
+last_activity: 2026-09-04
+last_activity_desc: "Made the KCodeRag navigation Skill self-explanatory, refreshed current usage docs, and installed both Codex capabilities in Head; Phase 05 remains 5/6"
+state_head: 1b647f3088f8bd819650072d616d1f3a047a8944
 progress:
   total_phases: 9
   completed_phases: 7
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-03)
 Phase: 5 — 统一 Hook 策略与真实宿主验证
 Plan: 05-06 (5/6 plans complete)
 Status: Ready to execute Phase 05 plan 05-06
-Last activity: 2026-09-03
+Last activity: 2026-09-04 - Completed quick task 260904-l6r: update current usage docs and make $kcoderag self-explanatory
 
 Progress: [████████████████████] 117/118 plans (99%)
 
@@ -412,6 +412,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260903-nx3 | Add a dedicated public KCodeRag update Skill across all five hosts | 2026-09-03 | 147e99c | [260903-nx3-add-a-fifth-public-kcoderag-update-skill](./quick/260903-nx3-add-a-fifth-public-kcoderag-update-skill/) | Verified |
 | 260903-rds | Publish kcoderag-nav 0.3.5 after fixing the release CI timeout | 2026-09-03 | bf0945c, 6aca223 | [260903-rds-publish-kcoderag-nav-nav-0-3-4-and-verif](./quick/260903-rds-publish-kcoderag-nav-nav-0-3-4-and-verif/) | Verified |
 | 260903-x20 | Optimize CI by skipping documentation-only acceptance and running heavy five-host packaged smoke once | 2026-09-03 | 68a5690 | [260903-x20-optimize-ci-by-skipping-documentation-on](./quick/260903-x20-optimize-ci-by-skipping-documentation-on/) | Verified |
+| 260904-l6r | Update current usage docs and make $kcoderag self-explanatory | 2026-09-04 | 1b647f3 | [260904-l6r-update-user-documentation-from-recent-re](./quick/260904-l6r-update-user-documentation-from-recent-re/) | Verified |
 
 ### Roadmap Evolution
 
