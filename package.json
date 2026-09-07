@@ -172,6 +172,7 @@
     "test:acceptance-candidate": "node --test dist-tests/maintainer/acceptance-candidate.test.cjs",
     "check:acceptance-workflow": "node dist/maintainer/acceptance-workflow.cjs check .github/workflows/acceptance.yml",
     "acceptance:packaged": "node dist/maintainer/acceptance-workflow.cjs packaged",
+    "acceptance:packaged:merge": "node dist/maintainer/acceptance-workflow.cjs packaged-merge",
     "acceptance:live": "node dist/maintainer/acceptance-workflow.cjs live",
     "test:github-artifact-upload": "node --test dist-tests/maintainer/github-artifact-upload.test.cjs",
     "readiness:workflow-upload": "node dist/maintainer/readiness-workflow.cjs package-upload",

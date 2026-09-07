@@ -11,6 +11,7 @@ import {
   RECEIPT_STAGES,
   aggregateHostReceipts,
   createHostReceipt,
+  parseHostReceipt,
   type AcceptanceObservations,
   type FailureReasonCode,
   type HostReceipt,
@@ -41,6 +42,10 @@ export const PACKAGED_LANES = Object.freeze([
   "windows-node22",
 ] as const);
 export const ACCEPTANCE_HOSTS = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
+export const PACKAGED_GROUPS = Object.freeze({
+  first: Object.freeze(["codex", "cursor", "zcode"] as const),
+  second: Object.freeze(["claude", "opencode"] as const),
+});
 const LIVE_RUNNER = Object.freeze(["self-hosted", "Windows", "X64", "kcoderag-live"] as const);
 const SHA_RE = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SHA256_RE = /^[a-f0-9]{64}$/u;
@@ -207,10 +212,17 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   requireMatch(packaged, /node-version:\s*["']22["']/u, "packaged_matrix_invalid");
   requireMatch(packaged, /--lane\s+["']windows-node22["']/u, "packaged_matrix_invalid");
   if (count(packaged, /npm run acceptance:packaged/gu) !== 1
-      || /strategy:|matrix\./u.test(packaged)
+      || !/group:\s*\[first, second\]/u.test(packaged)
+      || !/--group\s+"\$\{\{ matrix\.group \}\}"/u.test(packaged)
+      || !/fail-fast:\s*false/u.test(packaged)
       || !/evidence-level\s+PACKAGED/iu.test(packaged)) {
     throw new AcceptanceWorkflowError("packaged_matrix_invalid");
   }
+  const verify = jobBody(source, "verify");
+  requireMatch(verify, /npm run acceptance:packaged:merge/u, "packaged_merge_missing");
+  requireMatch(verify, /pattern:\s*packaged-windows-node22-\*/u, "packaged_merge_missing");
+  requireMatch(verify, /--candidate-sha "\$\{\{ needs\.package\.outputs\.candidate-sha \}\}"/u, "packaged_merge_missing");
+  requireMatch(verify, /--package-sha256 "\$\{\{ needs\.package\.outputs\.artifact-sha256 \}\}"/u, "packaged_merge_missing");
   const live = jobBody(source, "live", "verify");
   requireMatch(live, /runs-on:\s*\[self-hosted, Windows, X64, kcoderag-live\]/u, "live_runner_invalid");
   requireMatch(live, /node-version:\s*["']22["']/u, "live_runner_invalid");
@@ -371,6 +383,9 @@ async function runPackaged(flags: Readonly<Record<string, string>>): Promise<num
   const artifactName = requiredFlag(flags, "artifact-name");
   const output = requiredFlag(flags, "output");
   const memberCount = parseMemberCount(requiredFlag(flags, "member-count"));
+  const group = flags.group;
+  if (group !== undefined && group !== "first" && group !== "second") throw new AcceptanceWorkflowError("arguments_invalid");
+  const hosts = group === undefined ? ACCEPTANCE_HOSTS : PACKAGED_GROUPS[group];
   if (!SHA_RE.test(candidateSha) || !SHA256_RE.test(packageSha256) || !SAFE_ID_RE.test(workflowRunId)) {
     throw new AcceptanceWorkflowError("arguments_invalid");
   }
@@ -385,7 +400,8 @@ async function runPackaged(flags: Readonly<Record<string, string>>): Promise<num
     memberCount,
   });
   try {
-    const smoke = await runHostSmoke({ mode: "required-contract", artifactLease: lease });
+    const smoke = await runHostSmoke({ mode: "required-contract", artifactLease: lease, hosts,
+      ...(group === undefined ? {} : { parallel: false }) });
     const memberDigest = packageMemberDigest(packageSha256, memberCount);
     const receipts = Object.freeze(smoke.hosts.map((host) => rebindPackagedReceipt(host.receipt, {
       candidateSha,
@@ -396,12 +412,70 @@ async function runPackaged(flags: Readonly<Record<string, string>>): Promise<num
       nodeVersion,
       lane,
     })));
-    const verdict = aggregateHostReceipts(receipts, { requiredHosts: ACCEPTANCE_HOSTS, candidateSha });
-    writeMetadata(output, Object.freeze({ schemaVersion: 1, lane, evidenceLevel: "PACKAGED", verdict, receipts }));
+    const verdict = aggregateHostReceipts(receipts, { requiredHosts: hosts, candidateSha });
+    writeMetadata(output, Object.freeze({ schemaVersion: 1, lane, evidenceLevel: "PACKAGED", verdict, receipts,
+      ...(group === undefined ? {} : { group }) }));
     return verdict === "PASS" ? 0 : 1;
   } finally {
     lease.dispose();
   }
+}
+
+/** Reject partial or mixed-run group receipts before publishing a five-host aggregate. */
+export function mergePackagedGroups(values: readonly unknown[], expected: {
+  readonly candidateSha: string;
+  readonly packageSha256: string;
+  readonly memberCount: number;
+  readonly workflowRunId: string;
+}): Readonly<{ schemaVersion: 1; lane: string; evidenceLevel: "PACKAGED"; verdict: string; receipts: readonly HostReceipt[] }> {
+  if (values.length !== 2) throw new AcceptanceWorkflowError("packaged_incomplete");
+  const receipts: HostReceipt[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!isRecord(value) || secretShaped(value) || value.schemaVersion !== 1
+      || value.lane !== "windows-node22" || value.evidenceLevel !== "PACKAGED"
+      || value.verdict !== "PASS" || (value.group !== "first" && value.group !== "second")
+      || seen.has(value.group) || !Array.isArray(value.receipts)
+      || Object.keys(value).sort().join(",") !== "evidenceLevel,group,lane,receipts,schemaVersion,verdict") {
+      throw new AcceptanceWorkflowError("packaged_receipt_invalid");
+    }
+    seen.add(value.group);
+    const groupHosts = PACKAGED_GROUPS[value.group];
+    if (value.receipts.length !== groupHosts.length) throw new AcceptanceWorkflowError("packaged_incomplete");
+    for (const [index, raw] of value.receipts.entries()) {
+      const receipt = parseHostReceipt(raw);
+      if (receipt.host !== groupHosts[index] || receipt.status !== "PASS" || receipt.evidenceLevel !== "PACKAGED"
+        || receipt.os !== "windows" || receipt.nodeVersion !== "22"
+        || receipt.candidateSha !== expected.candidateSha || receipt.packageSha256 !== expected.packageSha256
+        || receipt.artifactDigest !== expected.packageSha256 || receipt.workflowRunId !== expected.workflowRunId
+        || receipt.packageMemberDigest !== packageMemberDigest(expected.packageSha256, expected.memberCount)) {
+        throw new AcceptanceWorkflowError("packaged_identity_mismatch");
+      }
+      receipts.push(receipt);
+    }
+  }
+  const ordered = ACCEPTANCE_HOSTS.map((host) => receipts.find((receipt) => receipt.host === host)!);
+  const verdict = aggregateHostReceipts(ordered, { requiredHosts: ACCEPTANCE_HOSTS, candidateSha: expected.candidateSha });
+  if (verdict !== "PASS") throw new AcceptanceWorkflowError("packaged_incomplete");
+  return Object.freeze({ schemaVersion: 1, lane: "windows-node22", evidenceLevel: "PACKAGED", verdict, receipts: ordered });
+}
+
+function runPackagedMerge(flags: Readonly<Record<string, string>>): number {
+  const root = requiredFlag(flags, "receipt-root");
+  const values = ["first", "second"].map((group) => {
+    const file = path.join(root, `packaged-windows-node22-${group}.json`);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_DRIVER_BYTES) {
+      throw new AcceptanceWorkflowError("packaged_receipt_invalid");
+    }
+    return JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+  });
+  const result = mergePackagedGroups(values, {
+    candidateSha: requiredFlag(flags, "candidate-sha"), packageSha256: requiredFlag(flags, "package-sha256"),
+    memberCount: parseMemberCount(requiredFlag(flags, "member-count")), workflowRunId: requiredFlag(flags, "workflow-run-id"),
+  });
+  writeMetadata(requiredFlag(flags, "output"), result);
+  return 0;
 }
 
 interface DriverResult {
@@ -624,6 +698,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     }
     const flags = parseFlags(argv.slice(1));
     if (command === "packaged") return await runPackaged(flags);
+    if (command === "packaged-merge") return runPackagedMerge(flags);
     if (command === "live") return await runLive(flags);
     throw new AcceptanceWorkflowError("arguments_invalid");
   } catch (error) {

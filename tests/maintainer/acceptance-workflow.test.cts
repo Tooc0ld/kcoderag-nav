@@ -123,7 +123,8 @@ test("workflow binds every consumer to the producer artifact and never rebuilds 
   assert.match(packaged, /node-version:\s*["']22["']/u);
   assert.match(packaged, /--lane\s+["']windows-node22["']/u);
   assert.equal(packaged.match(/npm run acceptance:packaged/gu)?.length, 1);
-  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
+  assert.match(packaged, /group:\s*\[first, second\]/u);
+  assert.match(packaged, /--group "\$\{\{ matrix\.group \}\}"/u);
   assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 2);
   assert.match(source, /candidateSha:[\s\S]*?required:\s*true[\s\S]*?candidateRef:[\s\S]*?required:\s*true[\s\S]*?packageSha256:[\s\S]*?required:\s*true[\s\S]*?packageMemberDigest:[\s\S]*?required:\s*true/u);
   assert.match(packageJob, /READINESS_PROVENANCE_PROFILE:\s*acceptance/u);
@@ -164,6 +165,8 @@ test("workflow validator fails closed for trust, identity, bypass and LIVE rebui
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],
     [source.replace("github.event.repository.fork == false", "github.event.repository.fork == true"), "untrusted_ref_guard_missing"],
     [liveNode24, "live_runner_invalid"],
+    [source.replace("group: [first, second]", "group: [first]"), "packaged_matrix_invalid"],
+    [source.replace("npm run acceptance:packaged:merge", "npm run docs:check"), "packaged_merge_missing"],
     [source.replace("KCODERAG_NATIVE_DRIVER_SHA256", "KCODERAG_NATIVE_DRIVER_DIGEST"), "native_driver_binding_missing"],
     [source.replace("dist/maintainer/native-host-driver.cjs", "C:/mutable/native-driver.cjs"), "native_driver_binding_missing"],
     [source.replace("${{ vars.KCODERAG_ZCODE_WORKSPACE_TRUST }}", "approved"), "workspace_trust_projection_missing"],

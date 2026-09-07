@@ -164,6 +164,7 @@ export interface RunHostSmokeOptions {
   readonly temporaryRoot?: string;
   readonly repositoryRoot?: string;
   readonly hosts?: readonly HostId[];
+  readonly parallel?: boolean;
 }
 
 interface AcquiredPackage extends PackageProvenance {
@@ -3344,7 +3345,7 @@ export async function runHostSmoke(
       try {
         return await releaseReadiness.withCandidatePackageBytes(lease, "host-smoke", async (bytes, artifact) => {
           dependencies.observeCandidateBytes?.(bytes);
-          if (dependencies.runNpm === undefined && hosts.length > 1) {
+          if (options.parallel !== false && dependencies.runNpm === undefined && hosts.length > 1) {
             return runPackagedWorkers(bytes, artifact, hosts, temporaryRoot);
           }
           const acquiredPackage = await acquireCandidatePackage(bytes, artifact, temporaryRoot, runNpm);

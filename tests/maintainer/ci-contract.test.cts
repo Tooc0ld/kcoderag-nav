@@ -76,11 +76,11 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
 
 test("every CI checkout is pinned and acceptance checkouts bind the exact producer subject", () => {
   const source = `${workflow()}\n${acceptanceWorkflow()}`;
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 6);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 6);
+  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 7);
+  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 7);
   assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
   assert.equal(source.match(/ref:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/gu)?.length ?? 0, 1);
-  assert.equal(source.match(/ref:\s*\$\{\{ needs\.package\.outputs\.candidate-sha \}\}/gu)?.length ?? 0, 1);
+  assert.equal(source.match(/ref:\s*\$\{\{ needs\.package\.outputs\.candidate-sha \}\}/gu)?.length ?? 0, 2);
   assert.equal(source.match(/ref:\s*\$\{\{ inputs\.candidateSha \}\}/gu)?.length ?? 0, 1);
 });
 
@@ -185,7 +185,9 @@ test("acceptance uses one hosted producer, one Windows packaged lane and a prote
   assert.match(packaged, /node-version:\s*["']22["']/u);
   assert.equal(packaged.match(/npm run acceptance:packaged/gu)?.length, 1);
   assert.match(packaged, /--lane\s+["']windows-node22["']/u);
-  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
+  assert.match(packaged, /group:\s*\[first, second\]/u);
+  assert.match(packaged, /--group "\$\{\{ matrix\.group \}\}"/u);
+  assert.match(source, /npm run acceptance:packaged:merge/u);
   assert.match(source, /github\.event_name == 'workflow_dispatch'/u);
   assert.match(source, /github\.event\.repository\.fork == false/u);
   assert.match(source, /environment:\s*\r?\n\s+name:\s*kcoderag-live/u);

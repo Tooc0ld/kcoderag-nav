@@ -105,10 +105,14 @@ jobs:
           "package-member-digest=$digest" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
   packaged:
-    name: PACKAGED / windows-node22
+    name: PACKAGED / windows-node22 / ${{ matrix.group }}
     needs: package
     runs-on: windows-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [first, second]
     steps:
       - name: Checkout exact acceptance subject
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -134,6 +138,7 @@ jobs:
         run: >-
           npm run acceptance:packaged --
           --lane "windows-node22"
+          --group "${{ matrix.group }}"
           --candidate-sha "${{ needs.package.outputs.candidate-sha }}"
           --package-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
           --member-count "${{ needs.package.outputs.member-count }}"
@@ -141,12 +146,12 @@ jobs:
           --artifact-root "${{ runner.temp }}/candidate-artifact"
           --artifact-name "${{ needs.package.outputs.artifact-name }}"
           --evidence-level PACKAGED
-          --output "${{ runner.temp }}/packaged-windows-node22.json"
+          --output "${{ runner.temp }}/packaged-windows-node22-${{ matrix.group }}.json"
       - name: Upload metadata-only PACKAGED receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: packaged-windows-node22
-          path: ${{ runner.temp }}/packaged-windows-node22.json
+          name: packaged-windows-node22-${{ matrix.group }}
+          path: ${{ runner.temp }}/packaged-windows-node22-${{ matrix.group }}.json
           if-no-files-found: error
           retention-days: 7
 
@@ -263,3 +268,37 @@ jobs:
           if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ needs.live.result }}' -ne 'success') {
             throw 'live_incomplete'
           }
+      - name: Checkout exact acceptance subject
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.package.outputs.candidate-sha }}
+          persist-credentials: false
+      - name: Set up receipt runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Build receipt merger
+        run: npm ci --ignore-scripts && npm run build
+      - name: Download both packaged group receipts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: packaged-windows-node22-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/packaged-groups
+      - name: Verify complete five-host package identity
+        run: >-
+          npm run acceptance:packaged:merge --
+          --receipt-root "${{ runner.temp }}/packaged-groups"
+          --candidate-sha "${{ needs.package.outputs.candidate-sha }}"
+          --package-sha256 "${{ needs.package.outputs.artifact-sha256 }}"
+          --member-count "${{ needs.package.outputs.member-count }}"
+          --workflow-run-id "${{ github.run_id }}-${{ github.run_attempt }}"
+          --output "${{ runner.temp }}/packaged-windows-node22.json"
+      - name: Upload complete PACKAGED receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packaged-windows-node22
+          path: ${{ runner.temp }}/packaged-windows-node22.json
+          if-no-files-found: error
+          retention-days: 7
