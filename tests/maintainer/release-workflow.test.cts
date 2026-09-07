@@ -44,14 +44,19 @@ test("publish depends on the four-platform required matrix and one Windows packa
   assert.deepEqual(laneTuples(requiredJob), [
     "ubuntu-node-22|ubuntu|ubuntu-latest|22",
     "ubuntu-node-24|ubuntu|ubuntu-latest|24",
-    "windows-node-22|windows|windows-latest|22",
-    "windows-node-24|windows|windows-latest|24",
+    "windows-node-22-shard-1|windows|windows-latest|22",
+    "windows-node-22-shard-2|windows|windows-latest|22",
+    "windows-node-24-shard-1|windows|windows-latest|24",
+    "windows-node-24-shard-2|windows|windows-latest|24",
   ]);
   assert.match(requiredJob, /name:\s*Required release contracts \/ \$\{\{ matrix\.lane \}\}/u);
   assert.match(requiredJob, /runs-on:\s*\$\{\{ matrix\.runner \}\}/u);
   assert.match(requiredJob, /node-version:\s*\$\{\{ matrix\.node \}\}/u);
   assert.match(requiredJob, /fail-fast:\s*false/u);
-  assert.equal(requiredJob.match(/\n\s*- lane:/gu)?.length, 4);
+  assert.equal(requiredJob.match(/\n\s*- lane:/gu)?.length, 6);
+  assert.deepEqual([...requiredJob.matchAll(/shard: "([12]\/[12])"/gu)].map((match) => match[1]),
+    ["1/1", "1/1", "1/2", "2/2", "1/2", "2/2"]);
+  assert.match(requiredJob, /npm run test:ci:shard -- \$\{\{ matrix\.shard \}\}/u);
   assert.doesNotMatch(requiredJob, /exclude:|continue-on-error/iu);
   assert.match(packagedJob, /name:\s*Required packaged smoke \/ windows-node-22/u);
   assert.match(packagedJob, /runs-on:\s*windows-latest/u);

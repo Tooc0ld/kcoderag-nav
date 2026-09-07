@@ -969,18 +969,6 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       hosts: ["codex", "claude", "cursor", "opencode", "zcode"],
     }, {
       observeCandidateBytes: (bytes) => { observed.push(bytes); },
-      runNpm: (args, cwd, env) => {
-        if (args[0] === "exec") {
-          const packageArgument = args.find((arg) => arg.startsWith("--package="));
-          assert.equal(typeof packageArgument, "string");
-          const invocationPath = (packageArgument as string).slice("--package=".length);
-          assert.match(path.basename(invocationPath), /^[a-f0-9]{64}\.tgz$/u);
-          invocationPaths.add(invocationPath);
-          assert.equal(typeof env.npm_config_cache, "string");
-          npmCachePaths.add(env.npm_config_cache as string);
-        }
-        return runNpmResult(args, cwd, env);
-      },
     });
     assert.equal(result.status, "PASS", JSON.stringify(result));
     assert.equal(observed.length, 3);
@@ -996,8 +984,23 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       artifactMemberCount: artifact.memberCount,
     });
     assert.equal(result.hosts.length, 5);
-    assert.equal(invocationPaths.size, 1);
-    assert.equal(npmCachePaths.size, 1);
+    for (const group of ["packaged-group-1", "packaged-group-2"]) {
+      const groupRoot = path.join(root, group);
+      const members = fs.readdirSync(groupRoot, { recursive: true }).map(String);
+      const invocation = members.filter((member) => member.endsWith(`${artifact.sha256}.tgz`));
+      assert.ok(invocation.length >= 1);
+      for (const member of invocation) {
+        const file = path.join(groupRoot, member);
+        assert.equal(crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex"), artifact.sha256);
+        invocationPaths.add(file);
+      }
+      const caches = members.filter((member) => path.basename(member) === "npm-exec-cache");
+      assert.equal(caches.length, 1, "one shared invocation cache per isolated group");
+      npmCachePaths.add(path.join(groupRoot, caches[0] as string));
+      assert.ok(fs.existsSync(path.join(groupRoot, "receipts.jsonl")));
+    }
+    assert.ok(invocationPaths.size >= 2);
+    assert.equal(npmCachePaths.size, 2);
     for (const host of result.hosts) {
       assert.equal(host.status, "PASS", host.host);
       assert.equal(host.provenance, result.provenance);

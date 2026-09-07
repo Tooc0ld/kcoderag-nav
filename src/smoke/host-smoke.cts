@@ -26,6 +26,7 @@ import {
   completeCommonObservations,
   completeHostObservations,
   createHostReceipt,
+  parseHostReceipt,
   emptyCommonObservations,
   emptyHostObservations,
   type AggregateVerdict,
@@ -3110,6 +3111,136 @@ function artifactFailureResults(
   }));
 }
 
+/** Two isolated processes amortize npm acquisition without sharing mutable host state. */
+export function packagedHostGroups(hosts: readonly HostId[]): readonly (readonly HostId[])[] {
+  if (hosts.length === 0 || new Set(hosts).size !== hosts.length || hosts.some((host) => !HOSTS.includes(host))) {
+    throw new Error("unsupported_host");
+  }
+  return [hosts.filter((_, index) => index % 2 === 0), hosts.filter((_, index) => index % 2 === 1)]
+    .filter((group) => group.length > 0);
+}
+
+/** IPC results must close exactly the assigned hosts and original package identity. */
+export function validatePackagedWorkerResult(
+  value: unknown,
+  hosts: readonly HostId[],
+  provenance: PackageProvenance,
+): readonly HostSmokeResult[] {
+  if (!Array.isArray(value) || value.length !== hosts.length) throw new Error("packaged_worker_invalid");
+  return value.map((item: unknown, index) => {
+    if (!isRecord(item) || item.host !== hosts[index] || item.mode !== "required-contract"
+      || item.evidenceLevel !== "PACKAGED" || !isRecord(item.provenance)
+      || JSON.stringify(item.provenance) !== JSON.stringify(provenance)) throw new Error("packaged_worker_invalid");
+    const receipt = parseHostReceipt(item.receipt);
+    if (receipt.host !== item.host || receipt.evidenceLevel !== "PACKAGED"
+      || receipt.packageSha256 !== provenance.lifecycleTarballSha256
+      || receipt.candidateSha !== provenance.lifecycleTarballSha256
+      || receipt.packageMemberDigest !== crypto.createHash("sha256")
+        .update(`${provenance.lifecycleTarballSha256}:${provenance.artifactMemberCount}`).digest("hex")
+      || receipt.status !== item.status
+      || (item.status === "PASS" && (!isRecord(item.evidence)
+        || EVIDENCE_KEYS.some((key) => (item.evidence as Record<string, unknown>)[key] !== true)))) {
+      throw new Error("packaged_worker_invalid");
+    }
+    return Object.freeze({ ...(item as unknown as HostSmokeResult), receipt, provenance });
+  });
+}
+
+interface PackagedWorkerRequest {
+  readonly bytes: string;
+  readonly artifact: CandidatePackageArtifact;
+  readonly root: string;
+  readonly hosts: readonly HostId[];
+}
+
+export function runPackagedWorker(
+  request: PackagedWorkerRequest,
+  provenance: PackageProvenance,
+  launch: () => import("node:child_process").ChildProcess = () => childProcess.spawn(
+    process.execPath, [__filename, "--packaged-worker"], {
+      stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true,
+    }),
+  timeoutMs = 15 * 60 * 1000,
+): Promise<readonly HostSmokeResult[]> {
+  return new Promise((resolve, reject) => {
+    const worker = launch();
+    let response: unknown;
+    let received = false;
+    let invalid = false;
+    const timer = setTimeout(() => {
+      invalid = true;
+      terminateProcessTree(worker.pid);
+      reject(new Error("packaged_worker_timeout"));
+    }, timeoutMs);
+    worker.on("message", (message: unknown) => {
+      if (received || Buffer.byteLength(JSON.stringify(message), "utf8") > 512 * 1024) invalid = true;
+      received = true;
+      response = message;
+    });
+    worker.on("error", () => { invalid = true; });
+    worker.on("close", (code) => {
+      clearTimeout(timer);
+      try {
+        if (code !== 0 || invalid || !received) throw new Error("packaged_worker_failed");
+        resolve(validatePackagedWorkerResult(response, request.hosts, provenance));
+      } catch { reject(new Error("packaged_worker_failed")); }
+    });
+    worker.send(request, (error) => {
+      if (error) { invalid = true; terminateProcessTree(worker.pid); }
+    });
+  });
+}
+
+async function runPackagedWorkers(
+  bytes: Buffer,
+  artifact: CandidatePackageArtifact,
+  hosts: readonly HostId[],
+  root: string,
+): Promise<SmokeRunResult> {
+  const provenance: PackageProvenance = Object.freeze({
+    requestedPackageSpec: "readiness-artifact", expectedVersion: artifact.version,
+    resolvedPackageName: PACKAGE_NAME, resolvedVersion: artifact.version,
+    lifecycleTarballSha256: artifact.sha256, artifactMemberCount: artifact.memberCount,
+  });
+  const groups = packagedHostGroups(hosts);
+  const outcomes = await Promise.allSettled(groups.map((group, index) => runPackagedWorker({
+    bytes: bytes.toString("base64"), artifact, hosts: group,
+    root: path.join(root, `packaged-group-${index + 1}`),
+  }, provenance)));
+  const results = outcomes.flatMap((outcome, index) => outcome.status === "fulfilled" ? outcome.value
+    : (groups[index] ?? []).map((host) => evaluateHostEvidence({
+      host, mode: "required-contract", failureReason: "packaged_worker_failed", provenance,
+    })));
+  return aggregate("required-contract", hosts.map((host) => results.find((result) => result.host === host)!), provenance);
+}
+
+async function packagedWorkerMain(): Promise<void> {
+  process.once("message", async (request: PackagedWorkerRequest) => {
+    let server: Awaited<ReturnType<typeof startStubMcpServer>> | undefined;
+    try {
+      const bytes = Buffer.from(request.bytes, "base64");
+      if (crypto.createHash("sha256").update(bytes).digest("hex") !== request.artifact.sha256) throw new Error("artifact_integrity_failed");
+      packagedHostGroups(request.hosts);
+      fs.mkdirSync(request.root, { recursive: true });
+      const receiptPath = path.join(request.root, "receipts.jsonl");
+      server = await startStubMcpServer(receiptPath);
+      const acquired = await acquireCandidatePackage(bytes, request.artifact, request.root, runNpmProcess);
+      const result = await executeAcquiredSmoke("required-contract", request.hosts, acquired,
+        request.root, server, receiptPath, runNpmProcess, true);
+      await server.close();
+      server = undefined;
+      process.send?.(result.hosts, (error) => {
+        process.exitCode = error ? 1 : 0;
+        process.disconnect();
+      });
+    } catch {
+      if (server !== undefined) await server.close();
+      process.exitCode = 1;
+      if (process.connected) process.disconnect();
+    }
+  });
+}
+
 async function executeAcquiredSmoke(
   mode: SmokeMode,
   hosts: readonly HostId[],
@@ -3213,6 +3344,9 @@ export async function runHostSmoke(
       try {
         return await releaseReadiness.withCandidatePackageBytes(lease, "host-smoke", async (bytes, artifact) => {
           dependencies.observeCandidateBytes?.(bytes);
+          if (dependencies.runNpm === undefined && hosts.length > 1) {
+            return runPackagedWorkers(bytes, artifact, hosts, temporaryRoot);
+          }
           const acquiredPackage = await acquireCandidatePackage(bytes, artifact, temporaryRoot, runNpm);
           return executeAcquiredSmoke(
             options.mode,
@@ -3395,8 +3529,8 @@ exports.runHostSmoke = runHostSmoke;
 exports.main = main;
 
 if (require.main === module) {
-  main().then(
-    (code) => { process.exitCode = code; },
+  (process.argv[2] === "--packaged-worker" && process.send !== undefined ? packagedWorkerMain() : main()).then(
+    (code) => { if (typeof code === "number") process.exitCode = code; },
     () => { process.exitCode = 1; },
   );
 }

@@ -141,6 +141,7 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/maintainer/acceptance-evidence.cjs",
   "dist/maintainer/acceptance-workflow.cjs",
   "dist/maintainer/ci-change-scope.cjs",
+  "dist/maintainer/ci-test-shard.cjs",
   "dist/maintainer/head-acceptance.cjs",
   "dist/maintainer/github-artifact-upload.cjs",
   "dist/maintainer/native-host-driver.cjs",

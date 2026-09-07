@@ -43,8 +43,10 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   const expectedLanes = [
     "ubuntu-node-22|ubuntu|ubuntu-latest|22",
     "ubuntu-node-24|ubuntu|ubuntu-latest|24",
-    "windows-node-22|windows|windows-latest|22",
-    "windows-node-24|windows|windows-latest|24",
+    "windows-node-22-shard-1|windows|windows-latest|22",
+    "windows-node-22-shard-2|windows|windows-latest|22",
+    "windows-node-24-shard-1|windows|windows-latest|24",
+    "windows-node-24-shard-2|windows|windows-latest|24",
   ];
   assert.deepEqual(
     lanes(required),
@@ -55,7 +57,10 @@ test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () =>
   assert.match(required, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
   assert.match(required, /timeout-minutes:\s*30/u);
   assert.match(required, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
-  assert.equal(required.match(/\n\s*- lane:/gu)?.length, 4);
+  assert.equal(required.match(/\n\s*- lane:/gu)?.length, 6);
+  assert.deepEqual([...required.matchAll(/shard: "([12]\/[12])"/gu)].map((match) => match[1]),
+    ["1/1", "1/1", "1/2", "2/2", "1/2", "2/2"]);
+  assert.match(required, /npm run test:ci:shard -- \$\{\{ matrix\.shard \}\}/u);
   assert.equal(packaged.match(/\n\s*- lane:/gu)?.length ?? 0, 0);
   assert.match(packaged, /name:\s*Packaged readiness \/ windows-node-22/u);
   assert.match(packaged, /runs-on:\s*windows-latest/u);
