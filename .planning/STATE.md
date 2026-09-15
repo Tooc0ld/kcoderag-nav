@@ -4,10 +4,10 @@ current_phase: 5
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: "Ready to execute Phase 05 plan 05-06"
 stopped_at: Phase 06 complete, ready to execute Phase 05 plan 05-06
-last_updated: "2026-09-07T03:24:00Z"
-last_activity: 2026-09-07
-last_activity_desc: "Parallelized Windows test shards and exact-package acceptance groups; hosted CI 5m47s and acceptance 8m01s PASS; Phase 05 remains 5/6"
-state_head: 1b7c3949bab19f1ed894337125dd18f3d9ad29ed
+last_updated: "2026-09-15T03:38:00Z"
+last_activity: 2026-09-15
+last_activity_desc: "Profiled Windows npm overhead and optimized direct npm startup; hosted CI 5m33s and acceptance 6m13s PASS; Phase 05 remains 5/6"
+state_head: a31f40f411973a67d38beda45a7dab8dabb3ecb8
 progress:
   total_phases: 9
   completed_phases: 7
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-03)
 Phase: 5 — 统一 Hook 策略与真实宿主验证
 Plan: 05-06 (5/6 plans complete)
 Status: Ready to execute Phase 05 plan 05-06
-Last activity: 2026-09-07 - Completed quick task 260907-ey3: parallelize Windows CI shards and packaged host groups
+Last activity: 2026-09-15 - Completed quick task 260915-fmv: profile and optimize Windows npm bootstrap overhead
 
 Progress: [████████████████████] 117/118 plans (99%)
 
@@ -414,6 +414,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260903-x20 | Optimize CI by skipping documentation-only acceptance and running heavy five-host packaged smoke once | 2026-09-03 | 68a5690 | [260903-x20-optimize-ci-by-skipping-documentation-on](./quick/260903-x20-optimize-ci-by-skipping-documentation-on/) | Verified |
 | 260904-l6r | Update current usage docs and make $kcoderag self-explanatory | 2026-09-04 | 1b647f3 | [260904-l6r-update-user-documentation-from-recent-re](./quick/260904-l6r-update-user-documentation-from-recent-re/) | Verified |
 | 260907-ey3 | Parallelize Windows CI shards and packaged host groups | 2026-09-07 | 1b7c394 | [260907-ey3-parallelize-windows-ci-test-shards-and-i](./quick/260907-ey3-parallelize-windows-ci-test-shards-and-i/) | Verified |
+| 260915-fmv | Profile and optimize Windows npm bootstrap overhead | 2026-09-15 | a31f40f | [260915-fmv-profile-windows-ci-subprocess-and-filesy](./quick/260915-fmv-profile-windows-ci-subprocess-and-filesy/) | Verified |
 
 ### Roadmap Evolution
 
