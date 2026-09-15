@@ -734,7 +734,29 @@ export function runProcessAsync(
   });
 }
 
-function runNpmProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
+/** Keep real npm execution while avoiding the Windows npm.cmd bootstrap on each call. */
+export function resolveSmokeNpmCli(options: {
+  readonly platform?: NodeJS.Platform;
+  readonly execPath?: string;
+  readonly npmExecPath?: string;
+  readonly isFile?: (candidate: string) => boolean;
+} = {}): string | undefined {
+  if ((options.platform ?? process.platform) !== "win32") return undefined;
+  const isFile = options.isFile ?? ((candidate: string) => fs.statSync(candidate).isFile());
+  const candidates = [
+    options.npmExecPath ?? process.env.npm_execpath,
+    path.join(path.dirname(options.execPath ?? process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !path.isAbsolute(candidate) || path.basename(candidate) !== "npm-cli.js") continue;
+    try { if (isFile(candidate)) return candidate; } catch { /* Unusual installations retain the command shim. */ }
+  }
+  return undefined;
+}
+
+export function runNpmProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CommandResult {
+  const npmCli = resolveSmokeNpmCli();
+  if (npmCli !== undefined) return runProcess(process.execPath, [npmCli, ...args], { cwd, env });
   return runProcess("npm", args, { cwd, env, commandShim: true });
 }
 
