@@ -15,13 +15,13 @@
   "variables": {
     "properties": {
       "KCODERAG_BEARER_TOKEN": {
-        "default": "kcoderag-qa-token-2026",
+        "default": "ECWaY9_n_EmqEiHYw_tw9e-5v0dYE2A_lo9HXLXTiZk",
         "description": "Internal KCodeRag QA bearer credential.",
         "title": "KCodeRag bearer token",
         "type": "string"
       },
       "KCODERAG_MCP_URL": {
-        "default": "http://10.11.184.71:8010/mcp",
+        "default": "http://10.11.39.59:30106/mcp",
         "description": "Internal KCodeRag QA MCP endpoint.",
         "title": "KCodeRag MCP URL",
         "type": "string"

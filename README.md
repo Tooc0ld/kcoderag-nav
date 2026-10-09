@@ -231,8 +231,8 @@ npm run generate:check
 npm run pack:audit
 ```
 
-Phase 04.2 最初验证并发布了 `0.3.0`。当前公开版本为 annotated tag `v0.3.5`；
-它已通过 Release workflow 并发布为 `kcoderag-nav@0.3.5`，npm `latest` 指向 `0.3.5`。
+Phase 04.2 最初验证并发布了 `0.3.0`。当前公开版本以 npm `latest` 为准；
+维护者通过 Release workflow 发布与 `v<version>` tag 匹配的新版本。
 已发布版本不 unpublish 或回退 dist-tag，只通过新版本继续修复。
 
 当前内部 QA profile 的连接材料视为不透明敏感输入。生成、CLI、状态、测试、receipt 与文档只处理
