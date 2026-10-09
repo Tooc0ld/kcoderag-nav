@@ -126,10 +126,16 @@ function runUpstream(command: string, input: Buffer, options: ClaudeStatuslineOp
     const chunks: Buffer[] = [];
     let size = 0;
     let settled = false;
+    let stopping = false;
+    let childClosed = false;
+    let killerClosed = true;
+    let killer: import("node:child_process").ChildProcess | undefined;
+    let cleanupTimer: NodeJS.Timeout | undefined;
     const finish = (): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(cleanupTimer);
       process.removeListener("SIGTERM", stop);
       process.removeListener("SIGINT", stop);
       process.removeListener("exit", stop);
@@ -138,21 +144,56 @@ function runUpstream(command: string, input: Buffer, options: ClaudeStatuslineOp
       child.stderr.destroy();
       resolve(Buffer.concat(chunks, size));
     };
+    const finishAfterClose = (): void => {
+      if (childClosed && killerClosed) finish();
+    };
+    const killChild = (): void => {
+      try { child.kill("SIGKILL"); } catch { /* fail open */ }
+    };
     const stop = (): void => {
-      if (settled) return;
-      if (child.pid !== undefined) {
-        if (process.platform === "win32") {
-          // Only the subprocess tree created above is targeted.
-          const killer = childProcess.spawn("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], {
+      if (settled || stopping) return;
+      stopping = true;
+      clearTimeout(timer);
+      // A termination request is not an exit acknowledgement. In particular,
+      // Windows can retain cwd handles until both taskkill and the tree close.
+      cleanupTimer = setTimeout(() => {
+        killChild();
+        try { killer?.kill("SIGKILL"); } catch { /* fail open */ }
+        child.unref();
+        killer?.unref();
+        finish();
+      }, 2000);
+      if (child.pid === undefined) {
+        childClosed = true;
+        finishAfterClose();
+        return;
+      }
+      if (process.platform === "win32") {
+        killerClosed = false;
+        try {
+          // Only the subprocess tree created above is targeted. Keep taskkill
+          // referenced until its acknowledgement, rather than returning early.
+          killer = childProcess.spawn("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], {
             stdio: "ignore", windowsHide: true,
           });
-          killer.on("error", () => { try { child.kill("SIGKILL"); } catch { /* fail open */ } });
-          killer.unref();
-        } else {
-          try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* fail open */ } }
+          killer.on("error", () => {
+            killerClosed = true;
+            killChild();
+            finishAfterClose();
+          });
+          killer.on("close", (code) => {
+            killerClosed = true;
+            if (code !== 0 && !childClosed) killChild();
+            finishAfterClose();
+          });
+        } catch {
+          killerClosed = true;
+          killChild();
+          finishAfterClose();
         }
+      } else {
+        try { process.kill(-child.pid, "SIGKILL"); } catch { killChild(); }
       }
-      finish();
     };
     const timeout = options.timeoutMs ?? 1500;
     const timer = setTimeout(stop, Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 5000) : 1500);
@@ -170,8 +211,15 @@ function runUpstream(command: string, input: Buffer, options: ClaudeStatuslineOp
     });
     child.stderr.resume();
     child.stdin.on("error", () => { /* An upstream command may not consume stdin. */ });
-    child.on("error", finish);
-    child.on("close", finish);
+    child.on("error", () => {
+      // A failed spawn still emits close; it owns no subprocess if pid is absent.
+      if (child.pid === undefined) childClosed = true;
+      finishAfterClose();
+    });
+    child.on("close", () => {
+      childClosed = true;
+      finishAfterClose();
+    });
     child.stdin.end(input);
   });
 }

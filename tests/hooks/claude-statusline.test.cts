@@ -172,3 +172,83 @@ test("Claude cancellation stops the owned POSIX upstream group before a delayed 
     assert.equal(fs.existsSync(late), false);
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
+
+
+test("Windows output-limit completion waits for both upstream and taskkill close acknowledgements", async () => {
+  const f = fixture();
+  const childProcess = require("node:child_process") as typeof import("node:child_process");
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const { PassThrough } = require("node:stream") as typeof import("node:stream");
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  const originalSpawn = childProcess.spawn;
+  const upstream = Object.assign(new EventEmitter(), {
+    pid: 7654321, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    kill: () => true, unref: () => {},
+  });
+  const killer = Object.assign(new EventEmitter(), { kill: () => true, unref: () => {} });
+  let treeClosed = false;
+  let upstreamClosed = false;
+  let calls = 0;
+  try {
+    f.write(".claude/settings.json", { statusLine: { type: "command", command: "synthetic-upstream" } });
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    childProcess.spawn = ((executable: string) => {
+      calls += 1;
+      if (calls === 1) {
+        setTimeout(() => upstream.stdout.write(Buffer.alloc(statusline.MAX_OUTPUT_BYTES + 1)), 0);
+        return upstream;
+      }
+      assert.equal(executable, "taskkill.exe");
+      setTimeout(() => { upstreamClosed = true; upstream.emit("close", 1); }, 5);
+      setTimeout(() => { treeClosed = true; killer.emit("close", 0); }, 60);
+      return killer;
+    }) as typeof childProcess.spawn;
+    const output = await statusline.renderClaudeStatusline(Buffer.from("{}"), f.options);
+    assert.equal(output.length, statusline.MAX_OUTPUT_BYTES);
+    assert.equal(upstreamClosed, true, "the upstream must have closed before the renderer resolves");
+    assert.equal(treeClosed, true, "taskkill must acknowledge tree termination before the renderer resolves");
+    assert.equal(calls, 2);
+  } finally {
+    childProcess.spawn = originalSpawn;
+    if (platform !== undefined) Object.defineProperty(process, "platform", platform);
+    upstream.stdin.destroy();
+    upstream.stdout.destroy();
+    upstream.stderr.destroy();
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("Output-limit completion leaves no running owned upstream or descendant", async () => {
+  const f = fixture();
+  try {
+    const inventory = path.join(f.root, "owned-pids.json");
+    const descendant = 'process.send("ready");setInterval(()=>{},1000);';
+    f.write(".claude/settings.json", { statusLine: f.script("owned-tree",
+      'const c=require("node:child_process").spawn(process.execPath,["-e",' + JSON.stringify(descendant) +
+      '],{stdio:["ignore","ignore","ignore","ipc"]});c.once("message",()=>{require("node:fs").writeFileSync(' +
+      JSON.stringify(inventory) + ',JSON.stringify([process.pid,c.pid]));process.stdout.write("x".repeat(300000));});setInterval(()=>{},1000);') });
+    const output = await statusline.renderClaudeStatusline(Buffer.from("{}"), { ...f.options, timeoutMs: 5000 });
+    assert.equal(output.length, statusline.MAX_OUTPUT_BYTES);
+    const pids = JSON.parse(fs.readFileSync(inventory, "utf8")) as number[];
+    assert.equal(pids.length, 2);
+    for (const pid of pids) {
+      let running = true;
+      try {
+        process.kill(pid, 0);
+        // POSIX orphan zombies have exited and cannot retain cwd handles/work;
+        // the host init process owns their final bookkeeping, not this renderer.
+        if (process.platform === "linux") {
+          const stat = fs.readFileSync("/proc/" + pid + "/stat", "utf8");
+          running = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] !== "Z";
+        }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ESRCH" || code === "ENOENT") running = false;
+        else throw error;
+      }
+      assert.equal(running, false, "no owned process may keep running after output-limit completion");
+    }
+    // This must work immediately. Do not mask lingering cwd handles with retries.
+    fs.rmSync(f.projectRoot, { recursive: true, force: true });
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
