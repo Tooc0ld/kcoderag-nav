@@ -83,6 +83,8 @@ const REQUIRED_ASSETS = Object.freeze([
   "kcoderag-qa/skills/kcoderag-update/agents/openai.yaml",
   "kcoderag-qa/skills/kcoderag-feedback/SKILL.md",
   "kcoderag-qa/skills/kcoderag-feedback/agents/openai.yaml",
+  "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md",
+  "kcoderag-qa/skills/kcoderag-dashboard/agents/openai.yaml",
   "kcoderag-qa/skills/kcoderag-code-style/SKILL.md",
   "kcoderag-qa/skills/kcoderag-code-style/agents/openai.yaml",
   "kcoderag-qa/skills/kcoderag-code-style/references/change-hygiene-self-review.md",
@@ -96,6 +98,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "kcoderag-cursor/skills/kcoderag-manage/SKILL.md",
   "kcoderag-cursor/skills/kcoderag-update/SKILL.md",
   "kcoderag-cursor/skills/kcoderag-feedback/SKILL.md",
+  "kcoderag-cursor/skills/kcoderag-dashboard/SKILL.md",
   "kcoderag-cursor/skills/kcoderag-code-style/SKILL.md",
   "kcoderag-cursor/skills/kcoderag-code-style/references/change-hygiene-self-review.md",
   "kcoderag-cursor/skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
@@ -115,6 +118,8 @@ const REQUIRED_ASSETS = Object.freeze([
   "plugin-src/skills/kcoderag-update/agents/openai.yaml",
   "plugin-src/skills/kcoderag-feedback/SKILL.md",
   "plugin-src/skills/kcoderag-feedback/agents/openai.yaml",
+  "plugin-src/skills/kcoderag-dashboard/SKILL.md",
+  "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml",
 ]);
 
 const VERSION_MANIFESTS = Object.freeze([
@@ -142,6 +147,8 @@ export const NON_PUBLISHED_COMPILED_OUTPUTS = Object.freeze([
   "dist/maintainer/acceptance-workflow.cjs",
   "dist/maintainer/ci-change-scope.cjs",
   "dist/maintainer/ci-test-shard.cjs",
+  "dist/maintainer/exact-package.cjs",
+  "dist/maintainer/registry-readiness.cjs",
   "dist/maintainer/head-acceptance.cjs",
   "dist/maintainer/github-artifact-upload.cjs",
   "dist/maintainer/native-host-driver.cjs",

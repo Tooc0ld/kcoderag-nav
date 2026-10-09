@@ -567,3 +567,21 @@ test("pack audit delegates all gzip and tar parsing to the shared non-extracting
   assert.doesNotMatch(source, /gunzipSync|parsePaxPath|function readTarEntries/u);
   assert.doesNotMatch(source, /execFileSync\([^)]*tar|spawnSync\([^)]*tar/iu);
 });
+
+
+test("requires dashboard skill sources and both generated projections in the npm archive", () => {
+  for (const required of [
+    "plugin-src/skills/kcoderag-dashboard/SKILL.md",
+    "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml",
+    "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md",
+    "kcoderag-qa/skills/kcoderag-dashboard/agents/openai.yaml",
+    "kcoderag-cursor/skills/kcoderag-dashboard/SKILL.md",
+  ]) {
+    const missing = baseline();
+    assert.equal(missing.archiveEntries.has(required), true, required);
+    missing.packageJson.files = missing.packageJson.files.filter((item: string) => item !== required);
+    const expectedPaths = missing.expectedPaths.filter((item) => item !== required);
+    missing.archiveEntries.delete(required);
+    expectCode(() => packAudit.validatePack({ ...missing, expectedPaths }), "missing_self_contained_asset");
+  }
+});

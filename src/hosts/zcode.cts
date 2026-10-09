@@ -76,6 +76,7 @@ const NAV_SKILL_ROOT = ".zcode/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".zcode/skills/kcoderag-manage";
 const UPDATE_SKILL_ROOT = ".zcode/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".zcode/skills/kcoderag-feedback";
+const DASHBOARD_SKILL_ROOT = ".zcode/skills/kcoderag-dashboard";
 const CODE_STYLE_SKILL_ROOT = ".zcode/skills/kcoderag-code-style";
 const HOOK_ROOT = ".zcode/kcoderag-nav/hooks";
 const MANAGED_ROOTS = Object.freeze([".zcode"] as const);
@@ -415,6 +416,7 @@ function contributions(
         projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
         projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/SKILL.md"), false),
         projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
+        projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md"), false),
         projectedFile(target, state, `${HOOK_ROOT}/pre-tool-dispatcher.cjs`, sourceAsset(packageRoot, "dist/hooks/pre-tool-dispatcher.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false),
         projectedFile(target, state, `${HOOK_ROOT}/grep-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/grep-nudge.cjs"), false),

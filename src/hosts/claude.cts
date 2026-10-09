@@ -62,6 +62,7 @@ const NAV_SKILL_ROOT = ".claude/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".claude/skills/kcoderag-manage";
 const UPDATE_SKILL_ROOT = ".claude/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".claude/skills/kcoderag-feedback";
+const DASHBOARD_SKILL_ROOT = ".claude/skills/kcoderag-dashboard";
 const CODE_STYLE_SKILL_ROOT = ".claude/skills/kcoderag-code-style";
 const HOOK_ROOT = ".claude/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".claude", MCP_PATH] as const);
@@ -414,6 +415,7 @@ function projectContributions(
       projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
       projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/SKILL.md"), false),
       projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
+      projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ];
     contributions.push(Object.freeze({

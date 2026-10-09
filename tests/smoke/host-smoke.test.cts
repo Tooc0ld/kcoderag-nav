@@ -83,6 +83,15 @@ interface SupportedCapabilityLifecycle {
 
 type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
+interface SmokeExecutionMetrics {
+  readonly npmExecCalls: number;
+  readonly directNodeCalls: number;
+  readonly npmExecMs: number;
+  readonly directNodeMs: number;
+  readonly runtimeIdentityMs: number;
+  readonly elapsedMs: number;
+}
+
 interface HostSmokeResult {
   readonly schemaVersion: 1;
   readonly host: HostId;
@@ -98,6 +107,7 @@ interface HostSmokeResult {
   readonly runtimeContract?: HostRuntimeContract;
   readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
+  readonly executionMetrics?: SmokeExecutionMetrics;
 }
 
 interface PackageProvenance {
@@ -160,6 +170,9 @@ interface AcquiredPackage extends PackageProvenance {
 }
 
 interface SmokeModule {
+  verifyInstalledPackage(bytes: Buffer, packageRoot: string, expectedVersion: string): {
+    readonly entryPath: string;
+  };
   readonly EVIDENCE_KEYS: readonly (keyof SmokeEvidence)[];
   readonly LIVE_PROMPT: string;
   completeEvidence(overrides?: Partial<SmokeEvidence>): SmokeEvidence;
@@ -934,7 +947,7 @@ test("required readiness rejects exact and latest candidates before public acqui
   }
 });
 
-test("readiness artifact drives all five packaged hosts from the same injected SHA and member count", async () => {
+test("readiness artifact drives all five packaged hosts from the same injected SHA and member count", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-readiness-hosts-"));
   const lease = releaseReadiness.createCandidatePackageArtifact({
     root: repositoryRoot,
@@ -1005,6 +1018,10 @@ test("readiness artifact drives all five packaged hosts from the same injected S
       assert.equal(host.status, "PASS", host.host);
       assert.equal(host.provenance, result.provenance);
       assert.equal(host.runtimeContract?.layer, "packaged");
+      assert.equal(host.executionMetrics?.npmExecCalls, 4, "each host retains npm install/status/update/uninstall");
+      assert.ok((host.executionMetrics?.directNodeCalls ?? 0) > 0, "behavior tests execute the verified CJS package");
+      assert.ok((host.executionMetrics?.runtimeIdentityMs ?? 0) > 0);
+      assert.ok((host.executionMetrics?.elapsedMs ?? 0) >= (host.executionMetrics?.npmExecMs ?? 0));
       if (host.host === "cursor") {
         assert.equal(host.runtimeContract?.kind, "cursor_events");
         assert.equal(host.runtimeContract?.hookEvent, true);
@@ -1026,6 +1043,10 @@ test("readiness artifact drives all five packaged hosts from the same injected S
         assert.equal(host.capabilityLifecycle?.receiptDigest, undefined);
       }
     }
+    t.diagnostic(JSON.stringify({
+      platform: process.platform, node: process.version,
+      hosts: result.hosts.map((host) => ({ host: host.host, ...host.executionMetrics })),
+    }));
     assert.equal("publicRegistryArtifact" in (result.provenance ?? {}), false);
     assert.doesNotMatch(JSON.stringify(result), /registry\.npmjs|resolvedTarballUrl|workspaceTrust(?:Value|Body)|admission(?:Payload|Body)/iu);
   } finally {
@@ -1178,6 +1199,125 @@ test("every host fails when the leased content-addressed tarball is replaced aft
     assert.equal(result.hosts.every((host) => host.reason === "artifact_integrity_failed"), true);
     assert.equal(smoke.smokeExitCode(result), 1);
     assert.doesNotMatch(JSON.stringify(result), /verified-artifacts|node_modules|invocation-drift/iu);
+  } finally {
+    lease.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("verified installed package rejects missing, modified, injected, redirected and linked runtime files", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-verified-runtime-"));
+  const source = path.join(root, "source");
+  const bin = path.join(source, "dist", "bin", "kcoderag-nav.cjs");
+  const manifest = { name: "kcoderag-nav", version: "1.2.3", bin: { "kcoderag-nav": "dist/bin/kcoderag-nav.cjs" } };
+  const original = "#!/usr/bin/env node\nprocess.exitCode = 0;\n";
+  try {
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(path.join(source, "package.json"), JSON.stringify(manifest));
+    fs.writeFileSync(bin, original);
+    const tarball = packFilename(runNpm([
+      "pack", source, "--json", "--ignore-scripts", "--pack-destination", root,
+    ], root), root);
+    const bytes = fs.readFileSync(tarball);
+    assert.equal(smoke.verifyInstalledPackage(bytes, source, "1.2.3").entryPath, bin);
+    const linkedRoot = path.join(root, "linked-runtime");
+    fs.symlinkSync(source, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, linkedRoot, "1.2.3"), /artifact_integrity_failed/u);
+    fs.unlinkSync(linkedRoot);
+    // Windows temporary paths may have an ancestor junction or short-name alias.
+    const parentAlias = path.join(root, "parent-alias");
+    fs.symlinkSync(root, parentAlias, process.platform === "win32" ? "junction" : "dir");
+    assert.equal(smoke.verifyInstalledPackage(bytes, path.join(parentAlias, "source"), "1.2.3").entryPath, bin);
+    fs.unlinkSync(parentAlias);
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "9.9.9"), /artifact_integrity_failed/u);
+
+    fs.writeFileSync(bin, original.replace("0", "1"));
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "1.2.3"), /artifact_integrity_failed/u);
+    fs.unlinkSync(bin);
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "1.2.3"), /artifact_integrity_failed/u);
+    fs.writeFileSync(bin, original);
+    const injected = path.join(source, "injected.cjs");
+    fs.writeFileSync(injected, "module.exports = {};\n");
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "1.2.3"), /artifact_integrity_failed/u);
+    fs.unlinkSync(injected);
+    fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({
+      ...manifest, bin: { "kcoderag-nav": "injected.cjs" },
+    }));
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "1.2.3"), /artifact_integrity_failed/u);
+    fs.writeFileSync(path.join(source, "package.json"), JSON.stringify(manifest));
+    // Directory junctions are available on Windows without symlink privileges.
+    const linked = path.join(source, "linked");
+    const outside = path.join(root, "outside");
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, linked, process.platform === "win32" ? "junction" : "dir");
+    assert.throws(() => smoke.verifyInstalledPackage(bytes, source, "1.2.3"), /artifact_integrity_failed/u);
+    fs.unlinkSync(linked);
+    assert.equal(smoke.verifyInstalledPackage(bytes, source, "1.2.3").entryPath, bin);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installed runtime replacement during npm lifecycle fails every host without exposing subprocess output", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-runtime-replaced-"));
+  const lease = releaseReadiness.createCandidatePackageArtifact({ root: repositoryRoot, consumers: ["host-smoke"] });
+  let replaced = false;
+  try {
+    const result = await smoke.runHostSmoke({
+      mode: "required-contract", artifactLease: lease, temporaryRoot: root, hosts: ["codex", "zcode"],
+    }, {
+      runNpm: (args, cwd, env) => {
+        const result = runNpmResult(args, cwd, env);
+        if (args[0] === "exec" && !replaced) {
+          replaced = true;
+          const bin = path.join(root, "acquired", "node_modules", "kcoderag-nav", "dist", "bin", "kcoderag-nav.cjs");
+          fs.appendFileSync(bin, "\nthrow new Error('secret-runtime-marker');\n");
+        }
+        return result;
+      },
+    });
+    assert.equal(replaced, true);
+    assert.equal(result.status, "FAIL");
+    assert.ok(result.hosts.every((host) => host.status === "FAIL" && host.reason === "artifact_integrity_failed"));
+    assert.doesNotMatch(JSON.stringify(result), /secret-runtime-marker|node_modules|verified-artifacts/u);
+  } finally {
+    lease.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("optimized behavior retains exact-tarball npm install status update uninstall in order", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-npm-distribution-"));
+  const lease = releaseReadiness.createCandidatePackageArtifact({ root: repositoryRoot, consumers: ["host-smoke"] });
+  const commands: string[] = [];
+  let acquisitions = 0;
+  try {
+    const result = await smoke.runHostSmoke({
+      mode: "required-contract", artifactLease: lease, temporaryRoot: root, hosts: ["codex"],
+    }, {
+      runNpm: (args, cwd, env) => {
+        if (args[0] === "install") acquisitions += 1;
+        if (args[0] === "exec") {
+          const packageArgument = args.find((argument) => argument.startsWith("--package="));
+          assert.ok(packageArgument);
+          assert.equal(crypto.createHash("sha256").update(
+            fs.readFileSync(packageArgument.slice("--package=".length)),
+          ).digest("hex"), lease.artifact.sha256);
+          commands.push(args[args.indexOf("--") + 2] ?? "");
+          assert.equal(cwd, path.join(root, "projects", "codex"));
+          assert.equal(env[process.platform === "win32" ? "USERPROFILE" : "HOME"],
+            path.join(root, "projects", "codex-runtime", "host-home"));
+        }
+        return runNpmResult(args, cwd, env);
+      },
+    });
+    assert.equal(result.status, "PASS", JSON.stringify(result));
+    assert.equal(acquisitions, 1);
+    assert.deepEqual(commands, ["install", "status", "update", "uninstall"]);
+    assert.equal(result.hosts[0]?.executionMetrics?.npmExecCalls, 4);
+    assert.equal(result.hosts[0]?.executionMetrics?.directNodeCalls, 18);
   } finally {
     lease.dispose();
     fs.rmSync(root, { recursive: true, force: true });

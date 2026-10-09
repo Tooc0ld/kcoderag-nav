@@ -54,6 +54,7 @@ const NAV_SKILL_ROOT = ".agents/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".agents/skills/kcoderag-manage";
 const UPDATE_SKILL_ROOT = ".agents/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".agents/skills/kcoderag-feedback";
+const DASHBOARD_SKILL_ROOT = ".agents/skills/kcoderag-dashboard";
 const CODE_STYLE_SKILL_ROOT = ".agents/skills/kcoderag-code-style";
 const HOOK_ROOT = ".codex/kcoderag-nav/qa/hooks";
 const MANAGED_ROOTS = Object.freeze([".codex", ".agents/skills"] as const);
@@ -255,7 +256,9 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/SKILL.md"), false),
       projectedFile(target, state, `${UPDATE_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/agents/openai.yaml"), false),
       projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
+      projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md"), false),
       projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/agents/openai.yaml"), false),
+      projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/agents/openai.yaml`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-dashboard/agents/openai.yaml"), false),
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ]), sections: Object.freeze([
       section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:session-start", hooks.start, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),

@@ -1,0 +1,156 @@
+name: Shared package verification
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+    outputs:
+      artifact-id:
+        value: ${{ jobs.package.outputs.artifact-id }}
+      manifest-sha256:
+        value: ${{ jobs.package.outputs.manifest-sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Produce one audited package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      manifest-sha256: ${{ steps.package.outputs.manifest-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Check immutable release version
+        if: ${{ inputs.release }}
+        run: node -e "if(process.env.GITHUB_REF_NAME!=='v'+require('./package.json').version)process.exit(1)"
+      - run: npm run build
+      - run: npm run deps:audit
+      - run: npm run generate:check
+      - run: npm run docs:check
+      - run: npm run audit:retirement
+      - name: Produce and audit the exact tarball once
+        id: package
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/exact-package
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: node dist/maintainer/exact-package.cjs produce "$PACKAGE_ROOT" "$CANDIDATE_SHA"
+      - name: Upload exact tarball and closed manifest
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-package-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exact-package
+          if-no-files-found: error
+          retention-days: 7
+
+  required-contracts:
+    name: Required contracts / ${{ matrix.lane }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: ubuntu-node-22
+            runner: ubuntu-latest
+            node: "22"
+            shard: "1/1"
+          - lane: ubuntu-node-24
+            runner: ubuntu-latest
+            node: "24"
+            shard: "1/1"
+          - lane: windows-node-22-shard-1
+            runner: windows-latest
+            node: "22"
+            shard: "1/2"
+          - lane: windows-node-22-shard-2
+            runner: windows-latest
+            node: "22"
+            shard: "2/2"
+          - lane: windows-node-24-shard-1
+            runner: windows-latest
+            node: "24"
+            shard: "1/2"
+          - lane: windows-node-24-shard-2
+            runner: windows-latest
+            node: "24"
+            shard: "2/2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run deps:audit
+      # The complete file shards include launcher and pack tests exactly once.
+      - run: npm run test:ci:shard -- ${{ matrix.shard }}
+
+  packaged-contracts:
+    name: Packaged readiness / windows-node-22
+    needs: package
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact-id }}
+          path: ${{ runner.temp }}/exact-package
+      - name: Exercise all five hosts against the producer tarball
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/exact-package
+          CANDIDATE_SHA: ${{ github.sha }}
+          MANIFEST_SHA: ${{ needs.package.outputs.manifest-sha256 }}
+          RECEIPT: ${{ runner.temp }}/packaged-receipt.json
+        run: node dist/maintainer/exact-package.cjs smoke "$env:PACKAGE_ROOT" "$env:CANDIDATE_SHA" "$env:MANIFEST_SHA" "$env:RECEIPT"
+      - name: Preserve packaged success or failure evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: packaged-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/packaged-receipt.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  verification-gate:
+    name: Verification gate
+    needs: [package, required-contracts, packaged-contracts]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject failed, cancelled, missing or skipped required jobs
+        env:
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          CONTRACT_RESULT: ${{ needs.required-contracts.result }}
+          PACKAGED_RESULT: ${{ needs.packaged-contracts.result }}
+        run: |
+          test "$PACKAGE_RESULT" = success
+          test "$CONTRACT_RESULT" = success
+          test "$PACKAGED_RESULT" = success

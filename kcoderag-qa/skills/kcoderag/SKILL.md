@@ -51,6 +51,10 @@ do not ask the user to construct MCP JSON.
 2. Ask for a target only when the chosen action requires one and none was provided.
 3. Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.
    Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.
+   An ONLINE vector index or `vector_available: true` alone does not establish serving readiness.
+   Read `structuredContent` and the response `meta.requested`, `meta.effective`, and changes;
+   if effective mode is `keyword` (for example `serving_keyword_only`), report keyword fallback,
+   not a semantic/hybrid success.
 4. Ask the narrowest useful graph question, inspect the best match, and traverse relationships only
    when needed.
 5. Read the located source before acting. If graph data is unavailable or stale, fall back to local

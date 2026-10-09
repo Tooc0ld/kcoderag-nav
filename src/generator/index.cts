@@ -152,7 +152,9 @@ const QA_METADATA_GUIDANCE = Object.freeze([
   "skills/kcoderag-update/SKILL.md",
   "skills/kcoderag-update/agents/openai.yaml",
   "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-dashboard/SKILL.md",
   "skills/kcoderag-feedback/agents/openai.yaml",
+  "skills/kcoderag-dashboard/agents/openai.yaml",
 ]);
 const QA_DOCS = Object.freeze(["README.md"]);
 const QA_VERSION = Object.freeze([
@@ -167,6 +169,7 @@ const CURSOR_METADATA_GUIDANCE = Object.freeze([
   "skills/kcoderag-manage/SKILL.md",
   "skills/kcoderag-update/SKILL.md",
   "skills/kcoderag-feedback/SKILL.md",
+  "skills/kcoderag-dashboard/SKILL.md",
 ]);
 const CURSOR_DOCS = Object.freeze(["README.md"]);
 const CURSOR_VERSION = Object.freeze([".cursor-plugin/plugin.json"]);
@@ -327,6 +330,7 @@ export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze(
   Object.freeze({ product: "cursor", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "cursor", output: "skills/kcoderag-update/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-update/SKILL.md", renderSource: "plugin-src/skills/kcoderag-update/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "cursor", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "cursor", output: "skills/kcoderag-dashboard/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", renderSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" }),
   Object.freeze({ product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" }),
@@ -344,7 +348,9 @@ export const PHASE_05_ASSET_ROUTES: readonly AssetSourceRoute[] = Object.freeze(
   Object.freeze({ product: "qa", output: "skills/kcoderag-update/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-update/SKILL.md", renderSource: "plugin-src/skills/kcoderag-update/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "qa", output: "skills/kcoderag-update/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-update/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-update/agents/openai.yaml", kind: "normalized-copy" }),
   Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-dashboard/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", renderSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", kind: "normalized-copy" }),
   Object.freeze({ product: "qa", output: "skills/kcoderag-feedback/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", kind: "normalized-copy" }),
+  Object.freeze({ product: "qa", output: "skills/kcoderag-dashboard/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml", kind: "normalized-copy" }),
 ]);
 
 const PHASE_05_ROUTE_BY_OUTPUT: ReadonlyMap<string, AssetSourceRoute> = new Map(

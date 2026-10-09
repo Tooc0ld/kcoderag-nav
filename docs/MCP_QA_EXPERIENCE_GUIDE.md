@@ -2,6 +2,8 @@
 
 `kcoderag-nav` 会把 KCodeRag 代码导航接入当前项目。安装完成后，可以直接在 Codex、Claude Code、Cursor、OpenCode 或 ZCode 中让 AI 搜索代码、查看上下文和追踪调用关系。
 
+本文是 KCodeRag Nav 的权威安装与使用指南，由 Nav 仓库独占维护。QA 服务和任务的当前状态以实时响应为准。
+
 ## 安装前
 
 - 安装 Node.js 22 或更高版本。
@@ -18,7 +20,7 @@ npx kcoderag-nav@latest install
 
 然后按提示选择宿主和功能：
 
-- `kcoderag-navigation`：代码搜索、上下文和调用链查询。五个宿主都可以安装。
+- `kcoderag-navigation`：代码搜索、上下文、调用链查询，以及打开 QA 看板。五个宿主都可以安装。
 - `code-style-nudge`：写 C/C++/Lua 前提醒加载代码规范。
 
 如果不想交互选择，可以直接指定宿主。五个宿主都可以安装两个 capability；下面以 Codex 为例：
@@ -61,14 +63,14 @@ npx kcoderag-nav@latest doctor --host codex
 manual-only 安装。状态正常后，重新打开宿主会话。
 
 宿主重新加载后，在支持 Skill/命令列表展示的界面中通常能看到 `$kcoderag`、`$kcoderag-manage`、
-`$kcoderag-update`、`$kcoderag-feedback` 和 `$kcoderag-code-style`。部分宿主不提供统一列表；无论界面
+`$kcoderag-update`、`$kcoderag-feedback`、`$kcoderag-dashboard` 和 `$kcoderag-code-style`。部分宿主不提供统一列表；无论界面
 是否展示，最终都以 `status`/`doctor` 的项目状态为准。
 
 版本字段示例：
 
 ```text
-installed_version: 0.3.5
-latest_version: 0.3.5
+installed_version: 0.3.7
+latest_version: 0.3.7
 version_status: up_to_date
 ```
 
@@ -77,8 +79,8 @@ version_status: up_to_date
 - `version_status`：`up_to_date` 表示已是最新，`update_available` 表示可以更新，`unknown` 表示暂时
   无法比较，并不表示安装失败。
 
-`--json` 中对应字段是 `installedVersion`、`latestVersion` 和 `versionStatus`。本指南更新时公开 npm
-latest 为 `0.3.5`；后续仍以命令实际返回的 latest 为准。
+`--json` 中对应字段是 `installedVersion`、`latestVersion` 和 `versionStatus`。上面的版本号只用于解释
+字段，不声明当前 npm latest；实际版本以命令和 npm registry 返回值为准。
 
 ## 日常使用
 
@@ -93,14 +95,17 @@ AI 会按需要调用这些工具：
 - `search_code`：搜索符号或功能实现。
 - `context`：查看符号上下文。
 - `get_call_chain`：查看调用方和被调用方。
-- `list_indexes`：检查当前可用的搜索索引。
+- `list_indexes`：检查图和搜索索引信息。
+- `cypher`：执行自定义只读图查询；通常优先使用前三个专用工具。
+- `submit_feedback`：针对实际结果提交反馈；通过 `$kcoderag-feedback` 使用。
 
-也可以手动调用五个公开 Skill：
+也可以手动调用六个公开 Skill：
 
 - `$kcoderag`：只读导航、上下文、调用链和索引查询。
 - `$kcoderag-manage`：默认只运行 `status`/`doctor`；破坏性生命周期操作必须有明确请求。
 - `$kcoderag-update`：只在明确更新请求下确认项目与单宿主，通过公开 npx CLI 更新并复查状态。
 - `$kcoderag-feedback`：只针对真实查询结果提交 secret-safe 反馈。
+- `$kcoderag-dashboard`：打开 QA 看板或明确指定的构建页面；随导航功能安装。
 - `$kcoderag-code-style`：用自然语言准备 C/C++/Lua 修改，或执行
   `$kcoderag-code-style review <file or current changes>`。它没有公开 `apply` 操作。
 
@@ -121,6 +126,36 @@ $kcoderag impact <symbol-or-change>
 
 五个宿主都提供手动 `code-style-nudge` Skill；native 自动写前提示仅支持冻结的 Claude Code `2.1.241`。
 其他宿主仍可手动调用 `$kcoderag-code-style`，但不应期待自动写前提示。
+
+## 打开 QA 看板
+
+在宿主中输入：
+
+```text
+$kcoderag-dashboard
+```
+
+它会通过宿主可用的浏览器打开工具进入 [QA 看板](http://10.11.39.59:30107/)。也可以直接点击链接；
+没有浏览器打开工具的宿主会返回链接，不会声称已经打开。
+
+如果已经有具体构建页面，可以把完整链接附在 `$kcoderag-dashboard` 后。Skill 使用你给出的链接，
+不猜测任务 ID。看板与 MCP 查询是两个入口；打开看板不需要把 MCP 凭据粘贴到浏览器地址中。
+
+看板入口只负责打开和查看页面。任务是否完成要核对该任务的阶段、结果和图版本；打开成功、进程退出、
+图已切换或向量索引显示 ONLINE，都不能单独说明向量生成和全量验收已经完成。
+
+## 确认查询实际使用了哪种模式
+
+关键词搜索、上下文和调用链可以在向量尚未就绪时使用。需要语义搜索时，Agent 先通过 `list_indexes`
+检查索引，再查看实际查询结果中的 `structuredContent` 与 `meta.requested`、`meta.effective`、`changes`。
+`vector_available: true` 或索引 ONLINE 只说明索引存在及其状态，不能单独证明服务已允许语义搜索。
+
+如果请求 `semantic` 或 `hybrid`，但 `meta.effective.mode` 是 `keyword`，本次实际使用的是关键词回退。
+Agent 应说明回退原因，例如 `serving_keyword_only`，并可继续使用 `context`、`get_call_chain` 获取结构信息；
+不能把返回了结果记为语义/混合搜索通过。
+
+2026-10-09 的 QA 接入实测已验证关键词、上下文和调用链可用，当时 semantic/hybrid 仍回退到 keyword。
+这是一条有日期的观测，不是永久限制；后续以当前服务响应为准。图是代码快照，修改前仍需读取定位到的源码确认。
 
 ## 更新
 
@@ -157,6 +192,9 @@ npx kcoderag-nav@latest uninstall --host codex --capability kcoderag-navigation
 
 ## 常见问题
 
+- 看不到 `$kcoderag-dashboard`：更新该项目的 `kcoderag-navigation`，然后重新打开宿主会话。
+- 看板无法打开：确认当前网络能访问 QA，看板链接本身不携带 MCP 凭据。
+- 新版本暂时出现 npm `ETARGET` 或 404：发布后 registry 可能仍在处理，稍后重试安装即可，无需清空全局缓存。
 - 看不到 KCodeRag 工具：运行 `status` 和 `doctor`，然后重新打开宿主会话。
 - `version_status` 显示 `unknown`：latest cache 暂时不可用；安装可能仍然健康，稍后重开会话或再检查。
 - Cursor 没有更新弹窗：这是当前设计，请手动调用 `$kcoderag-update` 或运行显式更新命令。

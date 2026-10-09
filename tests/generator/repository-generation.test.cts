@@ -70,6 +70,7 @@ const expectedPhase05AssetRoutes = Object.freeze([
   { product: "cursor", output: "skills/kcoderag-manage/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-manage/SKILL.md", renderSource: "plugin-src/skills/kcoderag-manage/SKILL.md", kind: "normalized-copy" },
   { product: "cursor", output: "skills/kcoderag-update/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-update/SKILL.md", renderSource: "plugin-src/skills/kcoderag-update/SKILL.md", kind: "normalized-copy" },
   { product: "cursor", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" },
+  { product: "cursor", output: "skills/kcoderag-dashboard/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", renderSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", kind: "normalized-copy" },
   { product: "qa", output: "hooks/code-style-nudge.cjs", canonicalSource: "src/hooks/code-style-nudge.cts", renderSource: "dist/hooks/code-style-nudge.cjs", kind: "compiled-copy" },
   { product: "qa", output: "hooks/feedback-nudge.cjs", canonicalSource: "src/hooks/feedback-nudge.cts", renderSource: "dist/hooks/feedback-nudge.cjs", kind: "compiled-copy" },
   { product: "qa", output: "hooks/grep-nudge.cjs", canonicalSource: "src/hooks/grep-nudge.cts", renderSource: "dist/hooks/grep-nudge.cjs", kind: "compiled-copy" },
@@ -87,7 +88,9 @@ const expectedPhase05AssetRoutes = Object.freeze([
   { product: "qa", output: "skills/kcoderag-update/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-update/SKILL.md", renderSource: "plugin-src/skills/kcoderag-update/SKILL.md", kind: "normalized-copy" },
   { product: "qa", output: "skills/kcoderag-update/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-update/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-update/agents/openai.yaml", kind: "normalized-copy" },
   { product: "qa", output: "skills/kcoderag-feedback/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", renderSource: "plugin-src/skills/kcoderag-feedback/SKILL.md", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-dashboard/SKILL.md", canonicalSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", renderSource: "plugin-src/skills/kcoderag-dashboard/SKILL.md", kind: "normalized-copy" },
   { product: "qa", output: "skills/kcoderag-feedback/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", kind: "normalized-copy" },
+  { product: "qa", output: "skills/kcoderag-dashboard/agents/openai.yaml", canonicalSource: "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml", renderSource: "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml", kind: "normalized-copy" },
 ] as const);
 const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = Object.freeze({
   qa: Object.freeze([
@@ -119,6 +122,8 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
     "skills/kcoderag-code-style/references/lua-contracts.md",
     "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+    "skills/kcoderag-dashboard/SKILL.md",
+    "skills/kcoderag-dashboard/agents/openai.yaml",
     "skills/kcoderag-feedback/SKILL.md",
     "skills/kcoderag-feedback/agents/openai.yaml",
     "skills/kcoderag-manage/SKILL.md",
@@ -138,6 +143,7 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
     "skills/kcoderag-code-style/references/lua-contracts.md",
     "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+    "skills/kcoderag-dashboard/SKILL.md",
     "skills/kcoderag-feedback/SKILL.md",
     "skills/kcoderag-manage/SKILL.md",
     "skills/kcoderag-update/SKILL.md",
@@ -313,7 +319,7 @@ test("compiled repository gate proves all generated products canonical without r
       sourceRoot: repositoryRoot,
       outputRoot,
     });
-    assert.equal(generated.writtenPaths.length, 49);
+    assert.equal(generated.writtenPaths.length, 52);
     const checked = generator.checkGenerated({
       package: "all",
       group: "all",

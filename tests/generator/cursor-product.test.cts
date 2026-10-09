@@ -68,6 +68,7 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   `${STYLE_SKILL_ROOT}/references/cpp-lifetime-control-flow.md`,
   `${STYLE_SKILL_ROOT}/references/lua-contracts.md`,
   `${STYLE_SKILL_ROOT}/references/protocol-serialization-data.md`,
+  "skills/kcoderag-dashboard/SKILL.md",
   "skills/kcoderag-feedback/SKILL.md",
   "skills/kcoderag-manage/SKILL.md",
   "skills/kcoderag-update/SKILL.md",
@@ -209,7 +210,7 @@ function generateCursorFixture(): { readonly root: string; readonly productRoot:
   return Object.freeze({ root, productRoot: path.join(root, "kcoderag-cursor") });
 }
 
-test("Cursor non-document product is a closed deterministic twelve-file inventory", () => {
+test("Cursor non-document product is a closed deterministic thirteen-file inventory", () => {
   const cursorRoot = path.join(repositoryRoot, "kcoderag-cursor");
   const packageVersion = (JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
     version: string;
