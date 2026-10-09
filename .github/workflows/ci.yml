@@ -2,8 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - "**"
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -11,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: required-ci-${{ github.workflow }}-${{ github.sha }}
+  group: required-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,126 +21,48 @@ jobs:
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
     steps:
-      - name: Checkout complete change history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up classifier runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: "24"
           cache: npm
-      - name: Install audited dependency graph
-        run: npm ci --ignore-scripts
-      - name: Build classifier and documentation checks
-        run: npm run build
-      - name: Audit exact dependency graph
-        run: npm run deps:audit
-      - name: Classify bounded changed paths
-        id: scope
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run deps:audit
+      - id: scope
         run: node dist/maintainer/ci-change-scope.cjs
-      - name: Validate canonical docs and secret scans
+      - name: Documentation and package checks
         if: ${{ steps.scope.outputs.scope == 'documentation' }}
-        run: npm run docs:check
-      - name: Validate the repository-owned experience guide
-        if: ${{ steps.scope.outputs.scope == 'documentation' }}
-        run: npm run guide:check
-      - name: Audit documentation-only npm tarball
-        if: ${{ steps.scope.outputs.scope == 'documentation' }}
-        run: npm run pack:audit
+        run: |
+          npm run docs:check
+          npm run guide:check
+          npm run pack:audit
 
-  required-contracts:
-    name: Required contracts / ${{ matrix.lane }}
+  verify:
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.scope == 'full' }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - lane: ubuntu-node-22
-            os: ubuntu
-            runner: ubuntu-latest
-            node: "22"
-            shard: "1/1"
-          - lane: ubuntu-node-24
-            os: ubuntu
-            runner: ubuntu-latest
-            node: "24"
-            shard: "1/1"
-          - lane: windows-node-22-shard-1
-            os: windows
-            runner: windows-latest
-            node: "22"
-            shard: "1/2"
-          - lane: windows-node-22-shard-2
-            os: windows
-            runner: windows-latest
-            node: "22"
-            shard: "2/2"
-          - lane: windows-node-24-shard-1
-            os: windows
-            runner: windows-latest
-            node: "24"
-            shard: "1/2"
-          - lane: windows-node-24-shard-2
-            os: windows
-            runner: windows-latest
-            node: "24"
-            shard: "2/2"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-      - name: Install audited dependency graph
-        run: npm ci --ignore-scripts
-      - name: Build CommonJS products and tests
-        run: npm run build
-      - name: Audit exact dependency graph
-        run: npm run deps:audit
-      - name: Run platform launcher smoke
-        run: npm run test:launcher
-      - name: Run complete Node test suite
-        run: npm run test:ci:shard -- ${{ matrix.shard }}
-      - name: Check deterministic generated products
-        run: npm run generate:check
-      - name: Validate canonical docs and secret scans
-        run: npm run docs:check
-      - name: Audit retired authority directly
-        run: npm run audit:retirement
-      - name: Test npm package contract
-        run: npm run test:pack
+    if: ${{ needs.change-scope.outputs.scope != 'documentation' }}
+    uses: ./.github/workflows/verify.yml
 
-  packaged-contracts:
-    name: Packaged readiness / windows-node-22
-    needs: change-scope
-    if: ${{ needs.change-scope.outputs.scope == 'full' && github.event_name != 'push' }}
-    runs-on: windows-latest
-    timeout-minutes: 20
+  ci-gate:
+    name: CI gate
+    needs: [change-scope, verify]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Set up Node 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install audited dependency graph
-        run: npm ci --ignore-scripts
-      - name: Build packaged readiness test
-        run: npm run build
-      - name: Run packaged readiness test
-        run: npm run test:ci:packaged
+      - name: Require explicit documentation success or complete verification
+        env:
+          SCOPE_RESULT: ${{ needs.change-scope.result }}
+          SCOPE: ${{ needs.change-scope.outputs.scope }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          if [ "$SCOPE" = documentation ]; then
+            test "$VERIFY_RESULT" = skipped
+          else
+            test "$SCOPE" = full
+            test "$VERIFY_RESULT" = success
+          fi

@@ -171,11 +171,10 @@ export function validateAcceptanceWorkflow(source: string): AcceptanceWorkflowCo
   if (/^\s+pull_request(?:_target)?:/mu.test(source)) {
     throw new AcceptanceWorkflowError("untrusted_event_trigger");
   }
-  requireMatch(
-    source,
-    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- ["']README\.md["']\s*\r?\n\s+- ["']docs\/\*\*["']\s*\r?\n\s+- ["']\.planning\/\*\*["']\s*\r?\n\s+workflow_call:/mu,
-    "documentation_filter_invalid",
-  );
+  if (/^\s+push:/mu.test(source)) {
+    throw new AcceptanceWorkflowError("explicit_trigger_required");
+  }
+  requireMatch(source, /^on:\s*\r?\n\s+workflow_call:/mu, "explicit_trigger_required");
   requireMatch(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?required:\s*true/u, "candidate_input_missing");
   requireMatch(source, /workflow_dispatch:[\s\S]*?candidateRef:[\s\S]*?required:\s*true/u,
     "candidate_ref_input_missing");

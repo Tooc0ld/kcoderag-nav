@@ -37,6 +37,7 @@ const NAV_SKILL_ROOT = ".opencode/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".opencode/skills/kcoderag-manage";
 const UPDATE_SKILL_ROOT = ".opencode/skills/kcoderag-update";
 const FEEDBACK_SKILL_ROOT = ".opencode/skills/kcoderag-feedback";
+const DASHBOARD_SKILL_ROOT = ".opencode/skills/kcoderag-dashboard";
 const CODE_STYLE_SKILL_ROOT = ".opencode/skills/kcoderag-code-style";
 const HOOK_ROOT = ".opencode/kcoderag-nav/hooks";
 const CONFIG_CANDIDATES = Object.freeze(["opencode.json", "opencode.jsonc"] as const);
@@ -120,6 +121,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
     projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
     projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-update/SKILL.md"), false),
     projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-feedback/SKILL.md"), false),
+    projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md"), false),
     projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-check.cjs`, sourceAsset(packageRoot, "dist/hooks/update-check.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-notice.cjs`, sourceAsset(packageRoot, "dist/hooks/update-notice.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/update-worker.cjs`, sourceAsset(packageRoot, "dist/hooks/update-worker.cjs"), false),
   ]), sections: Object.freeze([section(configPath, "navigation:mcp", config.entry, currentConfig !== undefined), section(configPath, "navigation:post-tool", config.pluginId, currentConfig !== undefined), ...(config.schemaManaged ? [section(configPath, "navigation:schema", OPENCODE_SCHEMA_URL, currentConfig !== undefined)] : [])]) }));
   if (projected.includes(CODE_STYLE)) result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([

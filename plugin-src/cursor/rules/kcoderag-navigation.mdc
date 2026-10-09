@@ -8,6 +8,10 @@ KCodeRag `search_code`, `context`, and `get_call_chain` before local text search
 
 Use `semantic` or `hybrid` search only after `list_indexes` reliably confirms a usable current index.
 Otherwise use `keyword`, then `context` or `get_call_chain` for structural fallback.
+An ONLINE vector index or `vector_available: true` alone does not establish serving readiness.
+Read `structuredContent` and the response `meta.requested`, `meta.effective`, and changes;
+if effective mode is `keyword` (for example `serving_keyword_only`), report keyword fallback,
+not a semantic/hybrid success.
 
 Use local text search for exact strings, uncommitted edits, or an explicit fallback when
 the QA index is unavailable or stale. Query only the configured KCodeRag QA server.

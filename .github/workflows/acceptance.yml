@@ -1,13 +1,6 @@
 name: Exact candidate host acceptance
 
 on:
-  push:
-    branches:
-      - "**"
-    paths-ignore:
-      - "README.md"
-      - "docs/**"
-      - ".planning/**"
   workflow_call:
     inputs:
       candidateSha:

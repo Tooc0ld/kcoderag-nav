@@ -8,7 +8,7 @@ or production npm dependencies.
 The package exposes exactly two built-in capabilities:
 
 - `kcoderag-navigation` provides the QA MCP projection, `$kcoderag`, `$kcoderag-manage`,
-  `$kcoderag-update`, and `$kcoderag-feedback` manual Skills on five hosts. All five hosts receive a
+  `$kcoderag-update`, `$kcoderag-feedback`, and `$kcoderag-dashboard` manual Skills on five hosts. All five hosts receive a
   successful-call marker; hosts with a supported native event also receive offline update awareness.
 - `code-style-nudge` provides the `$kcoderag-code-style` manual Skill on all five hosts. Only the
   exact Claude Code `2.1.241` PASS receipt adds native automatic pre-write delivery.
@@ -16,6 +16,9 @@ The package exposes exactly two built-in capabilities:
 QA is the only public environment for MCP. Capabilities are not environment choices. Retired QA/Dev
 state, Python installs, handwritten MCP/Hook, plugins, and other manual sources have no migration,
 adoption, or automatic cleanup path in the current CLI.
+
+Use `$kcoderag-dashboard` to open the [QA dashboard](http://10.11.39.59:30107/) or a supplied build-page link.
+Hosts without a browser-opening tool return a clickable link. Dashboard access belongs to navigation.
 
 ## Install capabilities into one project
 

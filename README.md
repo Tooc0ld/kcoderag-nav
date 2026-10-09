@@ -8,7 +8,7 @@ KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项�
 当前包只提供两个内置 capability：
 
 - `kcoderag-navigation`：五宿主可用的 QA 图优先导航与 MCP 配置，并提供 `$kcoderag`、
-  `$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback` 四个导航族手动 Skill、成功调用 marker；
+  `$kcoderag-manage`、`$kcoderag-update`、`$kcoderag-feedback`、`$kcoderag-dashboard` 五个导航族手动 Skill、成功调用 marker；
   支持原生事件的宿主还会提供离线更新提示。
 - `code-style-nudge`：五宿主都安装 `$kcoderag-code-style` 手动 Skill；只有冻结 PASS receipt
   对应的 Claude Code `2.1.241` 叠加自动写前提示。
@@ -21,6 +21,9 @@ plugin 或其他来源没有迁移、接管或自动清理入口。发现它们�
 [docs/MCP_QA_EXPERIENCE_GUIDE.md](docs/MCP_QA_EXPERIENCE_GUIDE.md)。兄弟服务仓库中的旧指南仅是
 Phase 04.2 的一次性只读迁入来源；后续不修改、同步或绑定其摘要。本仓库不在文档或诊断中展示
 MCP URL、Header、Bearer 或配置正文。
+
+用 `$kcoderag-dashboard` 打开 [QA 看板](http://10.11.39.59:30107/)，或在 Skill 后附上具体构建页面链接。
+宿主没有浏览器打开工具时会返回可点击链接。看板入口随 `kcoderag-navigation` 安装。
 
 ## 快速安装
 
@@ -89,9 +92,9 @@ install、update、uninstall 都需要确认精确 target，并对本次完整 c
 
 ### 在宿主界面和终端确认安装
 
-重新打开宿主后，在支持 Skill/命令列表展示的界面中通常能看到五个公开入口：`$kcoderag`、`$kcoderag-manage`、
-`$kcoderag-update`、`$kcoderag-feedback` 和 `$kcoderag-code-style`。它们分别用于导航查询、只读诊断、
-明确发起更新、反馈和代码规范。部分宿主不提供统一列表；安装健康仍以项目目录中的 `status` 为准。
+重新打开宿主后，在支持 Skill/命令列表展示的界面中通常能看到六个公开入口：`$kcoderag`、`$kcoderag-manage`、
+`$kcoderag-update`、`$kcoderag-feedback`、`$kcoderag-dashboard` 和 `$kcoderag-code-style`。它们分别用于导航查询、只读诊断、
+明确发起更新、反馈、打开看板和代码规范。部分宿主不提供统一列表；安装健康仍以项目目录中的 `status` 为准。
 
 `$kcoderag` 接受自然语言，也提供一组容易发现的动作写法；裸调用或 `help` 会先显示帮助，不会立即查询 MCP：
 
@@ -149,11 +152,11 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 
 | 宿主 | 项目级受管位置 | 当前行为 |
 | --- | --- | --- |
-| Codex | `.codex/`、`.agents/skills/` | 四个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 五个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
-| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 五个手动 Skill、always-on navigation Rule/MCP 与成功 marker；不提供自动更新提示，也不声明等价代码规范 `PreToolUse` |
-| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 五个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
-| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 五个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
+| Codex | `.codex/`、`.agents/skills/` | 五个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
+| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 六个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
+| Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 六个手动 Skill、always-on navigation Rule/MCP 与成功 marker；不提供自动更新提示，也不声明等价代码规范 `PreToolUse` |
+| OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 六个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
+| ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 六个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
 
 ZCode 首次打开包含项目 Hook 的工作区时，还必须由用户在宿主中信任/批准 workspace Hook。
 安装器只写项目声明，不能替用户预授权或修改用户级 trust；未批准时 MCP 与 Skill 仍可能正常，
@@ -233,6 +236,7 @@ npm run pack:audit
 
 Phase 04.2 最初验证并发布了 `0.3.0`。当前公开版本以 npm `latest` 为准；
 维护者通过 Release workflow 发布与 `v<version>` tag 匹配的新版本。
+CI 去重、同一安装包验收与发布、registry 就绪判断见 [CI 与发布指南](https://github.com/Tooc0ld/kcoderag-nav/blob/master/docs/CI_RELEASE.md)。
 已发布版本不 unpublish 或回退 dist-tag，只通过新版本继续修复。
 
 当前内部 QA profile 的连接材料视为不透明敏感输入。生成、CLI、状态、测试、receipt 与文档只处理

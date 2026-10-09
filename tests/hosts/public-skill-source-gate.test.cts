@@ -19,6 +19,7 @@ const SOURCE_NAMES = Object.freeze([
   "kcoderag-manage",
   "kcoderag-update",
   "kcoderag-feedback",
+  "kcoderag-dashboard",
   "kcoderag-code-style",
   "kcoderag-nav",
   "code-style-correction",

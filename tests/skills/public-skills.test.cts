@@ -27,6 +27,8 @@ const UPDATE_SKILL = "plugin-src/skills/kcoderag-update/SKILL.md";
 const UPDATE_METADATA = "plugin-src/skills/kcoderag-update/agents/openai.yaml";
 const FEEDBACK_SKILL = "plugin-src/skills/kcoderag-feedback/SKILL.md";
 const FEEDBACK_METADATA = "plugin-src/skills/kcoderag-feedback/agents/openai.yaml";
+const DASHBOARD_SKILL = "plugin-src/skills/kcoderag-dashboard/SKILL.md";
+const DASHBOARD_METADATA = "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml";
 const STYLE_SKILL = "plugin-src/capabilities/code-style-nudge/skill/SKILL.md";
 const STYLE_METADATA = "plugin-src/capabilities/code-style-nudge/skill/agents/openai.yaml";
 const RETIRED_NAVIGATION_SKILL = "plugin-src/skills/code-lookup-discipline/SKILL.md";
@@ -89,6 +91,8 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
       UPDATE_METADATA,
       FEEDBACK_SKILL,
       FEEDBACK_METADATA,
+      DASHBOARD_SKILL,
+      DASHBOARD_METADATA,
     ],
   );
   assert.equal(
@@ -101,7 +105,7 @@ test("$kcoderag is the sole read-only navigation Skill identity", () => {
   );
 });
 
-test("the five public Skills have distinct authority boundaries and Codex metadata", () => {
+test("the six public Skills have distinct authority boundaries and Codex metadata", () => {
   const management = read(MANAGEMENT_SKILL);
   assert.match(management, /^name: kcoderag-manage$/mu);
   assert.match(management, /status/u);
@@ -138,6 +142,7 @@ test("the five public Skills have distinct authority boundaries and Codex metada
     [MANAGEMENT_METADATA, "KCodeRag Manage", "$kcoderag-manage"],
     [UPDATE_METADATA, "KCodeRag Update", "$kcoderag-update"],
     [FEEDBACK_METADATA, "KCodeRag Feedback", "$kcoderag-feedback"],
+    [DASHBOARD_METADATA, "KCodeRag Dashboard", "$kcoderag-dashboard"],
     [STYLE_METADATA, "KCodeRag Code Style", "$kcoderag-code-style"],
   ] as const) {
     const metadata = read(metadataPath);
@@ -147,4 +152,11 @@ test("the five public Skills have distinct authority boundaries and Codex metada
     assert.match(quotedYamlValue(metadata, "default_prompt"), new RegExp(`\\${skillName}\\b`, "u"));
     assert.match(metadata, /^\s*allow_implicit_invocation:\s*true\s*$/mu);
   }
+});
+
+test("dashboard has a canonical QA destination and standalone skill identity", () => {
+  const dashboard = read(DASHBOARD_SKILL);
+  assert.match(dashboard, /^name: kcoderag-dashboard$/mu);
+  const links = [...dashboard.matchAll(/\]\((https?:[^)]+)\)/gu)].map((match) => match[1]);
+  assert.deepEqual(links, ["http://10.11.39.59:30107/"]);
 });

@@ -124,6 +124,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
+      "skills/kcoderag-dashboard/agents/openai.yaml",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
@@ -142,6 +144,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
+      "skills/kcoderag-dashboard/agents/openai.yaml",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
@@ -182,6 +186,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
+      "skills/kcoderag-dashboard/agents/openai.yaml",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-feedback/agents/openai.yaml",
       "skills/kcoderag-manage/SKILL.md",
@@ -207,6 +213,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-update/SKILL.md",
@@ -220,6 +227,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-update/SKILL.md",
@@ -237,6 +245,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "skills/kcoderag-code-style/references/cpp-lifetime-control-flow.md",
       "skills/kcoderag-code-style/references/lua-contracts.md",
       "skills/kcoderag-code-style/references/protocol-serialization-data.md",
+      "skills/kcoderag-dashboard/SKILL.md",
       "skills/kcoderag-feedback/SKILL.md",
       "skills/kcoderag-manage/SKILL.md",
       "skills/kcoderag-update/SKILL.md",
@@ -346,7 +355,9 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/skills/kcoderag-update/SKILL.md", "<objective>Update KCodeRag Nav.</objective>\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-update/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Update\"\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-feedback/SKILL.md", "# KCodeRag Feedback\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-dashboard/SKILL.md", "# KCodeRag Dashboard\n");
   write(sourceRoot, "plugin-src/skills/kcoderag-feedback/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Feedback\"\n");
+  write(sourceRoot, "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml", "interface:\n  display_name: \"KCodeRag Dashboard\"\n");
   write(
     sourceRoot,
     "plugin-src/agents/kcode-explorer.md.tmpl",
@@ -556,7 +567,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 49);
+    assert.equal(first.writtenPaths.length, 52);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({

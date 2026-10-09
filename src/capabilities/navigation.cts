@@ -66,6 +66,18 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         shared: false,
       },
       {
+        id: "navigation:dashboard-skill",
+        sourcePath: "plugin-src/skills/kcoderag-dashboard/SKILL.md",
+        kind: "skill",
+        shared: false,
+      },
+      {
+        id: "navigation:dashboard-skill-openai",
+        sourcePath: "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml",
+        kind: "skill",
+        shared: false,
+      },
+      {
         id: "navigation:pre-tool-handler",
         sourcePath: "dist/hooks/grep-nudge.cjs",
         kind: "handler",

@@ -1,0 +1,6 @@
+interface:
+  display_name: "KCodeRag Dashboard"
+  short_description: "Open the QA dashboard or a selected build page"
+  default_prompt: "Use $kcoderag-dashboard to open the KCodeRag QA dashboard."
+policy:
+  allow_implicit_invocation: true

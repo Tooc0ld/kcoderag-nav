@@ -90,13 +90,10 @@ function expectCode(call: () => unknown, code: string): void {
     error instanceof Error && "code" in error && (error as Error & { code: string }).code === code);
 }
 
-test("acceptance workflow skips documentation pushes and has one Windows PACKAGED lane plus protected LIVE", () => {
+test("acceptance workflow requires explicit invocation and retains Windows PACKAGED plus protected LIVE", () => {
   const source = workflow();
-  assert.match(
-    source,
-    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- "\*\*"\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- "README\.md"\s*\r?\n\s+- "docs\/\*\*"\s*\r?\n\s+- "\.planning\/\*\*"\s*\r?\n\s+workflow_call:/mu,
-  );
-  assert.doesNotMatch(source, /^\s+pull_request(?:_target)?:/mu);
+  assert.match(source, /^on:\s*\r?\n\s+workflow_call:/mu);
+  assert.doesNotMatch(source, /^\s+(?:push|pull_request(?:_target)?):/mu);
   assert.deepEqual(workflowContract.validateAcceptanceWorkflow(source), {
     schemaVersion: 1,
     producerJob: "package",
@@ -159,7 +156,7 @@ test("workflow validator fails closed for trust, identity, bypass and LIVE rebui
   const liveNode24 = `${source.slice(0, liveStart)}${source.slice(liveStart).replace('node-version: "22"', 'node-version: "24"')}`;
   const cases = [
     [source.replace("  workflow_call:", "  pull_request:\n  workflow_call:"), "untrusted_event_trigger"],
-    [source.replace('      - ".planning/**"\n', ""), "documentation_filter_invalid"],
+    [source.replace("  workflow_call:", "  push:\n  workflow_call:"), "explicit_trigger_required"],
     [source.replaceAll("candidateSha:", "candidateDigest:"), "candidate_input_missing"],
     [source.replaceAll("candidateRef:", "candidateBranch:"), "candidate_ref_input_missing"],
     [source.replace("name: kcoderag-live", "name: unprotected"), "protected_environment_missing"],

@@ -2,271 +2,123 @@ const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
-
-const repositoryRoot = path.resolve(__dirname, "../..");
-const workflowPath = path.join(repositoryRoot, ".github", "workflows", "ci.yml");
-const acceptanceWorkflowPath = path.join(repositoryRoot, ".github", "workflows", "acceptance.yml");
-
-function workflow(): string {
-  return fs.readFileSync(workflowPath, "utf8");
-}
-
-function acceptanceWorkflow(): string {
-  return fs.readFileSync(acceptanceWorkflowPath, "utf8");
-}
-
+const root = path.resolve(__dirname, "../..");
+const workflow = (name: string): string => fs.readFileSync(path.join(root, ".github/workflows", `${name}.yml`), "utf8");
 function job(source: string, name: string, next?: string): string {
   const start = source.indexOf(`  ${name}:`);
-  assert.notEqual(start, -1, `missing job ${name}`);
   const end = next === undefined ? source.length : source.indexOf(`  ${next}:`, start + 1);
-  assert.notEqual(end, -1, `missing next job ${next}`);
+  assert.ok(start >= 0 && end > start);
   return source.slice(start, end);
 }
 
-function lanes(source: string): readonly string[] {
-  return [...source.matchAll(
-    /- lane:\s*([^\s]+)\s*\r?\n\s*os:\s*([^\s]+)\s*\r?\n\s*runner:\s*([^\s]+)\s*\r?\n\s*node:\s*["']([^"']+)["']/gu,
-  )].map((match) => [match[1], match[2], match[3], match[4]].join("|"));
-}
-
-function quotedOption(command: string | undefined, option: string): string {
-  if (command === undefined) assert.fail(`missing command for --${option}`);
-  const match = command.match(new RegExp(`--${option}="([^"]+)"`, "u"));
-  assert.notEqual(match, null, `missing --${option}`);
-  return match?.[1] ?? "";
-}
-
-test("required CI defines exactly the Windows/Linux by Node 22/24 matrix", () => {
-  const source = workflow();
-  const required = job(source, "required-contracts", "packaged-contracts");
-  const packaged = job(source, "packaged-contracts");
-  const expectedLanes = [
-    "ubuntu-node-22|ubuntu|ubuntu-latest|22",
-    "ubuntu-node-24|ubuntu|ubuntu-latest|24",
-    "windows-node-22-shard-1|windows|windows-latest|22",
-    "windows-node-22-shard-2|windows|windows-latest|22",
-    "windows-node-24-shard-1|windows|windows-latest|24",
-    "windows-node-24-shard-2|windows|windows-latest|24",
-  ];
-  assert.deepEqual(
-    lanes(required),
-    expectedLanes,
-  );
-  assert.deepEqual(lanes(packaged), []);
-  assert.match(required, /name:\s*Required contracts \/ \$\{\{ matrix\.lane \}\}/u);
-  assert.match(required, /runs-on:\s*\$\{\{\s*matrix\.runner\s*\}\}/u);
-  assert.match(required, /timeout-minutes:\s*30/u);
-  assert.match(required, /node-version:\s*\$\{\{\s*matrix\.node\s*\}\}/u);
-  assert.equal(required.match(/\n\s*- lane:/gu)?.length, 6);
-  assert.deepEqual([...required.matchAll(/shard: "([12]\/[12])"/gu)].map((match) => match[1]),
-    ["1/1", "1/1", "1/2", "2/2", "1/2", "2/2"]);
-  assert.match(required, /npm run test:ci:shard -- \$\{\{ matrix\.shard \}\}/u);
-  assert.equal(packaged.match(/\n\s*- lane:/gu)?.length ?? 0, 0);
-  assert.match(packaged, /name:\s*Packaged readiness \/ windows-node-22/u);
-  assert.match(packaged, /runs-on:\s*windows-latest/u);
-  assert.match(packaged, /node-version:\s*["']22["']/u);
-  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
-  assert.doesNotMatch(`${required}\n${packaged}`, /exclude:|continue-on-error|matrix\.python|python-version/iu);
-  const jobsSource = source.slice(source.indexOf("\njobs:"));
-  assert.deepEqual(
-    [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["change-scope", "required-contracts", "packaged-contracts"],
-  );
+test("PR owns feature verification while master push verifies merges without path-filter pending checks", () => {
+  const source = workflow("ci");
+  assert.match(source, /^on:\s*\n\s+push:\s*\n\s+branches: \[master\]\s*\n\s+pull_request:\s*\n\s+workflow_dispatch:/mu);
+  assert.doesNotMatch(source, /paths(?:-ignore)?:|tags(?:-ignore)?:|workflow_run:|self-hosted/u);
+  assert.match(source, /group: required-ci-\$\{\{ github.workflow \}\}-\$\{\{ github.event.pull_request.number \|\| github.ref \}\}/u);
+  assert.match(source, /cancel-in-progress: true/u);
+  assert.match(source, /permissions:\s*\n\s+contents: read/u);
+  assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/u);
 });
 
-test("every CI checkout is pinned and acceptance checkouts bind the exact producer subject", () => {
-  const source = `${workflow()}\n${acceptanceWorkflow()}`;
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 7);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 7);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
-  assert.equal(source.match(/ref:\s*\$\{\{ env\.ACCEPTANCE_SUBJECT \}\}/gu)?.length ?? 0, 1);
-  assert.equal(source.match(/ref:\s*\$\{\{ needs\.package\.outputs\.candidate-sha \}\}/gu)?.length ?? 0, 2);
-  assert.equal(source.match(/ref:\s*\$\{\{ inputs\.candidateSha \}\}/gu)?.length ?? 0, 1);
-});
-
-test("every required lane installs the lock without scripts and runs all gates", () => {
-  const source = workflow();
-  const required = job(source, "required-contracts", "packaged-contracts");
-  const commands = [
-    "npm ci --ignore-scripts",
-    "npm run build",
-    "npm run deps:audit",
-    "npm run test:launcher",
-    "npm run test:ci",
-    "npm run generate:check",
-    "npm run docs:check",
-    "npm run audit:retirement",
-    "npm run test:pack",
-  ];
-  let previous = -1;
-  for (const command of commands) {
-    const index = required.indexOf(command);
-    assert.ok(index > previous, `${command} must be present in required order`);
-    previous = index;
+test("documentation checks remain bounded and the stable aggregate rejects unknown scope or skipped required work", () => {
+  const source = workflow("ci");
+  const scope = job(source, "change-scope", "verify");
+  for (const command of ["npm ci --ignore-scripts", "npm run build", "npm run deps:audit",
+    "node dist/maintainer/ci-change-scope.cjs", "npm run docs:check", "npm run guide:check", "npm run pack:audit"]) {
+    assert.ok(scope.includes(command), command);
   }
-  assert.doesNotMatch(required, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.doesNotMatch(required, /run:\s*npm (?:test|run test:(?:smoke|ci:packaged))\s*$/mu);
-  assert.doesNotMatch(
-    required,
-    /npm run (?:audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2)/u,
-  );
+  assert.match(scope, /fetch-depth: 0/u);
+  assert.match(scope, /if: \$\{\{ steps.scope.outputs.scope == 'documentation' \}\}/u);
+  const verify = job(source, "verify", "ci-gate");
+  assert.match(verify, /needs: change-scope/u);
+  assert.match(verify, /if: \$\{\{ needs.change-scope.outputs.scope != 'documentation' \}\}/u);
+  assert.match(verify, /uses: \.\/\.github\/workflows\/verify.yml/u);
+  const gate = job(source, "ci-gate");
+  assert.match(gate, /name: CI gate/u);
+  assert.match(gate, /needs: \[change-scope, verify\]/u);
+  assert.match(gate, /if: \$\{\{ always\(\) \}\}/u);
+  assert.match(gate, /test "\$SCOPE_RESULT" = success/u);
+  assert.match(gate, /test "\$SCOPE" = full/u);
+  assert.match(gate, /test "\$VERIFY_RESULT" = success/u);
+  assert.match(gate, /test "\$VERIFY_RESULT" = skipped/u);
 });
 
-test("documentation-only scope runs one bounded lightweight gate and skips the full matrix", () => {
-  const source = workflow();
-  const scopeJob = job(source, "change-scope", "required-contracts");
+test("shared source matrix retains complete Linux and Windows Node 22/24 coverage", () => {
+  const source = workflow("verify");
+  assert.match(source, /^on:\s*\n\s+workflow_call:/mu);
   const required = job(source, "required-contracts", "packaged-contracts");
-  const packaged = job(source, "packaged-contracts");
-  assert.match(scopeJob, /outputs:\s*\r?\n\s+scope:\s*\$\{\{ steps\.scope\.outputs\.scope \}\}/u);
-  assert.match(scopeJob, /fetch-depth:\s*0/u);
-  assert.match(scopeJob, /node-version:\s*["']24["']/u);
-  const ordered = [
-    "npm ci --ignore-scripts",
-    "npm run build",
-    "npm run deps:audit",
-    "node dist/maintainer/ci-change-scope.cjs",
-    "npm run docs:check",
-    "npm run guide:check",
-    "npm run pack:audit",
-  ];
-  let previous = -1;
-  for (const command of ordered) {
-    const index = scopeJob.indexOf(command);
-    assert.ok(index > previous, `${command} must be present in lightweight order`);
-    previous = index;
+  const actual = [...required.matchAll(/- lane:\s*(\S+)\s*\n\s*runner:\s*(\S+)\s*\n\s*node: "(\d+)"\s*\n\s*shard: "([12]\/[12])"/gu)]
+    .map((match) => match.slice(1).join("|"));
+  assert.deepEqual(actual, [
+    "ubuntu-node-22|ubuntu-latest|22|1/1", "ubuntu-node-24|ubuntu-latest|24|1/1",
+    "windows-node-22-shard-1|windows-latest|22|1/2", "windows-node-22-shard-2|windows-latest|22|2/2",
+    "windows-node-24-shard-1|windows-latest|24|1/2", "windows-node-24-shard-2|windows-latest|24|2/2",
+  ]);
+  assert.match(required, /fail-fast: false/u);
+  assert.match(required, /runs-on: \$\{\{ matrix.runner \}\}/u);
+  assert.match(required, /node-version: \$\{\{ matrix.node \}\}/u);
+  for (const command of ["npm ci --ignore-scripts", "npm run build", "npm run deps:audit", "npm run test:ci:shard -- ${{ matrix.shard }}"]) {
+    assert.ok(required.includes(command), command);
   }
-  assert.equal(
-    scopeJob.match(/if:\s*\$\{\{ steps\.scope\.outputs\.scope == 'documentation' \}\}/gu)?.length,
-    3,
-  );
-  assert.doesNotMatch(scopeJob, /npm test|test:launcher|generate:check|audit:retirement|test:smoke/u);
-  assert.match(required, /needs:\s*change-scope/u);
-  assert.match(required, /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' \}\}/u);
-  assert.match(packaged, /needs:\s*change-scope/u);
-  assert.match(
-    packaged,
-    /if:\s*\$\{\{ needs\.change-scope\.outputs\.scope == 'full' && github\.event_name != 'push' \}\}/u,
-  );
+  assert.doesNotMatch(required, /test:launcher|test:pack|smoke:required|pack:audit|exclude:/u);
+  const producer = job(source, "package", "required-contracts");
+  for (const command of ["npm run generate:check", "npm run docs:check", "npm run audit:retirement"]) assert.ok(producer.includes(command));
+  assert.doesNotMatch(source, /continue-on-error|allow_failure|\|\|\s*true|NPM_TOKEN|NODE_AUTH_TOKEN/u);
 });
 
-test("packaged readiness runs once per event on Windows Node 22", () => {
-  const source = workflow();
-  const required = job(source, "required-contracts", "packaged-contracts");
-  const packaged = job(source, "packaged-contracts");
-  assert.match(packaged, /name:\s*Packaged readiness \/ windows-node-22/u);
-  assert.match(packaged, /runs-on:\s*windows-latest/u);
-  assert.match(packaged, /timeout-minutes:\s*20/u);
-  assert.match(packaged, /node-version:\s*["']22["']/u);
-  const commands = ["npm ci --ignore-scripts", "npm run build", "npm run test:ci:packaged"];
-  let previous = -1;
-  for (const command of commands) {
-    const index = packaged.indexOf(command);
-    assert.ok(index > previous, `${command} must be present in packaged order`);
-    previous = index;
+test("one audited artifact supplies all five packaged hosts and every required job participates in the final gate", () => {
+  const source = workflow("verify");
+  const producer = job(source, "package", "required-contracts");
+  const packaged = job(source, "packaged-contracts", "verification-gate");
+  assert.equal(producer.match(/exact-package.cjs produce/gu)?.length, 1);
+  assert.doesNotMatch(producer, /smoke:required|test:ci:packaged|exact-package.cjs smoke/u);
+  assert.match(packaged, /needs: package/u);
+  assert.match(packaged, /runs-on: windows-latest/u);
+  assert.match(packaged, /node-version: "22"/u);
+  assert.match(packaged, /artifact-ids: \$\{\{ needs.package.outputs.artifact-id \}\}/u);
+  assert.match(packaged, /MANIFEST_SHA: \$\{\{ needs.package.outputs.manifest-sha256 \}\}/u);
+  assert.equal(packaged.match(/exact-package.cjs smoke/gu)?.length, 1);
+  assert.doesNotMatch(packaged, /npm pack|pack:audit|smoke:required|strategy:|matrix\./u);
+  assert.match(packaged, /if: \$\{\{ always\(\) \}\}/u);
+  const gate = job(source, "verification-gate");
+  assert.match(gate, /needs: \[package, required-contracts, packaged-contracts\]/u);
+  assert.match(gate, /if: \$\{\{ always\(\) \}\}/u);
+  for (const result of ["PACKAGE_RESULT", "CONTRACT_RESULT", "PACKAGED_RESULT"]) assert.ok(gate.includes(`test "$${result}" = success`));
+});
+
+test("acceptance is explicit-only and retains its protected genuine native LIVE lane", () => {
+  const source = workflow("acceptance");
+  assert.match(source, /workflow_call:|workflow_dispatch:/u);
+  assert.doesNotMatch(source, /^\s+(?:push|pull_request(?:_target)?):/mu);
+  assert.match(source, /environment:\s*\n\s+name: kcoderag-live/u);
+  assert.match(source, /runs-on: \[self-hosted, Windows, X64, kcoderag-live\]/u);
+  assert.match(source, /github.event_name == 'workflow_dispatch'/u);
+  assert.match(source, /github.event.repository.fork == false/u);
+  assert.match(source, /inputs.candidateSha == needs.package.outputs.candidate-sha/u);
+  assert.match(source, /npm run acceptance:live/u);
+  assert.match(source, /cancel-in-progress: false/u);
+  assert.doesNotMatch(source, /continue-on-error|allow_failure|\|\|\s*true|npm publish|MCP_CONFIG|Bearer/u);
+});
+
+test("actions and checkout subjects stay immutable and local CI retains pack coverage without repeating it", () => {
+  for (const name of ["ci", "verify", "acceptance", "release"]) {
+    const source = workflow(name);
+    for (const match of source.matchAll(/uses:\s*([^\s#]+)/gu)) {
+      if (!match[1]!.startsWith("./")) assert.match(match[1]!, /^[^@\s]+@[a-f0-9]{40}$/u);
+    }
+    assert.doesNotMatch(source, /\$\{\s+(?:github|needs|steps|runner|matrix|inputs|always)/u);
+    const checkouts = source.match(/uses: actions\/checkout@/gu)?.length ?? 0;
+    assert.equal(source.match(/persist-credentials: false/gu)?.length ?? 0, checkouts);
+    if (name !== "acceptance") assert.equal(source.match(/ref: \$\{\{ github.sha \}\}/gu)?.length ?? 0, checkouts);
   }
-  assert.doesNotMatch(required, /test:ci:packaged/u);
-  assert.equal(packaged.match(/npm run test:ci:packaged/gu)?.length, 1);
-  assert.doesNotMatch(packaged, /strategy:|matrix\./u);
-  assert.doesNotMatch(packaged, /npm run (?:test:ci\s|deps:audit|test:launcher|generate:check|docs:check|audit:retirement|test:pack)/u);
-  assert.doesNotMatch(packaged, /continue-on-error|\|\|\s*true|allow_failure/iu);
-  assert.match(
-    acceptanceWorkflow(),
-    /^on:[\s\S]*?push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+paths-ignore:\s*\r?\n\s+- ["']README\.md["']\s*\r?\n\s+- ["']docs\/\*\*["']\s*\r?\n\s+- ["']\.planning\/\*\*["']/mu,
-  );
-});
-
-test("acceptance uses one hosted producer, one Windows packaged lane and a protected exact-candidate LIVE lane", () => {
-  const source = acceptanceWorkflow();
-  assert.match(source, /workflow_dispatch:[\s\S]*?candidateSha:[\s\S]*?packageSha256:[\s\S]*?packageMemberDigest:[\s\S]*?workflowBlobSha:/u);
-  assert.equal(source.match(/uses:\s*\.\/\.github\/actions\/readiness-upload/gu)?.length, 1);
-  const packaged = job(source, "packaged", "live");
-  assert.match(packaged, /name:\s*PACKAGED \/ windows-node22/u);
-  assert.match(packaged, /runs-on:\s*windows-latest/u);
-  assert.match(packaged, /node-version:\s*["']22["']/u);
-  assert.equal(packaged.match(/npm run acceptance:packaged/gu)?.length, 1);
-  assert.match(packaged, /--lane\s+["']windows-node22["']/u);
-  assert.match(packaged, /group:\s*\[first, second\]/u);
-  assert.match(packaged, /--group "\$\{\{ matrix\.group \}\}"/u);
-  assert.match(source, /npm run acceptance:packaged:merge/u);
-  assert.match(source, /github\.event_name == 'workflow_dispatch'/u);
-  assert.match(source, /github\.event\.repository\.fork == false/u);
-  assert.match(source, /environment:\s*\r?\n\s+name:\s*kcoderag-live/u);
-  assert.match(source, /runs-on:\s*\[self-hosted, Windows, X64, kcoderag-live\]/u);
-  assert.match(source, /concurrency:[\s\S]*?group:\s*kcoderag-live-windows[\s\S]*?cancel-in-progress:\s*false/u);
-  assert.equal(source.match(/artifact-ids:\s*\$\{\{ needs\.package\.outputs\.artifact-id \}\}/gu)?.length, 2);
-  const live = source.slice(source.indexOf("  live:"), source.indexOf("  verify:"));
-  assert.match(live, /npm run acceptance:live/u);
-  assert.doesNotMatch(live, /npm\s+(?:pack|publish|view)|pack:audit|smoke:required|dist-tag|@latest/iu);
-  assert.doesNotMatch(workflow(), /authenticated-live|kcoderag-live|smoke:live/u);
-  assert.doesNotMatch(source, /MCP_CONFIG|Authorization|Bearer|npm\s+publish/iu);
-  assert.doesNotMatch(source, /continue-on-error|allow_failure|\|\|\s*true/iu);
-});
-
-test("workflow is test-only on branch pushes and pull requests with minimal authority", () => {
-  const source = workflow();
-  assert.match(
-    source,
-    /^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\r?\n\s+- ["']\*\*["']\s*\r?\n\s+pull_request:/mu,
-  );
-  assert.match(source, /permissions:\s*\r?\n\s+contents:\s*read/u);
-  assert.match(
-    source,
-    /concurrency:\s*\r?\n\s+group:\s*required-ci-\$\{\{ github\.workflow \}\}-\$\{\{ github\.sha \}\}/u,
-  );
-  assert.doesNotMatch(source, /required-ci-[^\r\n]*github\.ref/u);
-  assert.match(source, /cancel-in-progress:\s*true/u);
-  assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|id-token:\s*write/iu);
-  assert.doesNotMatch(source, /tags(?:-ignore)?:\s*|release:|workflow_run:/iu);
-  assert.doesNotMatch(source, /paths(?:-ignore)?:/iu);
-  assert.doesNotMatch(source, /self-hosted|kcoderag-live|smoke:live/u);
-});
-
-test("third-party actions are immutable pins and no CI script can publish", () => {
-  const source = `${workflow()}\n${acceptanceWorkflow()}`;
-  const uses = [...source.matchAll(/uses:\s*([^\s#]+)(?:\s+#.*)?$/gmu)].map((match) => match[1]);
-  assert.ok(uses.length >= 2);
-  for (const action of uses) {
-    if (action?.startsWith("./")) continue;
-    assert.match(action ?? "", /^[^@\s]+@[0-9a-f]{40}$/u);
-  }
-
-  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
-    scripts: Record<string, string>;
-  };
-  assert.equal(
-    packageJson.scripts["ci:local"],
-    "npm run build && npm run deps:audit && npm test && npm run generate:check && npm run test:pack",
-  );
-  assert.equal(
-    packageJson.scripts["smoke:required"],
-    "node dist/smoke/host-smoke.cjs --mode required-contract",
-  );
-  assert.equal(
-    packageJson.scripts["smoke:live"],
-    "node dist/smoke/host-smoke.cjs --mode optional-live",
-  );
-  assert.equal(
-    packageJson.scripts["check:acceptance-workflow"],
-    "node dist/maintainer/acceptance-workflow.cjs check .github/workflows/acceptance.yml",
-  );
-  assert.match(packageJson.scripts.test ?? "", /--require \.\/dist-tests\/test-bootstrap\.cjs/u);
-  assert.match(packageJson.scripts.test ?? "", /--test-concurrency=1/u);
-  assert.match(packageJson.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
-  assert.doesNotMatch(packageJson.scripts.test ?? "", /test-(?:skip|name)-pattern/u);
-  const ordinaryPattern = quotedOption(packageJson.scripts["test:ci"], "test-skip-pattern");
-  const packagedPattern = quotedOption(packageJson.scripts["test:ci:packaged"], "test-name-pattern");
-  assert.equal(ordinaryPattern, packagedPattern);
-  assert.equal(
-    ordinaryPattern,
-    "^readiness artifact drives all five packaged hosts from the same injected SHA and member count$",
-  );
-  assert.match(packageJson.scripts["test:ci"] ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
-  assert.match(
-    packageJson.scripts["test:ci:packaged"] ?? "",
-    /dist-tests\/smoke\/host-smoke\.test\.cjs/u,
-  );
-  assert.doesNotMatch(
-    packageJson.scripts["ci:local"] ?? "",
-    /publish|release|audit:brand|pack:audit|smoke:required|readiness:04\.2|seal:04\.2/iu,
-  );
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
+  assert.equal(pkg.scripts["ci:local"], "npm run build && npm run deps:audit && npm test && npm run generate:check");
+  assert.match(pkg.scripts.test ?? "", /dist-tests\/\*\*\/\*\.test\.cjs/u);
+  assert.match(pkg.scripts.test ?? "", /--test-concurrency=1/u);
+  assert.doesNotMatch(pkg.scripts.test ?? "", /test-(?:skip|name)-pattern/u);
+  assert.ok(fs.existsSync(path.join(root, "tests/maintainer/pack-audit.test.cts")));
+  assert.ok(fs.existsSync(path.join(root, "tests/hooks/launcher.test.cts")));
+  assert.doesNotMatch(pkg.scripts["ci:local"] ?? "", /publish|release|smoke:required|readiness:04/u);
+  assert.equal(pkg.scripts["check:acceptance-workflow"], "node dist/maintainer/acceptance-workflow.cjs check .github/workflows/acceptance.yml");
 });

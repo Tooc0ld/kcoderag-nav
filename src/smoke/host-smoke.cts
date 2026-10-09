@@ -13,6 +13,7 @@ import type {
   CandidatePackageArtifact,
   CandidatePackageArtifactLease,
 } from "../maintainer/release-readiness.cjs";
+import { readTarArchive } from "../maintainer/tar-archive.cjs";
 import { parseJsoncObject } from "../core/json-splice.cjs";
 import { HOST_VERSION_SUPPORT_ROWS } from "../hosts/host-version-support.cjs";
 import {
@@ -112,6 +113,16 @@ export interface SupportedCapabilityLifecycle {
 
 export type CapabilityLifecycle = SupportedCapabilityLifecycle;
 
+/** Numeric-only diagnostic counters; canonical receipts remain unchanged. */
+export interface SmokeExecutionMetrics {
+  readonly npmExecCalls: number;
+  readonly directNodeCalls: number;
+  readonly npmExecMs: number;
+  readonly directNodeMs: number;
+  readonly runtimeIdentityMs: number;
+  readonly elapsedMs: number;
+}
+
 export interface HostSmokeResult {
   readonly schemaVersion: 1;
   readonly host: HostId;
@@ -127,6 +138,7 @@ export interface HostSmokeResult {
   readonly runtimeContract?: HostRuntimeContract;
   readonly capabilityLifecycle?: CapabilityLifecycle;
   readonly provenance?: PackageProvenance;
+  readonly executionMetrics?: SmokeExecutionMetrics;
 }
 
 export interface PackageProvenance {
@@ -191,6 +203,18 @@ interface VerifiedTarballArtifact {
   readonly bytes: Buffer;
   readonly sha256: string;
   compromised: boolean;
+  runtime?: VerifiedPackageRuntime;
+  metrics?: MutableExecutionMetrics;
+}
+
+type MutableExecutionMetrics = { -readonly [Key in keyof SmokeExecutionMetrics]: number };
+
+interface VerifiedPackageRuntime {
+  readonly root: string;
+  readonly realRoot: string;
+  readonly files: ReadonlyMap<string, Buffer>;
+  readonly directories: ReadonlySet<string>;
+  readonly entryPath: string;
 }
 
 interface RunHostSmokeDependencies {
@@ -221,6 +245,7 @@ interface McpConnection {
 interface PackageCliOptions {
   readonly capabilities?: readonly ("kcoderag-navigation" | "code-style-nudge")[];
   readonly all?: boolean;
+  readonly distribution?: boolean;
 }
 
 const HOSTS: readonly HostId[] = Object.freeze(["codex", "claude", "cursor", "opencode", "zcode"] as const);
@@ -1239,6 +1264,75 @@ function withVerifiedInvocationTarball<T>(
   }
 }
 
+/** Verify every installed member against the leased tarball, without npm cache internals. */
+export function verifyInstalledPackage(
+  bytes: Buffer,
+  packageRoot: string,
+  expectedVersion: string,
+): VerifiedPackageRuntime {
+  const entries = readTarArchive(bytes);
+  const manifestEntry = entries.find((entry) => entry.path === "package.json" && entry.type === "file");
+  const manifest: unknown = manifestEntry === undefined ? undefined : JSON.parse(manifestEntry.body.toString("utf8"));
+  if (!isRecord(manifest) || manifest.name !== PACKAGE_NAME || manifest.version !== expectedVersion
+    || !isRecord(manifest.bin) || manifest.bin[PACKAGE_NAME] !== "dist/bin/kcoderag-nav.cjs") {
+    throw new Error("artifact_integrity_failed");
+  }
+  const files = new Map<string, Buffer>();
+  const directories = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type === "file") files.set(entry.path, entry.body);
+    else directories.add(entry.path);
+    const parts = entry.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) directories.add(parts.slice(0, index).join("/"));
+  }
+  if (!files.has("dist/bin/kcoderag-nav.cjs")) throw new Error("artifact_integrity_failed");
+  const runtime = Object.freeze({
+    root: path.resolve(packageRoot), realRoot: fs.realpathSync(packageRoot), files, directories,
+    entryPath: path.join(fs.realpathSync(packageRoot), "dist/bin/kcoderag-nav.cjs"),
+  });
+  assertInstalledPackage(runtime);
+  return runtime;
+}
+
+function assertInstalledPackage(runtime: VerifiedPackageRuntime): void {
+  const rootStat = fs.lstatSync(runtime.root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()
+    || fs.realpathSync(runtime.root) !== runtime.realRoot) throw new Error("artifact_integrity_failed");
+  const remaining = new Set(runtime.files.keys());
+  const visit = (directory: string, prefix: string): void => {
+    for (const name of fs.readdirSync(directory)) {
+      const relative = prefix === "" ? name : prefix + "/" + name;
+      const absolute = path.join(directory, name);
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink()) throw new Error("artifact_integrity_failed");
+      if (stat.isDirectory()) {
+        if (!runtime.directories.has(relative)) throw new Error("artifact_integrity_failed");
+        visit(absolute, relative);
+      } else {
+        const expected = runtime.files.get(relative);
+        // Bound reads to the audited member sizes before opening unknown bytes.
+        if (!stat.isFile() || expected === undefined || stat.size !== expected.length
+          || !fs.readFileSync(absolute).equals(expected)) throw new Error("artifact_integrity_failed");
+        remaining.delete(relative);
+      }
+    }
+  };
+  visit(runtime.root, "");
+  if (remaining.size !== 0) throw new Error("artifact_integrity_failed");
+}
+
+function assertRuntimeIntegrity(artifact: VerifiedTarballArtifact): void {
+  const started = performance.now();
+  try {
+    if (artifact.runtime !== undefined) assertInstalledPackage(artifact.runtime);
+  } catch {
+    artifact.compromised = true;
+    throw new Error("artifact_integrity_failed");
+  } finally {
+    if (artifact.metrics !== undefined) artifact.metrics.runtimeIdentityMs += performance.now() - started;
+  }
+}
+
 function parseCliPayload(result: CommandResult, command: string): Record<string, any> | undefined {
   if (result.code !== 0) return undefined;
   try {
@@ -1273,26 +1367,37 @@ function runPackageCliResult(
   options: PackageCliOptions = {},
 ): PackageCliResult {
   return withVerifiedInvocationTarball(artifact, (packageSpec) => {
-    const args = [
-      "exec",
-      "--yes",
-      "--ignore-scripts",
-      `--package=${packageSpec}`,
-      "--",
-      "kcoderag-nav",
-      command,
-      "--host",
-      host,
-      "--target",
-      projectRoot,
-      "--json",
-    ];
+    const args = [command, "--host", host, "--target", projectRoot, "--json"];
     const capabilities = options.capabilities ?? (command === "install" ? [NAVIGATION] : []);
     for (const capability of capabilities) args.push("--capability", capability);
     if (command === "uninstall" && (options.all ?? capabilities.length === 0)) args.push("--all");
     if (command !== "status" && command !== "doctor") args.push("--yes");
     const sharedNpmCache = path.join(path.dirname(path.dirname(artifact.originalPath)), "npm-exec-cache");
-    const result = runNpm(args, projectRoot, safeEnvironment(runtimeRoot, true, sharedNpmCache));
+    const environment = safeEnvironment(runtimeRoot, true, sharedNpmCache);
+    // Keep a real npm distribution lifecycle for each host. Other behavior retains a
+    // fresh Node process using the same immutable, once-installed candidate package.
+    assertRuntimeIntegrity(artifact);
+    const direct = artifact.runtime !== undefined && options.distribution !== true;
+    const started = performance.now();
+    let result: CommandResult;
+    try {
+      if (direct) {
+        if (artifact.metrics !== undefined) artifact.metrics.directNodeCalls += 1;
+        result = runProcess(process.execPath, [artifact.runtime!.entryPath, ...args], {
+          cwd: projectRoot, env: environment,
+        });
+      } else {
+        if (artifact.metrics !== undefined) artifact.metrics.npmExecCalls += 1;
+        result = runNpm([
+          "exec", "--yes", "--ignore-scripts", `--package=${packageSpec}`, "--", "kcoderag-nav", ...args,
+        ], projectRoot, environment);
+      }
+    } finally {
+      if (artifact.metrics !== undefined) {
+        artifact.metrics[direct ? "directNodeMs" : "npmExecMs"] += performance.now() - started;
+      }
+      assertRuntimeIntegrity(artifact);
+    }
     const payload = parseCliDocument(result);
     return Object.freeze({ code: result.code, ...(payload === undefined ? {} : { payload }) });
   });
@@ -2583,7 +2688,7 @@ async function runRequiredHost(
       isStatusPayload(preinstallDoctor, "doctor", "not_installed");
 
     const navigationInstall = runPackageCli(
-      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION] },
+      artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [NAVIGATION], distribution: true },
     );
     const addStyle = runPackageCli(
       artifact, projectRoot, runtimeRoot, "install", host, runNpm, { capabilities: [CODE_STYLE] },
@@ -2638,7 +2743,7 @@ async function runRequiredHost(
       ...(capabilityLifecycle === undefined ? {} : { capabilityLifecycle }),
       provenance,
     });
-    const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm);
+    const status = runPackageCli(artifact, projectRoot, runtimeRoot, "status", host, runNpm, { distribution: true });
     const doctor = runPackageCli(artifact, projectRoot, runtimeRoot, "doctor", host, runNpm);
     const expectedAutomaticNudge = receipt === undefined ? "unsupported" : "available";
     evidence.status = status?.status === "healthy" && status.environment === "qa" &&
@@ -2662,7 +2767,7 @@ async function runRequiredHost(
     } else if (connection?.url === stubUrl) {
       Object.assign(evidence, await driveMcp(host, connection.url, receiptPath));
     }
-    const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm);
+    const update = runPackageCli(artifact, projectRoot, runtimeRoot, "update", host, runNpm, { distribution: true });
     evidence.update = update !== undefined;
     evidence.qaOnly = [preinstallStatus.payload, preinstallDoctor.payload, navigationInstall, status, doctor, update]
       .every((payload) => payload?.environment === "qa");
@@ -2695,7 +2800,7 @@ async function runRequiredHost(
     const partialUninstall = partial !== undefined && partialStatus?.status === "healthy" &&
       partialStatus.codeStyle?.manualSkill === "absent" && exactCapabilities(host, projectRoot, [NAVIGATION]);
     const uninstall = runPackageCli(
-      artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { all: true },
+      artifact, projectRoot, runtimeRoot, "uninstall", host, runNpm, { all: true, distribution: true },
     );
     evidence.uninstall = uninstall !== undefined && uninstall.environment === "qa" &&
       !fs.existsSync(statePath(host, projectRoot));
@@ -3154,6 +3259,15 @@ export function validatePackagedWorkerResult(
     if (!isRecord(item) || item.host !== hosts[index] || item.mode !== "required-contract"
       || item.evidenceLevel !== "PACKAGED" || !isRecord(item.provenance)
       || JSON.stringify(item.provenance) !== JSON.stringify(provenance)) throw new Error("packaged_worker_invalid");
+    if (item.executionMetrics !== undefined) {
+      const metrics = item.executionMetrics;
+      const keys = ["directNodeCalls", "directNodeMs", "elapsedMs", "npmExecCalls", "npmExecMs", "runtimeIdentityMs"];
+      if (!isRecord(metrics) || Object.keys(metrics).sort().join(",") !== keys.join(",")
+        || keys.some((key) => typeof metrics[key] !== "number" || !Number.isFinite(metrics[key]) || metrics[key] < 0)
+        || !Number.isInteger(metrics.directNodeCalls) || !Number.isInteger(metrics.npmExecCalls)) {
+        throw new Error("packaged_worker_invalid");
+      }
+    }
     const receipt = parseHostReceipt(item.receipt);
     if (receipt.host !== item.host || receipt.evidenceLevel !== "PACKAGED"
       || receipt.packageSha256 !== provenance.lifecycleTarballSha256
@@ -3276,6 +3390,12 @@ async function executeAcquiredSmoke(
 ): Promise<SmokeRunResult> {
   try {
     assertVerifiedArtifact(acquiredPackage.lifecycleArtifact);
+    if (mode === "required-contract" && acquiredPackage.runtimePackageRoot !== undefined) {
+      acquiredPackage.lifecycleArtifact.runtime = verifyInstalledPackage(
+        acquiredPackage.lifecycleArtifact.bytes, acquiredPackage.runtimePackageRoot,
+        acquiredPackage.provenance.resolvedVersion,
+      );
+    }
   } catch {
     return aggregate(
       mode,
@@ -3287,7 +3407,12 @@ async function executeAcquiredSmoke(
   fs.mkdirSync(projectsRoot, { recursive: true });
   const results: HostSmokeResult[] = [];
   for (const host of hosts) {
-    results.push(mode === "required-contract"
+    const started = performance.now();
+    const metrics: MutableExecutionMetrics = {
+      npmExecCalls: 0, directNodeCalls: 0, npmExecMs: 0, directNodeMs: 0, runtimeIdentityMs: 0, elapsedMs: 0,
+    };
+    acquiredPackage.lifecycleArtifact.metrics = metrics;
+    const result = mode === "required-contract"
       ? await runRequiredHost(
           host,
           acquiredPackage.lifecycleArtifact,
@@ -3307,7 +3432,9 @@ async function executeAcquiredSmoke(
           receiptPath,
           acquiredPackage.provenance,
           runNpm,
-        ));
+        );
+    metrics.elapsedMs = performance.now() - started;
+    results.push(Object.freeze({ ...result, executionMetrics: Object.freeze({ ...metrics }) }));
   }
   try { assertVerifiedArtifact(acquiredPackage.lifecycleArtifact); } catch { /* normalized below */ }
   return acquiredPackage.lifecycleArtifact.compromised

@@ -66,3 +66,25 @@ test("worker nonzero exit, missing result, duplicate result and timeout fail clo
       }), 1500));
   }
 });
+
+
+test("worker execution metrics accept only bounded numeric metadata without command or config values", () => {
+  const executionMetrics = {
+    npmExecCalls: 4, directNodeCalls: 18, npmExecMs: 100, directNodeMs: 100,
+    runtimeIdentityMs: 10, elapsedMs: 250,
+  };
+  const host = { ...result("codex"), executionMetrics };
+  assert.equal(smoke.validatePackagedWorkerResult([host], ["codex"], provenance).length, 1);
+  for (const invalid of [
+    { ...executionMetrics, npmExecCalls: 4.5 },
+    { ...executionMetrics, directNodeCalls: -1 },
+    { ...executionMetrics, elapsedMs: Number.NaN },
+    { ...executionMetrics, npmExecMs: Number.POSITIVE_INFINITY },
+    { ...executionMetrics, directNodeMs: "sensitive-subprocess-output" },
+    { ...executionMetrics, endpoint: "sensitive-config-value" },
+  ]) {
+    assert.throws(() => smoke.validatePackagedWorkerResult(
+      [{ ...host, executionMetrics: invalid }], ["codex"], provenance,
+    ), /packaged_worker_invalid/u);
+  }
+});

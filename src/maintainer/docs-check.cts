@@ -58,7 +58,7 @@ interface RequiredTopic {
 
 const PUBLIC_SKILLS_TOPIC: RequiredTopic = Object.freeze({
   code: "missing_topic_public_skills",
-  pattern: /(?=[\s\S]*\$kcoderag(?![-\w]))(?=[\s\S]*\$kcoderag-manage\b)(?=[\s\S]*\$kcoderag-update\b)(?=[\s\S]*\$kcoderag-feedback\b)(?=[\s\S]*\$kcoderag-code-style\b)/u,
+  pattern: /(?=[\s\S]*\$kcoderag(?![-\w]))(?=[\s\S]*\$kcoderag-manage\b)(?=[\s\S]*\$kcoderag-update\b)(?=[\s\S]*\$kcoderag-feedback\b)(?=[\s\S]*\$kcoderag-dashboard\b)(?=[\s\S]*\$kcoderag-code-style\b)/u,
 });
 
 const NAVIGATION_USAGE_TOPIC: RequiredTopic = Object.freeze({

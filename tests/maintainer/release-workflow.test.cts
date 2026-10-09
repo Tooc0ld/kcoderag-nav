@@ -2,180 +2,62 @@ const { test } = require("node:test") as typeof import("node:test");
 const assert: typeof import("node:assert/strict") = require("node:assert/strict");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
+const root = path.resolve(__dirname, "../..");
+const workflow = (name: string): string => fs.readFileSync(path.join(root, ".github/workflows", `${name}.yml`), "utf8");
+const section = (source: string, name: string, next?: string): string => {
+  const start = source.indexOf(`  ${name}:`);
+  const end = next === undefined ? source.length : source.indexOf(`  ${next}:`, start + 1);
+  assert.ok(start >= 0 && end > start);
+  return source.slice(start, end);
+};
 
-const repositoryRoot = path.resolve(__dirname, "../..");
-const workflowPath = path.join(repositoryRoot, ".github", "workflows", "release.yml");
-
-function workflow(): string {
-  return fs.readFileSync(workflowPath, "utf8");
-}
-
-function position(source: string, token: string): number {
-  const found = source.indexOf(token);
-  assert.notEqual(found, -1, `missing workflow token: ${token}`);
-  return found;
-}
-
-function laneTuples(source: string): readonly string[] {
-  return [...source.matchAll(
-    /- lane:\s*([^\s]+)\s*\r?\n\s*os:\s*([^\s]+)\s*\r?\n\s*runner:\s*([^\s]+)\s*\r?\n\s*node:\s*["']([^"']+)["']/gu,
-  )].map((match) => [match[1], match[2], match[3], match[4]].join("|"));
-}
-
-test("release workflow runs only for matching semantic version tags with minimal authority", () => {
-  const source = workflow();
-  assert.match(source, /on:\s*\n\s*push:\s*\n\s*tags:\s*\n\s*- ["']v\*\.\*\.\*["']/u);
+test("release accepts only version tags and shares the complete verification gate", () => {
+  const source = workflow("release");
+  assert.match(source, /on:\s*\n\s*push:\s*\n\s*tags:\s*\n\s*- "v\*\.\*\.\*"/u);
   assert.doesNotMatch(source, /pull_request:|workflow_dispatch:|schedule:|branches:|workflow_run:/u);
-  assert.match(source, /permissions:\s*\n\s*contents:\s*read/u);
-  assert.doesNotMatch(source, /contents:\s*write|packages:\s*write|actions:\s*write|id-token:\s*write/u);
-  assert.doesNotMatch(source, /continue-on-error/iu);
+  assert.match(source, /permissions:\s*\n\s+contents: read/u);
+  assert.match(section(source, "verify", "publish"), /uses: \.\/\.github\/workflows\/verify.yml\s*\n\s+with:\s*\n\s+release: true/u);
+  assert.match(section(source, "publish", "registry-readiness"), /needs: verify/u);
+  assert.match(source, /cancel-in-progress: false/u);
+  assert.doesNotMatch(source, /continue-on-error|always\(\)[\s\S]*?npm publish|contents: write|id-token: write/u);
+  const verification = workflow("verify");
+  assert.match(verification, /needs: \[package, required-contracts, packaged-contracts\]/u);
+  assert.match(verification, /if: \$\{\{ always\(\) \}\}/u);
+  assert.match(verification, /if: \$\{\{ inputs.release \}\}/u);
+  assert.ok(verification.indexOf("Check immutable release version") < verification.indexOf("npm run build"));
 });
 
-test("publish depends on the four-platform required matrix and one Windows packaged gate", () => {
-  const source = workflow();
-  const requiredStart = position(source, "  required-contracts:");
-  const packagedStart = position(source, "  packaged-contracts:");
-  const publishStart = position(source, "  publish:");
-  assert.ok(requiredStart < packagedStart && packagedStart < publishStart);
-  const requiredJob = source.slice(requiredStart, packagedStart);
-  const packagedJob = source.slice(packagedStart, publishStart);
-  const publishJob = source.slice(publishStart);
-
-  assert.deepEqual(laneTuples(requiredJob), [
-    "ubuntu-node-22|ubuntu|ubuntu-latest|22",
-    "ubuntu-node-24|ubuntu|ubuntu-latest|24",
-    "windows-node-22-shard-1|windows|windows-latest|22",
-    "windows-node-22-shard-2|windows|windows-latest|22",
-    "windows-node-24-shard-1|windows|windows-latest|24",
-    "windows-node-24-shard-2|windows|windows-latest|24",
-  ]);
-  assert.match(requiredJob, /name:\s*Required release contracts \/ \$\{\{ matrix\.lane \}\}/u);
-  assert.match(requiredJob, /runs-on:\s*\$\{\{ matrix\.runner \}\}/u);
-  assert.match(requiredJob, /node-version:\s*\$\{\{ matrix\.node \}\}/u);
-  assert.match(requiredJob, /fail-fast:\s*false/u);
-  assert.equal(requiredJob.match(/\n\s*- lane:/gu)?.length, 6);
-  assert.deepEqual([...requiredJob.matchAll(/shard: "([12]\/[12])"/gu)].map((match) => match[1]),
-    ["1/1", "1/1", "1/2", "2/2", "1/2", "2/2"]);
-  assert.match(requiredJob, /npm run test:ci:shard -- \$\{\{ matrix\.shard \}\}/u);
-  assert.doesNotMatch(requiredJob, /exclude:|continue-on-error/iu);
-  assert.match(packagedJob, /name:\s*Required packaged smoke \/ windows-node-22/u);
-  assert.match(packagedJob, /runs-on:\s*windows-latest/u);
-  assert.match(packagedJob, /node-version:\s*["']22["']/u);
-  assert.doesNotMatch(packagedJob, /strategy:|matrix\./u);
-  assert.match(publishJob, /needs:\s*\[required-contracts, packaged-contracts\]/u);
-  assert.doesNotMatch(requiredJob, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN/u);
-  assert.equal(publishJob.match(/npm publish/gu)?.length, 1);
-});
-
-test("release has two required gates and publish, all bound to the tag subject SHA", () => {
-  const source = workflow();
-  const jobsSource = source.slice(source.indexOf("\njobs:"));
-  assert.deepEqual(
-    [...jobsSource.matchAll(/^  ([a-z][a-z0-9-]*):\s*$/gmu)].map((match) => match[1]),
-    ["required-contracts", "packaged-contracts", "publish"],
-  );
-  assert.equal(source.match(/uses:\s*actions\/checkout@[0-9a-f]{40}/gu)?.length, 3);
-  assert.equal(source.match(/ref:\s*\$\{\{ github\.sha \}\}/gu)?.length ?? 0, 3);
-  assert.equal(source.match(/persist-credentials:\s*false/gu)?.length ?? 0, 3);
-});
-
-test("ordinary and packaged gates execute once before publish finalizes the package", () => {
-  const source = workflow();
-  assert.match(source, /actions\/checkout@[0-9a-f]{40}/u);
-  assert.match(source, /actions\/setup-node@[0-9a-f]{40}/u);
-  assert.doesNotMatch(source, /uses:\s*[^\n]+@(main|master|v[0-9]+)(?:\s|$)/iu);
-
-  const publishStart = position(source, "  publish:");
-  const packagedStart = position(source, "  packaged-contracts:");
-  const requiredJob = source.slice(position(source, "  required-contracts:"), packagedStart);
-  const packagedJob = source.slice(packagedStart, publishStart);
-  const publishJob = source.slice(publishStart);
-  const requiredGates = [
-    "npm ci --ignore-scripts",
-    "Verify tag matches package version",
-    "npm run build",
-    "npm run deps:audit",
-    "npm run test:launcher",
-    "npm run test:ci",
-    "npm run generate:check",
-    "npm run docs:check",
-    "npm run audit:retirement",
-  ];
-  let previous = -1;
-  for (const command of requiredGates) {
-    const current = position(requiredJob, command);
-    assert.ok(current > previous, `${command} must follow the prior gate`);
-    previous = current;
+test("publication consumes the verified producer artifact without repacking or repeating smoke", () => {
+  const source = workflow("release");
+  const publish = section(source, "publish", "registry-readiness");
+  const registry = section(source, "registry-readiness");
+  for (const consumer of [publish, registry]) {
+    assert.match(consumer, /artifact-ids: \$\{\{ needs.verify.outputs.artifact-id \}\}/u);
+    assert.match(consumer, /MANIFEST_SHA: \$\{\{ needs.verify.outputs.manifest-sha256 \}\}/u);
+    assert.match(consumer, /CANDIDATE_SHA: \$\{\{ github.sha \}\}/u);
+    assert.doesNotMatch(consumer, /run:\s*npm pack|npm run (?:pack:audit|smoke:required|test:ci|test:pack)/u);
   }
-
-  const packagedGates = [
-    "npm ci --ignore-scripts",
-    "Verify tag matches package version",
-    "npm run build",
-    "npm run smoke:required",
-    "npm run pack:audit",
-  ];
-  previous = -1;
-  for (const command of packagedGates) {
-    const current = position(packagedJob, command);
-    assert.ok(current > previous, `${command} must follow the prior packaged gate`);
-    previous = current;
-  }
-  assert.doesNotMatch(requiredJob, /npm run (?:smoke:required|pack:audit)/u);
-  assert.equal(packagedJob.match(/npm run smoke:required/gu)?.length, 1);
-
-  const publishSteps = [
-    "npm ci --ignore-scripts",
-    "Verify tag matches package version",
-    "npm run build",
-    "npm run deps:audit",
-    "npm run pack:audit",
-    "npm publish --access public --ignore-scripts",
-  ];
-  previous = -1;
-  for (const command of publishSteps) {
-    const current = position(publishJob, command);
-    assert.ok(current > previous, `${command} must follow the prior publish step`);
-    previous = current;
-  }
-
-  assert.doesNotMatch(
-    publishJob,
-    /npm test|npm run (?:test:launcher|generate:check|docs:check|audit:retirement|smoke:required)/u,
-  );
-  assert.equal(source.match(/npm publish/gu)?.length, 1);
-  assert.equal(source.match(/npm run docs:check/gu)?.length, 1);
-  assert.equal(source.match(/npm run audit:retirement/gu)?.length, 1);
-  assert.equal(source.match(/npm run smoke:required/gu)?.length, 1);
-  assert.doesNotMatch(requiredJob, /run:\s*npm test\s*(?:\r?\n|$)/u);
+  assert.match(publish, /exact-package.cjs verify "\$PACKAGE_ROOT" "\$CANDIDATE_SHA" "\$MANIFEST_SHA"/u);
+  assert.match(publish, /GITHUB_REF_NAME/u);
+  assert.equal(source.match(/npm publish /gu)?.length, 1);
+  assert.match(publish, /npm publish "\$PACKAGE_ROOT\/package\/candidate.tgz" --access public --ignore-scripts/u);
+  assert.ok(publish.indexOf("exact-package.cjs verify") < publish.indexOf("npm publish "));
+  assert.match(registry, /needs: \[verify, publish\]/u);
+  assert.match(registry, /registry-readiness.cjs "\$PACKAGE_ROOT" "\$CANDIDATE_SHA" "\$MANIFEST_SHA" "\$RECEIPT"/u);
+  assert.match(registry, /timeout-minutes: 15/u);
+  assert.match(registry, /if: \$\{\{ always\(\) \}\}/u);
+  assert.doesNotMatch(registry, /npm publish|NPM_TOKEN|NODE_AUTH_TOKEN|smoke:live|10\.11\./u);
 });
 
-test("tag is checked against package version before any build or publication", () => {
-  const source = workflow();
-  const check = position(source, "Verify tag matches package version");
-  assert.ok(check < position(source, "npm run build"));
-  assert.match(source, /GITHUB_REF_NAME/u);
-  assert.match(source, /package\.json/u);
-  assert.match(source, /expectedTag/u);
-  assert.match(source, /process\.exit\(1\)/u);
-});
-
-test("npm credential is scoped to publish and is never printed", () => {
-  const source = workflow();
-  assert.match(source, /NODE_AUTH_TOKEN:\s*\$\{\{ secrets\.NPM_TOKEN \}\}/u);
-  const publishStepStart = source.indexOf("      - name: Publish verified immutable package");
-  assert.notEqual(publishStepStart, -1);
-  const beforePublishStep = source.slice(0, publishStepStart);
-  const publishStep = source.slice(publishStepStart);
-  assert.doesNotMatch(beforePublishStep, /NPM_TOKEN|NODE_AUTH_TOKEN/u);
-  assert.match(publishStep, /NODE_AUTH_TOKEN/u);
-  assert.match(publishStep, /npm publish/u);
-  assert.equal(publishStep.match(/secrets\.NPM_TOKEN/gu)?.length, 1);
-  assert.doesNotMatch(source, /echo[^\n]*(?:TOKEN|secret)|printenv|env\s*$|set\s+-x|cat\s+.*npmrc/imu);
-});
-
-test("ordinary CI remains release-free and cannot inherit publication authority", () => {
-  const source = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
-  assert.doesNotMatch(source, /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|release\.yml|workflow_call/iu);
-  assert.match(source, /permissions:\s*\n\s*contents:\s*read/u);
+test("publication token is limited to the one publish step while exact SHA checkouts stay immutable", () => {
+  const source = workflow("release");
+  const step = source.indexOf("      - name: Publish verified immutable package once");
+  assert.ok(step > 0);
+  assert.doesNotMatch(source.slice(0, step), /NPM_TOKEN|NODE_AUTH_TOKEN/u);
+  assert.equal(source.match(/secrets.NPM_TOKEN/gu)?.length, 1);
+  assert.match(source, /NODE_AUTH_TOKEN: \$\{\{ secrets.NPM_TOKEN \}\}/u);
+  assert.equal(source.match(/ref: \$\{\{ github.sha \}\}/gu)?.length, 2);
+  assert.equal(source.match(/persist-credentials: false/gu)?.length, 2);
+  assert.doesNotMatch(source, /echo[^\n]*(?:TOKEN|secret)|printenv|set\s+-x|cat\s+.*npmrc/iu);
+  assert.doesNotMatch(workflow("ci") + workflow("verify"), /npm\s+publish|NPM_TOKEN|NODE_AUTH_TOKEN|secrets:\s*inherit/u);
 });
