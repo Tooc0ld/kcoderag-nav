@@ -108,12 +108,21 @@ export function producePackage(root: string, output: string, candidateSha: strin
 export async function smokePackage(root: string, candidateSha: string, manifestSha: string, receipt: string): Promise<boolean> {
   const checked = verifyPackage(root, candidateSha, manifestSha);
   const manifest = checked.manifest;
-  const lease = openDownloadedLease({
-    laneId: "windows-node22", artifactRoot: path.join(root, "package"),
-    artifactName: `kcoderag-nav-${manifest.version}.tgz`, artifactSha256: manifest.sha256,
-    memberCount: manifest.memberCount,
-  });
+  const runnerTempInput = process.env.RUNNER_TEMP;
+  requireFact(runnerTempInput !== undefined && path.isAbsolute(runnerTempInput), "smoke_environment_invalid");
+  const runnerTemp = fs.realpathSync(runnerTempInput);
+  requireFact(fs.statSync(runnerTemp).isDirectory(), "smoke_environment_invalid");
+  // Downloaded leases own and remove their directory; the producer archive belongs to the caller.
+  const temporary = fs.mkdtempSync(path.join(runnerTemp, "kcoderag-exact-smoke-"));
+  let lease: ReturnType<typeof openDownloadedLease> | undefined;
   try {
+    fs.copyFileSync(checked.tarballPath, path.join(temporary, "candidate.tgz"), fs.constants.COPYFILE_EXCL);
+    // Reopen the copy with the original hash so a changed source cannot enter the smoke lease.
+    lease = openDownloadedLease({
+      laneId: "windows-node22", artifactRoot: temporary,
+      artifactName: `kcoderag-nav-${manifest.version}.tgz`, artifactSha256: manifest.sha256,
+      memberCount: manifest.memberCount,
+    });
     const result = await runHostSmoke({ mode: "required-contract", artifactLease: lease });
     const passed = result.status === "PASS" && result.hosts.length === 5
       && result.hosts.every((host) => host.status === "PASS" && host.evidenceLevel === "PACKAGED")
@@ -123,7 +132,10 @@ export async function smokePackage(root: string, candidateSha: string, manifestS
       manifestSha, artifactSha256: manifest.sha256, evidenceLevel: "PACKAGED",
       nativeHostExecution: false, result }, null, 2)}\n`);
     return passed;
-  } finally { lease.dispose(); }
+  } finally {
+    try { lease?.dispose(); }
+    finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+  }
 }
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const [command, root, subject, identity, receipt] = argv;

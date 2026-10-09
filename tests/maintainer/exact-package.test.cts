@@ -16,6 +16,7 @@ const exact = require("../../dist/maintainer/exact-package.cjs") as {
   describePackage(bytes: Buffer, candidateSha: string): Manifest;
   verifyPackage(root: string, candidateSha: string, manifestSha: string): { manifest: Manifest; tarballPath: string };
   producePackage(root: string, output: string, candidateSha: string): unknown;
+  smokePackage(root: string, candidateSha: string, manifestSha: string, receipt: string): Promise<boolean>;
 };
 const subject = "a".repeat(40);
 function tar(entries: readonly (readonly [string, string])[]): Buffer {
@@ -134,4 +135,67 @@ test("candidate binding rejects dirty source, generated files and untracked inpu
     fs.writeFileSync(path.join(root, "untracked-input.txt"), "new input");
     code(() => exact.assertCandidateCheckout(root, head), "candidate_checkout_dirty");
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("smoke consumption preserves the caller archive after success, rejection and thrown failure", async (context) => {
+  const smoke = require("../../dist/smoke/host-smoke.cjs") as {
+    runHostSmoke(options: { artifactLease: unknown }): Promise<unknown>;
+  };
+  const readiness = require("../../dist/maintainer/release-readiness.cjs") as {
+    withCandidatePackageBytes(lease: unknown, consumer: "host-smoke", consume: (bytes: Buffer) => void): void;
+  };
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-smoke-ownership-"));
+  const originalRunnerTemp = process.env.RUNNER_TEMP;
+  const artifactRoot = path.join(temporary, "producer");
+  const runnerTemp = path.join(temporary, "runner");
+  const receipt = path.join(temporary, "receipt.json");
+  const bytes = tar(entries);
+  const manifest = exact.describePackage(bytes, subject);
+  const manifestBytes = `${JSON.stringify(manifest)}\n`;
+  let outcome: "pass" | "reject" | "throw" | "copy_tamper" = "pass";
+  let consumed = 0;
+  const copyFile = fs.copyFileSync;
+  context.mock.method(fs, "copyFileSync", (source: import("node:fs").PathLike, destination: import("node:fs").PathLike, mode?: number) => {
+    copyFile(source, destination, mode);
+    if (outcome === "copy_tamper") fs.writeFileSync(destination, tar([...entries, ["tampered.txt", "changed after verification"]]));
+  });
+  context.mock.method(smoke, "runHostSmoke", async (options: { artifactLease: unknown }) => {
+    readiness.withCandidatePackageBytes(options.artifactLease, "host-smoke", (copy) => {
+      assert.deepEqual(copy, bytes);
+      consumed += 1;
+    });
+    if (outcome === "throw") throw new Error("fixture_smoke_failure");
+    return {
+      status: outcome === "pass" ? "PASS" : "FAIL",
+      hosts: ["codex", "claude", "cursor", "opencode", "zcode"].map((host) => ({ host, status: "PASS", evidenceLevel: "PACKAGED" })),
+      provenance: { lifecycleTarballSha256: manifest.sha256, artifactMemberCount: manifest.memberCount },
+    };
+  });
+  try {
+    fs.mkdirSync(path.join(artifactRoot, "package"), { recursive: true });
+    fs.mkdirSync(runnerTemp);
+    fs.writeFileSync(path.join(runnerTemp, "caller-sentinel"), "keep");
+    fs.writeFileSync(path.join(artifactRoot, "package/candidate.tgz"), bytes);
+    fs.writeFileSync(path.join(artifactRoot, "manifest.json"), manifestBytes);
+    process.env.RUNNER_TEMP = runnerTemp;
+    for (outcome of ["pass", "reject", "throw", "copy_tamper"] as const) {
+      if (outcome === "throw") {
+        await assert.rejects(exact.smokePackage(artifactRoot, subject, exact.digest(manifestBytes), receipt), /fixture_smoke_failure/u);
+      } else if (outcome === "copy_tamper") {
+        await assert.rejects(exact.smokePackage(artifactRoot, subject, exact.digest(manifestBytes), receipt), /downloaded_artifact_identity_invalid/u);
+      } else {
+        assert.equal(await exact.smokePackage(artifactRoot, subject, exact.digest(manifestBytes), receipt), outcome === "pass");
+      }
+      assert.deepEqual(fs.readFileSync(path.join(artifactRoot, "package/candidate.tgz")), bytes);
+      assert.equal(fs.readFileSync(path.join(artifactRoot, "manifest.json"), "utf8"), manifestBytes);
+      assert.deepEqual(exact.verifyPackage(artifactRoot, subject, exact.digest(manifestBytes)).manifest, manifest);
+      assert.deepEqual(fs.readdirSync(runnerTemp), ["caller-sentinel"]);
+    }
+    assert.equal(consumed, 3);
+  } finally {
+    if (originalRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+    else process.env.RUNNER_TEMP = originalRunnerTemp;
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });
