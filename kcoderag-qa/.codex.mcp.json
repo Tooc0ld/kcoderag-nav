@@ -1,8 +1,8 @@
 {
   "kcoderag-qa": {
     "http_headers": {
-      "Authorization": "Bearer kcoderag-qa-token-2026"
+      "Authorization": "Bearer ECWaY9_n_EmqEiHYw_tw9e-5v0dYE2A_lo9HXLXTiZk"
     },
-    "url": "http://10.11.184.71:8010/mcp"
+    "url": "http://10.11.39.59:30106/mcp"
   }
 }
