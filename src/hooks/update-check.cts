@@ -30,6 +30,7 @@ export interface UpdateCheckFiles {
 
 export interface UpdateCheckOptions {
   readonly cacheRoot?: string;
+  readonly projectRoot?: string;
   readonly now?: () => number;
   readonly files?: UpdateCheckFiles;
   readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
@@ -202,7 +203,8 @@ function sameVersion(left: string, right: string): boolean {
 function readCache(files: UpdateCheckFiles, cacheRoot: string): UpdateCache | undefined {
   const raw = files.readText(path.join(cacheRoot, "remote-cache.json"));
   if (raw === undefined || raw.length > MAX_CACHE_CHARS) return undefined;
-  const document: unknown = JSON.parse(raw);
+  let document: unknown;
+  try { document = JSON.parse(raw) as unknown; } catch { return undefined; }
   if (
     !isRecord(document) ||
     Object.keys(document).sort().join(",") !== "checkedAt,latest,schemaVersion" ||
@@ -271,7 +273,7 @@ function relevantPayload(value: unknown): value is Record<string, unknown> {
     isRecord(value.tool_input);
 }
 
-function sessionMarker(payload: Record<string, unknown>): {
+function sessionMarker(payload: Record<string, unknown>, namespace: string): {
   readonly key: string;
   readonly sessionless: boolean;
 } {
@@ -293,9 +295,21 @@ function sessionMarker(payload: Record<string, unknown>): {
     material = `fallback\0${normalized}`;
   }
   return {
-    key: crypto.createHash("sha256").update(material, "utf8").digest("hex"),
+    key: crypto.createHash("sha256").update(JSON.stringify([namespace, material]), "utf8").digest("hex"),
     sessionless: material.startsWith("fallback\0"),
   };
+}
+
+/** Versioned, purpose-specific claims never reinterpret legacy refresh markers as delivered notices. */
+function markerNamespace(
+  purpose: string,
+  payload: Record<string, unknown>,
+  options: UpdateCheckOptions,
+): string {
+  const suppliedRoot = options.projectRoot ?? (typeof payload.cwd === "string" ? payload.cwd : ".");
+  const projectRoot = path.resolve(suppliedRoot);
+  return JSON.stringify(["update-v2", purpose, options.host ?? "unknown",
+    process.platform === "win32" ? projectRoot.toLowerCase() : projectRoot]);
 }
 
 function renewalMarkerName(tokenName: string): string | undefined {
@@ -346,15 +360,18 @@ function claimSession(
   cacheRoot: string,
   hookPayload: Record<string, unknown>,
   now: number,
+  namespace: string,
+  renewable = false,
 ): boolean {
   const sessionsRoot = path.join(cacheRoot, "sessions");
   files.ensureDirectory(sessionsRoot);
-  const marker = sessionMarker(hookPayload);
+  const marker = sessionMarker(hookPayload, namespace);
   const markerName = `session-${marker.key}.seen`;
   const markerPath = path.join(sessionsRoot, markerName);
-  const contents = marker.sessionless ? String(now) : "";
+  const expires = marker.sessionless || renewable;
+  const contents = expires ? String(now) : "";
   if (!files.createExclusive(markerPath, contents)) {
-    if (!marker.sessionless) return false;
+    if (!expires) return false;
     const observedContents = files.readText(markerPath);
     const claimedAt = Number(observedContents);
     if (
@@ -407,9 +424,11 @@ export function readUpdateHint(
     const files = options.files ?? nodeFiles;
     const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
     if (options.hookPayload !== undefined) {
-      if (!relevantPayload(options.hookPayload) || !claimSession(files, cacheRoot, options.hookPayload, now)) {
-        return undefined;
-      }
+      if (!relevantPayload(options.hookPayload)) return undefined;
+      const namespace = markerNamespace(
+        "notice:" + installedVersion + ":" + version.latestVersion, options.hookPayload, options,
+      );
+      if (!claimSession(files, cacheRoot, options.hookPayload, now, namespace)) return undefined;
     }
     return `KCodeRag Nav update available: ${installedVersion} -> ${version.latestVersion}. ` +
       `Ask the user first; do not update automatically. Run: ${updateCommand(options.host)}`;
@@ -430,7 +449,8 @@ export function scheduleRefresh(
     const cacheRoot = path.resolve(options.cacheRoot ?? defaultCacheRoot());
     if (isFresh(readCache(files, cacheRoot), now)) return false;
 
-    if (!claimSession(files, cacheRoot, hookPayload, now)) return false;
+    if (!claimSession(files, cacheRoot, hookPayload, now,
+      markerNamespace("refresh", hookPayload, options), true)) return false;
 
     const spawn = options.spawn ?? childProcess.spawn;
     const workerPath = path.resolve(options.workerPath ?? path.join(__dirname, "update-worker.cjs"));

@@ -486,3 +486,177 @@ test("neutral Claude tracer from actual tgz", async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+function runStatusline(root: string, cwd: string, homeDirectory: string, cacheRoot: string) {
+  const settings = JSON.parse(fs.readFileSync(path.join(root, ".claude/settings.local.json"), "utf8"));
+  return childProcess.spawnSync(settings.statusLine.command, {
+    shell: true, cwd, encoding: "utf8", timeout: 5000, windowsHide: true,
+    input: '{"workspace":{"current_dir":"kept"},"session_id":"statusline-test"}\n',
+    env: {
+      ...process.env, HOME: homeDirectory, USERPROFILE: homeDirectory, CLAUDE_CONFIG_DIR: "",
+      XDG_CACHE_HOME: cacheRoot, LOCALAPPDATA: cacheRoot, KCODERAG_NAV_UPDATE_CHECK: "1",
+      KCODERAG_NAV_STATUSLINE_ACTIVE: "",
+    },
+  });
+}
+
+function upstreamFixture(directory: string, text: string) {
+  const script = path.join(directory, "upstream.cjs");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(script, "process.stdin.resume();process.stdin.on('end',()=>process.stdout.write(" + JSON.stringify(text) + "));");
+  return { type: "command", command: '"' + process.execPath.replaceAll("\\", "/") + '" "' + script.replaceAll("\\", "/") + '"', padding: 2 };
+}
+
+test("Claude wraps original local GSD statusline and restores exact local/project bytes on uninstall", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nav-claude-local-line-"));
+  try {
+    const project = path.join(root, "project");
+    const user = path.join(root, "user");
+    const cache = path.join(root, "cache");
+    fs.mkdirSync(path.join(project, ".claude"), { recursive: true });
+    const upstream = upstreamFixture(user, "\u001b[36mGSD ↑ /gsd-update\u001b[0m\n");
+    const local = Buffer.from(JSON.stringify({ statusLine: { ...upstream, hideVimModeIndicator: true }, permissions: { allow: ["Read"] } }, null, 4) + "\n");
+    const shared = Buffer.from('{"env":{"KEEP":"yes"}}\n');
+    fs.writeFileSync(path.join(project, ".claude/settings.local.json"), local);
+    fs.writeFileSync(path.join(project, ".claude/settings.json"), shared);
+    fs.mkdirSync(path.join(cache, "kcoderag-nav"), { recursive: true });
+    fs.writeFileSync(path.join(cache, "kcoderag-nav/remote-cache.json"), JSON.stringify({ schemaVersion: 1, checkedAt: Date.now(), latest: "99.0.0" }));
+    const target = projectTarget.resolveProjectTarget(project);
+    const adapter = claude.createClaudeAdapter({ homeDirectory: user, readUserSources: () => ({}) });
+    transaction.applyTransaction(adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    const installedSettings = JSON.parse(fs.readFileSync(path.join(project, ".claude/settings.local.json"), "utf8"));
+    assert.equal(installedSettings.statusLine.padding, 2);
+    assert.equal(installedSettings.statusLine.hideVimModeIndicator, true);
+    assert.deepEqual(installedSettings.permissions, { allow: ["Read"] });
+    const child = runStatusline(project, project, user, cache);
+    assert.equal(child.status, 0);
+    assert.equal(child.stderr, "");
+    assert.equal(child.stdout, "\u001b[36mGSD ↑ /gsd-update\u001b[0m  \u001b[33m↑ /kcoderag-update\u001b[0m\n");
+    const current = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, current, [NAVIGATION])));
+    assert.deepEqual(fs.readFileSync(path.join(project, ".claude/settings.local.json")), local);
+    assert.deepEqual(fs.readFileSync(path.join(project, ".claude/settings.json")), shared);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude delegates existing project/user GSD without copying user command, including relocated deep cwd", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nav-claude-user-line-"));
+  try {
+    const project = path.join(root, "project with spaces");
+    const user = path.join(root, "user");
+    const cache = path.join(root, "cache");
+    fs.mkdirSync(path.join(project, ".claude"), { recursive: true });
+    fs.mkdirSync(path.join(user, ".claude"), { recursive: true });
+    const upstream = upstreamFixture(user, "user GSD\n");
+    const userBytes = Buffer.from(JSON.stringify({ statusLine: { ...upstream, refreshInterval: 3, hideVimModeIndicator: true } }));
+    fs.writeFileSync(path.join(user, ".claude/settings.json"), userBytes);
+    const target = projectTarget.resolveProjectTarget(project);
+    const adapter = claude.createClaudeAdapter({ homeDirectory: user, readUserSources: () => ({}) });
+    transaction.applyTransaction(adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    const localPath = path.join(project, ".claude/settings.local.json");
+    const controls = JSON.parse(fs.readFileSync(localPath, "utf8")).statusLine;
+    assert.equal(controls.padding, 2);
+    assert.equal(controls.refreshInterval, 3);
+    assert.equal(controls.hideVimModeIndicator, true);
+    assert.equal(fs.readFileSync(localPath, "utf8").includes(upstream.command), false);
+    assert.equal(fs.readFileSync(path.join(project, ".claude/kcoderag-nav/install-state.json"), "utf8").includes(upstream.command), false);
+    assert.equal(runStatusline(project, project, user, cache).stdout, "user GSD\n");
+    const moved = path.join(root, "moved with spaces");
+    fs.renameSync(project, moved);
+    const deep = path.join(moved, "src/deep");
+    fs.mkdirSync(deep, { recursive: true });
+    const child = runStatusline(moved, deep, user, cache);
+    assert.equal(child.status, 0);
+    assert.equal(child.stderr, "");
+    assert.equal(child.stdout, "user GSD\n");
+    const movedTarget = projectTarget.resolveProjectTarget(moved);
+    transaction.applyTransaction(adapter.renderUninstall(uninstallContext(
+      movedTarget, adapter.detect({ target: movedTarget, packageRoot: PACKAGE_ROOT }), [NAVIGATION],
+    )));
+    assert.equal(fs.existsSync(path.join(moved, ".claude/settings.local.json")), false);
+    assert.deepEqual(fs.readFileSync(path.join(user, ".claude/settings.json")), userBytes);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude local statusline drift refuses update/uninstall and transaction failure restores original bytes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nav-claude-line-drift-"));
+  try {
+    fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+    const localPath = path.join(root, ".claude/settings.local.json");
+    const original = Buffer.from('{"statusLine":{"type":"command","command":"printf original"},"env":{"KEEP":"yes"}}\n');
+    fs.writeFileSync(localPath, original);
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = claude.createClaudeAdapter({ readUserSources: () => ({}) });
+    const before = projectSnapshot(root);
+    const desired = adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION]));
+    assert.throws(() => transaction.applyTransaction(desired, { failAtCommit: 2 }));
+    assert.deepEqual(projectSnapshot(root), before);
+    transaction.applyTransaction(desired);
+    const modified = JSON.parse(fs.readFileSync(localPath, "utf8"));
+    modified.statusLine.command = "printf modified";
+    fs.writeFileSync(localPath, JSON.stringify(modified));
+    const drifted = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    assert.equal(adapter.status({ target, packageRoot: PACKAGE_ROOT, observation: drifted }).status, "drifted");
+    const driftSnapshot = projectSnapshot(root);
+    assert.throws(() => adapter.renderInstall(context(target, drifted, [NAVIGATION], "update")));
+    assert.throws(() => adapter.renderUninstall(uninstallContext(target, drifted, [NAVIGATION])));
+    assert.deepEqual(projectSnapshot(root), driftSnapshot);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude updates a pre-statusline 0.3.8 state once and retains its original local GSD for uninstall", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nav-claude-line-upgrade-"));
+  try {
+    fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+    const localPath = path.join(root, ".claude/settings.local.json");
+    const local = Buffer.from('{"statusLine":{"type":"command","command":"printf old-GSD"},"env":{"KEEP":"yes"}}\n');
+    fs.writeFileSync(localPath, local);
+    const target = projectTarget.resolveProjectTarget(root);
+    const adapter = claude.createClaudeAdapter({ readUserSources: () => ({}) });
+    transaction.applyTransaction(adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    const statePath = path.join(root, ".claude/kcoderag-nav/install-state.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    const removed = new Set([".claude/settings.local.json", ".claude/kcoderag-nav/qa/hooks/claude-statusline.cjs"]);
+    state.packageVersion = "0.3.8";
+    state.files = state.files.filter((file: any) => !removed.has(file.path));
+    state.sections = state.sections.filter((section: any) => !removed.has(section.path));
+    for (const capability of state.capabilities) {
+      capability.files = capability.files.filter((file: string) => !removed.has(file));
+      capability.sections = capability.sections.filter((section: string) => !removed.has(section.split("#")[0] ?? ""));
+    }
+    delete state.compositeDigest;
+    state.compositeDigest = sha256(Buffer.from(JSON.stringify(state)));
+    fs.writeFileSync(statePath, JSON.stringify(state));
+    fs.writeFileSync(localPath, local);
+    fs.unlinkSync(path.join(root, ".claude/kcoderag-nav/qa/hooks/claude-statusline.cjs"));
+    const old = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    assert.equal(old.issues?.length ?? 0, 0);
+    transaction.applyTransaction(adapter.renderInstall(context(target, old, [NAVIGATION], "update")));
+    const updated = adapter.detect({ target, packageRoot: PACKAGE_ROOT });
+    const snapshot = projectSnapshot(root);
+    transaction.applyTransaction(adapter.renderInstall(context(target, updated, [NAVIGATION], "update")));
+    assert.deepEqual(projectSnapshot(root), snapshot, "repeat update is byte-idempotent");
+    transaction.applyTransaction(adapter.renderUninstall(uninstallContext(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    assert.deepEqual(fs.readFileSync(localPath), local);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Claude refuses an orphaned statusline wrapper and never follows a local settings symlink", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nav-claude-line-orphan-"));
+  try {
+    fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+    const localPath = path.join(root, ".claude/settings.local.json");
+    fs.writeFileSync(localPath, JSON.stringify({ statusLine: { type: "command", command: "node claude-statusline.cjs" } }));
+    const adapter = claude.createClaudeAdapter({ readUserSources: () => ({}) });
+    const target = projectTarget.resolveProjectTarget(root);
+    assert.throws(() => adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])),
+      (error: any) => error?.code === "unmanaged_name_conflict");
+    const outside = path.join(root, "outside.json");
+    fs.writeFileSync(outside, "{}");
+    fs.unlinkSync(localPath);
+    fs.symlinkSync(outside, localPath);
+    assert.throws(() => adapter.renderInstall(context(target, adapter.detect({ target, packageRoot: PACKAGE_ROOT }), [NAVIGATION])));
+    assert.equal(fs.readFileSync(outside, "utf8"), "{}");
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

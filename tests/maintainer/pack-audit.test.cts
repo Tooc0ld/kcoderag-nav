@@ -174,6 +174,16 @@ test("audits a real temporary npm tgz and preserves repository status and tree",
   assert.equal(statusAfter, statusBefore);
 });
 
+test("Claude status-line runtime cannot be omitted from a distributable package", () => {
+  const required = "dist/hooks/claude-statusline.cjs";
+  const missing = baseline();
+  assert.ok(missing.expectedPaths.includes(required));
+  missing.packageJson.files = missing.packageJson.files.filter((item: string) => item !== required);
+  const expectedPaths = missing.expectedPaths.filter((item) => item !== required);
+  missing.archiveEntries.delete(required);
+  expectCode(() => packAudit.validatePack({ ...missing, expectedPaths }), "missing_self_contained_asset");
+});
+
 test("requires exact archive equality and all self-contained host assets", () => {
   const exact = baseline();
   assert.equal(packAudit.validatePack(exact).entryCount, exact.expectedPaths.length);

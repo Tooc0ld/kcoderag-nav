@@ -36,14 +36,6 @@ const updateNotice = (() => {
         return undefined;
     }
 })();
-const updateCheck = (() => {
-    try {
-        return require("./update-check.cjs");
-    }
-    catch {
-        return undefined;
-    }
-})();
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -151,21 +143,34 @@ function sessionStartCodeStyle(event, runtime, statePath) {
         ? "Code-style guidance is installed and integrity-verified; load $kcoderag-code-style before C/C++ or Lua edits."
         : undefined;
 }
-function sessionStartUpdate(event, runtime, statePath) {
-    if (event.eventName !== "SessionStart" || event.host === undefined || updateCheck === undefined) {
-        return undefined;
-    }
-    const installedVersion = runtime.installedVersion ?? updateCheck.readInstalledVersion(statePath);
-    const options = {
-        host: event.host,
-        hookPayload: event.payload,
+function updateOptions(runtime, statePath) {
+    return {
+        ...(runtime.installedVersion === undefined ? {} : { installedVersion: runtime.installedVersion }),
+        ...(runtime.managedRoot === undefined ? {} : { cwd: runtime.managedRoot }),
+        ...(statePath === undefined ? {} : { statePath }),
         ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
         ...(runtime.now === undefined ? {} : { now: runtime.now }),
         ...(runtime.updateSpawn === undefined ? {} : { spawn: runtime.updateSpawn }),
     };
-    const notice = updateCheck.readUpdateHint(installedVersion, options);
-    updateCheck.scheduleRefresh(event.payload, options);
-    return notice;
+}
+function updateContribution(host, notice, additionalContext = notice) {
+    // Codex formally renders systemMessage as a warning. Other hosts retain their own UI contracts.
+    if (host !== "codex" || notice === undefined)
+        return additionalContext;
+    return Object.freeze({
+        ...(additionalContext === undefined ? {} : { additionalContext }),
+        systemMessage: (notice.match(/^KCodeRag Nav update available: [0-9]+[.][0-9]+[.][0-9]+ -> [0-9]+[.][0-9]+[.][0-9]+[.]/u)?.[0]
+            ?? "KCodeRag Nav update available.") + " Use $kcoderag-update to review and install.",
+    });
+}
+function sessionStartUpdate(event, runtime, statePath) {
+    if (event.eventName !== "SessionStart" || event.host === undefined || updateNotice === undefined) {
+        return undefined;
+    }
+    const options = updateOptions(runtime, statePath);
+    const notice = updateNotice.readHostUpdateNotice(event.host, event.payload, options);
+    updateNotice.scheduleHostUpdateRefresh(event.host, event.payload, options);
+    return updateContribution(event.host, notice);
 }
 function createDefaultEventContributors(runtime = {}) {
     const runtimeHost = isHost(runtime.host) ? runtime.host : undefined;
@@ -190,10 +195,7 @@ function createDefaultEventContributors(runtime = {}) {
         (event) => {
             if (event.eventName !== "PreToolUse")
                 return undefined;
-            const noticeOptions = {
-                ...(managedRoot === undefined ? {} : { cwd: managedRoot }),
-                ...(statePath === undefined ? {} : { statePath }),
-            };
+            const noticeOptions = updateOptions(runtime, statePath);
             const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
                 ? undefined
                 : updateNotice.readHostUpdateNotice(runtimeHost, event.payload, noticeOptions);
@@ -207,7 +209,7 @@ function createDefaultEventContributors(runtime = {}) {
             if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
                 updateNotice.scheduleHostUpdateRefresh(runtimeHost, event.payload, noticeOptions);
             }
-            return contribution;
+            return updateContribution(runtimeHost, notice, contribution);
         },
         (event) => {
             if (event.eventName !== "PreToolUse" || runtimeHost === undefined || managedRoot === undefined) {
@@ -226,7 +228,8 @@ function createDefaultContributors(runtime = {}) {
     const contributors = createDefaultEventContributors(runtime);
     return Object.freeze(contributors.map((contributor) => (payload) => {
         const event = normalizeHookEvent({ ...payload, hook_event_name: "PreToolUse" }, runtime);
-        return event === undefined ? undefined : contributor(event);
+        const contribution = event === undefined ? undefined : contributor(event);
+        return typeof contribution === "string" ? contribution : contribution?.additionalContext;
     }));
 }
 function responseForContexts(contexts, hookEventName) {
@@ -247,17 +250,30 @@ function dispatchHookEvent(event, contributors = createDefaultEventContributors(
     ...(event.managedRoot === undefined ? {} : { managedRoot: event.managedRoot }),
 })) {
     const contexts = [];
+    const messages = [];
     for (const contributor of contributors) {
         try {
-            const context = contributor(event);
+            const contribution = contributor(event);
+            const context = typeof contribution === "string" ? contribution : contribution?.additionalContext;
             if (typeof context === "string" && context.length > 0)
                 contexts.push(context);
+            const message = typeof contribution === "object" ? contribution?.systemMessage : undefined;
+            if (event.host === "codex" &&
+                (event.eventName === "SessionStart" || event.eventName === "PreToolUse") &&
+                typeof message === "string" && message.length > 0)
+                messages.push(message);
         }
         catch {
             continue;
         }
     }
-    return responseForContexts(contexts, event.eventName);
+    const response = responseForContexts(contexts, event.eventName);
+    if (messages.length === 0)
+        return response;
+    return Object.freeze({
+        ...response,
+        systemMessage: messages.join("\n\n").slice(0, exports.MAX_ADDITIONAL_CONTEXT_CHARS),
+    });
 }
 function dispatchPayload(payload, contributors = createDefaultContributors()) {
     const contexts = [];

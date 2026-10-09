@@ -45,7 +45,7 @@ config/plugin/cache roots. One invocation manages one host, so independent host 
 coexist in the same project.
 
 Native project locations are `.codex/` plus `.agents/skills/` for Codex;
-`.claude/settings.json`, `.claude/skills/`, and root `.mcp.json` for Claude Code;
+`.claude/settings.json`, `.claude/settings.local.json`, `.claude/skills/`, and root `.mcp.json` for Claude Code;
 `.cursor/rules/`, `.cursor/skills/`, `.cursor/mcp.json`, and `.cursor/hooks.json` for Cursor; and one
 `opencode.json`/`opencode.jsonc` plus `.opencode/plugins/` and `.opencode/skills/` for OpenCode; and
 `.zcode/config.json` plus `.zcode/skills/` for ZCode.
@@ -186,12 +186,21 @@ capacity-pruning, or deletion failures are fail-open and never block the origina
 ## Update and evidence boundaries
 
 The foreground update checker reads bounded local state and may detach an npm Registry refresh,
-but never waits for the network or updates automatically. Codex, Claude Code, and ZCode can add a
-known notice to host context, while OpenCode displays a warning toast after a successful tool event.
+but never waits for the network or updates automatically. Claude Code appends a yellow
+`↑ /kcoderag-update` badge to the existing GSD or other status-line output. The project-local
+`.claude/settings.local.json` wrapper preserves upstream output and restores the original project
+settings on uninstall; it never edits the user's global GSD settings. The status line only reads
+version cache, without network requests or consuming once-per-session notices. Codex CLI uses native
+Hook `systemMessage` warnings at session start or a later tool event, with a `$kcoderag-update` entry;
+its status line supports only built-in items, so existing status-line settings remain unchanged.
+ZCode adds known notices to host context, while OpenCode displays a warning toast after a successful tool event.
+The explicit ZCode update command is `npx kcoderag-nav@latest update --host zcode`.
 Cursor has no automatic update notice; use `$kcoderag-update` or the explicit single-host command
 `npx kcoderag-nav@latest update --host cursor` when an update is requested. Cached latest data is
 reused for up to 24 hours, so the first event after expiry may only schedule a background refresh;
-a later eligible event or a new session can surface the result. This follows ZCode's official
+a later eligible event or a new session can surface the result. Refresh and notice claims are
+separate and scoped to host/project/session, so a cold-cache refresh cannot swallow the same
+session's later notice. Notice claims also include installed and latest versions. This follows ZCode's official
 [MCP](https://zcode.z.ai/en/docs/mcp-services), [Skill](https://zcode.z.ai/en/docs/skill), and
 [Hook](https://zcode.z.ai/en/docs/hooks) contracts.
 

@@ -16,6 +16,7 @@ export type CapabilityFileKind =
 
 export type CapabilitySectionKind =
   | "mcp"
+  | "status-line"
   | "session-start"
   | "session-end"
   | "pre-tool"
