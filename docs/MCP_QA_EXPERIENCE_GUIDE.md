@@ -166,12 +166,28 @@ Agent 应说明回退原因，例如 `serving_keyword_only`，并可继续使用
 npx kcoderag-nav@latest update --host codex
 ```
 
+从 0.3.8 升级时，新版发布或运行 `status` 不会替换项目内已有的 Hook。要获得 0.3.9 的
+Claude Code 状态栏提示或 Codex CLI 可见警告，请先进入目标项目，按当前宿主择一运行：
+
+```powershell
+# 使用 Claude Code 时
+npx kcoderag-nav@latest update --host claude
+
+# 使用 Codex CLI 时
+npx kcoderag-nav@latest update --host codex
+```
+
+完成后重新打开对应宿主会话。每条命令只更新所选宿主已安装的功能。
+
 更新提示不会自动安装新版本，也不保证在发布后立即弹出：前台只读最长复用 24 小时的本地 cache；cache
 过期时，当前事件通常只在后台刷新 npm latest，后续符合条件的事件或下一次会话才可能看到提示。
 
 - Claude Code 在原有 GSD 或其他状态栏后追加黄色 `↑ /kcoderag-update`，更新后不再显示。
-  安装器在项目 `.claude/settings.local.json` 中组合状态栏；保留原输出，卸载时恢复原配置，
-  不修改用户级 GSD 设置。只有明确高于已安装版本的有效 cache 才显示提示。
+  安装器在项目 `.claude/settings.local.json` 中组合状态栏；保留原输出，无漂移时卸载会逐字节
+  恢复安装前的项目配置，不修改用户级 GSD 设置。该文件整体受摘要保护：安装后修改其他字段，
+  也可能使更新或卸载报 `managed_content_changed` 并停止写入。请先保留手工修改，再按
+  `doctor --host claude` 的定位处理漂移，不要直接覆盖新内容。
+  只有明确高于已安装版本的有效 cache 才显示提示。
 - Codex CLI 在会话启动或后续工具事件中直接显示更新警告，并提供 `$kcoderag-update` 入口。
   这使用原生 Hook `systemMessage`，不依赖模型转述；Codex 状态栏没有自定义命令入口，原设置保持不变。
   冷 cache 刚完成后台刷新且尚未调用工具时，提示可能等到后续工具事件或新会话才出现。
@@ -209,5 +225,6 @@ npx kcoderag-nav@latest uninstall --host codex --capability kcoderag-navigation
 - `automaticNudge` 显示 `unsupported`：当前宿主没有冻结的 native 写前提示证据；仍可手动调用
   `$kcoderag-code-style`。
 - 出现 `source_conflict`：项目里已有另一份手工或旧版接入。先人工确认并移除重复来源，再重新安装。
-- 出现 `capability_drift`：受管文件被修改。先恢复这些修改，再运行更新。
+- 出现 `capability_drift` 或 `managed_content_changed`：受管文件被修改，更新和卸载会停止写入。
+  先保留手工修改，再运行所选宿主的 `doctor` 定位并处理漂移；不要直接覆盖新内容。
 - ZCode 没有执行 Hook：确认已经信任当前工作区，并重新打开会话。
