@@ -16,6 +16,7 @@ interface UpdateCheckFiles {
 
 interface UpdateCheckOptions {
   readonly cacheRoot?: string;
+  readonly projectRoot?: string;
   readonly now?: () => number;
   readonly files?: UpdateCheckFiles;
   readonly spawn?: (...args: readonly unknown[]) => { unref?(): void };
@@ -682,4 +683,66 @@ test("hook emits its advisory decision before scheduling refresh and never waits
   );
   assert.equal(spawnFailure, 0);
   assert.equal(order.at(-1), "second-output");
+});
+
+test("refresh claims do not consume notices and newer releases rearm the same session", () => {
+  const files = new MemoryFiles();
+  let now = 2_000_000_000_000;
+  let spawns = 0;
+  const options = {
+    cacheRoot, files, now: () => now, host: "claude" as const,
+    projectRoot: path.resolve("project-a"),
+    hookPayload: relevantPayload,
+    spawn: () => { spawns += 1; return { unref() {} }; },
+  };
+  assert.equal(update.scheduleRefresh(relevantPayload, options), true);
+  assert.equal(update.readUpdateHint("0.3.8", options), undefined);
+  assert.equal(update.scheduleRefresh(relevantPayload, options), false);
+  files.put(cachePath, cache(now, "0.3.9"));
+  assert.match(update.readUpdateHint("0.3.8", options) ?? "", /0\.3\.8 -> 0\.3\.9/u);
+  assert.equal(update.readUpdateHint("0.3.8", options), undefined);
+  files.put(cachePath, cache(now, "0.3.10"));
+  assert.match(update.readUpdateHint("0.3.8", options) ?? "", /0\.3\.8 -> 0\.3\.10/u);
+  assert.equal(update.readUpdateHint("0.3.8", options), undefined);
+  assert.match(update.readUpdateHint("0.3.9", options) ?? "", /0\.3\.9 -> 0\.3\.10/u);
+  assert.equal(spawns, 1);
+  now += update.CACHE_TTL_MS;
+  assert.equal(update.scheduleRefresh(relevantPayload, options), true);
+  assert.equal(update.scheduleRefresh(relevantPayload, options), false);
+  assert.equal(spawns, 2);
+});
+
+test("notification scope isolates host and project, retains legacy claims and read-only status", () => {
+  const files = new MemoryFiles();
+  const now = 2_000_000_000_000;
+  const legacyMaterial = "session_id" + String.fromCharCode(0) + "session-a";
+  const crypto = require("node:crypto") as typeof import("node:crypto");
+  const legacyPath = path.join(cacheRoot, "sessions",
+    "session-" + crypto.createHash("sha256").update(legacyMaterial).digest("hex") + ".seen");
+  files.put(legacyPath, "", now);
+  files.put(cachePath, cache(now, "0.3.9"));
+  const options = {
+    cacheRoot, files, now: () => now, host: "claude" as const,
+    projectRoot: path.resolve("project-a"), hookPayload: relevantPayload,
+  };
+  const before = JSON.stringify([...files.entries]);
+  assert.equal(update.readVersionStatus("0.3.8", options).versionStatus, "update_available");
+  assert.equal(JSON.stringify([...files.entries]), before);
+  assert.ok(update.readUpdateHint("0.3.8", options));
+  assert.equal(update.readUpdateHint("0.3.8", options), undefined);
+  assert.ok(update.readUpdateHint("0.3.8", { ...options, host: "codex" }));
+  assert.ok(update.readUpdateHint("0.3.8", { ...options, projectRoot: path.resolve("project-b") }));
+  assert.equal(files.readText(legacyPath), "");
+});
+
+test("a failed detached refresh never marks a newer notice as delivered", () => {
+  const files = new MemoryFiles();
+  const now = 2_000_000_000_000;
+  const options = { cacheRoot, files, now: () => now, hookPayload: relevantPayload };
+  assert.equal(update.scheduleRefresh(relevantPayload, {
+    ...options, spawn: () => { throw new Error("fixture spawn failure"); },
+  }), false);
+  files.put(cachePath, cache(now, "0.3.9"));
+  assert.ok(update.readUpdateHint("0.3.8", options));
+  assert.equal(update.readUpdateHint("0.3.8", options), undefined);
 });

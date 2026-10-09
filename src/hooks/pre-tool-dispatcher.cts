@@ -5,6 +5,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");
 import type { CapabilityId } from "../capabilities/contracts.cjs";
 import type { HostId } from "../core/contracts.cjs";
+import type { HostUpdateNoticeOptions } from "./update-notice.cjs";
 import {
   codeStyleContribution,
   evaluateCodeStyleIntegrity,
@@ -41,9 +42,14 @@ export interface NormalizedHookEvent {
   readonly contextEpoch?: string;
 }
 
+export interface HookContribution {
+  readonly additionalContext?: string;
+  readonly systemMessage?: string;
+}
+
 export type HookEventContributor = (
   event: NormalizedHookEvent,
-) => string | undefined;
+) => string | HookContribution | undefined;
 
 export type PreToolContributor = (
   payload: Readonly<Record<string, unknown>>,
@@ -60,22 +66,16 @@ export interface DispatcherRuntimeOptions {
   readonly updateSpawn?: (...args: readonly unknown[]) => { unref?(): void };
 }
 
-interface UpdateCheckModule {
-  readInstalledVersion(statePath?: string): string | undefined;
-  readUpdateHint(installedVersion: string | undefined, options?: Readonly<Record<string, unknown>>): string | undefined;
-  scheduleRefresh(payload: unknown, options?: Readonly<Record<string, unknown>>): boolean;
-}
-
 interface UpdateNoticeModule {
   readHostUpdateNotice(
     host: HostId,
     payload: unknown,
-    options?: { readonly statePath?: string; readonly cwd?: string },
+    options?: HostUpdateNoticeOptions,
   ): string | undefined;
   scheduleHostUpdateRefresh(
     host: HostId,
     payload: unknown,
-    options?: { readonly statePath?: string; readonly cwd?: string },
+    options?: HostUpdateNoticeOptions,
   ): boolean;
 }
 
@@ -102,14 +102,6 @@ const navigation: NavigationModule | undefined = (() => {
 const updateNotice: UpdateNoticeModule | undefined = (() => {
   try {
     return require("./update-notice.cjs") as UpdateNoticeModule;
-  } catch {
-    return undefined;
-  }
-})();
-
-const updateCheck: UpdateCheckModule | undefined = (() => {
-  try {
-    return require("./update-check.cjs") as UpdateCheckModule;
   } catch {
     return undefined;
   }
@@ -240,25 +232,46 @@ function sessionStartCodeStyle(
     : undefined;
 }
 
-function sessionStartUpdate(
-  event: NormalizedHookEvent,
+function updateOptions(
   runtime: DispatcherRuntimeOptions,
   statePath: string | undefined,
-): string | undefined {
-  if (event.eventName !== "SessionStart" || event.host === undefined || updateCheck === undefined) {
-    return undefined;
-  }
-  const installedVersion = runtime.installedVersion ?? updateCheck.readInstalledVersion(statePath);
-  const options = {
-    host: event.host,
-    hookPayload: event.payload,
+): HostUpdateNoticeOptions {
+  return {
+    ...(runtime.installedVersion === undefined ? {} : { installedVersion: runtime.installedVersion }),
+    ...(runtime.managedRoot === undefined ? {} : { cwd: runtime.managedRoot }),
+    ...(statePath === undefined ? {} : { statePath }),
     ...(runtime.cacheRoot === undefined ? {} : { cacheRoot: runtime.cacheRoot }),
     ...(runtime.now === undefined ? {} : { now: runtime.now }),
     ...(runtime.updateSpawn === undefined ? {} : { spawn: runtime.updateSpawn }),
   };
-  const notice = updateCheck.readUpdateHint(installedVersion, options);
-  updateCheck.scheduleRefresh(event.payload, options);
-  return notice;
+}
+
+function updateContribution(
+  host: HostId | undefined,
+  notice: string | undefined,
+  additionalContext: string | undefined = notice,
+): string | HookContribution | undefined {
+  // Codex formally renders systemMessage as a warning. Other hosts retain their own UI contracts.
+  if (host !== "codex" || notice === undefined) return additionalContext;
+  return Object.freeze({
+    ...(additionalContext === undefined ? {} : { additionalContext }),
+    systemMessage: (notice.match(/^KCodeRag Nav update available: [0-9]+[.][0-9]+[.][0-9]+ -> [0-9]+[.][0-9]+[.][0-9]+[.]/u)?.[0]
+      ?? "KCodeRag Nav update available.") + " Use $kcoderag-update to review and install.",
+  });
+}
+
+function sessionStartUpdate(
+  event: NormalizedHookEvent,
+  runtime: DispatcherRuntimeOptions,
+  statePath: string | undefined,
+): string | HookContribution | undefined {
+  if (event.eventName !== "SessionStart" || event.host === undefined || updateNotice === undefined) {
+    return undefined;
+  }
+  const options = updateOptions(runtime, statePath);
+  const notice = updateNotice.readHostUpdateNotice(event.host, event.payload, options);
+  updateNotice.scheduleHostUpdateRefresh(event.host, event.payload, options);
+  return updateContribution(event.host, notice);
 }
 
 function createDefaultEventContributors(
@@ -279,15 +292,12 @@ function createDefaultEventContributors(
     (event: NormalizedHookEvent): string | undefined => {
       return sessionStartCodeStyle(event, runtime, statePath);
     },
-    (event: NormalizedHookEvent): string | undefined => {
+    (event: NormalizedHookEvent): string | HookContribution | undefined => {
       return sessionStartUpdate(event, runtime, statePath);
     },
-    (event: NormalizedHookEvent): string | undefined => {
+    (event: NormalizedHookEvent): string | HookContribution | undefined => {
       if (event.eventName !== "PreToolUse") return undefined;
-      const noticeOptions = {
-        ...(managedRoot === undefined ? {} : { cwd: managedRoot }),
-        ...(statePath === undefined ? {} : { statePath }),
-      };
+      const noticeOptions = updateOptions(runtime, statePath);
       const notice = runtimeHost === undefined || managedRoot === undefined || updateNotice === undefined
         ? undefined
         : updateNotice.readHostUpdateNotice(runtimeHost, event.payload, noticeOptions);
@@ -305,7 +315,7 @@ function createDefaultEventContributors(
       if (runtimeHost !== undefined && managedRoot !== undefined && updateNotice !== undefined) {
         updateNotice.scheduleHostUpdateRefresh(runtimeHost, event.payload, noticeOptions);
       }
-      return contribution;
+      return updateContribution(runtimeHost, notice, contribution);
     },
     (event: NormalizedHookEvent): string | undefined => {
       if (event.eventName !== "PreToolUse" || runtimeHost === undefined || managedRoot === undefined) {
@@ -329,7 +339,8 @@ export function createDefaultContributors(
     payload: Readonly<Record<string, unknown>>,
   ): string | undefined => {
     const event = normalizeHookEvent({ ...payload, hook_event_name: "PreToolUse" }, runtime);
-    return event === undefined ? undefined : contributor(event);
+    const contribution = event === undefined ? undefined : contributor(event);
+    return typeof contribution === "string" ? contribution : contribution?.additionalContext;
   }));
 }
 
@@ -356,15 +367,28 @@ export function dispatchHookEvent(
   }),
 ): Readonly<Record<string, unknown>> | undefined {
   const contexts: string[] = [];
+  const messages: string[] = [];
   for (const contributor of contributors) {
     try {
-      const context = contributor(event);
+      const contribution = contributor(event);
+      const context = typeof contribution === "string" ? contribution : contribution?.additionalContext;
       if (typeof context === "string" && context.length > 0) contexts.push(context);
+      const message = typeof contribution === "object" ? contribution?.systemMessage : undefined;
+      if (
+        event.host === "codex" &&
+        (event.eventName === "SessionStart" || event.eventName === "PreToolUse") &&
+        typeof message === "string" && message.length > 0
+      ) messages.push(message);
     } catch {
       continue;
     }
   }
-  return responseForContexts(contexts, event.eventName);
+  const response = responseForContexts(contexts, event.eventName);
+  if (messages.length === 0) return response;
+  return Object.freeze({
+    ...response,
+    systemMessage: messages.join("\n\n").slice(0, MAX_ADDITIONAL_CONTEXT_CHARS),
+  });
 }
 
 export function dispatchPayload(

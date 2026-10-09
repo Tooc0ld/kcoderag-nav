@@ -43,6 +43,7 @@ const REQUIRED_ASSETS = Object.freeze([
   "dist/core/mutation-lock.cjs",
   "dist/core/project-root.cjs",
   "dist/core/transaction.cjs",
+  "dist/hooks/claude-statusline.cjs",
   "dist/hooks/code-style-nudge.cjs",
   "dist/hooks/feedback-nudge.cjs",
   "dist/hooks/once-marker.cjs",

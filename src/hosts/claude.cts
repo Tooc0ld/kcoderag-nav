@@ -15,6 +15,7 @@ import { hasManagedRootResidue, validateManagedPath } from "../core/project-targ
 import { createStatusResult, deriveCodeStyleDelivery, parseInstallState } from "../core/state.cjs";
 import { evaluateCodeStyleIntegrity } from "../hooks/code-style-nudge.cjs";
 import { renderProjectHookCommands } from "../core/project-root.cjs";
+import { readUpstreamStatusline, renderClaudeStatuslineCommand, STATUSLINE_MARKER } from "../hooks/claude-statusline.cjs";
 import type { HostAdapter, HostInstallContext, HostObservation, HostSourceScanContext, HostStatusContext, HostUninstallContext } from "./host-adapter.cjs";
 import {
   CONFLICTING_SKILL_SOURCE_NAMES,
@@ -57,6 +58,7 @@ interface ProjectionContextExtras {
 
 const STATE_PATH = ".claude/kcoderag-nav/install-state.json";
 const SETTINGS_PATH = ".claude/settings.json";
+const LOCAL_SETTINGS_PATH = ".claude/settings.local.json";
 const MCP_PATH = ".mcp.json";
 const NAV_SKILL_ROOT = ".claude/skills/kcoderag";
 const MANAGE_SKILL_ROOT = ".claude/skills/kcoderag-manage";
@@ -365,11 +367,42 @@ function projectedFile(
   return Object.freeze({ relativePath, expectedDigest: current === undefined ? null : sha256(current), content, original: encodeOriginal(current), shared });
 }
 
+function mergeStatusLineSettings(
+  current: Buffer | undefined,
+  state: InstallState | undefined,
+  projectSettings: Buffer | undefined,
+  fallback: unknown,
+): { readonly bytes: Buffer; readonly entry: JsonMap } {
+  const document = current === undefined ? {} : parseJson(current, "invalid_json", LOCAL_SETTINGS_PATH);
+  const previous = previousFile(state, LOCAL_SETTINGS_PATH);
+  if (previous === undefined && (JSON.stringify(document.statusLine ?? null).includes(STATUSLINE_MARKER) ||
+      JSON.stringify(document.statusLine ?? null).includes("claude-statusline.cjs"))) {
+    throw new InstallError("unmanaged_name_conflict", LOCAL_SETTINGS_PATH);
+  }
+  const original = previous?.original.kind === "base64"
+    ? parseJson(Buffer.from(previous.original.data ?? "", "base64"), "invalid_install_state", LOCAL_SETTINGS_PATH)
+    : previous === undefined ? document : {};
+  const project = projectSettings === undefined ? {} : parseJson(projectSettings, "invalid_json", SETTINGS_PATH);
+  const upstream = Object.hasOwn(original, "statusLine") ? original.statusLine
+    : Object.hasOwn(project, "statusLine") ? project.statusLine : fallback;
+  const entry: JsonMap = { type: "command", command: renderClaudeStatuslineCommand() };
+  // Keep presentation controls without storing a second copy of the original command.
+  if (isRecord(upstream)) {
+    for (const field of ["padding", "refreshInterval"] as const) {
+      if (typeof upstream[field] === "number" && Number.isFinite(upstream[field])) entry[field] = upstream[field];
+    }
+    if (typeof upstream.hideVimModeIndicator === "boolean") entry.hideVimModeIndicator = upstream.hideVimModeIndicator;
+  }
+  document.statusLine = entry;
+  return Object.freeze({ bytes: canonicalJson(document), entry });
+}
+
 function section(relativePath: string, id: string, value: unknown, fileExisted: boolean, shared: boolean): ProjectedCapabilitySection {
   return Object.freeze({ relativePath, id, digest: sha256(JSON.stringify(value)), fileExisted, shared });
 }
 
 const NAV_RUNTIME = Object.freeze([
+  ["dist/hooks/claude-statusline.cjs", "claude-statusline.cjs"],
   ["dist/hooks/feedback-nudge.cjs", "feedback-nudge.cjs"],
   ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"],
   ["dist/hooks/update-check.cjs", "update-check.cjs"],
@@ -399,17 +432,22 @@ function projectContributions(
   projected: readonly CapabilityId[],
   state: InstallState | undefined,
   automaticStyle: boolean,
+  homeDirectory: string,
 ): readonly ProjectedCapabilityContribution[] {
   const settingsCurrent = readRegular(target, SETTINGS_PATH);
   const settingsOwned = previousFile(state, SETTINGS_PATH) !== undefined;
   const settings = mergeHookSettings(settingsCurrent, packageRoot, selected, automaticStyle, settingsOwned);
   const contributions: ProjectedCapabilityContribution[] = [];
   if (projected.includes(NAVIGATION)) {
+    const localCurrent = readRegular(target, LOCAL_SETTINGS_PATH);
+    const statusLine = mergeStatusLineSettings(localCurrent, state, settingsCurrent,
+      readUpstreamStatusline({ projectRoot: target.root, homeDirectory }));
     const mcpCurrent = readRegular(target, MCP_PATH);
     const mcpOwned = previousFile(state, MCP_PATH) !== undefined;
     const mcp = mergeMcp(mcpCurrent, packageRoot, mcpOwned);
     const files: ProjectedCapabilityFile[] = [
       projectedFile(target, state, MCP_PATH, mcp.bytes, true, true),
+      projectedFile(target, state, LOCAL_SETTINGS_PATH, statusLine.bytes, false, true),
       projectedFile(target, state, SETTINGS_PATH, settings.bytes, true, true),
       projectedFile(target, state, `${NAV_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag/SKILL.md"), false),
       projectedFile(target, state, `${MANAGE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-qa/skills/kcoderag-manage/SKILL.md"), false),
@@ -423,6 +461,7 @@ function projectContributions(
       files: Object.freeze(files),
       sections: Object.freeze([
         section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined, true),
+        section(LOCAL_SETTINGS_PATH, "navigation:status-line", statusLine.entry, localCurrent !== undefined, false),
         section(SETTINGS_PATH, "navigation:session-start", settings.start, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:pre-tool", settings.pre, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:post-tool", settings.post, settingsCurrent !== undefined, true),
@@ -456,13 +495,14 @@ function compose(
   selected: readonly CapabilityId[],
   automaticStyle: boolean,
   preserved: readonly CapabilityId[] = [],
+  homeDirectory: string = os.homedir(),
 ): ReturnType<typeof composeCapabilitySet> {
   const state = context.observation.currentState;
   const stateBytes = currentStateBytes(context.observation);
   const projected = selected.filter((id) => !preserved.includes(id));
   const reconciled = preserved.length === 0
     ? Object.freeze([])
-    : projectContributions(context.target, context.packageRoot, selected, preserved, state, automaticStyle);
+    : projectContributions(context.target, context.packageRoot, selected, preserved, state, automaticStyle, homeDirectory);
   return composeCapabilitySet({
     host: "claude",
     target: context.target,
@@ -472,7 +512,7 @@ function compose(
     stateExpectedDigest: stateBytes === undefined ? null : sha256(stateBytes),
     selectedCapabilities: selected,
     preservedCapabilities: preserved,
-    contributions: projectContributions(context.target, context.packageRoot, selected, projected, state, automaticStyle),
+    contributions: projectContributions(context.target, context.packageRoot, selected, projected, state, automaticStyle, homeDirectory),
     reconciledContributions: reconciled,
     ...(state === undefined ? {} : { previousState: state }),
   });
@@ -562,12 +602,12 @@ export function createClaudeAdapter(options: ClaudeAdapterOptions = {}): HostAda
       refuseIssues(context.observation);
       if (context.command === "update" && context.observation.currentState === undefined) throw new InstallError("not_installed", STATE_PATH);
       const selected = selectedForInstall(context);
-      return compose(context, selected, automaticStyleEnabled(selected, context, options), preservedForUpdate(context, selected));
+      return compose(context, selected, automaticStyleEnabled(selected, context, options), preservedForUpdate(context, selected), homeDirectory);
     },
     renderUninstall: (context: HostUninstallContext) => {
       refuseIssues(context.observation);
       const selected = selectedAfterUninstall(context);
-      return compose(context, selected, automaticStyleEnabled(selected, context, options));
+      return compose(context, selected, automaticStyleEnabled(selected, context, options), [], homeDirectory);
     },
     status: claudeStatus,
     scanUserSources: (context: HostSourceScanContext) => scanClaudeSources(context, reader),

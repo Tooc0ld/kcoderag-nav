@@ -16,7 +16,7 @@ Nav 继续支持 Windows/Linux 与 Node.js 22/24。服务端 KCodeRag 的 Linux-
 CI 与 tag Release 共用 `verify.yml`：
 
 1. Ubuntu producer 在精确提交构建、检查依赖、生成一致性、文档与退役边界，产生并审计一个 tgz。
-2. 原有 Windows/Linux × Node 22/24 测试矩阵继续执行；Windows 保留两个测试分片。完整 suite 已包含 launcher 与 pack 测试，不在每个 job 结尾再次执行它们。
+2. 原有 Windows/Linux × Node 22/24 测试矩阵继续执行；Windows 保留两个按文件耗时平衡的测试分片，Linux 每个 Node 版本仍执行完整文件集合。完整 suite 已包含 launcher 与 pack 测试，不在每个 job 结尾再次执行它们。
 3. Windows Node 22 的五宿主 packaged 验收按 artifact ID 下载 producer 的 tgz，重新核对 manifest hash、包 SHA-256、版本和成员摘要，再执行安装生命周期。
 4. Verification gate 要求包、测试矩阵和 packaged 验收全部成功。Release 重新核对 tag 与版本、manifest 和原归档后，直接 `npm publish <verified.tgz>`，不重新打包。
 
@@ -47,3 +47,34 @@ npm 上传成功后仍可能处于 registry processing。独立 registry-readine
 本轮同一旧产品的 Linux 单次对照为 29.415 秒 → 11.795 秒（约减少 60%，前者含少量 npm script 启动开销）；
 每宿主 npm exec 从 22 次减为 4 次，另有 18 次独立 Node 调用。当前新产品的五宿主 smoke 为 11.975 秒并通过。
 这些是本机观测；Windows 与 Actions 整条流水线仍以对应运行回执为准。
+
+## Windows 测试分片与依赖审计
+
+0.3.8 的三次完整运行显示 Windows 源码测试分片负载不均。下表是 `test:ci:shard` step 的秒数，不含排队、安装或构建：
+
+| 运行 | Node 22 分片 1 / 2 | Node 24 分片 1 / 2 |
+| --- | ---: | ---: |
+| [PR 37878565271](https://github.com/Tooc0ld/kcoderag-nav/actions/runs/37878565271) | 282 / 129 | 210 / 115 |
+| [master 37879132727](https://github.com/Tooc0ld/kcoderag-nav/actions/runs/37879132727) | 236 / 108 | 228 / 80 |
+| [Release 37879137484](https://github.com/Tooc0ld/kcoderag-nav/actions/runs/37879137484) | 240 / 119 | 192 / 116 |
+
+Release Node 22 中，`host-smoke.test` 用例累计约 59 秒，`readiness-workflow.test` 约 36.5 秒，
+`release.test` 约 29.7 秒，原来都落入第一个分片；Windows 的单次构建约 6–12 秒。
+这些是单次观测，不能当作固定服务时间或承诺加速比例。
+
+`ci-test-shard` 现在从当前 checkout 的 `dist-tests` 递归发现全部 `.test.cjs` 文件，
+按已观测的耗时从长到短分配给当前累计权重较低的分片，文件名使用 ordinal 排序打破平局。
+未知、新增文件按默认权重自动纳入；权重只用于安排执行顺序，不是测试清单或历史 PASS。
+删除的文件不会因历史权重而重现。两个 Windows 分片互斥且并集等于完整发现集合，
+Linux 的 `1/1` 仍运行完整集合，现有唯一 packaged 重复用例过滤保持不变。
+
+每个 job 在测试前输出 `ci_test_shard` JSON：完整集合的文件数和 SHA-256、
+本分片的文件数、SHA-256、估算权重及所选文件路径。相同提交的两个分片应具有相同的
+`inventorySha256`；最终通过仍依赖每个实际测试进程的退出状态和原有矩阵门禁。
+空集合、重复或不合法路径、空分片以及发现阶段的文件错误都会失败，不能静默跳过。
+
+依赖审计测试的变体只修改内存对象，不修改安装目录。该测试文件现在只执行一次真实
+`npm ls --all --json --long`，每个变体从当前结果独立深拷贝；原有拒绝条件和不可变性断言全部保留，
+并额外检查三个嵌套对象的隔离。独立 `deps:audit` 门禁仍然读取实际依赖图。
+这里没有跨 job、跨提交或跨运行复用 PASS，也没有删除真实 pack、生命周期或内容篡改验证。
+本轮加速结果需要由新一轮 Windows Actions 耗时确认。

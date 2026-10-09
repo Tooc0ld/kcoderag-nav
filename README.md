@@ -153,7 +153,7 @@ digest。缺失/额外 owner、摘要不匹配、symlink、特殊文件、危险
 | 宿主 | 项目级受管位置 | 当前行为 |
 | --- | --- | --- |
 | Codex | `.codex/`、`.agents/skills/` | 五个导航族 Skill、手动代码规范 Skill，以及 advisory/fail-open navigation `PreToolUse`；无 native 代码规范写前提示 |
-| Claude Code | `.claude/settings.json`、`.claude/skills/`、根 `.mcp.json` | 六个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
+| Claude Code | `.claude/settings.json`、`.claude/settings.local.json`、`.claude/skills/`、根 `.mcp.json` | 六个 Skill；只有 `2.1.241` 的 navigation 与代码规范 guidance 共用 native `PreToolUse` dispatcher |
 | Cursor | `.cursor/rules/`、`.cursor/skills/`、`.cursor/mcp.json`、`.cursor/hooks.json` | 六个手动 Skill、always-on navigation Rule/MCP 与成功 marker；不提供自动更新提示，也不声明等价代码规范 `PreToolUse` |
 | OpenCode | `opencode.json`/`opencode.jsonc`、`.opencode/plugins/`、`.opencode/skills/` | 六个手动 Skill、project plugin + MCP；无 native 代码规范写前提示 |
 | ZCode | `.zcode/config.json`、`.zcode/skills/`、`.zcode/kcoderag-nav/hooks/` | 六个手动 Skill；`hooks.enabled: true` 的 project navigation `PreToolUse`、`PostToolUse` marker 与更新提示，不提供 native 代码规范写前提示 |
@@ -197,8 +197,12 @@ C/C++/Lua 白名单且存在稳定 `session_id`、`thread_id` 或 `conversation_
 ## 更新提示、证据与维护者门禁
 
 更新检查前台只读有界 cache，过期时分离启动 npm Registry worker，不等待网络、不自动更新。
-Codex、Claude Code 与 ZCode 可在宿主上下文中加入已知更新提示，OpenCode 在成功工具事件后显示 warning
-toast。Cursor 不提供自动更新提示；需要时请明确调用 `$kcoderag-update`，或运行所选单宿主的
+Claude Code 会在现有状态栏输出后追加黄色 `↑ /kcoderag-update`；已有 GSD 或其他状态栏继续输出。
+项目的 `.claude/settings.local.json` 保存组合命令，原始项目配置由安装状态保留，卸载恢复原始字节；
+用户级 GSD 配置不会被修改。状态栏只读版本 cache，不等待网络，也不消耗一次性提示标记。
+Codex CLI 在会话启动或后续工具事件中通过正式 Hook `systemMessage` 显示更新警告，提示
+`$kcoderag-update`；其状态栏仅支持内置项目，因此保持原配置。ZCode 将提示加入宿主上下文；
+OpenCode 在成功工具事件后显示 warning toast。Cursor 不提供自动更新提示；需要时请明确调用 `$kcoderag-update`，或运行所选单宿主的
 `npx kcoderag-nav@latest update --host cursor`。
 
 cache 最长复用 24 小时。首次遇到过期 cache 的事件通常只负责后台刷新，因此新提示可能在后续符合条件的
@@ -207,7 +211,10 @@ cache 最长复用 24 小时。首次遇到过期 cache 的事件通常只负责
 然后复查 `status`。
 
 这里的“自动更新”仅表示自动感知新版本：后台 worker 只刷新版本 cache，绝不运行 install/update。
-显式更新仍是必需步骤。
+Codex 的可见警告遵循官方 [Hook 输出协议](https://learn.chatgpt.com/docs/hooks)；
+状态栏限制见 [配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。
+显式更新仍是必需步骤。刷新标记和提示标记分别按宿主、项目、会话管理；冷 cache 刷新完成后，
+同会话仍可提示，已提示的安装版本/latest 组合不会在每次工具调用时重复提示。
 required smoke 的 `runtimeContract.layer: packaged` 会从实际 tgz 安装后执行注册处理器，验证提示、
 marker、fail-open 与分离刷新调度；它不等于真宿主已加载/信任这些注册。Windows self-hosted acceptance
 还会运行 optional-live：Codex、KSCC 驱动的 Claude Code 和 OpenCode 各自在临时项目里连接仅监听

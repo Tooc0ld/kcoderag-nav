@@ -19,7 +19,10 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function actualGraph(): { packageJson: JsonMap; packageLock: JsonMap; npmTree: JsonMap } {
+let npmTreeReads = 0;
+
+function readActualGraph(): { packageJson: JsonMap; packageLock: JsonMap; npmTree: JsonMap } {
+  npmTreeReads += 1;
   const executable = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
   const args = process.platform === "win32"
     ? ["/d", "/s", "/c", "npm ls --all --json --long"]
@@ -33,6 +36,12 @@ function actualGraph(): { packageJson: JsonMap; packageLock: JsonMap; npmTree: J
       }),
     ),
   };
+}
+
+// One real installed graph per test process; each mutation receives an isolated copy.
+const actualGraphSnapshot = readActualGraph();
+function actualGraph(): ReturnType<typeof readActualGraph> {
+  return clone(actualGraphSnapshot);
 }
 
 function expectAuditError(input: ReturnType<typeof actualGraph>, code: string): void {
@@ -204,4 +213,17 @@ test("does not mutate any audit input", () => {
   const before = clone(input);
   auditModule.auditDependencyGraph(input);
   assert.deepEqual(input, before);
+});
+
+
+test("one real npm tree snapshot remains isolated from every audit variant", () => {
+  const original = actualGraph();
+  const mutated = actualGraph();
+  mutated.packageJson.devDependencies.typescript = "0.0.0";
+  delete mutated.packageLock.packages["node_modules/typescript"];
+  delete mutated.npmTree.dependencies.typescript;
+  assert.deepEqual(actualGraph(), original);
+  assert.notStrictEqual(actualGraph().npmTree.dependencies, original.npmTree.dependencies);
+  assert.equal(npmTreeReads, 1);
+  auditModule.auditDependencyGraph(actualGraph());
 });

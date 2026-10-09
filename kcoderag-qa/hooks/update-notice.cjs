@@ -18,8 +18,8 @@ function isRecord(value) {
 function boundedIdentity(value) {
     if (typeof value !== "string" && typeof value !== "number")
         return undefined;
-    const normalized = String(value).trim().slice(0, MAX_ID_CHARS);
-    return normalized.length > 0 ? normalized : undefined;
+    const exact = String(value);
+    return exact.length > 0 && exact.length <= MAX_ID_CHARS && exact.trim().length > 0 ? exact : undefined;
 }
 function sessionIdentity(host, payload) {
     const fields = host === "opencode"
@@ -28,7 +28,7 @@ function sessionIdentity(host, payload) {
     for (const field of fields) {
         const identity = boundedIdentity(payload[field]);
         if (identity !== undefined)
-            return `${host}:${identity}`;
+            return identity;
     }
     return undefined;
 }
@@ -58,7 +58,12 @@ function readHostUpdateNotice(host, payload, options = {}) {
         const normalized = hostPayload(host, payload, options.cwd);
         if (version === undefined || normalized === undefined)
             return undefined;
-        return runtime.readUpdateHint(version, { hookPayload: normalized, host });
+        return runtime.readUpdateHint(version, {
+            hookPayload: normalized, host,
+            ...(options.cwd === undefined ? {} : { projectRoot: options.cwd }),
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+            ...(options.now === undefined ? {} : { now: options.now }),
+        });
     }
     catch {
         return undefined;
@@ -73,6 +78,10 @@ function scheduleHostUpdateRefresh(host, payload, options = {}) {
             return false;
         return runtime.scheduleRefresh(normalized, {
             host,
+            ...(options.cwd === undefined ? {} : { projectRoot: options.cwd }),
+            ...(options.cacheRoot === undefined ? {} : { cacheRoot: options.cacheRoot }),
+            ...(options.now === undefined ? {} : { now: options.now }),
+            ...(options.spawn === undefined ? {} : { spawn: options.spawn }),
             ...(options.runtimePath === undefined ? {} : { runtimePath: options.runtimePath }),
         });
     }

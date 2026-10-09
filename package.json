@@ -23,6 +23,7 @@
     "dist/core/state.cjs",
     "dist/core/transaction.cjs",
     "dist/generator/index.cjs",
+    "dist/hooks/claude-statusline.cjs",
     "dist/hooks/grep-nudge.cjs",
     "dist/hooks/code-style-nudge.cjs",
     "dist/hooks/feedback-nudge.cjs",

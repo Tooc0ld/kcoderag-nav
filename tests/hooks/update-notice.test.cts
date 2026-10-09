@@ -48,11 +48,11 @@ function runtime(overrides: Partial<UpdateRuntime> = {}): UpdateRuntime {
 
 test("normalizes five hook-capable host payloads into secret-free update identities", () => {
   const cases: readonly [HostId, unknown, string][] = [
-    ["codex", { thread_id: "codex-thread", tool_input: { authorization: "Bearer secret" } }, "codex:codex-thread"],
-    ["claude", { session_id: "claude-session", tool_input: { url: "https://secret.invalid" } }, "claude:claude-session"],
-    ["cursor", { conversation_id: "cursor-conversation", tool_output: "secret output" }, "cursor:cursor-conversation"],
-    ["opencode", { sessionID: "opencode-session", input: { token: "secret" } }, "opencode:opencode-session"],
-    ["zcode", { session_id: "zcode-session", tool_input: { token: "secret" } }, "zcode:zcode-session"],
+    ["codex", { thread_id: "codex-thread", tool_input: { authorization: "Bearer secret" } }, "codex-thread"],
+    ["claude", { session_id: "claude-session", tool_input: { url: "https://secret.invalid" } }, "claude-session"],
+    ["cursor", { conversation_id: "cursor-conversation", tool_output: "secret output" }, "cursor-conversation"],
+    ["opencode", { sessionID: "opencode-session", input: { token: "secret" } }, "opencode-session"],
+    ["zcode", { session_id: "zcode-session", tool_input: { token: "secret" } }, "zcode-session"],
   ];
 
   for (const [host, payload, sessionId] of cases) {
@@ -89,10 +89,11 @@ test("routes an exact host-scoped hint without exposing native payload fields", 
     "0.2.2",
     {
       host: "opencode",
+      projectRoot: "C:/project",
       hookPayload: {
         tool_name: "Bash",
         tool_input: {},
-        session_id: "opencode:session-a",
+        session_id: "session-a",
         cwd: "C:/project",
       },
     },
@@ -117,10 +118,10 @@ test("uses an explicit Node runtime for OpenCode's detached refresh", () => {
     {
       tool_name: "Bash",
       tool_input: {},
-      session_id: "opencode:session-a",
+      session_id: "session-a",
       cwd: "C:/project",
     },
-    { host: "opencode", runtimePath: "node" },
+    { host: "opencode", projectRoot: "C:/project", runtimePath: "node" },
   ]);
 });
 
@@ -171,4 +172,17 @@ test("missing installed state suppresses both notice and refresh", () => {
   assert.equal(notice.scheduleHostUpdateRefresh("cursor", { session_id: "s" }, { updateRuntime }), false);
   assert.equal(readHintCalls, 0);
   assert.equal(refreshCalls, 0);
+});
+
+test("host normalization preserves exact bounded opaque session IDs across hook events", () => {
+  const startup = notice.hostPayload("claude", {
+    hook_event_name: "SessionStart", source: "startup", session_id: " session-a ",
+  }, "/project");
+  const tool = notice.hostPayload("claude", {
+    hook_event_name: "PreToolUse", session_id: " session-a ", tool_name: "Bash",
+  }, "/project");
+  assert.deepEqual(startup, tool);
+  assert.equal(startup?.session_id, " session-a ");
+  assert.notEqual(startup?.session_id, notice.hostPayload("claude", { session_id: "session-a" })?.session_id);
+  assert.equal(notice.hostPayload("claude", { session_id: "x".repeat(513) })?.session_id, undefined);
 });

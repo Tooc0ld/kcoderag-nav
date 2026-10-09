@@ -114,6 +114,12 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
         shared: true,
       },
       {
+        id: "navigation:claude-statusline",
+        sourcePath: "dist/hooks/claude-statusline.cjs",
+        kind: "handler",
+        shared: false,
+      },
+      {
         id: "navigation:success-marker",
         sourcePath: "dist/hooks/mcp-call-marker.cjs",
         kind: "marker",
@@ -159,6 +165,7 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
     sections: [
       { id: "navigation:mcp", kind: "mcp", shared: true },
       { id: "navigation:session-start", kind: "session-start", shared: true },
+      { id: "navigation:status-line", kind: "status-line", shared: false },
       { id: "navigation:pre-tool", kind: "pre-tool", shared: true },
       { id: "navigation:post-tool", kind: "post-tool", shared: true },
     ],

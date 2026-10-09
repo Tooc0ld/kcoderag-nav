@@ -339,3 +339,40 @@ test("receipt-proven SessionEnd removes only the exact session reminder family",
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Claude startup and tool events share refresh identity and deliver a late cache update once", () => {
+  const root = fixture("kcoderag-session-refresh-notice-");
+  const managedRoot = path.join(root, "project");
+  const cacheRoot = path.join(root, "cache");
+  const now = 2_000_000_000_000;
+  fs.mkdirSync(managedRoot, { recursive: true });
+  let spawns = 0;
+  const runtime = {
+    host: "claude", managedRoot, cacheRoot, installedVersion: "0.3.8",
+    now: () => now,
+    updateSpawn: () => { spawns += 1; return { unref() {} }; },
+  };
+  const run = (event: unknown) => dispatcher.dispatchRawInput(JSON.stringify(event), undefined, JSON.parse, runtime);
+  const tool = {
+    hook_event_name: "PreToolUse", session_id: "cold", cwd: path.join(managedRoot, "src"),
+    tool_name: "Bash", tool_input: { command: "pwd" },
+  };
+  try {
+    assert.doesNotMatch(context(run(payload("startup", "cold"))) ?? "", /update available/u);
+    assert.doesNotMatch(context(run(tool)) ?? "", /update available/u);
+    assert.equal(spawns, 1);
+    fs.writeFileSync(path.join(cacheRoot, "remote-cache.json"), JSON.stringify({
+      schemaVersion: 1, checkedAt: now, latest: "0.3.9",
+    }));
+    const late = run(tool);
+    assert.match(context(late) ?? "", /0\.3\.8 -> 0\.3\.9/u);
+    assert.equal(late?.systemMessage, undefined);
+    assert.doesNotMatch(context(run(tool)) ?? "", /update available/u);
+    assert.doesNotMatch(context(run(payload("resume", "cold"))) ?? "", /update available/u);
+    assert.match(context(run(payload("startup", "fresh"))) ?? "", /0\.3\.8 -> 0\.3\.9/u);
+    assert.doesNotMatch(context(run({ ...tool, session_id: "fresh" })) ?? "", /update available/u);
+    assert.equal(spawns, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
