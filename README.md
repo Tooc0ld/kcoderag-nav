@@ -23,7 +23,11 @@ Phase 04.2 的一次性只读迁入来源；后续不修改、同步或绑定其
 MCP URL、Header、Bearer 或配置正文。
 
 用 `$kcoderag-dashboard` 打开 [QA 看板](http://10.11.39.59:30107/)，或在 Skill 后附上具体构建页面链接。
-宿主没有浏览器打开工具时会返回可点击链接。看板入口随 `kcoderag-navigation` 安装。
+看板入口随 `kcoderag-navigation` 安装。Claude/kscc、Codex、Cursor 的输入 Hook 在启用后，
+会直接请求本机默认浏览器打开页面并结束这条输入，不调用模型；可使用 `/kcoderag-dashboard`
+或 `$kcoderag-dashboard`，后面可附一个 HTTP(S) 链接。打开失败时直接显示链接。
+更新后重开会话，按宿主要求信任 Hook。OpenCode、ZCode 暂保留手动 Skill；
+远程或无桌面的会话不会自动打开你本机的浏览器。
 
 ## 快速安装
 

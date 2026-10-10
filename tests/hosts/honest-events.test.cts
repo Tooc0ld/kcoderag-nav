@@ -83,7 +83,9 @@ test("Cursor projects Rule, Skill, MCP and afterMCPExecution without hook equiva
     )));
 
     const hooks = JSON.parse(fs.readFileSync(path.join(cursorRoot, "hooks.json"), "utf8")) as Record<string, any>;
-    assert.deepEqual(hooks.hooks.beforeSubmitPrompt, [{ command: "node keep.js" }]);
+    assert.deepEqual(hooks.hooks.beforeSubmitPrompt[0], { command: "node keep.js" });
+    assert.equal(hooks.hooks.beforeSubmitPrompt.length, 2);
+    assert.match(hooks.hooks.beforeSubmitPrompt[1].command, /dashboard-open\.cjs cursor/u);
     assert.equal(hooks.hooks.afterMCPExecution.length, 1);
     assert.match(JSON.stringify(hooks.hooks.afterMCPExecution), /mcp-call-marker\.cjs cursor/u);
     for (const unsupported of ["SessionStart", "SessionEnd", "PreToolUse", "PostToolUse", "preToolUse", "postToolUse"]) {

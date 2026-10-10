@@ -36,6 +36,10 @@ export class PackAuditError extends Error {
 }
 
 const REQUIRED_ASSETS = Object.freeze([
+  "dist/hooks/dashboard-open.cjs",
+  "kcoderag-qa/hooks/dashboard-open.cjs",
+  "kcoderag-qa/hooks/run_dashboard.cmd",
+  "kcoderag-qa/hooks/run_dashboard.sh",
   "dist/bin/kcoderag-nav.cjs",
   "dist/capabilities/registry.cjs",
   "dist/cli/commands.cjs",

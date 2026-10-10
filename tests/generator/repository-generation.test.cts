@@ -101,12 +101,15 @@ const expectedProductInventory: Readonly<Record<Product, readonly string[]>> = O
     "README.md",
     "agents/kcode-explorer.md",
     "hooks/code-style-nudge.cjs",
+    "hooks/dashboard-open.cjs",
     "hooks/feedback-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/hooks.json",
     "hooks/mcp-call-marker.cjs",
     "hooks/once-marker.cjs",
     "hooks/pre-tool-dispatcher.cjs",
+    "hooks/run_dashboard.cmd",
+    "hooks/run_dashboard.sh",
     "hooks/run_hook.cmd",
     "hooks/run_hook.sh",
     "hooks/run_marker.cmd",
@@ -246,7 +249,7 @@ function assertQaStructure(root: string, version: string): void {
     "qa:claude-mcp-path",
   );
 
-  for (const runtime of ["feedback-nudge.cjs", "grep-nudge.cjs", "mcp-call-marker.cjs", "once-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
+  for (const runtime of ["dashboard-open.cjs", "feedback-nudge.cjs", "grep-nudge.cjs", "mcp-call-marker.cjs", "once-marker.cjs", "update-check.cjs", "update-notice.cjs", "update-worker.cjs"] as const) {
     assert.equal(
       fs.readFileSync(productPath(root, "qa", `hooks/${runtime}`)).equals(
         fs.readFileSync(path.join(repositoryRoot, "dist", "hooks", runtime)),
@@ -255,7 +258,7 @@ function assertQaStructure(root: string, version: string): void {
       `qa:${runtime}`,
     );
   }
-  for (const launcher of ["run_hook.cmd", "run_hook.sh", "run_marker.cmd", "run_marker.sh"] as const) {
+  for (const launcher of ["run_dashboard.cmd", "run_dashboard.sh", "run_hook.cmd", "run_hook.sh", "run_marker.cmd", "run_marker.sh"] as const) {
     assert.equal(
       fs.readFileSync(productPath(root, "qa", `hooks/${launcher}`)).equals(
         normalizeText(fs.readFileSync(path.join(repositoryRoot, "plugin-src", "hooks", launcher))),
@@ -319,7 +322,7 @@ test("compiled repository gate proves all generated products canonical without r
       sourceRoot: repositoryRoot,
       outputRoot,
     });
-    assert.equal(generated.writtenPaths.length, 52);
+    assert.equal(generated.writtenPaths.length, 55);
     const checked = generator.checkGenerated({
       package: "all",
       group: "all",

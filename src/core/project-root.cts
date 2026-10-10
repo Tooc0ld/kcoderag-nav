@@ -20,7 +20,7 @@ export interface ProjectHookCommands {
   readonly commandWindows: string;
 }
 
-export type ProjectHookLauncher = "advisory" | "mcp-call-marker";
+export type ProjectHookLauncher = "advisory" | "mcp-call-marker" | "dashboard";
 export type ProjectHookGenericShell = "posix" | "windows";
 
 /**
@@ -376,7 +376,7 @@ function hostPaths(host: ProjectHookHost, launcher: ProjectHookLauncher): {
   readonly windowsLauncher: string;
 } {
   const root = host === "codex" ? ".codex" : ".claude";
-  const launcherName = launcher === "advisory" ? "run_hook" : "run_marker";
+  const launcherName = launcher === "advisory" ? "run_hook" : launcher === "dashboard" ? "run_dashboard" : "run_marker";
   return Object.freeze({
     state: `${root}/kcoderag-nav/install-state.json`,
     posixLauncher: `${root}/kcoderag-nav/qa/hooks/${launcherName}.sh`,

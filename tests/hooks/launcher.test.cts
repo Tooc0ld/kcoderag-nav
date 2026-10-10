@@ -26,7 +26,7 @@ const projectRoot = require("../../dist/core/project-root.cjs") as {
   }): { readonly projectRoot: string; readonly launcherPath: string } | undefined;
   renderProjectHookCommands(
     host: "codex" | "claude",
-    launcher?: "advisory" | "mcp-call-marker",
+    launcher?: "advisory" | "mcp-call-marker" | "dashboard",
     genericShell?: "posix" | "windows",
   ): { readonly command: string; readonly commandWindows: string };
 };
@@ -407,7 +407,7 @@ function decodeEmbeddedBootstrap(command: string): string {
 
 test("hook registration keeps bounded SessionStart, advisory PreToolUse, and exact KCodeRag PostToolUse", () => {
   const registration = readHookRegistration(sourceRegistration);
-  assert.deepEqual(Object.keys(registration.hooks), ["SessionStart", "PreToolUse", "PostToolUse"]);
+  assert.deepEqual(Object.keys(registration.hooks), ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit"]);
   assert.equal(registration.hooks.SessionStart?.length, 1);
   assert.equal(registration.hooks.SessionStart?.[0]?.matcher, "^(startup|resume|clear|compact)$");
   assert.equal(
@@ -438,7 +438,7 @@ test("hook registration keeps bounded SessionStart, advisory PreToolUse, and exa
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.command, "{{project_marker_command_posix}}");
   assert.equal(registration.hooks.PostToolUse?.[0]?.hooks[0]?.commandWindows, "{{project_marker_command_windows}}");
 
-  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);
@@ -466,7 +466,7 @@ test("hook registration keeps bounded SessionStart, advisory PreToolUse, and exa
 
 test("Windows project commands contain fail-open control flow inside one nested cmd boundary", () => {
   for (const host of ["codex", "claude"] as const) {
-    for (const launcher of ["advisory", "mcp-call-marker"] as const) {
+    for (const launcher of ["advisory", "mcp-call-marker", "dashboard"] as const) {
       const rendered = projectRoot.renderProjectHookCommands(host, launcher, "windows");
       const command = rendered.commandWindows;
       assert.match(rendered.command, /^node -e "eval\(Buffer\.from\(/u);
@@ -505,9 +505,9 @@ test("popup guard recognizes known interactive Windows hook launchers", () => {
 
 test("generated hook product rejects popup-capable or asynchronous Windows registrations", () => {
   const registration = readHookRegistration(generatedRegistration);
-  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart"]);
+  assert.deepEqual(Object.keys(registration.hooks).sort(), ["PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
 
-  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
+  for (const eventName of ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit"] as const) {
     const hook = registration.hooks[eventName]?.[0]?.hooks[0];
     assert.equal(hook?.type, "command");
     assert.equal(hook?.timeout, 5);

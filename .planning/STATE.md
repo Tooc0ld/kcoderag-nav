@@ -4,9 +4,9 @@ current_phase: 5
 current_phase_name: 统一 Hook 策略与真实宿主验证
 status: "Ready to execute Phase 05 plan 05-06"
 stopped_at: Phase 06 complete, ready to execute Phase 05 plan 05-06
-last_updated: "2026-09-15T03:38:00Z"
-last_activity: 2026-09-15
-last_activity_desc: "Profiled Windows npm overhead and optimized direct npm startup; hosted CI 5m33s and acceptance 6m13s PASS; Phase 05 remains 5/6"
+last_updated: "2026-10-10T02:18:37Z"
+last_activity: 2026-10-10
+last_activity_desc: "Completed quick task 261010-dv0: direct dashboard input hooks and verified kscc project update"
 state_head: a31f40f411973a67d38beda45a7dab8dabb3ecb8
 progress:
   total_phases: 9
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-09-03)
 Phase: 5 — 统一 Hook 策略与真实宿主验证
 Plan: 05-06 (5/6 plans complete)
 Status: Ready to execute Phase 05 plan 05-06
-Last activity: 2026-09-15 - Completed quick task 260915-fmv: profile and optimize Windows npm bootstrap overhead
+Last activity: 2026-10-10 - Completed quick task 261010-dv0: direct dashboard input hooks and verified kscc project update
 
 Progress: [████████████████████] 117/118 plans (99%)
 
@@ -415,6 +415,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260904-l6r | Update current usage docs and make $kcoderag self-explanatory | 2026-09-04 | 1b647f3 | [260904-l6r-update-user-documentation-from-recent-re](./quick/260904-l6r-update-user-documentation-from-recent-re/) | Verified |
 | 260907-ey3 | Parallelize Windows CI shards and packaged host groups | 2026-09-07 | 1b7c394 | [260907-ey3-parallelize-windows-ci-test-shards-and-i](./quick/260907-ey3-parallelize-windows-ci-test-shards-and-i/) | Verified |
 | 260915-fmv | Profile and optimize Windows npm bootstrap overhead | 2026-09-15 | a31f40f | [260915-fmv-profile-windows-ci-subprocess-and-filesy](./quick/260915-fmv-profile-windows-ci-subprocess-and-filesy/) | Verified |
+| 261010-dv0 | Open dashboard before model invocation and update kscc project installation | 2026-10-10 | 6c235f8 | [261010-dv0-open-dashboard-before-model-invocation-w](./quick/261010-dv0-open-dashboard-before-model-invocation-w/) | Verified; Windows file-symlink test excluded |
 
 ### Roadmap Evolution
 

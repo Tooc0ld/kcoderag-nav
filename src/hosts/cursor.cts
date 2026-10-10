@@ -93,6 +93,7 @@ function managedHook(command: string): JsonMap { return { command, timeout: 5 };
 function mergeHooks(current: Buffer | undefined, selected: readonly CapabilityId[], owned: boolean) {
   const document = current === undefined ? { version: 1 } as JsonMap : parseJson(current, "invalid_json", HOOKS_PATH); if (document.version === undefined) document.version = 1; if (document.version !== 1) throw new InstallError("invalid_json", HOOKS_PATH); const hooks = document.hooks === undefined ? {} : document.hooks; if (!isRecord(hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const desired = new Map<string, JsonMap | undefined>([
+    ["beforeSubmitPrompt", selected.includes(NAVIGATION) ? managedHook(`node ${HOOK_ROOT}/dashboard-open.cjs cursor`) : undefined],
     ["afterMCPExecution", selected.includes(NAVIGATION) ? managedHook(`node ${HOOK_ROOT}/mcp-call-marker.cjs cursor`) : undefined],
     // These legacy names remain in the reconciliation set only so an owned update removes them.
     // Cursor navigation does not claim SessionStart, PreToolUse, or PostToolUse equivalence.
@@ -101,7 +102,7 @@ function mergeHooks(current: Buffer | undefined, selected: readonly CapabilityId
   ]);
   for (const [event, entry] of desired) { const existing = hooks[event] === undefined ? [] : hooks[event]; if (!Array.isArray(existing)) throw new InstallError("invalid_json", HOOKS_PATH); const unrelated = existing.filter((value) => !JSON.stringify(value).includes("kcoderag-nav")); if (!owned && unrelated.length !== existing.length) throw new InstallError("unmanaged_name_conflict", HOOKS_PATH); if (entry === undefined) { if (unrelated.length === 0) delete hooks[event]; else hooks[event] = unrelated; } else hooks[event] = [...unrelated, entry]; }
   document.hooks = hooks;
-  return Object.freeze({ bytes: canonicalJson(document), marker: desired.get("afterMCPExecution") });
+  return Object.freeze({ bytes: canonicalJson(document), marker: desired.get("afterMCPExecution"), prompt: desired.get("beforeSubmitPrompt") });
 }
 function previousFile(state: InstallState | undefined, relativePath: string) { return state?.files.find((record) => record.path === relativePath); }
 function projectedFile(target: ProjectTarget, state: InstallState | undefined, relativePath: string, content: Buffer, shared: boolean, allowExisting = false): ProjectedCapabilityFile { const previous = previousFile(state, relativePath); if (previous !== undefined) return Object.freeze({ relativePath, expectedDigest: previous.digest, content, shared }); const current = readRegular(target, relativePath); if (current !== undefined && !allowExisting) throw new InstallError("unmanaged_name_conflict", relativePath); return Object.freeze({ relativePath, expectedDigest: current === undefined ? null : sha256(current), content, original: encodeOriginal(current), shared }); }
@@ -116,8 +117,9 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
     projectedFile(target, state, `${UPDATE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-update/SKILL.md"), false),
     projectedFile(target, state, `${FEEDBACK_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-feedback/SKILL.md"), false),
     projectedFile(target, state, `${DASHBOARD_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "kcoderag-cursor/skills/kcoderag-dashboard/SKILL.md"), false),
+    projectedFile(target, state, `${HOOK_ROOT}/dashboard-open.cjs`, sourceAsset(packageRoot, "dist/hooks/dashboard-open.cjs"), false),
     projectedFile(target, state, `${HOOK_ROOT}/feedback-nudge.cjs`, sourceAsset(packageRoot, "dist/hooks/feedback-nudge.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/mcp-call-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/mcp-call-marker.cjs"), false), projectedFile(target, state, `${HOOK_ROOT}/once-marker.cjs`, sourceAsset(packageRoot, "dist/hooks/once-marker.cjs"), false),
-  ]), sections: Object.freeze([section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.marker, hooksCurrent !== undefined)]) })); }
+  ]), sections: Object.freeze([section(MCP_PATH, "navigation:mcp", mcp.entry, mcpCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.marker, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:user-prompt", hooks.prompt, hooksCurrent !== undefined)]) })); }
   if (projected.includes(CODE_STYLE)) result.push(Object.freeze({ capabilityId: CODE_STYLE, files: Object.freeze([
     projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/SKILL.md`, sourceAsset(packageRoot, "plugin-src/capabilities/code-style-nudge/skill/SKILL.md"), false), ...REFERENCES.map((name) => projectedFile(target, state, `${CODE_STYLE_SKILL_ROOT}/references/${name}`, sourceAsset(packageRoot, `plugin-src/capabilities/code-style-nudge/skill/references/${name}`), false)),
   ]), sections: Object.freeze([]) }));

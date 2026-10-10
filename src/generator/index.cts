@@ -131,6 +131,8 @@ function sortedUnion(...groups: readonly (readonly string[])[]): readonly string
 }
 
 const QA_RUNTIME_LAUNCHER = Object.freeze([
+  "hooks/run_dashboard.cmd",
+  "hooks/run_dashboard.sh",
   "hooks/run_hook.cmd",
   "hooks/run_hook.sh",
   "hooks/run_marker.cmd",
@@ -212,6 +214,7 @@ function canonicalGroups(input: CanonicalGroupsInput): Readonly<Record<Canonical
 
 const NAVIGATION_QA_GROUPS = canonicalGroups({
   runtime: [
+    "hooks/dashboard-open.cjs",
     "hooks/feedback-nudge.cjs",
     "hooks/grep-nudge.cjs",
     "hooks/mcp-call-marker.cjs",
@@ -710,6 +713,9 @@ function renderQaAsset(
   if (phase05Route?.kind === "normalized-copy") {
     return normalizedText(inputs.sourceRoot, phase05Route.renderSource);
   }
+  if (relativePath === "hooks/dashboard-open.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/dashboard-open.cjs");
+  if (relativePath === "hooks/run_dashboard.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_dashboard.cmd");
+  if (relativePath === "hooks/run_dashboard.sh") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_dashboard.sh");
   if (relativePath === "hooks/update-notice.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-notice.cjs");
   if (relativePath === "hooks/update-worker.cjs") return readBytes(inputs.sourceRoot, "dist/hooks/update-worker.cjs");
   if (relativePath === "hooks/run_hook.cmd") return normalizedText(inputs.sourceRoot, "plugin-src/hooks/run_hook.cmd");
@@ -719,8 +725,11 @@ function renderQaAsset(
   if (phase05Route?.kind === "hook-registration") {
     const commands = renderProjectHookCommands("claude");
     const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
+    const dashboardCommands = renderProjectHookCommands("claude", "dashboard");
     const registration = readJson(inputs.sourceRoot, "plugin-src/hooks/hooks.json");
     const renderCommand = (value: unknown): unknown => {
+      if (value === "{{project_dashboard_command_posix}}") return dashboardCommands.command;
+      if (value === "{{project_dashboard_command_windows}}") return dashboardCommands.commandWindows;
       if (value === "{{project_hook_command_posix}}") return commands.command;
       if (value === "{{project_hook_command_windows}}") return commands.commandWindows;
       if (value === "{{project_marker_command_posix}}") return markerCommands.command;
@@ -736,7 +745,7 @@ function renderQaAsset(
       throw new GenerationError("invalid_metadata", "plugin-src/hooks/hooks.json");
     }
     const hooks = { ...rendered.hooks };
-    if (!capabilities.includes("kcoderag-navigation")) delete hooks.PostToolUse;
+    if (!capabilities.includes("kcoderag-navigation")) { delete hooks.PostToolUse; delete hooks.UserPromptSubmit; }
     return canonicalJson({ ...rendered, hooks });
   }
   if (relativePath === ".mcp.json") return readBytes(inputs.sourceRoot, environment.mcp_source);

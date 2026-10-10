@@ -579,8 +579,12 @@ test("pack audit delegates all gzip and tar parsing to the shared non-extracting
 });
 
 
-test("requires dashboard skill sources and both generated projections in the npm archive", () => {
+test("requires dashboard skill sources, direct-opening runtime and generated projections in the npm archive", () => {
   for (const required of [
+    "dist/hooks/dashboard-open.cjs",
+    "kcoderag-qa/hooks/dashboard-open.cjs",
+    "kcoderag-qa/hooks/run_dashboard.cmd",
+    "kcoderag-qa/hooks/run_dashboard.sh",
     "plugin-src/skills/kcoderag-dashboard/SKILL.md",
     "plugin-src/skills/kcoderag-dashboard/agents/openai.yaml",
     "kcoderag-qa/skills/kcoderag-dashboard/SKILL.md",

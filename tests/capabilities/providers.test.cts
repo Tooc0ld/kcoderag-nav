@@ -73,7 +73,7 @@ test("synthetic providers declare canonical host-neutral requirements", () => {
   );
   assert.deepEqual(
     new Set(navigation.sections.map((section) => section.kind)),
-    new Set(["mcp", "session-start", "pre-tool", "post-tool", "status-line"]),
+    new Set(["mcp", "session-start", "pre-tool", "post-tool", "status-line", "user-prompt"]),
   );
 
   assert.deepEqual(

@@ -3,6 +3,7 @@ const assert: typeof import("node:assert/strict") = require("node:assert/strict"
 const fs = require("node:fs") as typeof import("node:fs");
 const os = require("node:os") as typeof import("node:os");
 const path = require("node:path") as typeof import("node:path");
+const childProcess = require("node:child_process") as typeof import("node:child_process");
 
 const commands = require("../../dist/cli/commands.cjs") as Record<string, any>;
 const stateModule = require("../../dist/core/state.cjs") as Record<string, any>;
@@ -26,13 +27,13 @@ test("dashboard is owned, upgradeable, drift-protected, and removable on every h
       fs.mkdirSync(homeDirectory);
       const adapterModule = require(`../../dist/hosts/${host.id}.cjs`) as Record<string, any>;
       const adapter = adapterModule[host.factory]({ homeDirectory, hostVersion: host.version, evidenceRoot: PACKAGE_ROOT });
-      const run = async (command: string): Promise<{ code: number; payload: any }> => {
+      const run = async (command: string, capability = NAVIGATION): Promise<{ code: number; payload: any }> => {
         const stdout: string[] = [];
         const stderr: string[] = [];
         const mutation = ["install", "update", "uninstall"].includes(command);
         const code = await commands.executeCommand([
           command, "--host", host.id,
-          ...(mutation ? ["--capability", NAVIGATION, "--yes"] : []), "--json",
+          ...(mutation ? ["--capability", capability, "--yes"] : []), "--json",
         ], {
           cwd: project, packageRoot: PACKAGE_ROOT, nodeVersion: "22.0.0",
           mutationLockRoot: path.join(root, "locks"), confirmTarget: () => true,
@@ -53,6 +54,45 @@ test("dashboard is owned, upgradeable, drift-protected, and removable on every h
         assert.equal((await run("install")).code, 0);
         assert.equal((await run("status")).payload.status, "healthy");
         const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+        const direct = ["claude", "codex", "cursor"].includes(host.id);
+        const handlerPath = `.${host.id}/kcoderag-nav/${host.id === "cursor" ? "" : "qa/"}hooks/dashboard-open.cjs`;
+        if (direct) {
+          const hooksPath = path.join(project, host.id === "claude" ? ".claude/settings.json" : `.${host.id}/hooks.json`);
+          const hooks = JSON.parse(fs.readFileSync(hooksPath, "utf8")).hooks;
+          const event = host.id === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit";
+          assert.equal(hooks[event].length, 1);
+          assert.equal(state.sections.some((entry: any) => entry.id === "navigation:user-prompt"), true);
+          assert.equal(state.files.some((entry: any) => entry.path === handlerPath), true);
+          const hook = host.id === "cursor" ? hooks[event][0] : hooks[event][0].hooks[0];
+          const command = process.platform === "win32" && host.id !== "cursor" ? hook.commandWindows : hook.command;
+          const deep = path.join(project, "nested with spaces", "子目录");
+          fs.mkdirSync(deep, { recursive: true });
+          const invoke = (cwd: string, prompt: string) => childProcess.spawnSync(command, [], {
+            cwd, shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh",
+            input: JSON.stringify({ hook_event_name: event, prompt }), encoding: "utf8",
+            env: { ...process.env, SSH_CONNECTION: "test-headless" }, timeout: 7000, windowsHide: true,
+          });
+          // Cursor resolves project hook paths itself; Codex/Claude discover the nearest state from cwd.
+          for (const cwd of host.id === "cursor" ? [project] : [project, deep]) {
+            const result = invoke(cwd, "/kcoderag-dashboard");
+            assert.equal(result.status, 0);
+            assert.equal(result.stderr, "");
+            const output = JSON.parse(result.stdout);
+            assert.equal(host.id === "cursor" ? output.continue : output.decision, host.id === "cursor" ? false : "block");
+            assert.match(JSON.stringify(output), /未能启动/u);
+            assert.equal(invoke(cwd, "ordinary request").stdout, "");
+          }
+          if (host.id !== "cursor") {
+            const handler = path.join(project, handlerPath);
+            const bytes = fs.readFileSync(handler);
+            fs.appendFileSync(handler, "\n// drift\n");
+            assert.equal(invoke(deep, "/kcoderag-dashboard").stdout, "");
+            fs.writeFileSync(handler, bytes);
+          }
+        } else {
+          assert.equal(state.sections.some((entry: any) => entry.id === "navigation:user-prompt"), false);
+          assert.equal(fs.existsSync(path.join(project, handlerPath)), false);
+        }
         for (const relativePath of ownedPaths) {
           assert.equal(fs.existsSync(path.join(project, relativePath)), true);
           assert.deepEqual(state.files.find((file: any) => file.path === relativePath)?.contributors, [NAVIGATION]);
@@ -83,8 +123,21 @@ test("dashboard is owned, upgradeable, drift-protected, and removable on every h
         assert.equal((await run("uninstall")).code, 1);
         assert.equal(fs.existsSync(path.join(project, skillPath)), true);
         fs.writeFileSync(path.join(project, skillPath), expected);
+        assert.equal((await run("install", "code-style-nudge")).code, 0);
         assert.equal((await run("uninstall")).code, 0);
         for (const relativePath of ownedPaths) assert.equal(fs.existsSync(path.join(project, relativePath)), false);
+        assert.equal(fs.existsSync(path.join(project, handlerPath)), false);
+        const retained = JSON.parse(fs.readFileSync(statePath, "utf8"));
+        assert.deepEqual(retained.capabilities.map((entry: any) => entry.id), ["code-style-nudge"]);
+        assert.equal(retained.sections.some((entry: any) => entry.id === "navigation:user-prompt"), false);
+        if (direct) {
+          const hooksPath = path.join(project, host.id === "claude" ? ".claude/settings.json" : `.${host.id}/hooks.json`);
+          if (fs.existsSync(hooksPath)) {
+            const hooks = JSON.parse(fs.readFileSync(hooksPath, "utf8")).hooks ?? {};
+            assert.equal(hooks[host.id === "cursor" ? "beforeSubmitPrompt" : "UserPromptSubmit"], undefined);
+          }
+        }
+        assert.equal((await run("uninstall", "code-style-nudge")).code, 0);
         assert.equal((await run("status")).payload.status, "not_installed");
         assert.equal(fs.readFileSync(sentinel, "utf8"), "preserve user content\n");
       } finally {

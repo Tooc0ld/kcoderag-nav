@@ -11,6 +11,9 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
   copyCapabilityContribution({
     capabilityId: "kcoderag-navigation",
     files: [
+      { id: "navigation:dashboard-handler", sourcePath: "dist/hooks/dashboard-open.cjs", kind: "handler", shared: false },
+      { id: "navigation:dashboard-launcher-windows", sourcePath: "plugin-src/hooks/run_dashboard.cmd", kind: "launcher", shared: false },
+      { id: "navigation:dashboard-launcher-posix", sourcePath: "plugin-src/hooks/run_dashboard.sh", kind: "launcher", shared: false },
       {
         id: "navigation:mcp-config",
         sourcePath: "plugin-src/environments/qa.mcp.json",
@@ -163,6 +166,7 @@ const NAVIGATION_REQUIREMENTS: CapabilityContribution =
       },
     ],
     sections: [
+      { id: "navigation:user-prompt", kind: "user-prompt", shared: false },
       { id: "navigation:mcp", kind: "mcp", shared: true },
       { id: "navigation:session-start", kind: "session-start", shared: true },
       { id: "navigation:status-line", kind: "status-line", shared: false },

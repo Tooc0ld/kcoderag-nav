@@ -714,7 +714,7 @@ test(`downloaded ${packageVersion} lease derives and validates package identity 
       "downloaded_artifact_package_invalid",
     );
     expectCode(
-      () => open(rewritePackageManifest(candidateBytes, packageVersion, "0.3.x")),
+      () => open(rewritePackageManifest(candidateBytes, packageVersion, packageVersion.replace(/\d$/u, "x"))),
       "downloaded_artifact_package_invalid",
     );
     let mismatchedNameLease: ReturnType<typeof open> | undefined;

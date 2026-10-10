@@ -157,6 +157,7 @@ function selectedUninstall(context: HostUninstallContext): readonly CapabilityId
 function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): {
   readonly start?: unknown;
   readonly pre?: unknown;
+  readonly prompt?: unknown;
   readonly post?: unknown;
 } {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
@@ -179,6 +180,7 @@ function hookEntries(packageRoot: string, selected: readonly CapabilityId[]): {
   if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
     ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
+    ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.UserPromptSubmit) ? {} : { prompt: render(hooks.UserPromptSubmit[0], renderProjectHookCommands("codex", "dashboard", genericShell)) }),
     ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PreToolUse) ? {} : { pre: render(hooks.PreToolUse[0], advisoryCommands) }),
     ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.PostToolUse) ? {} : { post: render(hooks.PostToolUse[0], renderProjectHookCommands("codex", "mcp-call-marker", genericShell)) }),
   });
@@ -188,7 +190,7 @@ function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: 
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", HOOKS_PATH);
   const managed = hookEntries(packageRoot, selected);
-  for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", HOOKS_PATH);
     const unrelated = currentEntries.filter((entry) => !JSON.stringify(entry).includes("kcoderag-nav"));
@@ -197,7 +199,7 @@ function mergeHooks(current: Buffer | undefined, packageRoot: string, selected: 
       ? managed.start
       : event === "PreToolUse"
         ? managed.pre
-        : managed.post;
+        : event === "UserPromptSubmit" ? managed.prompt : managed.post;
     if (entry === undefined) { if (unrelated.length === 0) delete hooks[event]; else hooks[event] = unrelated; }
     else hooks[event] = [...unrelated, entry];
   }
@@ -235,6 +237,9 @@ function projectedFile(target: ProjectTarget, state: InstallState | undefined, r
 }
 function section(relativePath: string, id: string, value: unknown, fileExisted: boolean): ProjectedCapabilitySection { return Object.freeze({ relativePath, id, digest: sha256(JSON.stringify(value)), fileExisted, shared: true }); }
 const NAV_RUNTIME = Object.freeze([
+  ["dist/hooks/dashboard-open.cjs", "dashboard-open.cjs"],
+  ["kcoderag-qa/hooks/run_dashboard.cmd", "run_dashboard.cmd"],
+  ["kcoderag-qa/hooks/run_dashboard.sh", "run_dashboard.sh"],
   ["dist/hooks/feedback-nudge.cjs", "feedback-nudge.cjs"], ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"], ["dist/hooks/update-check.cjs", "update-check.cjs"], ["dist/hooks/update-notice.cjs", "update-notice.cjs"], ["dist/hooks/update-worker.cjs", "update-worker.cjs"], ["dist/hooks/mcp-call-marker.cjs", "mcp-call-marker.cjs"],
   ["kcoderag-qa/hooks/run_marker.cmd", "run_marker.cmd"], ["kcoderag-qa/hooks/run_marker.sh", "run_marker.sh"],
   ["dist/hooks/pre-tool-dispatcher.cjs", "pre-tool-dispatcher.cjs"], ["dist/hooks/code-style-nudge.cjs", "code-style-nudge.cjs"], ["dist/hooks/once-marker.cjs", "once-marker.cjs"], ["kcoderag-qa/hooks/run_hook.cmd", "run_hook.cmd"], ["kcoderag-qa/hooks/run_hook.sh", "run_hook.sh"],
@@ -262,6 +267,7 @@ function contributions(target: ProjectTarget, packageRoot: string, selected: rea
       ...NAV_RUNTIME.map(([source, name]) => projectedFile(target, state, `${HOOK_ROOT}/${name}`, sourceAsset(packageRoot, source), true)),
     ]), sections: Object.freeze([
       section(CONFIG_PATH, "navigation:mcp", config.entry, configCurrent !== undefined), section(HOOKS_PATH, "navigation:session-start", hooks.start, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:pre-tool", hooks.pre, hooksCurrent !== undefined), section(HOOKS_PATH, "navigation:post-tool", hooks.post, hooksCurrent !== undefined),
+      ...(hooks.prompt === undefined ? [] : [section(HOOKS_PATH, "navigation:user-prompt", hooks.prompt, hooksCurrent !== undefined)]),
     ]) }));
   }
   if (projected.includes(CODE_STYLE)) {
