@@ -34,7 +34,9 @@ test("Cursor installs manual code-style and keeps honest native navigation proje
     assert.equal(mcp.mcpServers.kcoderag.url.endsWith("/"), false);
     assert.equal(mcp.mcpServers["kcoderag-qa"], undefined);
     const hooks = JSON.parse(fs.readFileSync(path.join(root, ".cursor/hooks.json"), "utf8"));
-    assert.deepEqual(hooks.hooks.beforeSubmitPrompt, [{ command: "keep" }]);
+    assert.deepEqual(hooks.hooks.beforeSubmitPrompt[0], { command: "keep" });
+    assert.equal(hooks.hooks.beforeSubmitPrompt.length, 2);
+    assert.match(hooks.hooks.beforeSubmitPrompt[1].command, /dashboard-open\.cjs cursor/u);
     assert.match(JSON.stringify(hooks.hooks.afterMCPExecution), /mcp-call-marker\.cjs cursor/u);
     assert.equal(hooks.hooks.postToolUse, undefined);
     assert.equal(hooks.hooks.preToolUse, undefined);

@@ -5,6 +5,13 @@ description: Open the KCodeRag QA dashboard or a specific dashboard/build URL su
 
 # KCodeRag Dashboard
 
+For an exact `/kcoderag-dashboard` or `$kcoderag-dashboard` command (optionally followed
+by one HTTP(S) URL), installed Claude/kscc, Codex, and Cursor input hooks can request
+the local default browser directly and consume the input before a model call.
+The hook must be enabled/trusted by the host. If this Skill reaches the model, follow
+the fallback below; do not claim the direct hook ran. OpenCode and ZCode currently
+keep this manual fallback. Remote/headless hooks cannot open the user's local browser.
+
 The default QA dashboard is [KCodeRag QA dashboard](http://10.11.39.59:30107/).
 Use that address when the user asks to open the QA dashboard. When the user explicitly supplies
 a dashboard or build HTTP(S) URL, preserve and open that exact URL instead. Do not guess build IDs

@@ -62,6 +62,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
   qa: {
     "runtime-cjs": [
       "hooks/code-style-nudge.cjs",
+      "hooks/dashboard-open.cjs",
       "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
@@ -72,15 +73,18 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "hooks/update-notice.cjs",
       "hooks/update-worker.cjs",
     ],
-    "runtime-launcher": ["hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
+    "runtime-launcher": ["hooks/run_dashboard.cmd", "hooks/run_dashboard.sh", "hooks/run_hook.cmd", "hooks/run_hook.sh", "hooks/run_marker.cmd", "hooks/run_marker.sh"],
     "runtime-registration": ["hooks/hooks.json", "opencode/kcoderag-nav.js"],
     "runtime-code": [
       "hooks/code-style-nudge.cjs",
+      "hooks/dashboard-open.cjs",
       "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
+      "hooks/run_dashboard.cmd",
+      "hooks/run_dashboard.sh",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
@@ -92,6 +96,7 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
     runtime: [
       "hooks/code-style-nudge.cjs",
+      "hooks/dashboard-open.cjs",
       "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/mcp-call-marker.cjs",
@@ -104,6 +109,8 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
     ],
     registration: [
       "hooks/hooks.json",
+      "hooks/run_dashboard.cmd",
+      "hooks/run_dashboard.sh",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
@@ -165,12 +172,15 @@ const expectedGroups: GeneratorModule["ASSET_GROUP_PATHS"] = {
       "README.md",
       "agents/kcode-explorer.md",
       "hooks/code-style-nudge.cjs",
+      "hooks/dashboard-open.cjs",
       "hooks/feedback-nudge.cjs",
       "hooks/grep-nudge.cjs",
       "hooks/hooks.json",
       "hooks/mcp-call-marker.cjs",
       "hooks/once-marker.cjs",
       "hooks/pre-tool-dispatcher.cjs",
+      "hooks/run_dashboard.cmd",
+      "hooks/run_dashboard.sh",
       "hooks/run_hook.cmd",
       "hooks/run_hook.sh",
       "hooks/run_marker.cmd",
@@ -328,6 +338,9 @@ function createFixture(): Fixture {
   write(sourceRoot, "plugin-src/hooks/run_hook.sh", "#!/bin/sh\r\nnode grep-nudge.cjs\r\n");
   write(sourceRoot, "plugin-src/hooks/run_marker.cmd", "@node mcp-call-marker.cjs claude\r\n");
   write(sourceRoot, "plugin-src/hooks/run_marker.sh", "#!/bin/sh\r\nnode mcp-call-marker.cjs claude\r\n");
+  write(sourceRoot, "dist/hooks/dashboard-open.cjs", "module.exports={name:'dashboard'};\n");
+  write(sourceRoot, "plugin-src/hooks/run_dashboard.cmd", "@node dashboard-open.cjs\r\n");
+  write(sourceRoot, "plugin-src/hooks/run_dashboard.sh", "#!/bin/sh\r\nnode dashboard-open.cjs\r\n");
   write(sourceRoot, "dist/hooks/grep-nudge.cjs", "module.exports={name:'grep'};\n");
   write(sourceRoot, "dist/hooks/pre-tool-dispatcher.cjs", "module.exports={name:'dispatcher'};\n");
   write(sourceRoot, "dist/hooks/code-style-nudge.cjs", "module.exports={name:'style'};\n");
@@ -567,7 +580,7 @@ test("renders QA and Cursor deterministically from package.json without logging 
       outputRoot: fixture.outputRoot,
     });
     assert.equal(first.ok, true);
-    assert.equal(first.writtenPaths.length, 52);
+    assert.equal(first.writtenPaths.length, 55);
     assert.equal(JSON.stringify(first).includes(fixture.secret), false);
     const firstTree = snapshot(fixture.outputRoot);
     const second = generator.generatePackage({

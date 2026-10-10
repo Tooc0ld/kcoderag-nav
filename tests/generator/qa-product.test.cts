@@ -30,12 +30,15 @@ const EXPECTED_NON_DOCUMENT = Object.freeze([
   ".mcp.json",
   "agents/kcode-explorer.md",
   "hooks/code-style-nudge.cjs",
+  "hooks/dashboard-open.cjs",
   "hooks/feedback-nudge.cjs",
   "hooks/grep-nudge.cjs",
   "hooks/hooks.json",
   "hooks/mcp-call-marker.cjs",
   "hooks/once-marker.cjs",
   "hooks/pre-tool-dispatcher.cjs",
+  "hooks/run_dashboard.cmd",
+  "hooks/run_dashboard.sh",
   "hooks/run_hook.cmd",
   "hooks/run_hook.sh",
   "hooks/run_marker.cmd",
@@ -90,11 +93,11 @@ test("YAML source and generated metadata keep deterministic LF checkout bytes", 
   assert.match(attributes, /^\*\.yml text eol=lf$/mu);
 });
 
-test("QA non-document product is a closed deterministic thirty-seven-file inventory", () => {
+test("QA non-document product is a closed deterministic forty-file inventory", () => {
   const qaRoot = path.join(repositoryRoot, "kcoderag-qa");
   const actualNonDocument = filesBelow(qaRoot).filter((member) => member !== "README.md");
   assert.deepEqual(actualNonDocument, EXPECTED_NON_DOCUMENT);
-  assert.equal(actualNonDocument.length, 37);
+  assert.equal(actualNonDocument.length, 40);
   assert.equal(fs.existsSync(path.join(repositoryRoot, "kcoderag-dev")), false);
 
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "kcoderag-qa-product-"));
@@ -171,7 +174,7 @@ test("QA Hook manifest retains bounded lifecycle, advisory, and success-marker l
     };
   };
   assert.deepEqual(Object.keys(registration), ["hooks"]);
-  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse", "SessionStart"]);
+  assert.deepEqual(Object.keys(registration.hooks ?? {}).sort(compare), ["PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
   assert.equal(registration.hooks?.SessionStart?.length, 1);
   assert.equal(registration.hooks?.PreToolUse?.length, 1);
   assert.equal(registration.hooks?.PostToolUse?.length, 1);

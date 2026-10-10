@@ -20,7 +20,8 @@ export type CapabilitySectionKind =
   | "session-start"
   | "session-end"
   | "pre-tool"
-  | "post-tool";
+  | "post-tool"
+  | "user-prompt";
 
 /** One package-relative canonical asset requirement. Host adapters choose its target path. */
 export interface CapabilityFileRequirement {

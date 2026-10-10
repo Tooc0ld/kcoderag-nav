@@ -266,7 +266,7 @@ function managedHookEntry(
   packageRoot: string,
   selected: readonly CapabilityId[],
   automaticStyle: boolean,
-): { readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
+): { readonly start?: unknown; readonly pre?: unknown; readonly prompt?: unknown; readonly post?: unknown } {
   const template = parseJson(sourceAsset(packageRoot, "kcoderag-qa/hooks/hooks.json"), "invalid_package", "kcoderag-qa/hooks/hooks.json");
   const commands = renderProjectHookCommands("claude");
   const markerCommands = renderProjectHookCommands("claude", "mcp-call-marker");
@@ -289,6 +289,7 @@ function managedHookEntry(
   if (isRecord(start)) start.matcher = "^(startup|resume|clear|compact)$";
   return Object.freeze({
     ...(!selected.includes(NAVIGATION) || start === undefined ? {} : { start }),
+    ...(!selected.includes(NAVIGATION) || !Array.isArray(hooks.UserPromptSubmit) ? {} : { prompt: renderEntry(hooks.UserPromptSubmit[0], renderProjectHookCommands("claude", "dashboard")) }),
     ...(!selected.includes(NAVIGATION) && !automaticStyle || !Array.isArray(hooks.PreToolUse)
       ? {}
       : { pre: renderEntry(hooks.PreToolUse[0], commands) }),
@@ -304,12 +305,12 @@ function mergeHookSettings(
   selected: readonly CapabilityId[],
   automaticStyle: boolean,
   owned: boolean,
-): { readonly bytes: Buffer; readonly start?: unknown; readonly pre?: unknown; readonly post?: unknown } {
+): { readonly bytes: Buffer; readonly start?: unknown; readonly pre?: unknown; readonly prompt?: unknown; readonly post?: unknown } {
   const document = current === undefined ? {} : parseJson(current, "invalid_json", SETTINGS_PATH);
   const hooks = document.hooks === undefined ? {} : document.hooks;
   if (!isRecord(hooks)) throw new InstallError("invalid_json", SETTINGS_PATH);
   const entries = managedHookEntry(packageRoot, selected, automaticStyle);
-  for (const event of ["SessionStart", "PreToolUse", "PostToolUse"] as const) {
+  for (const event of ["SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit"] as const) {
     const currentEntries = hooks[event] === undefined ? [] : hooks[event];
     if (!Array.isArray(currentEntries)) throw new InstallError("invalid_json", SETTINGS_PATH);
     const unrelated = currentEntries.filter((entry) => !JSON.stringify(entry).includes("kcoderag-nav"));
@@ -319,7 +320,7 @@ function mergeHookSettings(
       ? entries.start
       : event === "PreToolUse"
         ? entries.pre
-        : entries.post;
+        : event === "UserPromptSubmit" ? entries.prompt : entries.post;
     if (managed === undefined) {
       if (unrelated.length === 0) delete hooks[event];
       else hooks[event] = unrelated;
@@ -334,6 +335,7 @@ function mergeHookSettings(
     ...(entries.start === undefined ? {} : { start: entries.start }),
     ...(entries.pre === undefined ? {} : { pre: entries.pre }),
     ...(entries.post === undefined ? {} : { post: entries.post }),
+    ...(entries.prompt === undefined ? {} : { prompt: entries.prompt }),
   });
 }
 
@@ -402,6 +404,9 @@ function section(relativePath: string, id: string, value: unknown, fileExisted: 
 }
 
 const NAV_RUNTIME = Object.freeze([
+  ["dist/hooks/dashboard-open.cjs", "dashboard-open.cjs"],
+  ["kcoderag-qa/hooks/run_dashboard.cmd", "run_dashboard.cmd"],
+  ["kcoderag-qa/hooks/run_dashboard.sh", "run_dashboard.sh"],
   ["dist/hooks/claude-statusline.cjs", "claude-statusline.cjs"],
   ["dist/hooks/feedback-nudge.cjs", "feedback-nudge.cjs"],
   ["dist/hooks/grep-nudge.cjs", "grep-nudge.cjs"],
@@ -465,6 +470,7 @@ function projectContributions(
         section(SETTINGS_PATH, "navigation:session-start", settings.start, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:pre-tool", settings.pre, settingsCurrent !== undefined, true),
         section(SETTINGS_PATH, "navigation:post-tool", settings.post, settingsCurrent !== undefined, true),
+        ...(settings.prompt === undefined ? [] : [section(SETTINGS_PATH, "navigation:user-prompt", settings.prompt, settingsCurrent !== undefined, false)]),
       ]),
     }));
   }

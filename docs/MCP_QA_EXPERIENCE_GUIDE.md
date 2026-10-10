@@ -135,8 +135,15 @@ $kcoderag impact <symbol-or-change>
 $kcoderag-dashboard
 ```
 
-它会通过宿主可用的浏览器打开工具进入 [QA 看板](http://10.11.39.59:30107/)。也可以直接点击链接；
-没有浏览器打开工具的宿主会返回链接，不会声称已经打开。
+Claude/kscc、Codex、Cursor 安装并启用输入 Hook 后，这条精确命令会直接请求本机默认浏览器打开
+[QA 看板](http://10.11.39.59:30107/)，并结束当前输入，不调用模型。也支持 `/kcoderag-dashboard`。
+Hook 是本地 Node 脚本，不需要宿主提供浏览器工具；Windows 使用 PowerShell 7 (`pwsh.exe`)。
+无法启动浏览器时直接显示手动链接。宿主可能把完成提示显示为 Hook 拦截信息。
+
+更新后须重开会话；Codex 中按 `/hooks` 提示审阅并信任新的 Hook。普通自然语言请求仍走 Skill。
+OpenCode 和 ZCode 暂保留手动 Skill：其中 ZCode 当前官方文档说明项目级 Hook 不执行，
+因此不能宣称项目安装具备此快速入口。远程或无桌面的会话提供链接，不保证打开用户本机浏览器。
+Hook 被禁用、未获信任或当前版本不支持时，也会退回 Skill 路径，可能产生模型调用。
 
 如果已经有具体构建页面，可以把完整链接附在 `$kcoderag-dashboard` 后。Skill 使用你给出的链接，
 不猜测任务 ID。看板与 MCP 查询是两个入口；打开看板不需要把 MCP 凭据粘贴到浏览器地址中。

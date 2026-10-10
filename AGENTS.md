@@ -37,6 +37,7 @@ install/update/uninstall 只修改 adapter 声明的受管
 - **根定位**: Codex/Claude/ZCode Hook 从 cwd 向上选择最近受管状态；损坏最近边界静默 fail-open 且不得穿透，项目移动后仍使用相对路径工作
 - **诊断**: status/doctor 只读且 secret-safe；`source_conflict` 为 `ok:false`，输出不得包含 URL、Header、Bearer 或配置正文
 - **Hook**: Codex/Claude/ZCode 仅提供 advisory context，任何异常 fail-open，不阻断 `grep`、`glob` 或 shell
+- **看板输入**: Claude/kscc、Codex、Cursor 的输入 Hook 只消费精确的 dashboard 命令并直接请求本机浏览器；不调用模型，不拦截其他输入或工具。OpenCode/ZCode 保留手动 Skill，不宣称等价自动支持。
 - **Cursor**: 使用 Rule、skill 与 MCP，不声称具备等价的 PreToolUse hook 行为
 - **成功调用记录**: Codex/Claude/ZCode `PostToolUse`、Cursor `afterMCPExecution`、OpenCode
   `tool.execute.after` 共用 secret-free、有界、fail-open marker
