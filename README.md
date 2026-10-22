@@ -1,3 +1,19 @@
+<!-- maintenance-moved-to-kcoderag -->
+
+> **维护已迁移 / Maintenance has moved**
+>
+> KCodeRag Nav 的源码维护与 CI 已迁至 [Tooc0ld/KCodeRag 的 packages/nav](https://github.com/Tooc0ld/KCodeRag/tree/main/packages/nav)。
+> 新仓库为私有仓库，查看源码、提交问题或参与开发需要相应访问权限。
+> 本仓库保留为只读历史档案；原有公开源码、指南、标签及提交历史继续保留。
+> 已发布的 npm 包不受归档影响；现有安装及更新仍通过 npm 分发，不依赖本仓库可写。
+>
+> Source maintenance and CI now live in [packages/nav in Tooc0ld/KCodeRag](https://github.com/Tooc0ld/KCodeRag/tree/main/packages/nav).
+> The maintained repository is private; source access, issue reporting and development require repository access.
+> This repository remains a read-only historical archive, preserving its public source, guides, tags and commit history.
+> Published npm packages are unaffected. Installation and updates continue through npm and do not require this repository to remain writable.
+
+---
+
 # KCodeRag Nav
 
 KCodeRag Nav 是面向 Codex、Claude Code、Cursor、OpenCode 与 ZCode 的项目级 capability 安装平台。
